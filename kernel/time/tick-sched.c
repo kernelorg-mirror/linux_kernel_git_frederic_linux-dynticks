@@ -594,6 +594,9 @@ static bool can_stop_full_tick(int cpu)
 	if (!rcu_is_nocb_cpu(cpu))
 		return false;
 
+	if (rcu_pending(cpu))
+		return false;
+
 	return true;
 }
 #endif
