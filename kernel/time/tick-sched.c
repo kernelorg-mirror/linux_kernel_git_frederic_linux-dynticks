@@ -21,6 +21,7 @@
 #include <linux/sched.h>
 #include <linux/module.h>
 #include <linux/irq_work.h>
+#include <linux/posix-timers.h>
 
 #include <asm/irq_regs.h>
 
@@ -597,6 +598,9 @@ static bool can_stop_full_tick(int cpu)
 		return false;
 
 	if (rcu_pending(cpu))
+		return false;
+
+	if (posix_cpu_timers_running(current))
 		return false;
 
 	return true;
