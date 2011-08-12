@@ -53,6 +53,7 @@
 #include <linux/delay.h>
 #include <linux/stop_machine.h>
 #include <linux/random.h>
+#include <linux/tick.h>
 
 #include "rcutree.h"
 #include <trace/events/rcu.h>
@@ -743,6 +744,12 @@ static int dyntick_save_progress_counter(struct rcu_data *rdp)
 	return (rdp->dynticks_snap & 0x1) == 0;
 }
 
+static void rcu_kick_nohz_cpu(int cpu)
+{
+	if (tick_nohz_full_cpu(cpu))
+		smp_send_reschedule(cpu);
+}
+
 /*
  * Return true if the specified CPU has passed through a quiescent
  * state by virtue of being in or having passed through an dynticks
@@ -790,6 +797,9 @@ static int rcu_implicit_dynticks_qs(struct rcu_data *rdp)
 		rdp->offline_fqs++;
 		return 1;
 	}
+
+	rcu_kick_nohz_cpu(rdp->cpu);
+
 	return 0;
 }
 
