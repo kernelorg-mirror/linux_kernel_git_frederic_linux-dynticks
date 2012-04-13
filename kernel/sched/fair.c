@@ -5837,6 +5837,12 @@ int sched_group_set_shares(struct task_group *tg, unsigned long shares)
 		se = tg->se[i];
 		/* Propagate contribution to hierarchy */
 		raw_spin_lock_irqsave(&rq->lock, flags);
+		/*
+		 * We may call update_curr() which needs an up-to-date
+		 * version of rq clock if the CPU runs tickless.
+		 */
+		update_nohz_rq_clock(rq);
+
 		for_each_sched_entity(se) {
 			update_cfs_shares(group_cfs_rq(se));
 			/* update contribution to parent */
