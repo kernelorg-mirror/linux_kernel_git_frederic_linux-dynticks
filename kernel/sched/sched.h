@@ -3,6 +3,7 @@
 #include <linux/mutex.h>
 #include <linux/spinlock.h>
 #include <linux/stop_machine.h>
+#include <linux/tick.h>
 
 #include "cpupri.h"
 
@@ -950,6 +951,12 @@ static inline void dec_nr_running(struct rq *rq)
 }
 
 extern void update_rq_clock(struct rq *rq);
+
+static inline void update_nohz_rq_clock(struct rq *rq)
+{
+	if (tick_nohz_full_cpu(cpu_of(rq)))
+		update_rq_clock(rq);
+}
 
 extern void activate_task(struct rq *rq, struct task_struct *p, int flags);
 extern void deactivate_task(struct rq *rq, struct task_struct *p, int flags);
