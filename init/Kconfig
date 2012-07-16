@@ -342,6 +342,7 @@ config VIRT_CPU_ACCOUNTING
 	bool "Deterministic task and CPU time accounting"
 	depends on HAVE_VIRT_CPU_ACCOUNTING || HAVE_CONTEXT_TRACKING
 	select VIRT_CPU_ACCOUNTING_GEN if !HAVE_VIRT_CPU_ACCOUNTING
+	select VIRT_CPU_ACCOUNTING_NATIVE if HAVE_VIRT_CPU_ACCOUNTING
 	default y if PPC64
 	help
 	  Select this option to enable more accurate task and CPU time
@@ -367,10 +368,15 @@ endchoice
 
 config VIRT_CPU_ACCOUNTING_GEN
 	select CONTEXT_TRACKING
+	depends on VIRT_CPU_ACCOUNTING && HAVE_CONTEXT_TRACKING
 	bool
 	help
 	  Implement a generic virtual based cputime accounting by using
 	  the context tracking subsystem.
+
+config VIRT_CPU_ACCOUNTING_NATIVE
+	depends on VIRT_CPU_ACCOUNTING && HAVE_VIRT_CPU_ACCOUNTING
+	bool
 
 config BSD_PROCESS_ACCT
 	bool "BSD Process Accounting"
