@@ -8,12 +8,19 @@ extern void vtime_task_switch(struct task_struct *prev);
 extern void __vtime_account_system(struct task_struct *tsk);
 extern void vtime_account_system(struct task_struct *tsk);
 extern void __vtime_account_idle(struct task_struct *tsk);
+extern void vtime_account_process_tick(struct task_struct *tsk,
+				       int user_tick);
 extern void vtime_account(struct task_struct *tsk);
 #else
 static inline void vtime_task_switch(struct task_struct *prev) { }
 static inline void __vtime_account_system(struct task_struct *tsk) { }
 static inline void vtime_account_system(struct task_struct *tsk) { }
+
+static inline void
+vtime_account_process_tick(struct task_struct *tsk, int user_tick) { }
+
 static inline void vtime_account(struct task_struct *tsk) { }
+static inline bool vtime_accounting(void) { return false; }
 #endif
 
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING

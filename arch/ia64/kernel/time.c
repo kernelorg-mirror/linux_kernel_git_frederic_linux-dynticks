@@ -151,7 +151,7 @@ void __vtime_account_idle(struct task_struct *tsk)
  * Called from the timer interrupt handler to charge accumulated user time
  * to the current process.  Must be called with interrupts disabled.
  */
-void account_process_tick(struct task_struct *p, int user_tick)
+void vtime_account_process_tick(struct task_struct *p, int user_tick)
 {
 	vtime_account_user(p);
 }
