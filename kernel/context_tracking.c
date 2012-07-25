@@ -17,24 +17,10 @@
 #include <linux/context_tracking.h>
 #include <linux/rcupdate.h>
 #include <linux/sched.h>
-#include <linux/percpu.h>
 #include <linux/hardirq.h>
 
-struct context_tracking {
-	/*
-	 * When active is false, hooks are unset in order
-	 * to minimize overhead: TIF flags are cleared
-	 * and calls to user_enter/exit are ignored. This
-	 * may be further optimized using static keys.
-	 */
-	bool active;
-	enum {
-		IN_KERNEL = 0,
-		IN_USER,
-	} state;
-};
 
-static DEFINE_PER_CPU(struct context_tracking, context_tracking) = {
+DEFINE_PER_CPU(struct context_tracking, context_tracking) = {
 #ifdef CONFIG_CONTEXT_TRACKING_FORCE
 	.active = true,
 #endif
@@ -70,7 +56,7 @@ void user_enter(void)
 	local_irq_save(flags);
 	if (__this_cpu_read(context_tracking.active) &&
 	    __this_cpu_read(context_tracking.state) != IN_USER) {
-		__this_cpu_write(context_tracking.state, IN_USER);
+		vtime_account_system(current);
 		/*
 		 * At this stage, only low level arch entry code remains and
 		 * then we'll run in userspace. We can assume there won't be
@@ -79,6 +65,7 @@ void user_enter(void)
 		 * on the tick.
 		 */
 		rcu_user_enter();
+		__this_cpu_write(context_tracking.state, IN_USER);
 	}
 	local_irq_restore(flags);
 }
@@ -104,12 +91,13 @@ void user_exit(void)
 
 	local_irq_save(flags);
 	if (__this_cpu_read(context_tracking.state) == IN_USER) {
-		__this_cpu_write(context_tracking.state, IN_KERNEL);
 		/*
 		 * We are going to run code that may use RCU. Inform
 		 * RCU core about that (ie: we may need the tick again).
 		 */
 		rcu_user_exit();
+		vtime_account_user(current);
+		__this_cpu_write(context_tracking.state, IN_KERNEL);
 	}
 	local_irq_restore(flags);
 }
