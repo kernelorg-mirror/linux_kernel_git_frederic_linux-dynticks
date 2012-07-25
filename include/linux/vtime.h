@@ -17,6 +17,10 @@ static inline void vtime_account_system_irqsafe(struct task_struct *tsk) { }
 static inline void vtime_account(struct task_struct *tsk) { }
 #endif
 
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
+static inline void arch_vtime_task_switch(struct task_struct *tsk) { }
+#endif
+
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
 extern void irqtime_account_irq(struct task_struct *tsk);
 #else
