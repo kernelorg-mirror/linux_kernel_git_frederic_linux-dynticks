@@ -23,6 +23,13 @@ static inline void vtime_account(struct task_struct *tsk) { }
 static inline bool vtime_accounting(void) { return false; }
 #endif
 
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
+extern void __vtime_account_user(struct task_struct *tsk);
+extern bool vtime_accounting(void);
+#else
+static inline void __vtime_account_user(struct task_struct *tsk) { }
+#endif
+
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
 extern void irqtime_account_irq(struct task_struct *tsk);
 #else
