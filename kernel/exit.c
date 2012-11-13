@@ -85,6 +85,7 @@ static void __exit_signal(struct task_struct *tsk)
 	bool group_dead = thread_group_leader(tsk);
 	struct sighand_struct *sighand;
 	struct tty_struct *uninitialized_var(tty);
+	cputime_t utime, stime;
 
 	sighand = rcu_dereference_check(tsk->sighand,
 					lockdep_tasklist_lock_is_held());
@@ -123,8 +124,9 @@ static void __exit_signal(struct task_struct *tsk)
 		 * We won't ever get here for the group leader, since it
 		 * will have been the last reference on the signal_struct.
 		 */
-		sig->utime += tsk->utime;
-		sig->stime += tsk->stime;
+		task_cputime(tsk, &utime, &stime);
+		sig->utime += utime;
+		sig->stime += stime;
 		sig->gtime += tsk->gtime;
 		sig->min_flt += tsk->min_flt;
 		sig->maj_flt += tsk->maj_flt;
