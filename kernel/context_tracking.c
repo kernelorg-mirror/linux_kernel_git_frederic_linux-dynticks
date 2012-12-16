@@ -15,6 +15,7 @@
  */
 
 #include <linux/context_tracking.h>
+#include <linux/kvm_host.h>
 #include <linux/rcupdate.h>
 #include <linux/sched.h>
 #include <linux/hardirq.h>
@@ -101,6 +102,24 @@ void user_exit(void)
 	}
 	local_irq_restore(flags);
 }
+
+#ifdef CONFIG_KVM
+void guest_enter(void)
+{
+	if (vtime_accounting_enabled())
+		vtime_guest_enter(current);
+	else
+		__guest_enter();
+}
+
+void guest_exit(void)
+{
+	if (vtime_accounting_enabled())
+		vtime_guest_exit(current);
+	else
+		__guest_exit();
+}
+#endif
 
 
 /**
