@@ -56,7 +56,7 @@ void user_enter(void)
 	local_irq_save(flags);
 	if (__this_cpu_read(context_tracking.active) &&
 	    __this_cpu_read(context_tracking.state) != IN_USER) {
-		vtime_account_system(current);
+		vtime_user_enter(current);
 		/*
 		 * At this stage, only low level arch entry code remains and
 		 * then we'll run in userspace. We can assume there won't be
