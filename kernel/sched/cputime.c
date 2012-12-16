@@ -484,7 +484,7 @@ void vtime_task_switch(struct task_struct *prev)
  * vtime_account().
  */
 #ifndef __ARCH_HAS_VTIME_ACCOUNT
-void vtime_account(struct task_struct *tsk)
+void vtime_account_irq_enter(struct task_struct *tsk)
 {
 	if (!in_interrupt()) {
 		/*
@@ -505,7 +505,7 @@ void vtime_account(struct task_struct *tsk)
 	}
 	vtime_account_system(tsk);
 }
-EXPORT_SYMBOL_GPL(vtime_account);
+EXPORT_SYMBOL_GPL(vtime_account_irq_enter);
 #endif /* __ARCH_HAS_VTIME_ACCOUNT */
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING */
 
@@ -616,41 +616,67 @@ void thread_group_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime
 #endif /* !CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
-static DEFINE_PER_CPU(long, last_jiffies) = INITIAL_JIFFIES;
-
-static cputime_t get_vtime_delta(void)
+static cputime_t get_vtime_delta(struct task_struct *tsk)
 {
 	long delta;
 
-	delta = jiffies - __this_cpu_read(last_jiffies);
-	__this_cpu_add(last_jiffies, delta);
+	delta = jiffies - tsk->prev_jiffies;
+	tsk->prev_jiffies += delta;
 
 	return jiffies_to_cputime(delta);
 }
 
-void vtime_account_system(struct task_struct *tsk)
+static void __vtime_account_system(struct task_struct *tsk)
 {
-	cputime_t delta_cpu = get_vtime_delta();
+	cputime_t delta_cpu = get_vtime_delta(tsk);
 
 	account_system_time(tsk, irq_count(), delta_cpu, cputime_to_scaled(delta_cpu));
 }
 
+void vtime_account_system(struct task_struct *tsk)
+{
+	write_seqlock(&tsk->vtime_seqlock);
+	__vtime_account_system(tsk);
+	write_sequnlock(&tsk->vtime_seqlock);
+}
+
+void vtime_account_irq_exit(struct task_struct *tsk)
+{
+	write_seqlock(&tsk->vtime_seqlock);
+	if (context_tracking_in_user())
+		tsk->prev_jiffies_whence = JIFFIES_USER;
+	__vtime_account_system(tsk);
+	write_sequnlock(&tsk->vtime_seqlock);
+}
+
 void vtime_account_user(struct task_struct *tsk)
 {
-	cputime_t delta_cpu = get_vtime_delta();
+	cputime_t delta_cpu = get_vtime_delta(tsk);
 
 	/*
 	 * This is an unfortunate hack: if we flush user time only on
 	 * irq entry, we miss the jiffies update and the time is spuriously
 	 * accounted to system time.
 	 */
-	if (context_tracking_in_user())
+	if (context_tracking_in_user()) {
+		write_seqlock(&tsk->vtime_seqlock);
+		tsk->prev_jiffies_whence = JIFFIES_SYS;
 		account_user_time(tsk, delta_cpu, cputime_to_scaled(delta_cpu));
+		write_sequnlock(&tsk->vtime_seqlock);
+	}
+}
+
+void vtime_user_enter(struct task_struct *tsk)
+{
+	write_seqlock(&tsk->vtime_seqlock);
+	tsk->prev_jiffies_whence = JIFFIES_USER;
+	__vtime_account_system(tsk);
+	write_sequnlock(&tsk->vtime_seqlock);
 }
 
 void vtime_account_idle(struct task_struct *tsk)
 {
-	cputime_t delta_cpu = get_vtime_delta();
+	cputime_t delta_cpu = get_vtime_delta(tsk);
 
 	account_idle_time(delta_cpu);
 }
@@ -660,31 +686,64 @@ bool vtime_accounting(void)
 	return context_tracking_active();
 }
 
-static int __cpuinit vtime_cpu_notify(struct notifier_block *self,
-				      unsigned long action, void *hcpu)
+void arch_vtime_task_switch(struct task_struct *prev)
 {
-	long cpu = (long)hcpu;
-	long *last_jiffies_cpu = per_cpu_ptr(&last_jiffies, cpu);
+	write_seqlock(&prev->vtime_seqlock);
+	prev->prev_jiffies_whence = JIFFIES_SLEEPING;
+	write_sequnlock(&prev->vtime_seqlock);
 
-	switch (action) {
-	case CPU_UP_PREPARE:
-	case CPU_UP_PREPARE_FROZEN:
-		/*
-		 * CHECKME: ensure that's visible by the CPU
-		 * once it wakes up
-		 */
-		*last_jiffies_cpu = jiffies;
-	default:
-		break;
-	}
-
-	return NOTIFY_OK;
+	write_seqlock(&current->vtime_seqlock);
+	current->prev_jiffies_whence = JIFFIES_SYS;
+	current->prev_jiffies = jiffies;
+	write_sequnlock(&current->vtime_seqlock);
 }
 
-static int __init init_vtime(void)
+void task_cputime(struct task_struct *t, cputime_t *utime, cputime_t *stime)
 {
-	cpu_notifier(vtime_cpu_notify, 0);
-	return 0;
+	unsigned int seq;
+	long delta;
+
+	do {
+		seq = read_seqbegin(&t->vtime_seqlock);
+
+		*utime = t->utime;
+		*stime = t->utime;
+
+		if (t->prev_jiffies_whence == JIFFIES_SLEEPING || 
+		    is_idle_task(t))
+			continue;
+
+		delta = jiffies - t->prev_jiffies;
+
+		if (t->prev_jiffies_whence == JIFFIES_USER)
+			*utime += delta;
+		else if (t->prev_jiffies_whence == JIFFIES_SYS)
+			*stime += delta;
+	} while (read_seqretry(&t->vtime_seqlock, seq));
 }
-early_initcall(init_vtime);
+
+void task_cputime_scaled(struct task_struct *t,
+			 cputime_t *utimescaled, cputime_t *stimescaled)
+{
+	unsigned int seq;
+	long delta;
+
+	do {
+		seq = read_seqbegin(&t->vtime_seqlock);
+
+		*utimescaled = t->utimescaled;
+		*stimescaled = t->utimescaled;
+
+		if (t->prev_jiffies_whence == JIFFIES_SLEEPING || 
+		    is_idle_task(t))
+			continue;
+
+		delta = jiffies - t->prev_jiffies;
+
+		if (t->prev_jiffies_whence == JIFFIES_USER)
+			*utimescaled += jiffies_to_scaled(delta);
+		else if (t->prev_jiffies_whence == JIFFIES_SYS)
+			*stimescaled += jiffies_to_scaled(delta);
+	} while (read_seqretry(&t->vtime_seqlock, seq));
+}
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING_GEN */

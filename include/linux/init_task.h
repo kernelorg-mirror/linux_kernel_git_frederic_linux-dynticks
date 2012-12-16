@@ -10,6 +10,7 @@
 #include <linux/pid_namespace.h>
 #include <linux/user_namespace.h>
 #include <linux/securebits.h>
+#include <linux/seqlock.h>
 #include <net/net_namespace.h>
 
 #ifdef CONFIG_SMP
@@ -141,6 +142,13 @@ extern struct task_group root_task_group;
 # define INIT_PERF_EVENTS(tsk)
 #endif
 
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
+#define INIT_VTIME(tsk)						\
+	.vtime_seqlock = __SEQLOCK_UNLOCKED(tsk.vtime_seqlock),	\
+	.prev_jiffies = INITIAL_JIFFIES, /* CHECKME */		\
+	.prev_jiffies_whence = JIFFIES_SYS,
+#endif
+
 #define INIT_TASK_COMM "swapper"
 
 /*
@@ -210,6 +218,7 @@ extern struct task_group root_task_group;
 	INIT_TRACE_RECURSION						\
 	INIT_TASK_RCU_PREEMPT(tsk)					\
 	INIT_CPUSET_SEQ							\
+	INIT_VTIME(tsk)							\
 }
 
 
