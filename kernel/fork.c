@@ -1233,6 +1233,20 @@ static struct task_struct *copy_process(unsigned long clone_flags,
 #ifndef CONFIG_VIRT_CPU_ACCOUNTING
 	p->prev_cputime.utime = p->prev_cputime.stime = 0;
 #endif
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
+	seqlock_init(&p->vtime_seqlock);
+	/*
+	 * TODO:
+	 * When the task is scheduled in, vtime_snap gets $NOW as
+	 * a snapshot and whence becomes VTIME_SYSTEM such that remote
+	 * readers can add up nohz cputime by computing the delta.
+	 * But idle tasks don't start from schedule(). We'll need to
+	 * provide a special treatment for them.
+	 */
+	p->vtime_snap = 0;
+	p->vtime_snap_whence = VTIME_SLEEPING;
+#endif
+
 #if defined(SPLIT_RSS_COUNTING)
 	memset(&p->rss_stat, 0, sizeof(p->rss_stat));
 #endif
