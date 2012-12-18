@@ -118,8 +118,10 @@ static void tick_sched_do_timer(ktime_t now)
 #endif
 
 	/* Check, if the jiffies need an update */
-	if (tick_do_timer_cpu == cpu)
+	if (tick_do_timer_cpu == cpu) {
+		trace_printk("do timekeeping\n");
 		tick_do_update_jiffies64(now);
+	}
 }
 
 static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
