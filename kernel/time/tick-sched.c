@@ -142,6 +142,29 @@ static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
 	profile_tick(CPU_PROFILING);
 }
 
+#ifdef CONFIG_NO_HZ_FULL
+static cpumask_var_t full_nohz_mask;
+bool have_full_nohz_mask;
+
+int tick_nohz_full_cpu(int cpu)
+{
+	if (!have_full_nohz_mask)
+		return 0;
+
+	return cpumask_test_cpu(cpu, full_nohz_mask);
+}
+
+/* Parse the boot-time nohz CPU list from the kernel parameters. */
+static int __init tick_nohz_full_setup(char *str)
+{
+	alloc_bootmem_cpumask_var(&full_nohz_mask);
+	have_full_nohz_mask = true;
+	cpulist_parse(str, full_nohz_mask);
+	return 1;
+}
+__setup("full_nohz=", tick_nohz_full_setup);
+#endif
+
 /*
  * NOHZ - aka dynamic tick functionality
  */
