@@ -112,7 +112,8 @@ static void tick_sched_do_timer(ktime_t now)
 	 * this duty, then the jiffies update is still serialized by
 	 * jiffies_lock.
 	 */
-	if (unlikely(tick_do_timer_cpu == TICK_DO_TIMER_NONE))
+	if (unlikely(tick_do_timer_cpu == TICK_DO_TIMER_NONE)
+	    && !tick_nohz_full_cpu(cpu))
 		tick_do_timer_cpu = cpu;
 #endif
 
@@ -511,6 +512,10 @@ static bool can_stop_idle_tick(int cpu, struct tick_sched *ts)
 		}
 		return false;
 	}
+
+	/* If there are full nohz CPUs around, we need to keep the timekeeping duty */
+	if (have_full_nohz_mask && tick_do_timer_cpu == cpu)
+		return false;
 
 	return true;
 }
