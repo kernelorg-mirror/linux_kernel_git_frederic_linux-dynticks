@@ -142,6 +142,7 @@ static void tick_sched_handle(struct tick_sched *ts, struct pt_regs *regs)
 			ts->idle_jiffies++;
 	}
 #endif
+	trace_printk("tick\n");
 	update_process_times(user_mode(regs));
 	profile_tick(CPU_PROFILING);
 }
@@ -589,17 +590,30 @@ void tick_nohz_idle_enter(void)
 #ifdef CONFIG_NO_HZ_FULL
 static bool can_stop_full_tick(int cpu)
 {
-	if (!sched_can_stop_tick())
+	if (!sched_can_stop_tick()) {
+		trace_printk("Can't stop: sched\n");
 		return false;
+	}
 
-	if (!rcu_is_nocb_cpu(cpu))
+	if (!rcu_is_nocb_cpu(cpu)) {
+		trace_printk("Can't stop: not RCU nocb\n");
 		return false;
+	}
 
-	if (rcu_pending(cpu))
+	/*
+	 * Keep the tick if we are asked to report a quiescent state.
+	 * This must be further optimized (avoid checks for local callbacks,
+	 * ignore RCU in userspace, etc...
+	 */
+	if (rcu_pending(cpu)) {
+		trace_printk("Can't stop: RCU pending\n");
 		return false;
+	}
 
-	if (posix_cpu_timers_running(current))
+	if (posix_cpu_timers_running(current)) {
+		trace_printk("Can't stop: posix CPU timers running\n");
 		return false;
+	}
 
 	return true;
 }
@@ -613,12 +627,15 @@ static void tick_nohz_full_stop_tick(struct tick_sched *ts)
 	if (!tick_nohz_full_cpu(cpu) || is_idle_task(current))
 		return;
 
-	if (!ts->tick_stopped && ts->nohz_mode == NOHZ_MODE_INACTIVE)
+	if (!ts->tick_stopped && ts->nohz_mode == NOHZ_MODE_INACTIVE) {
+		trace_printk("Can't stop: NOHZ_MODE_INACTIVE\n");
 		return;
+	}
 
 	if (!can_stop_full_tick(cpu))
 		return;
 
+	trace_printk("Stop tick\n");
 	tick_nohz_stop_sched_tick(ts, ktime_get(), cpu);
 #endif
 }
