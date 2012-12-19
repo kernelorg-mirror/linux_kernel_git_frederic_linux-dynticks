@@ -590,6 +590,19 @@ void tick_nohz_idle_enter(void)
 }
 EXPORT_SYMBOL_GPL(tick_nohz_idle_enter);
 
+#ifdef CONFIG_NO_HZ_FULL
+static bool can_stop_full_tick(int cpu)
+{
+	if (!sched_can_stop_tick())
+		return false;
+
+	if (!rcu_is_nocb_cpu(cpu))
+		return false;
+
+	return true;
+}
+#endif
+
 static void tick_nohz_full_stop_tick(struct tick_sched *ts)
 {
 #ifdef CONFIG_NO_HZ_FULL
@@ -601,7 +614,7 @@ static void tick_nohz_full_stop_tick(struct tick_sched *ts)
 	if (!ts->tick_stopped && ts->nohz_mode == NOHZ_MODE_INACTIVE)
 		return;
 
-	if (!sched_can_stop_tick())
+	if (!can_stop_full_tick(cpu))
 		return;
 
 	tick_nohz_stop_sched_tick(ts, ktime_get(), cpu);
@@ -864,10 +877,11 @@ static inline void tick_check_nohz(int cpu) { }
 void tick_nohz_full_check(void)
 {
 	struct tick_sched *ts = &__get_cpu_var(tick_cpu_sched);
+	int cpu = smp_processor_id();
 
-	if (tick_nohz_full_cpu(smp_processor_id())) {
+	if (tick_nohz_full_cpu(cpu)) {
 		if (ts->tick_stopped && !is_idle_task(current)) {
-			if (!sched_can_stop_tick())
+			if (!can_stop_full_tick(cpu))
 				tick_nohz_restart_sched_tick(ts, ktime_get());
 		}
 	}
