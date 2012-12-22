@@ -22,6 +22,7 @@
 #include <linux/module.h>
 #include <linux/irq_work.h>
 #include <linux/posix-timers.h>
+#include <linux/context_tracking.h>
 
 #include <asm/irq_regs.h>
 
@@ -604,10 +605,9 @@ static bool can_stop_full_tick(int cpu)
 
 	/*
 	 * Keep the tick if we are asked to report a quiescent state.
-	 * This must be further optimized (avoid checks for local callbacks,
-	 * ignore RCU in userspace, etc...
+	 * This must be further optimized (avoid checks for local callbacks)
 	 */
-	if (rcu_pending(cpu)) {
+	if (!context_tracking_in_user() && rcu_pending(cpu)) {
 		trace_printk("Can't stop: RCU pending\n");
 		return false;
 	}
