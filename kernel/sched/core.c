@@ -560,22 +560,42 @@ void resched_cpu(int cpu)
  */
 int get_nohz_timer_target(void)
 {
-	int cpu = smp_processor_id();
 	int i;
 	struct sched_domain *sd;
+	int cpu = smp_processor_id();
+	int target = -1;
 
 	rcu_read_lock();
 	for_each_domain(cpu, sd) {
 		for_each_cpu(i, sched_domain_span(sd)) {
+			/*
+			 * This is biased toward CPU isolation usecase:
+			 * try to migrate the timer to a busy non-full-nohz
+			 * CPU. If there is none, then prefer an idle CPU
+			 * than a full nohz one.
+			 * We shouldn't do policy here (isolation VS powersaving)
+			 * so this is a temporary hack. Being able to affine
+			 * non-pinned timers would be a better thing.
+			 */
+			if (tick_nohz_full_cpu(i))
+				continue;
+
 			if (!idle_cpu(i)) {
-				cpu = i;
+				target = i;
 				goto unlock;
 			}
+
+			if (target == -1)
+				target = i;
 		}
 	}
+	/* Fallback in case of NULL domain */
+	if (target == -1)
+		target = cpu;
 unlock:
 	rcu_read_unlock();
-	return cpu;
+
+	return target;
 }
 /*
  * When add_timer_on() enqueues a timer into the timer wheel of an
