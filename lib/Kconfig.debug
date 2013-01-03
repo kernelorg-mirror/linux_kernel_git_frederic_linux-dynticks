@@ -1099,6 +1099,17 @@ config DEBUG_PER_CPU_MAPS
 
 	  Say N if unsure.
 
+config NO_HZ_DEBUG
+	bool "Debug dynamic timer tick"
+	depends on DEBUG_KERNEL
+	depends on NO_HZ || NO_HZ_EXTENDED
+	help
+	  Perform some sanity checks when the dynticks infrastructure
+	  is enabled. This adds some runtime overhead that you don't
+	  want to have in production.
+
+	  Say N if unsure.
+
 config LKDTM
 	tristate "Linux Kernel Dump Test Tool Module"
 	depends on DEBUG_FS

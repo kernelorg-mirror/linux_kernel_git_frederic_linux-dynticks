@@ -536,15 +536,45 @@ DECLARE_PER_CPU(struct rq, runqueues);
 #define cpu_curr(cpu)		(cpu_rq(cpu)->curr)
 #define raw_rq()		(&__raw_get_cpu_var(runqueues))
 
+/*
+ * Warn after 30 seconds elapsed since the last rq clock update.
+ * We define a large error margin because rq updates can take some
+ * time on boot.
+ */
+#define RQ_CLOCK_MAX_DELAY (NSEC_PER_SEC * 30)
+
+/*
+ * The rq clock is periodically updated by the tick. rq clock
+ * from nohz CPUs require some explicit updates before reading.
+ * This tries to detect the places where we are missing those.
+ */
+static inline void rq_clock_check(struct rq *rq)
+{
+#ifdef CONFIG_NO_HZ_DEBUG
+	unsigned long long clock;
+	unsigned long flags;
+
+	local_irq_save(flags);
+	clock = sched_clock_cpu(cpu_of(rq));
+	local_irq_restore(flags);
+
+	if (abs(clock - rq->clock) > RQ_CLOCK_MAX_DELAY)
+		WARN_ON_ONCE(1);
+#endif
+}
+
 static inline u64 rq_clock(struct rq *rq)
 {
+	rq_clock_check(rq);
 	return rq->clock;
 }
 
 static inline u64 rq_clock_task(struct rq *rq)
 {
+	rq_clock_check(rq);
 	return rq->clock_task;
 }
+
 
 #ifdef CONFIG_SMP
 
