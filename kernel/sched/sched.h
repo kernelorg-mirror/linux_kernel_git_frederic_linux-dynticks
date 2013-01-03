@@ -502,15 +502,38 @@ DECLARE_PER_CPU(struct rq, runqueues);
 #define cpu_curr(cpu)		(cpu_rq(cpu)->curr)
 #define raw_rq()		(&__raw_get_cpu_var(runqueues))
 
+static inline void rq_clock_check(struct rq *rq)
+{
+#if defined(CONFIG_SCHED_DEBUG) && defined(CONFIG_NO_HZ_FULL)
+	unsigned long long clock;
+	unsigned long flags;
+	int cpu;
+
+	cpu = cpu_of(rq);
+	if (!tick_nohz_full_cpu(cpu) || rq->curr == rq->idle)
+		return;
+
+	local_irq_save(flags);
+	clock = sched_clock_cpu(cpu_of(rq));
+	local_irq_restore(flags);
+
+	if (abs(clock - rq->clock) > (TICK_NSEC * 3))
+		WARN_ON_ONCE(1);
+#endif
+}
+
 static inline u64 rq_clock(struct rq *rq)
 {
+	rq_clock_check(rq);
 	return rq->clock;
 }
 
 static inline u64 rq_clock_task(struct rq *rq)
 {
+	rq_clock_check(rq);
 	return rq->clock_task;
 }
+
 
 #ifdef CONFIG_SMP
 
