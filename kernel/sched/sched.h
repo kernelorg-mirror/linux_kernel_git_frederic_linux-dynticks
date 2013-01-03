@@ -504,15 +504,49 @@ DECLARE_PER_CPU(struct rq, runqueues);
 #define cpu_curr(cpu)		(cpu_rq(cpu)->curr)
 #define raw_rq()		(&__raw_get_cpu_var(runqueues))
 
+static inline void rq_clock_check(struct rq *rq)
+{
+#if defined(CONFIG_SCHED_DEBUG) && defined(CONFIG_NO_HZ_FULL)
+	unsigned long long clock;
+	unsigned long flags;
+	int cpu;
+
+	cpu = cpu_of(rq);
+	if (!tick_nohz_full_cpu(cpu) || rq->curr == rq->idle)
+		return;
+
+	/*
+	 * It's possible that a running task takes some time to call schedule()
+	 * after waking up another task even if check_preempt_curr() set up
+	 * TIF_RESCHED. Especially on boot if !CONFIG_PREEMPT or the
+	 * init task is in the large boot preempt disabled section, ...
+	 * It may be an issue on its own that requires some special attention
+	 * but let's shutdown such warning for now.
+	 */
+	if (rq->skip_clock_update > 0)
+		return;
+
+	local_irq_save(flags);
+	clock = sched_clock_cpu(cpu);
+	local_irq_restore(flags);
+
+	if (abs(clock - rq->clock) > (TICK_NSEC * 3))
+		WARN_ON_ONCE(1);
+#endif
+}
+
 static inline u64 rq_clock(struct rq *rq)
 {
+	rq_clock_check(rq);
 	return rq->clock;
 }
 
 static inline u64 rq_clock_task(struct rq *rq)
 {
+	rq_clock_check(rq);
 	return rq->clock_task;
 }
+
 
 #ifdef CONFIG_SMP
 
