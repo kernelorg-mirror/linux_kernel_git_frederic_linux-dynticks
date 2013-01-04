@@ -43,7 +43,10 @@ SCHED_FEAT(ARCH_POWER, true)
 
 SCHED_FEAT(HRTICK, false)
 SCHED_FEAT(DOUBLE_TICK, false)
+
+#ifndef CONFIG_NO_HZ_FULL
 SCHED_FEAT(LB_BIAS, true)
+#endif
 
 /*
  * Spin-wait on mutex acquisition when the mutex owner is running on
