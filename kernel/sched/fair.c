@@ -2901,6 +2901,15 @@ static unsigned long weighted_cpuload(const int cpu)
 	return cpu_rq(cpu)->load.weight;
 }
 
+static inline int sched_lb_bias(void)
+{
+#ifndef CONFIG_NO_HZ_FULL
+	return sched_feat(LB_BIAS);
+#else
+	return 0;
+#endif
+}
+
 /*
  * Return a low guess at the load of a migration-source cpu weighted
  * according to the scheduling class and "nice" value.
@@ -2913,7 +2922,7 @@ static unsigned long source_load(int cpu, int type)
 	struct rq *rq = cpu_rq(cpu);
 	unsigned long total = weighted_cpuload(cpu);
 
-	if (type == 0 || !sched_feat(LB_BIAS))
+	if (type == 0 || !sched_lb_bias())
 		return total;
 
 	return min(rq->cpu_load[type-1], total);
@@ -2928,7 +2937,7 @@ static unsigned long target_load(int cpu, int type)
 	struct rq *rq = cpu_rq(cpu);
 	unsigned long total = weighted_cpuload(cpu);
 
-	if (type == 0 || !sched_feat(LB_BIAS))
+	if (type == 0 || !sched_lb_bias())
 		return total;
 
 	return max(rq->cpu_load[type-1], total);
