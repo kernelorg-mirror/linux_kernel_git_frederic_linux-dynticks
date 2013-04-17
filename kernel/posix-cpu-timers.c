@@ -1130,8 +1130,6 @@ static void check_process_timers(struct task_struct *tsk,
 	sig->cputime_expires.prof_exp = prof_expires;
 	sig->cputime_expires.virt_exp = virt_expires;
 	sig->cputime_expires.sched_exp = sched_expires;
-	if (task_cputime_zero(&sig->cputime_expires))
-		stop_process_timers(sig);
 }
 
 /*
@@ -1279,6 +1277,7 @@ void run_posix_cpu_timers(struct task_struct *tsk)
 	LIST_HEAD(firing);
 	struct k_itimer *timer, *next;
 	unsigned long flags;
+	struct signal_struct *sig;
 
 	BUG_ON(!irqs_disabled());
 
@@ -1336,6 +1335,10 @@ void run_posix_cpu_timers(struct task_struct *tsk)
 			cpu_timer_fire(timer);
 		spin_unlock(&timer->it_lock);
 	}
+
+	sig = tsk->signal;
+	if (task_cputime_zero(&sig->cputime_expires))
+		stop_process_timers(sig);
 }
 
 /*
