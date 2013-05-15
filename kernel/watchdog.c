@@ -543,6 +543,12 @@ static struct smp_hotplug_thread watchdog_threads = {
 
 void __init lockup_detector_init(void)
 {
+#ifdef CONFIG_NO_HZ_FULL
+	watchdog_enabled = 0;
+	watchdog_disabled = 1;
+	pr_warning("Disabled lockup detectors by default because of full dynticks\n");
+	pr_warning("You can overwrite that with 'sysctl -w kernel.watchdog=1'\n");
+#endif
 	set_sample_period();
 	if (smpboot_register_percpu_thread(&watchdog_threads)) {
 		pr_err("Failed to create watchdog threads, disabled\n");
