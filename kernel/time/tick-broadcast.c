@@ -692,9 +692,14 @@ void tick_broadcast_setup_oneshot(struct clock_event_device *bc)
 
 		bc->event_handler = tick_handle_oneshot_broadcast;
 
-		/* Take the do_timer update */
-		if (!tick_nohz_full_cpu(cpu))
-			tick_do_timer_cpu = cpu;
+		/*
+		 * Take the timekeeping duty unless we run in full
+		 * dynticks mode that require the boot CPU to stay
+		 * the timekeeper for now.
+		 */
+#ifndef CONFIG_NO_HZ_FULL
+		tick_do_timer_cpu = cpu;
+#endif
 
 		/*
 		 * We must be careful here. There might be other CPUs
