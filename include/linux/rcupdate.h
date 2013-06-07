@@ -1006,5 +1006,8 @@ extern bool rcu_is_nocb_cpu(int cpu);
 static inline bool rcu_is_nocb_cpu(int cpu) { return false; }
 #endif /* #else #ifdef CONFIG_RCU_NOCB_CPU */
 
+#ifdef CONFIG_NO_HZ_FULL
+extern bool rcu_can_stop_tick(void);
+#endif
 
 #endif /* __LINUX_RCUPDATE_H */

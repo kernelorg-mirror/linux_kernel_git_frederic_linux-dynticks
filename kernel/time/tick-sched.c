@@ -170,6 +170,11 @@ static bool can_stop_full_tick(void)
 		return false;
 	}
 
+	if (!rcu_can_stop_tick()) {
+		trace_tick_stop(0, "RCU needs tick\n");
+		return false;
+	}
+
 	/* sched_clock_tick() needs us? */
 #ifdef CONFIG_HAVE_UNSTABLE_SCHED_CLOCK
 	/*

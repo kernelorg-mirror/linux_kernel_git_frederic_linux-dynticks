@@ -2350,3 +2350,46 @@ static void rcu_kick_nohz_cpu(int cpu)
 		smp_send_reschedule(cpu);
 #endif /* #ifdef CONFIG_NO_HZ_FULL */
 }
+
+#ifdef CONFIG_NO_HZ_FULL
+/*
+ * This pairs with rcu_kick_nohz_cpu. It is called from the
+ * irq exit path to check if the CPU needs to restart its tick
+ * to report a quiescent state after extending the grace period
+ * for too long.
+ */
+bool rcu_can_stop_tick(void)
+{
+	struct rcu_state *rsp;
+	struct rcu_data *rdp;
+
+	WARN_ON_ONCE(!irqs_disabled());
+
+	/* We are already in extended quiescent state */
+	if (rcu_is_cpu_idle())
+		return true;
+
+	/*
+	 * Note there is no guarantee that we'll see the new grace period
+	 * that the IPI sender wants us to see in the RCU global state. Some
+	 * ordering against the IPI send/receive and rsp->gpnum is probably
+	 * required to enforce that.
+	 *
+	 * Besides, note_new_gp_num() might ignore the new grace period if
+	 * the rnp lock is contended.
+	 *
+	 * Either we need to resend the ipi periodically if no progress is made
+	 * or we need to fix these ordering/locking issues for this code to be
+	 * correct.
+	 */
+	for_each_rcu_flavor(rsp) {
+		 rdp = this_cpu_ptr(rsp->rda);
+		 check_for_new_grace_period(rsp, rdp);
+
+		 if (rdp->qs_pending && !rdp->passed_quiesce)
+			 return false;
+	}
+
+	return true;
+}
+#endif
