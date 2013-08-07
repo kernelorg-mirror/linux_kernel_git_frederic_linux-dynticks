@@ -414,6 +414,7 @@ static void tick_nohz_stop_idle(int cpu, ktime_t now)
 	ktime_t delta;
 
 	/* Updates the per cpu time idle statistics counters */
+	write_seqcount_begin(&ts->sleeptime_seq);
 	delta = ktime_sub(now, ts->idle_entrytime);
 	if (nr_iowait_cpu(cpu) > 0)
 		ts->iowait_sleeptime = ktime_add(ts->iowait_sleeptime, delta);
@@ -421,6 +422,7 @@ static void tick_nohz_stop_idle(int cpu, ktime_t now)
 		ts->idle_sleeptime = ktime_add(ts->idle_sleeptime, delta);
 	ts->idle_entrytime = now;
 	ts->idle_active = 0;
+	write_seqcount_end(&ts->sleeptime_seq);
 
 	sched_clock_idle_wakeup_event(0);
 }
@@ -429,8 +431,11 @@ static ktime_t tick_nohz_start_idle(int cpu, struct tick_sched *ts)
 {
 	ktime_t now = ktime_get();
 
+	write_seqcount_begin(&ts->sleeptime_seq);
 	ts->idle_entrytime = now;
 	ts->idle_active = 1;
+	write_seqcount_end(&ts->sleeptime_seq);
+
 	sched_clock_idle_sleep_event();
 	return now;
 }
@@ -453,6 +458,7 @@ u64 get_cpu_idle_time_us(int cpu, u64 *last_update_time)
 {
 	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
 	ktime_t now, idle;
+	unsigned int seq;
 
 	if (!tick_nohz_enabled)
 		return -1;
@@ -461,12 +467,15 @@ u64 get_cpu_idle_time_us(int cpu, u64 *last_update_time)
 	if (last_update_time)
 		*last_update_time = ktime_to_us(now);
 
-	if (ts->idle_active && !nr_iowait_cpu(cpu)) {
-		ktime_t delta = ktime_sub(now, ts->idle_entrytime);
-		idle = ktime_add(ts->idle_sleeptime, delta);
-	} else {
-		idle = ts->idle_sleeptime;
-	}
+	do {
+		seq = read_seqcount_begin(&ts->sleeptime_seq);
+		if (ts->idle_active && !nr_iowait_cpu(cpu)) {
+			ktime_t delta = ktime_sub(now, ts->idle_entrytime);
+			idle = ktime_add(ts->idle_sleeptime, delta);
+		} else {
+			idle = ts->idle_sleeptime;
+		}
+	} while (read_seqcount_retry(&ts->sleeptime_seq, seq));
 
 	return ktime_to_us(idle);
 
@@ -491,6 +500,7 @@ u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time)
 {
 	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
 	ktime_t now, iowait;
+	unsigned int seq;
 
 	if (!tick_nohz_enabled)
 		return -1;
@@ -499,12 +509,15 @@ u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time)
 	if (last_update_time)
 		*last_update_time = ktime_to_us(now);
 
-	if (ts->idle_active && nr_iowait_cpu(cpu) > 0) {
-		ktime_t delta = ktime_sub(now, ts->idle_entrytime);
-		iowait = ktime_add(ts->iowait_sleeptime, delta);
-	} else {
-		iowait = ts->iowait_sleeptime;
-	}
+	do {
+		seq = read_seqcount_begin(&ts->sleeptime_seq);
+		if (ts->idle_active && nr_iowait_cpu(cpu) > 0) {
+			ktime_t delta = ktime_sub(now, ts->idle_entrytime);
+			iowait = ktime_add(ts->iowait_sleeptime, delta);
+		} else {
+			iowait = ts->iowait_sleeptime;
+		}
+	} while (read_seqcount_retry(&ts->sleeptime_seq, seq));
 
 	return ktime_to_us(iowait);
 }

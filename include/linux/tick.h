@@ -10,6 +10,7 @@
 #include <linux/irqflags.h>
 #include <linux/percpu.h>
 #include <linux/hrtimer.h>
+#include <linux/seqlock.h>
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS
 
@@ -70,6 +71,7 @@ struct tick_sched {
 	unsigned long			next_jiffies;
 	ktime_t				idle_expires;
 	int				do_timer_last;
+	seqcount_t			sleeptime_seq;
 };
 
 extern void __init tick_init(void);
