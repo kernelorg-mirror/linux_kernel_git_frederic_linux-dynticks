@@ -440,6 +440,39 @@ static ktime_t tick_nohz_start_idle(int cpu, struct tick_sched *ts)
 	return now;
 }
 
+static u64 get_cpu_sleep_time_us(int cpu, bool io, u64 *last_update_time)
+{
+	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
+	ktime_t now, sleep;
+	unsigned int seq;
+
+	if (!tick_nohz_enabled)
+		return -1;
+
+	now = ktime_get();
+	if (last_update_time)
+		*last_update_time = ktime_to_us(now);
+
+	do {
+		seq = read_seqcount_begin(&ts->sleeptime_seq);
+		if (io)
+			sleep = ts->iowait_sleeptime;
+		else
+			sleep = ts->idle_sleeptime;
+
+		if (ts->idle_active)
+			continue;
+
+		if ((io && nr_iowait_cpu(cpu)) || (!io && !nr_iowait_cpu(cpu))) {
+			ktime_t delta = ktime_sub(now, ts->idle_entrytime);
+			sleep = ktime_add(sleep, delta);
+		}
+	} while (read_seqcount_retry(&ts->sleeptime_seq, seq));
+
+	return ktime_to_us(sleep);
+
+}
+
 /**
  * get_cpu_idle_time_us - get the total idle time of a cpu
  * @cpu: CPU number to query
@@ -456,29 +489,7 @@ static ktime_t tick_nohz_start_idle(int cpu, struct tick_sched *ts)
  */
 u64 get_cpu_idle_time_us(int cpu, u64 *last_update_time)
 {
-	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
-	ktime_t now, idle;
-	unsigned int seq;
-
-	if (!tick_nohz_enabled)
-		return -1;
-
-	now = ktime_get();
-	if (last_update_time)
-		*last_update_time = ktime_to_us(now);
-
-	do {
-		seq = read_seqcount_begin(&ts->sleeptime_seq);
-		if (ts->idle_active && !nr_iowait_cpu(cpu)) {
-			ktime_t delta = ktime_sub(now, ts->idle_entrytime);
-			idle = ktime_add(ts->idle_sleeptime, delta);
-		} else {
-			idle = ts->idle_sleeptime;
-		}
-	} while (read_seqcount_retry(&ts->sleeptime_seq, seq));
-
-	return ktime_to_us(idle);
-
+	return get_cpu_sleep_time_us(cpu, false, last_update_time);
 }
 EXPORT_SYMBOL_GPL(get_cpu_idle_time_us);
 
@@ -498,28 +509,7 @@ EXPORT_SYMBOL_GPL(get_cpu_idle_time_us);
  */
 u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time)
 {
-	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
-	ktime_t now, iowait;
-	unsigned int seq;
-
-	if (!tick_nohz_enabled)
-		return -1;
-
-	now = ktime_get();
-	if (last_update_time)
-		*last_update_time = ktime_to_us(now);
-
-	do {
-		seq = read_seqcount_begin(&ts->sleeptime_seq);
-		if (ts->idle_active && nr_iowait_cpu(cpu) > 0) {
-			ktime_t delta = ktime_sub(now, ts->idle_entrytime);
-			iowait = ktime_add(ts->iowait_sleeptime, delta);
-		} else {
-			iowait = ts->iowait_sleeptime;
-		}
-	} while (read_seqcount_retry(&ts->sleeptime_seq, seq));
-
-	return ktime_to_us(iowait);
+	return get_cpu_sleep_time_us(cpu, true, last_update_time);
 }
 EXPORT_SYMBOL_GPL(get_cpu_iowait_time_us);
 
