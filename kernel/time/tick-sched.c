@@ -407,9 +407,11 @@ static void tick_nohz_stop_idle(struct tick_sched *ts, ktime_t now)
 	ktime_t delta;
 
 	/* Updates the per cpu time idle statistics counters */
+	write_seqcount_begin(&ts->idle_sleeptime_seq);
 	delta = ktime_sub(now, ts->idle_entrytime);
 	ts->idle_sleeptime = ktime_add(ts->idle_sleeptime, delta);
 	ts->idle_active = 0;
+	write_seqcount_end(&ts->idle_sleeptime_seq);
 
 	sched_clock_idle_wakeup_event(0);
 }
@@ -418,9 +420,13 @@ static ktime_t tick_nohz_start_idle(struct tick_sched *ts)
 {
 	ktime_t now = ktime_get();
 
+	write_seqcount_begin(&ts->idle_sleeptime_seq);
 	ts->idle_entrytime = now;
 	ts->idle_active = 1;
+	write_seqcount_end(&ts->idle_sleeptime_seq);
+
 	sched_clock_idle_sleep_event();
+
 	return now;
 }
 
@@ -442,6 +448,7 @@ u64 get_cpu_idle_time_us(int cpu, u64 *last_update_time)
 {
 	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
 	ktime_t now, idle;
+	unsigned int seq;
 	u64 iowait;
 
 	if (!tick_nohz_enabled)
@@ -451,12 +458,16 @@ u64 get_cpu_idle_time_us(int cpu, u64 *last_update_time)
 	if (last_update_time)
 		*last_update_time = ktime_to_us(now);
 
-	if (ts->idle_active) {
-		ktime_t delta = ktime_sub(now, ts->idle_entrytime);
-		idle = ktime_add(ts->idle_sleeptime, delta);
-	} else {
+	do {
+		ktime_t delta;
+
+		seq = read_seqcount_begin(&ts->idle_sleeptime_seq);
 		idle = ts->idle_sleeptime;
-	}
+		if (ts->idle_active) {
+			delta = ktime_sub(now, ts->idle_entrytime);
+			idle = ktime_add(idle, delta);
+		}
+	} while (read_seqcount_retry(&ts->idle_sleeptime_seq, seq));
 
 	iowait = get_cpu_iowait_time_us(cpu, NULL);
 
@@ -468,7 +479,6 @@ u64 get_cpu_idle_time_us(int cpu, u64 *last_update_time)
 		idle = ktime_sub_us(idle, iowait);
 
 	return ktime_to_us(idle);
-
 }
 EXPORT_SYMBOL_GPL(get_cpu_idle_time_us);
 
