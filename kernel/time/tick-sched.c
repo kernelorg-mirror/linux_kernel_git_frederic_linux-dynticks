@@ -395,11 +395,9 @@ __setup("nohz=", setup_tick_nohz);
  */
 static void tick_nohz_update_jiffies(ktime_t now)
 {
-	int cpu = smp_processor_id();
-	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
 	unsigned long flags;
 
-	ts->idle_waketime = now;
+	__this_cpu_write(tick_cpu_sched.idle_waketime, now);
 
 	local_irq_save(flags);
 	tick_do_update_jiffies64(now);
@@ -410,7 +408,7 @@ static void tick_nohz_update_jiffies(ktime_t now)
 
 static void tick_nohz_stop_idle(int cpu, ktime_t now)
 {
-	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
+	struct tick_sched *ts = &__get_cpu_var(tick_cpu_sched);
 	ktime_t delta;
 
 	/* Updates the per cpu time idle statistics counters */
@@ -901,7 +899,7 @@ static void tick_nohz_account_idle_ticks(struct tick_sched *ts)
 void tick_nohz_idle_exit(void)
 {
 	int cpu = smp_processor_id();
-	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
+	struct tick_sched *ts = &__get_cpu_var(tick_cpu_sched);
 	ktime_t now;
 
 	local_irq_disable();
@@ -1020,7 +1018,7 @@ static void tick_nohz_kick_tick(int cpu, ktime_t now)
 
 static inline void tick_check_nohz(int cpu)
 {
-	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
+	struct tick_sched *ts = &__get_cpu_var(tick_cpu_sched);
 	ktime_t now;
 
 	if (!ts->idle_active && !ts->tick_stopped)
