@@ -82,29 +82,17 @@ extern void warn_slowpath_null(const char *file, const int line);
 #endif
 
 #ifndef WARN_ON
-#define WARN_ON(condition) ({						\
-	int __ret_warn_on = !!(condition);				\
-	if (unlikely(__ret_warn_on))					\
-		__WARN();						\
-	unlikely(__ret_warn_on);					\
-})
+#define WARN_ON(condition)				 		\
+	DO_COND(condition, __WARN())
 #endif
 
 #ifndef WARN
-#define WARN(condition, format...) ({						\
-	int __ret_warn_on = !!(condition);				\
-	if (unlikely(__ret_warn_on))					\
-		__WARN_printf(format);					\
-	unlikely(__ret_warn_on);					\
-})
+#define WARN(condition, format...)					\
+	DO_COND(condition, __WARN_printf(format))
 #endif
 
-#define WARN_TAINT(condition, taint, format...) ({			\
-	int __ret_warn_on = !!(condition);				\
-	if (unlikely(__ret_warn_on))					\
-		__WARN_printf_taint(taint, format);			\
-	unlikely(__ret_warn_on);					\
-})
+#define WARN_TAINT(condition, taint, format...)			\
+	DO_COND(condition, __WARN_printf_taint(taint, format))
 
 #else /* !CONFIG_BUG */
 #ifndef HAVE_ARCH_BUG
@@ -133,35 +121,14 @@ extern void warn_slowpath_null(const char *file, const int line);
 
 #endif
 
-#define WARN_ON_ONCE(condition)	({				\
-	static bool __section(.data.unlikely) __warned;		\
-	int __ret_warn_once = !!(condition);			\
-								\
-	if (unlikely(__ret_warn_once))				\
-		if (WARN_ON(!__warned)) 			\
-			__warned = true;			\
-	unlikely(__ret_warn_once);				\
-})
+#define WARN_ON_ONCE(condition)					\
+	DO_ONCE_COND(condition, __WARN())
 
-#define WARN_ONCE(condition, format...)	({			\
-	static bool __section(.data.unlikely) __warned;		\
-	int __ret_warn_once = !!(condition);			\
-								\
-	if (unlikely(__ret_warn_once))				\
-		if (WARN(!__warned, format)) 			\
-			__warned = true;			\
-	unlikely(__ret_warn_once);				\
-})
+#define WARN_ONCE(condition, format...)				\
+	DO_ONCE_COND(condition, __WARN_printf(format))
 
-#define WARN_TAINT_ONCE(condition, taint, format...)	({	\
-	static bool __section(.data.unlikely) __warned;		\
-	int __ret_warn_once = !!(condition);			\
-								\
-	if (unlikely(__ret_warn_once))				\
-		if (WARN_TAINT(!__warned, taint, format))	\
-			__warned = true;			\
-	unlikely(__ret_warn_once);				\
-})
+#define WARN_TAINT_ONCE(condition, taint, format...)			\
+	DO_ONCE_COND(condition, __WARN_printf_taint(taint, format))
 
 /*
  * WARN_ON_SMP() is for cases that the warning is either
