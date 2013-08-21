@@ -5224,8 +5224,8 @@ static void perf_log_throttle(struct perf_event *event, int enable)
  * - fix race against other toggler
  * - fix race against other callers of ->stop/start (adjust period/freq)
  */
-static void perf_event_toggle(struct perf_event *event,
-			      enum perf_event_toggle_flag flag)
+static void __perf_event_toggle(struct perf_event *event,
+				enum perf_event_toggle_flag flag)
 {
 	unsigned long flags;
 	bool active;
@@ -5259,6 +5259,16 @@ static void perf_event_toggle(struct perf_event *event,
 	}
 
 	local_irq_restore(flags);
+}
+
+static void perf_event_toggle(struct perf_event *leader,
+			      enum perf_event_toggle_flag flag)
+{
+	struct perf_event *event;
+
+	__perf_event_toggle(leader, flag);
+	list_for_each_entry(event, &leader->sibling_list, group_entry)
+		__perf_event_toggle(event, flag);
 }
 
 static void
@@ -7628,13 +7638,19 @@ perf_event_inherit_toggle(struct perf_event *event,
 	struct perf_event *toggled = parent->toggled_event;
 	struct perf_event *toggled_child = parent->toggled_child;
 
+
+	trace_printk("event %p, parent %p, child %p, toggled %p, toggled_cnt %d\n",
+		event, parent, toggled_child, toggled, atomic_read(&event->toggled_cnt));
+
 	/*
 	 * This @event is toggled by the childs of the its parent's togglers.
 	 * If this child is inherited before its togglers, declare it so.
 	 */
 	if (atomic_read(&event->toggled_cnt)) {
-		if (!parent->toggled_child)
+		if (!parent->toggled_child) {
 			perf_event_toggled_set_child(parent, event);
+			trace_printk("pre toggled %p, toggled_child_cnt %d\n", parent->toggled_child, parent->toggled_child_cnt);
+		}
 		perf_event_toggled_child_put(parent);
 	}
 
@@ -7652,10 +7668,14 @@ perf_event_inherit_toggle(struct perf_event *event,
 			perf_event_toggled_set_child(toggled, toggled_child);
 		}
 
+		trace_printk("child %p\n", toggled_child);
+
 		/* set inherited toggling */
 		event->toggled_event = toggled_child;
 		event->toggle_flag   = parent->toggle_flag;
+
 		perf_event_toggled_child_put(toggled);
+		trace_printk("pos toggled %p, toggled_child_cnt %d\n", toggled, toggled->toggled_child_cnt);
 	}
 
 	return 0;
@@ -7682,6 +7702,8 @@ inherit_event(struct perf_event *parent_event,
 		if (!child_event)
 			return ERR_PTR(-ENOMEM);
 	}
+
+trace_printk("event %p, parent %p, toggled_child %p\n", child_event, orig_parent_event, child_event);
 
 	/*
 	 * Instead of creating recursive hierarchies of events,
