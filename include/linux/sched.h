@@ -102,6 +102,7 @@ extern int nr_processes(void);
 extern unsigned long nr_running(void);
 extern unsigned long nr_iowait(void);
 extern unsigned long nr_iowait_cpu(int cpu);
+extern u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time);
 extern unsigned long this_cpu_load(void);
 
 

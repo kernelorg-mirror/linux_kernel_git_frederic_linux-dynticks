@@ -457,7 +457,10 @@ struct rq {
 	u64 clock;
 	u64 clock_task;
 
-	atomic_t nr_iowait;
+	unsigned int nr_iowait;
+	ktime_t iowait_start;
+	ktime_t iowait_time;
+	seqlock_t iowait_lock;
 
 #ifdef CONFIG_SMP
 	struct root_domain *rd;

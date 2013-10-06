@@ -2157,7 +2157,7 @@ unsigned long nr_iowait(void)
 	unsigned long i, sum = 0;
 
 	for_each_possible_cpu(i)
-		sum += atomic_read(&cpu_rq(i)->nr_iowait);
+		sum += cpu_rq(i)->nr_iowait;
 
 	return sum;
 }
@@ -2165,7 +2165,7 @@ unsigned long nr_iowait(void)
 unsigned long nr_iowait_cpu(int cpu)
 {
 	struct rq *this = cpu_rq(cpu);
-	return atomic_read(&this->nr_iowait);
+	return this->nr_iowait;
 }
 
 #ifdef CONFIG_SMP
@@ -4064,6 +4064,59 @@ out_irq:
 }
 EXPORT_SYMBOL_GPL(yield_to);
 
+/**
+ * get_cpu_iowait_time_us - get the total iowait time of a cpu
+ * @cpu: CPU number to query
+ * @last_update_time: variable to store update time in. Do not update
+ * counters if NULL.
+ *
+ * Return the cummulative iowait time (since boot) for a given
+ * CPU, in microseconds.
+ *
+ * This time is measured via accounting rather than sampling,
+ * and is as accurate as ktime_get() is.
+ *
+ */
+u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time)
+{
+	ktime_t iowait, delta = { .tv64 = 0 };
+	struct rq *rq = cpu_rq(cpu);
+	ktime_t now = ktime_get();
+	unsigned int seq;
+
+	do {
+		seq = read_seqbegin(&rq->iowait_lock);
+		if (rq->nr_iowait)
+			delta = ktime_sub(now, rq->iowait_start);
+		iowait = ktime_add(rq->iowait_time, delta);
+	} while (read_seqretry(&rq->iowait_lock, seq));
+
+	if (last_update_time)
+		*last_update_time = ktime_to_us(now);
+
+	return ktime_to_us(iowait);
+}
+EXPORT_SYMBOL_GPL(get_cpu_iowait_time_us);
+
+static void cpu_iowait_start(struct rq *rq)
+{
+	write_seqlock(&rq->iowait_lock);
+	if (!rq->nr_iowait++)
+		rq->iowait_start = ktime_get();
+	write_sequnlock(&rq->iowait_lock);
+}
+
+static void cpu_iowait_end(struct rq *rq)
+{
+	ktime_t delta;
+	write_seqlock(&rq->iowait_lock);
+	if (!--rq->nr_iowait) {
+		delta = ktime_sub(ktime_get(), rq->iowait_start);
+		rq->iowait_time = ktime_add(rq->iowait_time, delta);
+	}
+	write_sequnlock(&rq->iowait_lock);
+}
+
 /*
  * This task is about to go to sleep on IO. Increment rq->nr_iowait so
  * that process accounting knows that this is a task in IO wait state.
@@ -4073,12 +4126,12 @@ void __sched io_schedule(void)
 	struct rq *rq = raw_rq();
 
 	delayacct_blkio_start();
-	atomic_inc(&rq->nr_iowait);
+	cpu_iowait_start(rq);
 	blk_flush_plug(current);
 	current->in_iowait = 1;
 	schedule();
 	current->in_iowait = 0;
-	atomic_dec(&rq->nr_iowait);
+	cpu_iowait_end(rq);
 	delayacct_blkio_end();
 }
 EXPORT_SYMBOL(io_schedule);
@@ -4089,12 +4142,12 @@ long __sched io_schedule_timeout(long timeout)
 	long ret;
 
 	delayacct_blkio_start();
-	atomic_inc(&rq->nr_iowait);
+	cpu_iowait_start(rq);
 	blk_flush_plug(current);
 	current->in_iowait = 1;
 	ret = schedule_timeout(timeout);
 	current->in_iowait = 0;
-	atomic_dec(&rq->nr_iowait);
+	cpu_iowait_end(rq);
 	delayacct_blkio_end();
 	return ret;
 }
@@ -6673,7 +6726,8 @@ void __init sched_init(void)
 #endif
 #endif
 		init_rq_hrtick(rq);
-		atomic_set(&rq->nr_iowait, 0);
+		rq->nr_iowait = 0;
+		seqlock_init(&rq->iowait_lock);
 	}
 
 	set_load_weight(&init_task);
