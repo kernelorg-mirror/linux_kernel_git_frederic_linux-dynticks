@@ -638,8 +638,6 @@ static int posix_cpu_timer_set(struct k_itimer *timer, int flags,
 	 */
 	if (unlikely(p->sighand == NULL)) {
 		read_unlock(&tasklist_lock);
-		put_task_struct(p);
-		timer->it.cpu.task = NULL;
 		return -ESRCH;
 	}
 
@@ -807,8 +805,6 @@ static void posix_cpu_timer_get(struct k_itimer *timer, struct itimerspec *itp)
 			 * We can't even collect a sample any more.
 			 * Call the timer disarmed, nothing else to do.
 			 */
-			put_task_struct(p);
-			timer->it.cpu.task = NULL;
 			timer->it.cpu.expires = 0;
 			read_unlock(&tasklist_lock);
 			goto dead;
@@ -1058,8 +1054,6 @@ void posix_cpu_timer_schedule(struct k_itimer *timer)
 			 * The process has been reaped.
 			 * We can't even collect a sample any more.
 			 */
-			put_task_struct(p);
-			timer->it.cpu.task = p = NULL;
 			timer->it.cpu.expires = 0;
 			goto out_unlock;
 		} else if (unlikely(p->exit_state) && thread_group_empty(p)) {
