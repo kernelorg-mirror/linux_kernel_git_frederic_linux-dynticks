@@ -453,23 +453,6 @@ void posix_cpu_timers_exit_group(struct task_struct *tsk)
 		       tsk->se.sum_exec_runtime + sig->sum_sched_runtime);
 }
 
-static void clear_dead_task(struct k_itimer *itimer, unsigned long long now)
-{
-	struct cpu_timer_list *timer = &itimer->it.cpu;
-
-	/*
-	 * That's all for this thread or process.
-	 * We leave our residual in expires to be reported.
-	 */
-	put_task_struct(timer->task);
-	timer->task = NULL;
-	if (timer->expires < now) {
-		timer->expires = 0;
-	} else {
-		timer->expires -= now;
-	}
-}
-
 static inline int expires_gt(cputime_t expires, cputime_t new_exp)
 {
 	return expires == 0 || expires > new_exp;
@@ -831,16 +814,6 @@ static void posix_cpu_timer_get(struct k_itimer *timer, struct itimerspec *itp)
 			goto dead;
 		} else {
 			cpu_timer_sample_group(timer->it_clock, p, &now);
-			if (unlikely(p->exit_state) && thread_group_empty(p)) {
-				read_unlock(&tasklist_lock);
-				/*
-				 * We've noticed that the thread is dead, but
-				 * not yet reaped.  Take this opportunity to
-				 * drop our task ref.
-				 */
-				clear_dead_task(timer, now);
-				goto dead;
-			}
 		}
 		read_unlock(&tasklist_lock);
 	}
@@ -1090,13 +1063,8 @@ void posix_cpu_timer_schedule(struct k_itimer *timer)
 			timer->it.cpu.expires = 0;
 			goto out_unlock;
 		} else if (unlikely(p->exit_state) && thread_group_empty(p)) {
-			/*
-			 * We've noticed that the thread is dead, but
-			 * not yet reaped.  Take this opportunity to
-			 * drop our task ref.
-			 */
+			/* Optimizations: if the process is dying, no need to rearm */
 			cpu_timer_sample_group(timer->it_clock, p, &now);
-			clear_dead_task(timer, now);
 			goto out_unlock;
 		}
 		spin_lock(&p->sighand->siglock);
