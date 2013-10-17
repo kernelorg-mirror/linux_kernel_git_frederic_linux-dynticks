@@ -410,8 +410,8 @@ static void tick_nohz_stop_idle(struct tick_sched *ts, ktime_t now)
 	delta = ktime_sub(now, ts->idle_entrytime);
 	if (nr_iowait_cpu(smp_processor_id()) > 0)
 		ts->iowait_sleeptime = ktime_add(ts->iowait_sleeptime, delta);
-	else
-		ts->idle_sleeptime = ktime_add(ts->idle_sleeptime, delta);
+
+	ts->idle_sleeptime = ktime_add(ts->idle_sleeptime, delta);
 	ts->idle_active = 0;
 
 	sched_clock_idle_wakeup_event(0);
@@ -445,6 +445,7 @@ u64 get_cpu_idle_time_us(int cpu, u64 *last_update_time)
 {
 	struct tick_sched *ts = &per_cpu(tick_cpu_sched, cpu);
 	ktime_t now, idle;
+	u64 iowait;
 
 	if (!tick_nohz_enabled)
 		return -1;
@@ -453,12 +454,17 @@ u64 get_cpu_idle_time_us(int cpu, u64 *last_update_time)
 	if (last_update_time)
 		*last_update_time = ktime_to_us(now);
 
-	if (ts->idle_active && !nr_iowait_cpu(cpu)) {
+	if (ts->idle_active) {
 		ktime_t delta = ktime_sub(now, ts->idle_entrytime);
 		idle = ktime_add(ts->idle_sleeptime, delta);
 	} else {
 		idle = ts->idle_sleeptime;
 	}
+
+	iowait = get_cpu_iowait_time_us(cpu, NULL);
+
+	if (ktime_compare(idle, us_to_ktime(iowait)) > 0)
+		idle = ktime_sub_us(idle, iowait);
 
 	return ktime_to_us(idle);
 

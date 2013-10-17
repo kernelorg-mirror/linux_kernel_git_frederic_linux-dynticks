@@ -379,6 +379,13 @@ static inline ktime_t ns_to_ktime(u64 ns)
 	return ktime_add_ns(ktime_zero, ns);
 }
 
+static inline ktime_t us_to_ktime(u64 us)
+{
+	static const ktime_t ktime_zero = { .tv64 = 0 };
+
+	return ktime_add_us(ktime_zero, us);
+}
+
 static inline ktime_t ms_to_ktime(u64 ms)
 {
 	static const ktime_t ktime_zero = { .tv64 = 0 };
