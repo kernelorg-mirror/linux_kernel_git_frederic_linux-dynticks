@@ -192,6 +192,49 @@ static bool can_stop_full_tick(void)
 	return true;
 }
 
+/*
+ * Fetch max deferment for the current clockevent source until it overflows.
+ * Also in full dynticks environment, make sure the current timekeeper
+ * stays periodic until some other CPU can take its timekeeping duty
+ * or until all full dynticks go to sleep.
+ */
+static u64 tick_timekeeping_max_deferment(struct tick_sched *ts)
+{
+	int cpu;
+	u64 ret = KTIME_MAX;
+
+	/*
+	 * Fast path for full dynticks off-case: skip to
+	 * clockevent max deferment
+	 */
+	if (!tick_nohz_full_enabled())
+		return timekeeping_max_deferment();
+
+	cpu = smp_processor_id();
+
+	/* Full dynticks CPU don't take timekeeping duty */
+	if (!tick_timekeeping_cpu(cpu))
+		return timekeeping_max_deferment();
+
+	/*
+	 * If we are the timekeeper and all full dynticks CPUs are idle,
+	 * then we can finally sleep.
+	 */
+	if (tick_do_timer_cpu == cpu ||
+	    (tick_do_timer_cpu == TICK_DO_TIMER_NONE &&	ts->do_timer_last == 1)) {
+		if (!rcu_sys_is_idle()) {
+			/*
+			 * Stop tick for 1 jiffy. In practice we stay periodic
+			 * but that let us possibly delegate our timekeeping duty
+			 * to stop the tick for real in the future.
+			 */
+			ret = tick_period.tv64;
+		}
+	}
+
+	return min_t(u64, ret, timekeeping_max_deferment());
+}
+
 static void tick_nohz_restart_sched_tick(struct tick_sched *ts, ktime_t now);
 
 /*
@@ -352,7 +395,12 @@ void __init tick_nohz_init(void)
 	cpulist_scnprintf(nohz_full_buf, sizeof(nohz_full_buf), tick_nohz_full_mask);
 	pr_info("NO_HZ: Full dynticks CPUs: %s.\n", nohz_full_buf);
 }
-#endif
+# else /* CONFIG_NO_HZ_FULL */
+static u64 tick_timekeeping_max_deferment(struct tick_sched *ts)
+{
+	return timekeeping_max_deferment();
+}
+#endif /* CONFIG_NO_HZ_FULL */
 
 /*
  * NOHZ - aka dynamic tick functionality
@@ -532,7 +580,7 @@ static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 	struct clock_event_device *dev = __get_cpu_var(tick_cpu_device).evtdev;
 	u64 time_delta;
 
-	time_delta = timekeeping_max_deferment();
+	time_delta = tick_timekeeping_max_deferment(ts);
 
 	/* Read jiffies and the time when jiffies were updated last */
 	do {
@@ -724,21 +772,6 @@ static bool can_stop_idle_tick(int cpu, struct tick_sched *ts)
 			ratelimit++;
 		}
 		return false;
-	}
-
-	if (tick_nohz_full_enabled()) {
-		/*
-		 * Keep the tick alive to guarantee timekeeping progression
-		 * if there are full dynticks CPUs around
-		 */
-		if (tick_do_timer_cpu == cpu)
-			return false;
-		/*
-		 * Boot safety: make sure the timekeeping duty has been
-		 * assigned before entering dyntick-idle mode,
-		 */
-		if (tick_do_timer_cpu == TICK_DO_TIMER_NONE)
-			return false;
 	}
 
 	return true;
