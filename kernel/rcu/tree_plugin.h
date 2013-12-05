@@ -2539,7 +2539,7 @@ static void rcu_sysidle_exit(struct rcu_dynticks *rdtp, int irq)
 	 * invoke rcu_sysidle_force_exit() directly if it does anything
 	 * more than take a scheduling-clock interrupt.
 	 */
-	if (smp_processor_id() == tick_do_timer_cpu)
+	if (tick_timekeeping_cpu(smp_processor_id()))
 		return;
 
 	/* Update system-idle state: We are clearly no longer fully idle! */
@@ -2563,10 +2563,10 @@ static void rcu_sysidle_check_cpu(struct rcu_data *rdp, bool *isidle,
 	 * is an offline or the timekeeping CPU, nothing to do.
 	 */
 	if (!*isidle || rdp->rsp != rcu_sysidle_state ||
-	    cpu_is_offline(rdp->cpu) || rdp->cpu == tick_do_timer_cpu)
+	    cpu_is_offline(rdp->cpu) || tick_timekeeping_cpu(rdp->cpu))
 		return;
 	if (rcu_gp_in_progress(rdp->rsp))
-		WARN_ON_ONCE(smp_processor_id() != tick_do_timer_cpu);
+		WARN_ON_ONCE(!tick_timekeeping_cpu(smp_processor_id()));
 
 	/* Pick up current idle and NMI-nesting counter and check. */
 	cur = atomic_read(&rdtp->dynticks_idle);
@@ -2729,7 +2729,7 @@ bool rcu_sys_is_idle(void)
 	static struct rcu_sysidle_head rsh;
 	int rss = ACCESS_ONCE(full_sysidle_state);
 
-	if (WARN_ON_ONCE(smp_processor_id() != tick_do_timer_cpu))
+	if (WARN_ON_ONCE(!tick_timekeeping_cpu(smp_processor_id())))
 		return false;
 
 	/* Handle small-system case by doing a full scan of CPUs. */
