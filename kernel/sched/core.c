@@ -1502,9 +1502,9 @@ void scheduler_ipi(void)
 	if (tif_need_resched())
 		set_preempt_need_resched();
 
-	if (llist_empty(&this_rq()->wake_list)
-			&& !tick_nohz_full_cpu(smp_processor_id())
-			&& !got_nohz_idle_kick())
+	if (llist_empty(&this_rq()->wake_list) &&
+	    !tick_nohz_full_enabled() &&
+	    !got_nohz_idle_kick())
 		return;
 
 	/*
