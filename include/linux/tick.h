@@ -179,15 +179,35 @@ static inline bool tick_nohz_full_cpu(int cpu)
 	return cpumask_test_cpu(cpu, tick_nohz_full_mask);
 }
 
+/**
+ * tick_timeeping_cpu - check if a CPU is elligble to handle timekeeping duty
+ * @cpu:	the cpu to check
+ *
+ * @return true if the CPU is elligible to perform timekeeping duty.
+ */
+static inline bool tick_timekeeping_cpu(int cpu)
+{
+	/*
+	 * If there are full dynticks CPUs around,
+	 * CPU 0 must stay periodic to update timekeeping.
+	 */
+	if (tick_nohz_full_enabled())
+		return cpu == 0;
+
+	/* Otherwise any CPU is elligible for timekeeping duty */
+	return true;
+}
+
 extern void tick_nohz_init(void);
 extern void __tick_nohz_full_check(void);
 extern void tick_nohz_full_kick(void);
 extern void tick_nohz_full_kick_all(void);
 extern void __tick_nohz_task_switch(struct task_struct *tsk);
-#else
+# else
 static inline void tick_nohz_init(void) { }
 static inline bool tick_nohz_full_enabled(void) { return false; }
 static inline bool tick_nohz_full_cpu(int cpu) { return false; }
+static inline bool tick_timekeeping_cpu(int cpu) { return true; }
 static inline void __tick_nohz_full_check(void) { }
 static inline void tick_nohz_full_kick(void) { }
 static inline void tick_nohz_full_kick_all(void) { }
