@@ -118,7 +118,7 @@ static void tick_sched_do_timer(ktime_t now)
 	 * jiffies_lock.
 	 */
 	if (unlikely(tick_do_timer_cpu == TICK_DO_TIMER_NONE)
-	    && !tick_nohz_full_cpu(cpu))
+	    && tick_timekeeping_cpu(cpu))
 		tick_do_timer_cpu = cpu;
 #endif
 
