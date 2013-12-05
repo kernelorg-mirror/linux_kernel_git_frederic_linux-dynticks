@@ -2488,7 +2488,7 @@ void rcu_sysidle_force_exit(void)
 				      oldstate, RCU_SYSIDLE_NOT);
 		if (oldstate == newoldstate &&
 		    oldstate == RCU_SYSIDLE_FULL_NOTED) {
-			smp_send_reschedule(tick_do_timer_cpu);
+			smp_send_reschedule(tick_timekeeping_default_cpu());
 			return; /* We cleared it, done! */
 		}
 		oldstate = newoldstate;
@@ -2597,7 +2597,7 @@ static bool is_sysidle_rcu_state(struct rcu_state *rsp)
  */
 static void rcu_bind_gp_kthread(void)
 {
-	int cpu = ACCESS_ONCE(tick_do_timer_cpu);
+	int cpu = tick_timekeeping_default_cpu();
 
 	if (cpu < 0 || cpu >= nr_cpu_ids)
 		return;

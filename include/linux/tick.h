@@ -180,6 +180,22 @@ static inline bool tick_nohz_full_cpu(int cpu)
 }
 
 /**
+ * tick_timekeeping_default_cpu - seek timekeeping default CPU
+
+ * @return the default target which we send an IPI to
+ * when a full dynticks CPU wakes up and exits from full
+ * system idle state.
+ *
+ * This target is always CPU 0 in full dynticks environment.
+ * If we were to pick up any other CPU, that would result in suspend
+ * failures due to rejected offlining request.
+ */
+static inline int tick_timekeeping_default_cpu(void)
+{
+	return 0;
+}
+
+/**
  * tick_timeeping_cpu - check if a CPU is elligble to handle timekeeping duty
  * @cpu:	the cpu to check
  *

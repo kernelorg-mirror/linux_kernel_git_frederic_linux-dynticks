@@ -305,7 +305,7 @@ static int tick_nohz_cpu_down_callback(struct notifier_block *nfb,
 		 * If we handle the timekeeping duty for full dynticks CPUs,
 		 * we can't safely shutdown that CPU.
 		 */
-		if (tick_nohz_full_running && tick_do_timer_cpu == cpu)
+		if (tick_nohz_full_running && tick_timekeeping_default_cpu() == cpu)
 			return NOTIFY_BAD;
 		break;
 	}
