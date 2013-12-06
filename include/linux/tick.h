@@ -203,15 +203,7 @@ static inline int tick_timekeeping_default_cpu(void)
  */
 static inline bool tick_timekeeping_cpu(int cpu)
 {
-	/*
-	 * If there are full dynticks CPUs around,
-	 * CPU 0 must stay periodic to update timekeeping.
-	 */
-	if (tick_nohz_full_enabled())
-		return cpu == 0;
-
-	/* Otherwise any CPU is elligible for timekeeping duty */
-	return true;
+	return !tick_nohz_full_cpu(cpu);
 }
 
 extern void tick_nohz_init(void);
