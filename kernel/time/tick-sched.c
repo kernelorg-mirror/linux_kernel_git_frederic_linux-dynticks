@@ -217,6 +217,12 @@ static u64 tick_timekeeping_max_deferment(struct tick_sched *ts)
 		return timekeeping_max_deferment();
 
 	/*
+	 * Order tick_do_timer_cpu read against the IPI, pairs with
+	 * tick_nohz_full_kick_timekeeping()
+	 */
+	smp_rmb();
+
+	/*
 	 * If we are the timekeeper and all full dynticks CPUs are idle,
 	 * then we can finally sleep.
 	 */
@@ -293,6 +299,22 @@ void tick_nohz_full_kick_all(void)
 	preempt_enable();
 }
 
+/**
+ * tick_nohz_full_kick_timekeeping - kick the default timekeeper
+ *
+ * kick the default timekeeper when a secondary timekeeper goes offline.
+ */
+void tick_nohz_full_kick_timekeeping(void)
+{
+	tick_do_timer_cpu = tick_timekeeping_default_cpu();
+	/*
+	 * Order tick_do_timer_cpu against the IPI, pairs with
+	 * tick_timekeeping_max_deferment on irq exit.
+	 */
+	smp_wmb();
+	smp_send_reschedule(tick_timekeeping_default_cpu());
+}
+
 /*
  * Re-evaluate the need for the tick as we switch the current task.
  * It might need the tick due to per task/process properties:
@@ -350,6 +372,15 @@ static int tick_nohz_cpu_down_callback(struct notifier_block *nfb,
 		 */
 		if (tick_nohz_full_running && tick_timekeeping_default_cpu() == cpu)
 			return NOTIFY_BAD;
+		break;
+
+	case CPU_DYING:
+		/*
+		 * Notify default timekeeper if we are giving up
+		 * timekeeping duty
+		 */
+		if (tick_nohz_full_running && tick_do_timer_cpu == cpu)
+			tick_nohz_full_kick_timekeeping();
 		break;
 	}
 	return NOTIFY_OK;
