@@ -2488,7 +2488,7 @@ void rcu_sysidle_force_exit(void)
 				      oldstate, RCU_SYSIDLE_NOT);
 		if (oldstate == newoldstate &&
 		    oldstate == RCU_SYSIDLE_FULL_NOTED) {
-			smp_send_reschedule(tick_timekeeping_default_cpu());
+			tick_nohz_full_kick_timekeeping();
 			return; /* We cleared it, done! */
 		}
 		oldstate = newoldstate;

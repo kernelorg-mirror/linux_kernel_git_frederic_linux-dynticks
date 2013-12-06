@@ -302,7 +302,8 @@ void tick_nohz_full_kick_all(void)
 /**
  * tick_nohz_full_kick_timekeeping - kick the default timekeeper
  *
- * kick the default timekeeper when a secondary timekeeper goes offline.
+ * kick the default timekeeper when full dynticks CPUs exit full
+ * system idle state or when a secondary timekeeper goes offline.
  */
 void tick_nohz_full_kick_timekeeping(void)
 {
