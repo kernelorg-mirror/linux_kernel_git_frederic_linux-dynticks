@@ -363,7 +363,7 @@ void blk_mq_end_io(struct request *rq, int error)
 		rq->csd.func = blk_mq_end_io_remote;
 		rq->csd.info = rq;
 		rq->csd.flags = 0;
-		__smp_call_function_single(ctx->cpu, &rq->csd, 0);
+		__smp_call_function_single(ctx->cpu, &rq->csd);
 	} else {
 		__blk_mq_end_io(rq, error);
 	}
