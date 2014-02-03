@@ -255,7 +255,7 @@ static void null_cmd_end_ipi(struct nullb_cmd *cmd)
 	if (llist_add(&cmd->ll_list, &cq->list)) {
 		data->func = null_ipi_cmd_end_io;
 		data->flags = 0;
-		__smp_call_function_single(cpu, data, 0);
+		__smp_call_function_single(cpu, data);
 	}
 
 	put_cpu();
