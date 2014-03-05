@@ -258,16 +258,17 @@ static __always_inline bool steal_account_process_tick(void)
 {
 #ifdef CONFIG_PARAVIRT
 	if (static_key_false(&paravirt_steal_enabled)) {
-		u64 steal, st = 0;
+		u64 steal;
+		cputime_t steal_ct;
 
 		steal = paravirt_steal_clock(smp_processor_id());
 		steal -= this_rq()->prev_steal_time;
 
-		st = steal_ticks(steal);
-		this_rq()->prev_steal_time += st * TICK_NSEC;
+		steal_ct = nsecs_to_cputime(steal);
+		this_rq()->prev_steal_time += cputime_to_nsecs(steal_ct);
 
-		account_steal_time(st);
-		return st;
+		account_steal_time(steal_ct);
+		return steal_ct;
 	}
 #endif
 	return false;
