@@ -289,7 +289,8 @@ static bool wq_numa_enabled;		/* unbound NUMA affinity enabled */
 static struct workqueue_attrs *wq_update_unbound_numa_attrs_buf;
 
 static DEFINE_MUTEX(wq_pool_mutex);	/* protects pools and workqueues list */
-static DEFINE_MUTEX(wq_unbound_mutex);	/* protects list of unbound workqueues */
+/* protects list of unbound workqueues and wq_anon_cpumask*/
+static DEFINE_MUTEX(wq_unbound_mutex);
 static DEFINE_SPINLOCK(wq_mayday_lock);	/* protects wq->maydays list */
 
 static LIST_HEAD(workqueues);		/* PL: list of all workqueues */
@@ -3311,13 +3312,122 @@ static struct device_attribute wq_sysfs_unbound_attrs[] = {
 	__ATTR_NULL,
 };
 
+/* Protected by wq_anon_cpumask */
+static cpumask_t wq_anon_cpumask;
+static ssize_t wq_anon_cpumask_show(struct device *dev,
+				    struct device_attribute *attr, char *buf)
+{
+	int written;
+
+	mutex_lock(&wq_unbound_mutex);
+	written = cpumask_scnprintf(buf, PAGE_SIZE, &wq_anon_cpumask);
+	mutex_unlock(&wq_unbound_mutex);
+
+	written += scnprintf(buf + written, PAGE_SIZE - written, "\n");
+
+	return written;
+}
+
+/* Must be called with wq_unbound_mutex held */
+static int wq_anon_cpumask_set(cpumask_var_t cpumask)
+{
+	struct workqueue_attrs *attrs;
+	struct workqueue_struct *wq;
+	int ret;
+
+	list_for_each_entry(wq, &workqueues_unbound, unbound_list) {
+		if (wq->flags & WQ_SYSFS)
+			continue;
+		attrs = wq_sysfs_prep_attrs(wq);
+		if (!attrs)
+			return -ENOMEM;
+
+		cpumask_copy(attrs->cpumask, cpumask);
+		ret = apply_workqueue_attrs(wq, attrs);
+		free_workqueue_attrs(attrs);
+		if (ret)
+			break;
+	}
+
+	return ret;
+}
+
+static ssize_t wq_anon_cpumask_store(struct device *dev,
+				     struct device_attribute *attr,
+				     const char *buf, size_t count)
+{
+	cpumask_var_t cpumask;
+	int ret = -EINVAL;
+
+	if (!zalloc_cpumask_var(&cpumask, GFP_KERNEL))
+		return -ENOMEM;
+
+	ret = cpumask_parse(buf, cpumask);
+	if (ret)
+		goto out;
+
+	get_online_cpus();
+	if (cpumask_intersects(cpumask, cpu_online_mask)) {
+		mutex_lock(&wq_unbound_mutex);
+		ret = wq_anon_cpumask_set(cpumask);
+		if (!ret)
+			cpumask_copy(&wq_anon_cpumask, cpumask);
+		mutex_unlock(&wq_unbound_mutex);
+	}
+	put_online_cpus();
+out:
+	free_cpumask_var(cpumask);
+	return ret ? ret : count;
+}
+
+static void device_release(struct device *dev)
+{
+	kfree(dev);
+}
+
+static struct device_attribute wq_sysfs_anon_attr =
+	__ATTR(cpumask, 0644, wq_anon_cpumask_show, wq_anon_cpumask_store);
+
 static struct bus_type wq_subsys = {
 	.name				= "workqueue",
 };
 
 static int __init wq_sysfs_init(void)
 {
-	return subsys_virtual_register(&wq_subsys, NULL);
+	struct device *anon_dev;
+	int ret;
+
+	ret = subsys_virtual_register(&wq_subsys, NULL);
+	if (ret < 0)
+		return ret;
+
+	mutex_lock(&wq_unbound_mutex);
+	cpumask_copy(&wq_anon_cpumask, cpu_possible_mask);
+	mutex_unlock(&wq_unbound_mutex);
+
+	anon_dev = kzalloc(sizeof(*anon_dev), GFP_KERNEL);
+	if (!anon_dev)
+		return -ENOMEM;
+
+	anon_dev->bus = &wq_subsys;
+	anon_dev->init_name = "anon_wqs";
+	anon_dev->release = device_release;
+
+	ret = device_register(anon_dev);
+	if (ret) {
+		kfree(anon_dev);
+		return ret;
+	}
+
+	ret = device_create_file(anon_dev, &wq_sysfs_anon_attr);
+	if (ret) {
+		device_unregister(anon_dev);
+		return ret;
+	}
+
+	kobject_uevent(&anon_dev->kobj, KOBJ_ADD);
+
+	return 0;
 }
 core_initcall(wq_sysfs_init);
 
