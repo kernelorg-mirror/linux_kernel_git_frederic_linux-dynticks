@@ -131,6 +131,8 @@ enum {
  *
  * PR: wq_pool_mutex protected for writes.  Sched-RCU protected for reads.
  *
+ * PU: wq_unbound_mutex protected
+ *
  * WQ: wq->mutex protected.
  *
  * WR: wq->mutex protected for writes.  Sched-RCU protected for reads.
@@ -232,6 +234,7 @@ struct wq_device;
 struct workqueue_struct {
 	struct list_head	pwqs;		/* WR: all pwqs of this wq */
 	struct list_head	list;		/* PL: list of all workqueues */
+	struct list_head	unbound_list;	/* PU: list of unbound workqueues */
 
 	struct mutex		mutex;		/* protects this wq */
 	int			work_color;	/* WQ: current work color */
@@ -288,9 +291,11 @@ static bool wq_numa_enabled;		/* unbound NUMA affinity enabled */
 static struct workqueue_attrs *wq_update_unbound_numa_attrs_buf;
 
 static DEFINE_MUTEX(wq_pool_mutex);	/* protects pools and workqueues list */
+static DEFINE_MUTEX(wq_unbound_mutex);	/* protects list of unbound workqueues */
 static DEFINE_SPINLOCK(wq_mayday_lock);	/* protects wq->maydays list */
 
 static LIST_HEAD(workqueues);		/* PL: list of all workqueues */
+static LIST_HEAD(workqueues_unbound);	/* PU: list of unbound workqueues */
 static bool workqueue_freezing;		/* PL: have wqs started freezing? */
 
 /* the per-cpu worker pools */
@@ -4263,6 +4268,12 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,
 
 	mutex_unlock(&wq_pool_mutex);
 
+	if (wq->flags & WQ_UNBOUND) {
+		mutex_lock(&wq_unbound_mutex);
+		list_add(&wq->unbound_list, &workqueues_unbound);
+		mutex_unlock(&wq_unbound_mutex);
+	}
+
 	return wq;
 
 err_free_wq:
@@ -4317,6 +4328,12 @@ void destroy_workqueue(struct workqueue_struct *wq)
 	mutex_lock(&wq_pool_mutex);
 	list_del_init(&wq->list);
 	mutex_unlock(&wq_pool_mutex);
+
+	if (wq->flags & WQ_UNBOUND) {
+		mutex_lock(&wq_unbound_mutex);
+		list_del(&wq->unbound_list);
+		mutex_unlock(&wq_unbound_mutex);
+	}
 
 	workqueue_sysfs_unregister(wq);
 
