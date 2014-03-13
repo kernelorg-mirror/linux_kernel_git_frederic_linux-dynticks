@@ -3133,7 +3133,6 @@ static ssize_t per_cpu_show(struct device *dev, struct device_attribute *attr,
 
 	return scnprintf(buf, PAGE_SIZE, "%d\n", (bool)!(wq->flags & WQ_UNBOUND));
 }
-static DEVICE_ATTR_RO(per_cpu);
 
 static ssize_t max_active_show(struct device *dev,
 			       struct device_attribute *attr, char *buf)
@@ -3156,14 +3155,12 @@ static ssize_t max_active_store(struct device *dev,
 	workqueue_set_max_active(wq, val);
 	return count;
 }
-static DEVICE_ATTR_RW(max_active);
 
-static struct attribute *wq_sysfs_attrs[] = {
-	&dev_attr_per_cpu.attr,
-	&dev_attr_max_active.attr,
-	NULL,
+static struct device_attribute wq_sysfs_default_attrs[] = {
+	__ATTR(per_cpu, 0444, per_cpu_show, NULL),
+	__ATTR(max_active, 0644, max_active_show, max_active_store),
+	__ATTR_NULL,
 };
-ATTRIBUTE_GROUPS(wq_sysfs);
 
 static ssize_t wq_pool_ids_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
@@ -3313,7 +3310,6 @@ static struct device_attribute wq_sysfs_unbound_attrs[] = {
 
 static struct bus_type wq_subsys = {
 	.name				= "workqueue",
-	.dev_groups			= wq_sysfs_groups,
 };
 
 static int __init wq_sysfs_init(void)
@@ -3346,6 +3342,7 @@ static void wq_device_release(struct device *dev)
  */
 int workqueue_sysfs_register(struct workqueue_struct *wq)
 {
+	struct device_attribute *attr;
 	struct wq_device *wq_dev;
 	int ret;
 
@@ -3379,8 +3376,16 @@ int workqueue_sysfs_register(struct workqueue_struct *wq)
 		return ret;
 	}
 
+	for (attr = wq_sysfs_default_attrs; attr->attr.name; attr++) {
+		ret = device_create_file(&wq_dev->dev, attr);
+		if (ret) {
+			device_unregister(&wq_dev->dev);
+			wq->wq_dev = NULL;
+			return ret;
+		}
+	}
+
 	if (wq->flags & WQ_UNBOUND) {
-		struct device_attribute *attr;
 
 		for (attr = wq_sysfs_unbound_attrs; attr->attr.name; attr++) {
 			ret = device_create_file(&wq_dev->dev, attr);
