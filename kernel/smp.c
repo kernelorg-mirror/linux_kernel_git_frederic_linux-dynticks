@@ -265,6 +265,50 @@ int smp_call_function_single_async(int cpu, struct call_single_data *csd)
 }
 EXPORT_SYMBOL_GPL(smp_call_function_single_async);
 
+void generic_smp_queue_function_single_interrupt(void *info)
+{
+	struct queue_single_data *qsd = info;
+
+	WARN_ON_ONCE(xchg(&qsd->pending, 0) != 1);
+	qsd->func(qsd);
+}
+
+/**
+ * smp_queue_function_single - Queue an asynchronous function to run on a
+ * 				specific CPU unless it's already pending.
+ * @func: The function to run. This must be fast and non-blocking.
+ * @qsd: The data contained in the interested object if any
+ *
+ * Like smp_call_function_single_async() but the call to @func is serialized
+ * and won't be queued if it is already pending. In the latter case, ordering
+ * is still guaranteed such that the pending call will sees the new data we
+ * expect it to.
+ *
+ * This must not be called on offline CPUs.
+ *
+ * Returns 0 when @func is successfully queued or already pending, else a negative
+ * status code.
+ */
+int smp_queue_function_single(int cpu, smp_queue_func_t func, struct queue_single_data *qsd)
+{
+	int err;
+
+	if (cmpxchg(&qsd->pending, 0, 1))
+		return 0;
+
+	qsd->func = func;
+
+	preempt_disable();
+	err = generic_exec_single(cpu, &qsd->data, generic_smp_queue_function_single_interrupt, qsd, 0);
+	preempt_enable();
+
+	/* Reset is case of error. This must not be called on offline CPUs */
+	if (err)
+		qsd->pending = 0;
+
+	return err;
+}
+
 /*
  * smp_call_function_any - Run a function on any of the given cpus
  * @mask: The mask of cpus it can run on.
