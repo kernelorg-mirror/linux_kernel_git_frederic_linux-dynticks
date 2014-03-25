@@ -3330,10 +3330,60 @@ static ssize_t wq_anon_cpumask_show(struct device *dev,
 	return written;
 }
 
-/* Must be called with wq_unbound_mutex held */
-static int wq_anon_cpumask_set(cpumask_var_t cpumask)
+static int wq_ordered_cpumask_set(struct workqueue_struct *wq, cpumask_var_t cpumask)
+{
+	struct pool_workqueue *pwq;
+	struct worker_pool *pool;
+	struct worker *worker;
+	int ret;
+	int wi;
+
+	mutex_lock(&wq_pool_mutex);
+	pwq = list_first_entry(&wq->pwqs, typeof(*pwq), pwqs_node);
+	pool = pwq->pool;
+
+	mutex_lock(&pool->manager_mutex);
+	for_each_pool_worker(worker, wi, pool) {
+		/* CHECKME: Should we hold pool->lock here? */
+		ret = set_cpus_allowed_ptr(worker->task, cpumask);
+		if (ret)
+			break;
+	}
+	if (!ret) {
+		cpumask_copy(pool->attrs->cpumask, cpumask);
+	}
+	mutex_unlock(&pool->manager_mutex);
+
+	if (!ret) {
+		mutex_lock(&wq->mutex);
+		cpumask_copy(wq->unbound_attrs->cpumask, cpumask);
+		mutex_unlock(&wq->mutex);
+	}
+
+	mutex_unlock(&wq_pool_mutex);
+
+	return ret;
+}
+
+static int wq_anon_cpumask_set(struct workqueue_struct *wq, cpumask_var_t cpumask)
 {
 	struct workqueue_attrs *attrs;
+	int ret;
+
+	attrs = wq_sysfs_prep_attrs(wq);
+	if (!attrs)
+		return -ENOMEM;
+
+	cpumask_copy(attrs->cpumask, cpumask);
+	ret = apply_workqueue_attrs(wq, attrs);
+	free_workqueue_attrs(attrs);
+
+	return ret;
+}
+
+/* Must be called with wq_unbound_mutex held */
+static int wq_anon_cpumask_set_all(cpumask_var_t cpumask)
+{
 	struct workqueue_struct *wq;
 	int ret;
 
@@ -3343,15 +3393,9 @@ static int wq_anon_cpumask_set(cpumask_var_t cpumask)
 			continue;
 		/* Ordered workqueues need specific treatment */
 		if (wq->flags & __WQ_ORDERED)
-			continue;
-
-		attrs = wq_sysfs_prep_attrs(wq);
-		if (!attrs)
-			return -ENOMEM;
-
-		cpumask_copy(attrs->cpumask, cpumask);
-		ret = apply_workqueue_attrs(wq, attrs);
-		free_workqueue_attrs(attrs);
+			ret = wq_ordered_cpumask_set(wq, cpumask);
+		else
+			ret = wq_anon_cpumask_set(wq, cpumask);
 		if (ret)
 			break;
 	}
@@ -3376,7 +3420,7 @@ static ssize_t wq_anon_cpumask_store(struct device *dev,
 	get_online_cpus();
 	if (cpumask_intersects(cpumask, cpu_online_mask)) {
 		mutex_lock(&wq_unbound_mutex);
-		ret = wq_anon_cpumask_set(cpumask);
+		ret = wq_anon_cpumask_set_all(cpumask);
 		if (!ret)
 			cpumask_copy(&wq_anon_cpumask, cpumask);
 		mutex_unlock(&wq_unbound_mutex);
