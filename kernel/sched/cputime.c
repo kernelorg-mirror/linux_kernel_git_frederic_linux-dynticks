@@ -281,11 +281,11 @@ static __always_inline bool steal_account_process_tick(void)
 
 /*
  * Accumulate raw cputime values of dead tasks (sig->[us]time) and live
- * tasks (sum on group iteration) belonging to @tsk's group.
+ * tasks (sum on group iteration) belonging to @p's group.
  */
-void thread_group_cputime(struct task_struct *tsk, struct task_cputime *times)
+void thread_group_cputime(struct task_struct *p, struct task_cputime *times)
 {
-	struct signal_struct *sig = tsk->signal;
+	struct signal_struct *sig = p->signal;
 	cputime_t utime, stime;
 	struct task_struct *t;
 
@@ -295,16 +295,15 @@ void thread_group_cputime(struct task_struct *tsk, struct task_cputime *times)
 
 	rcu_read_lock();
 	/* make sure we can trust tsk->thread_group list */
-	if (!likely(pid_alive(tsk)))
+	if (!likely(pid_alive(p)))
 		goto out;
 
-	t = tsk;
-	do {
+	for_each_thread(p, t) {
 		task_cputime(t, &utime, &stime);
 		times->utime += utime;
 		times->stime += stime;
 		times->sum_exec_runtime += task_sched_runtime(t);
-	} while_each_thread(tsk, t);
+	}
 out:
 	rcu_read_unlock();
 }
