@@ -3508,24 +3508,9 @@ static struct pool_workqueue *numa_pwq_tbl_install(struct workqueue_struct *wq,
 	return old_pwq;
 }
 
-/**
- * apply_workqueue_attrs - apply new workqueue_attrs to an unbound workqueue
- * @wq: the target workqueue
- * @attrs: the workqueue_attrs to apply, allocated with alloc_workqueue_attrs()
- *
- * Apply @attrs to an unbound workqueue @wq.  Unless disabled, on NUMA
- * machines, this function maps a separate pwq to each NUMA node with
- * possibles CPUs in @attrs->cpumask so that work items are affine to the
- * NUMA node it was issued on.  Older pwqs are released as in-flight work
- * items finish.  Note that a work item which repeatedly requeues itself
- * back-to-back will stay on its current pwq.
- *
- * Performs GFP_KERNEL allocations.
- *
- * Return: 0 on success and -errno on failure.
- */
-int apply_workqueue_attrs(struct workqueue_struct *wq,
-			  const struct workqueue_attrs *attrs)
+static int apply_workqueue_attrs_locked(struct workqueue_struct *wq,
+					const struct workqueue_attrs *attrs,
+					cpumask_var_t unbounds_cpumask)
 {
 	struct workqueue_attrs *new_attrs, *tmp_attrs;
 	struct pool_workqueue **pwq_tbl, *dfl_pwq;
@@ -3547,7 +3532,7 @@ int apply_workqueue_attrs(struct workqueue_struct *wq,
 
 	/* make a copy of @attrs and sanitize it */
 	copy_workqueue_attrs(new_attrs, attrs);
-	cpumask_and(new_attrs->cpumask, new_attrs->cpumask, wq_unbound_cpumask);
+	cpumask_and(new_attrs->cpumask, new_attrs->cpumask, unbounds_cpumask);
 
 	/*
 	 * We may create multiple pwqs with differing cpumasks.  Make a
@@ -3555,15 +3540,6 @@ int apply_workqueue_attrs(struct workqueue_struct *wq,
 	 * pools.
 	 */
 	copy_workqueue_attrs(tmp_attrs, new_attrs);
-
-	/*
-	 * CPUs should stay stable across pwq creations and installations.
-	 * Pin CPUs, determine the target cpumask for each node and create
-	 * pwqs accordingly.
-	 */
-	get_online_cpus();
-
-	mutex_lock(&wq_pool_mutex);
 
 	/*
 	 * If something goes wrong during CPU up/down, we'll fall back to
@@ -3585,8 +3561,6 @@ int apply_workqueue_attrs(struct workqueue_struct *wq,
 		}
 	}
 
-	mutex_unlock(&wq_pool_mutex);
-
 	/* all pwqs have been created successfully, let's install'em */
 	mutex_lock(&wq->mutex);
 
@@ -3607,7 +3581,6 @@ int apply_workqueue_attrs(struct workqueue_struct *wq,
 		put_pwq_unlocked(pwq_tbl[node]);
 	put_pwq_unlocked(dfl_pwq);
 
-	put_online_cpus();
 	ret = 0;
 	/* fall through */
 out_free:
@@ -3621,12 +3594,50 @@ enomem_pwq:
 	for_each_node(node)
 		if (pwq_tbl && pwq_tbl[node] != dfl_pwq)
 			free_unbound_pwq(pwq_tbl[node]);
-	mutex_unlock(&wq_pool_mutex);
-	put_online_cpus();
 enomem:
 	ret = -ENOMEM;
 	goto out_free;
 }
+
+/**
+ * apply_workqueue_attrs - apply new workqueue_attrs to an unbound workqueue
+ * @wq: the target workqueue
+ * @attrs: the workqueue_attrs to apply, allocated with alloc_workqueue_attrs()
+ *
+ * Apply @attrs to an unbound workqueue @wq.  Unless disabled, on NUMA
+ * machines, this function maps a separate pwq to each NUMA node with
+ * possibles CPUs in @attrs->cpumask so that work items are affine to the
+ * NUMA node it was issued on.  Older pwqs are released as in-flight work
+ * items finish.  Note that a work item which repeatedly requeues itself
+ * back-to-back will stay on its current pwq.
+ *
+ * Performs GFP_KERNEL allocations.
+ *
+ * Return: 0 on success and -errno on failure.
+ */
+int apply_workqueue_attrs(struct workqueue_struct *wq,
+			  const struct workqueue_attrs *attrs)
+{
+	int ret;
+
+	/*
+	 * CPUs should stay stable across pwq creations and installations.
+	 * Pin CPUs, determine the target cpumask for each node and create
+	 * pwqs accordingly.
+	 */
+
+	get_online_cpus();
+	/*
+	 * Lock for alloc_unbound_pwq()
+	 */
+	mutex_lock(&wq_pool_mutex);
+	ret = apply_workqueue_attrs_locked(wq, attrs, wq_unbound_cpumask);
+	mutex_unlock(&wq_pool_mutex);
+	put_online_cpus();
+
+	return ret;
+}
+
 
 /**
  * wq_update_unbound_numa - update NUMA affinity of a wq for CPU hot[un]plug
