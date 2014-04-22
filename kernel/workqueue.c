@@ -293,7 +293,7 @@ static DEFINE_SPINLOCK(wq_mayday_lock);	/* protects wq->maydays list */
 static LIST_HEAD(workqueues);		/* PL: list of all workqueues */
 static bool workqueue_freezing;		/* PL: have wqs started freezing? */
 
-static cpumask_var_t wq_unbound_cpumask;
+static cpumask_var_t wq_unbound_cpumask; /* PL: low level cpumask for all unbound wqs */
 
 /* the per-cpu worker pools */
 static DEFINE_PER_CPU_SHARED_ALIGNED(struct worker_pool [NR_STD_WORKER_POOLS],
@@ -3325,19 +3325,78 @@ static struct bus_type wq_subsys = {
 	.dev_groups			= wq_sysfs_groups,
 };
 
+static int apply_workqueue_attrs_locked(struct workqueue_struct *wq,
+					const struct workqueue_attrs *attrs);
+
+/* Must be called with wq_unbound_mutex held */
+static int unbounds_cpumask_apply_all(cpumask_var_t cpumask)
+{
+	struct workqueue_struct *wq;
+
+	list_for_each_entry(wq, &workqueues, list) {
+		struct workqueue_attrs *attrs;
+
+		if (!(wq->flags & WQ_UNBOUND))
+			continue;
+		/* Ordered workqueues need specific treatment */
+		if (wq->flags & __WQ_ORDERED)
+			continue;
+
+		attrs = wq_sysfs_prep_attrs(wq);
+		if (!attrs)
+			return -ENOMEM;
+
+		WARN_ON_ONCE(apply_workqueue_attrs_locked(wq, attrs));
+		free_workqueue_attrs(attrs);
+	}
+
+	return 0;
+}
+
+static ssize_t unbounds_cpumask_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	cpumask_var_t cpumask;
+	int ret = -EINVAL;
+
+	if (!zalloc_cpumask_var(&cpumask, GFP_KERNEL))
+		return -ENOMEM;
+
+	ret = cpumask_parse(buf, cpumask);
+	if (ret)
+		goto out;
+
+	get_online_cpus();
+	if (cpumask_intersects(cpumask, cpu_online_mask)) {
+		mutex_lock(&wq_pool_mutex);
+		cpumask_copy(wq_unbound_cpumask, cpumask);
+		ret = unbounds_cpumask_apply_all(cpumask);
+		mutex_unlock(&wq_pool_mutex);
+	}
+	put_online_cpus();
+out:
+	free_cpumask_var(cpumask);
+	return ret ? ret : count;
+}
+
 static ssize_t unbounds_cpumask_show(struct device *dev,
 				     struct device_attribute *attr, char *buf)
 {
 	int written;
 
+	mutex_lock(&wq_pool_mutex);
 	written = cpumask_scnprintf(buf, PAGE_SIZE, wq_unbound_cpumask);
+	mutex_unlock(&wq_pool_mutex);
+
 	written += scnprintf(buf + written, PAGE_SIZE - written, "\n");
 
 	return written;
 }
 
 static struct device_attribute wq_sysfs_cpumask_attr =
-	__ATTR(cpumask_unbounds, 0444, unbounds_cpumask_show, NULL);
+	__ATTR(cpumask_unbounds, 0644, unbounds_cpumask_show,
+	       unbounds_cpumask_store);
 
 static int __init wq_sysfs_init(void)
 {
