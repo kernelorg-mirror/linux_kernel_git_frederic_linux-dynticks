@@ -3328,26 +3328,84 @@ static struct bus_type wq_subsys = {
 static int apply_workqueue_attrs_locked(struct workqueue_struct *wq,
 					const struct workqueue_attrs *attrs);
 
+static int unbounds_cpumask_apply_ordered(struct workqueue_struct *wq,
+					  cpumask_var_t cpumask)
+{
+	struct pool_workqueue *pwq;
+	struct worker_pool *pool;
+	struct worker *worker;
+	int ret = 0;
+	int wi;
+
+	/* Ordered wq have a single pool */
+	pwq = list_first_entry(&wq->pwqs, typeof(*pwq), pwqs_node);
+	pool = pwq->pool;
+
+	mutex_lock(&pool->manager_mutex);
+	/* There is a single worker on that pool, but the iterator is convenient */
+	for_each_pool_worker(worker, wi, pool) {
+		ret = set_cpus_allowed_ptr(worker->task, cpumask);
+		if (ret)
+			goto fail;
+	}
+
+	cpumask_copy(pool->attrs->cpumask, cpumask);
+	mutex_unlock(&pool->manager_mutex);
+
+	mutex_lock(&wq->mutex);
+	cpumask_copy(wq->unbound_attrs->cpumask, cpumask);
+	mutex_unlock(&wq->mutex);
+
+	return 0;
+
+fail:
+	mutex_unlock(&pool->manager_mutex);
+	return ret;
+}
+
+static int unbounds_cpumask_apply(struct workqueue_struct *wq,
+				  cpumask_var_t cpumask)
+{
+	struct workqueue_attrs *attrs;
+	int ret;
+
+	attrs = wq_sysfs_prep_attrs(wq);
+	if (!attrs)
+		return -ENOMEM;
+
+	/*
+	 * TODO: this works well when the cpumask is schrinked
+	 * but more plumbing is needed to handle cpumask value
+	 * expansion
+	 */
+	ret = apply_workqueue_attrs_locked(wq, attrs);
+	free_workqueue_attrs(attrs);
+
+	return ret;
+}
+
 /* Must be called with wq_unbound_mutex held */
 static int unbounds_cpumask_apply_all(cpumask_var_t cpumask)
 {
 	struct workqueue_struct *wq;
 
 	list_for_each_entry(wq, &workqueues, list) {
-		struct workqueue_attrs *attrs;
+		int ret;
 
 		if (!(wq->flags & WQ_UNBOUND))
 			continue;
 		/* Ordered workqueues need specific treatment */
 		if (wq->flags & __WQ_ORDERED)
-			continue;
-
-		attrs = wq_sysfs_prep_attrs(wq);
-		if (!attrs)
-			return -ENOMEM;
-
-		WARN_ON_ONCE(apply_workqueue_attrs_locked(wq, attrs));
-		free_workqueue_attrs(attrs);
+			/*
+			 * Calling unbounds_cpumask_apply_ordered() once on
+			 * the first ordered wq we meet should be enough because
+			 * all ordered workqueues all share the same single worker pool.
+			 * But this detail might change in the future
+			 */
+			ret = unbounds_cpumask_apply_ordered(wq, cpumask);
+		else
+			ret = unbounds_cpumask_apply(wq, cpumask);
+		WARN_ON_ONCE(ret);
 	}
 
 	return 0;
