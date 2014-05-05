@@ -248,6 +248,7 @@ struct workqueue_struct {
 	int			saved_max_active; /* WQ: saved pwq max_active */
 
 	struct workqueue_attrs	*unbound_attrs;	/* WQ: only for unbound wqs */
+	cpumask_var_t		saved_cpumask;	/* WQ: only for unbound wqs */
 	struct pool_workqueue	*dfl_pwq;	/* WQ: only for unbound wqs */
 
 #ifdef CONFIG_SYSFS
@@ -3694,6 +3695,7 @@ static int apply_workqueue_attrs_locked(struct workqueue_struct *wq,
 	mutex_lock(&wq->mutex);
 
 	copy_workqueue_attrs(wq->unbound_attrs, new_attrs);
+	cpumask_copy(wq->saved_cpumask, attrs->cpumask);
 
 	/* save the previous pwq and install the new one */
 	for_each_node(node)
@@ -4326,6 +4328,11 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,
 		wq->unbound_attrs = alloc_workqueue_attrs(GFP_KERNEL);
 		if (!wq->unbound_attrs)
 			goto err_free_wq;
+
+		if (!alloc_cpumask_var(&wq->saved_cpumask, GFP_KERNEL))
+			goto err_free_wq;
+
+		cpumask_copy(wq->saved_cpumask, cpu_possible_mask);
 	}
 
 	va_start(args, lock_name);
@@ -4397,6 +4404,7 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,
 	return wq;
 
 err_free_wq:
+	free_cpumask_var(wq->saved_cpumask);
 	free_workqueue_attrs(wq->unbound_attrs);
 	kfree(wq);
 	return NULL;
