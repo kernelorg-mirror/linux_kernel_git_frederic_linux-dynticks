@@ -55,12 +55,37 @@ void __weak arch_irq_work_raise(int cpu)
 	 */
 }
 
+static void irq_work_queue_raise(struct irq_work *work,
+				 struct llist_head *head, int cpu)
+{
+	if (llist_add(&work->llnode, head))
+		arch_irq_work_raise(cpu);
+}
+
+#ifdef CONFIG_HAVE_IRQ_WORK_IPI
 /*
  * Enqueue the irq_work @entry unless it's already pending
  * somewhere.
  *
  * Can be re-enqueued while the callback is still in progress.
  */
+bool irq_work_queue_on(struct irq_work *work, int cpu)
+{
+	/* Only queue if not already pending */
+	if (!irq_work_claim(work))
+		return false;
+
+	/* All work should have been flushed before going offline */
+	WARN_ON_ONCE(cpu_is_offline(cpu));
+	WARN_ON_ONCE(work->flags & IRQ_WORK_LAZY);
+
+	irq_work_queue_raise(work, &per_cpu(raised_list, cpu), cpu);
+
+	return true;
+}
+EXPORT_SYMBOL_GPL(irq_work_queue_on);
+#endif /* #endif CONFIG_HAVE_IRQ_WORK_IPI */
+
 bool irq_work_queue(struct irq_work *work)
 {
 	unsigned long flags;
@@ -78,8 +103,8 @@ bool irq_work_queue(struct irq_work *work)
 	 * for the next tick.
 	 */
 	if (!(work->flags & IRQ_WORK_LAZY) || tick_nohz_tick_stopped()) {
-		if (llist_add(&work->llnode, &__get_cpu_var(raised_list)))
-			arch_irq_work_raise(smp_processor_id());
+		irq_work_queue_raise(work, &__get_cpu_var(raised_list),
+				     smp_processor_id());
 	} else {
 		llist_add(&work->llnode, &__get_cpu_var(lazy_list));
 	}
