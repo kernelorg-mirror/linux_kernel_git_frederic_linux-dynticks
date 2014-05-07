@@ -66,6 +66,23 @@ bool __weak arch_irq_work_can_raise(void)
  *
  * Can be re-enqueued while the callback is still in progress.
  */
+bool irq_work_queue_on(struct irq_work *work, int cpu)
+{
+	/* Only queue if not already pending */
+	if (!irq_work_claim(work))
+		return false;
+
+	/* All work should have been flushed before going offline */
+	WARN_ON_ONCE(cpu_is_offline(cpu));
+	WARN_ON_ONCE(work->flags & IRQ_WORK_LAZY);
+
+	if (llist_add(&work->llnode, &per_cpu(raised_list, cpu)))
+		native_send_call_func_single_ipi(cpu);
+
+	return true;
+}
+EXPORT_SYMBOL_GPL(irq_work_queue_on);
+
 bool irq_work_queue(struct irq_work *work)
 {
 	unsigned long flags;
