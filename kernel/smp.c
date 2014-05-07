@@ -3,6 +3,7 @@
  *
  * (C) Jens Axboe <jens.axboe@oracle.com> 2008
  */
+#include <linux/irq_work.h>
 #include <linux/rcupdate.h>
 #include <linux/rculist.h>
 #include <linux/kernel.h>
@@ -198,6 +199,9 @@ void generic_smp_call_function_single_interrupt(void)
 		csd->func(csd->info);
 		csd_unlock(csd);
 	}
+
+	/* Handle irq works queued remotely by irq_work_queue_on() */
+	irq_work_run();
 }
 
 /*
