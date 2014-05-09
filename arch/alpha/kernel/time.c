@@ -60,8 +60,9 @@ DEFINE_PER_CPU(u8, irq_work_pending);
 #define test_irq_work_pending()      __get_cpu_var(irq_work_pending)
 #define clear_irq_work_pending()     __get_cpu_var(irq_work_pending) = 0
 
-void arch_irq_work_raise(void)
+void arch_irq_work_raise(int cpu)
 {
+	WARN_ON_ONCE(cpu != smp_processor_id());
 	set_irq_work_pending_flag();
 }
 

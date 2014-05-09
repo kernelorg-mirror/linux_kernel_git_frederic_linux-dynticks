@@ -38,13 +38,7 @@ __visible void smp_trace_irq_work_interrupt(struct pt_regs *regs)
 	exiting_irq();
 }
 
-void arch_irq_work_raise(void)
+void arch_irq_work_raise(int cpu)
 {
-#ifdef CONFIG_X86_LOCAL_APIC
-	if (!cpu_has_apic)
-		return;
-
-	apic->send_IPI_self(IRQ_WORK_VECTOR);
-	apic_wait_icr_idle();
-#endif
+	apic->send_IPI_mask(cpumask_of(cpu), IRQ_WORK_VECTOR);
 }

@@ -464,9 +464,10 @@ DEFINE_PER_CPU(u8, irq_work_pending);
 
 #endif /* 32 vs 64 bit */
 
-void arch_irq_work_raise(void)
+void arch_irq_work_raise(int cpu)
 {
 	preempt_disable();
+	WARN_ON_ONCE(cpu != smp_processor_id());
 	set_irq_work_pending_flag();
 	set_dec(1);
 	preempt_enable();

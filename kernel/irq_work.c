@@ -48,7 +48,7 @@ static bool irq_work_claim(struct irq_work *work)
 	return true;
 }
 
-void __weak arch_irq_work_raise(void)
+void __weak arch_irq_work_raise(int cpu)
 {
 	/*
 	 * Lame architectures will get the timer tick callback
@@ -79,7 +79,7 @@ bool irq_work_queue(struct irq_work *work)
 	 */
 	if (!(work->flags & IRQ_WORK_LAZY) || tick_nohz_tick_stopped()) {
 		if (!this_cpu_cmpxchg(irq_work_raised, 0, 1))
-			arch_irq_work_raise();
+			arch_irq_work_raise(smp_processor_id());
 	}
 
 	preempt_enable();

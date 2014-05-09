@@ -43,8 +43,9 @@ void __irq_entry deferred_pcr_work_irq(int irq, struct pt_regs *regs)
 	set_irq_regs(old_regs);
 }
 
-void arch_irq_work_raise(void)
+void arch_irq_work_raise(int cpu)
 {
+	WARN_ON_ONCE(cpu != smp_processor_id());
 	set_softint(1 << PIL_DEFERRED_PCR_WORK);
 }
 

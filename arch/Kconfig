@@ -472,6 +472,18 @@ config HAVE_IRQ_EXIT_ON_IRQ_STACK
 	  This spares a stack switch and improves cache usage on softirq
 	  processing.
 
+config HAVE_IRQ_WORK_IPI
+	bool
+	help
+	  Architecture supports raising irq work interrupts both locally and
+	  remotely. Without this capability, we can only trigger local irq works
+	  loosely handled by the generic timer tick with the bad implications
+	  coming along: the irq work is subject to HZ latency and it runs under
+	  the tick random locking scenario (possibly holding hrtimer lock).
+
+	  This capability is required on configs running with a very minimized
+	  tick rate like full dynticks.
+
 #
 # ABI hall of shame
 #
