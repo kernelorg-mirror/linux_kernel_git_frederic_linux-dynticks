@@ -19,8 +19,8 @@
 #include <asm/processor.h>
 
 
-static DEFINE_PER_CPU(struct llist_head, irq_work_list);
-static DEFINE_PER_CPU(int, irq_work_raised);
+static DEFINE_PER_CPU(struct llist_head, lazy_list);
+static DEFINE_PER_CPU(struct llist_head, raised_list);
 
 /*
  * Claim the entry so that no one else will poke at it.
@@ -63,14 +63,14 @@ void __weak arch_irq_work_raise(int cpu)
  */
 bool irq_work_queue(struct irq_work *work)
 {
+	unsigned long flags;
+
 	/* Only queue if not already pending */
 	if (!irq_work_claim(work))
 		return false;
 
 	/* Queue the entry and raise the IPI if needed. */
-	preempt_disable();
-
-	llist_add(&work->llnode, &__get_cpu_var(irq_work_list));
+	local_irq_save(flags);
 
 	/*
 	 * If the work is not "lazy" or the tick is stopped, raise the irq
@@ -78,11 +78,13 @@ bool irq_work_queue(struct irq_work *work)
 	 * for the next tick.
 	 */
 	if (!(work->flags & IRQ_WORK_LAZY) || tick_nohz_tick_stopped()) {
-		if (!this_cpu_cmpxchg(irq_work_raised, 0, 1))
+		if (llist_add(&work->llnode, &__get_cpu_var(raised_list)))
 			arch_irq_work_raise(smp_processor_id());
+	} else {
+		llist_add(&work->llnode, &__get_cpu_var(lazy_list));
 	}
 
-	preempt_enable();
+	local_irq_restore(flags);
 
 	return true;
 }
@@ -90,10 +92,7 @@ EXPORT_SYMBOL_GPL(irq_work_queue);
 
 bool irq_work_needs_cpu(void)
 {
-	struct llist_head *this_list;
-
-	this_list = &__get_cpu_var(irq_work_list);
-	if (llist_empty(this_list))
+	if (llist_empty(&__get_cpu_var(lazy_list)))
 		return false;
 
 	/* All work should have been flushed before going offline */
@@ -102,28 +101,18 @@ bool irq_work_needs_cpu(void)
 	return true;
 }
 
-static void __irq_work_run(void)
+static void __irq_work_run(struct llist_head *list)
 {
 	unsigned long flags;
 	struct irq_work *work;
-	struct llist_head *this_list;
 	struct llist_node *llnode;
 
-
-	/*
-	 * Reset the "raised" state right before we check the list because
-	 * an NMI may enqueue after we find the list empty from the runner.
-	 */
-	__this_cpu_write(irq_work_raised, 0);
-	barrier();
-
-	this_list = &__get_cpu_var(irq_work_list);
-	if (llist_empty(this_list))
+	if (llist_empty(list))
 		return;
 
 	BUG_ON(!irqs_disabled());
 
-	llnode = llist_del_all(this_list);
+	llnode = llist_del_all(list);
 	while (llnode != NULL) {
 		work = llist_entry(llnode, struct irq_work, llnode);
 
@@ -155,9 +144,25 @@ static void __irq_work_run(void)
 void irq_work_run(void)
 {
 	BUG_ON(!in_irq());
-	__irq_work_run();
+	__irq_work_run(&__get_cpu_var(raised_list));
+	__irq_work_run(&__get_cpu_var(lazy_list));
 }
 EXPORT_SYMBOL_GPL(irq_work_run);
+
+/*
+ * Run the lazy irq_work entries on this cpu from the tick. But let
+ * the IPI handle the others. Some works may require to work outside
+ * the tick due to its locking dependencies (hrtimer lock).
+ */
+void irq_work_run_tick(void)
+{
+	BUG_ON(!in_irq());
+#ifndef CONFIG_HAVE_IRQ_WORK_IPI
+	/* No IPI support, we don't have the choice... */
+	__irq_work_run(&__get_cpu_var(raised_list));
+#endif
+	__irq_work_run(&__get_cpu_var(lazy_list));
+}
 
 /*
  * Synchronize against the irq_work @entry, ensures the entry is not
@@ -183,7 +188,8 @@ static int irq_work_cpu_notify(struct notifier_block *self,
 		/* Called from stop_machine */
 		if (WARN_ON_ONCE(cpu != smp_processor_id()))
 			break;
-		__irq_work_run();
+		__irq_work_run(&__get_cpu_var(raised_list));
+		__irq_work_run(&__get_cpu_var(lazy_list));
 		break;
 	default:
 		break;
