@@ -459,6 +459,11 @@ void arch_irq_work_raise(void)
 	if (is_smp())
 		smp_cross_call(cpumask_of(smp_processor_id()), IPI_IRQ_WORK);
 }
+
+bool arch_irq_work_can_raise(void)
+{
+	return is_smp();
+}
 #endif
 
 static const char *ipi_types[NR_IPI] = {

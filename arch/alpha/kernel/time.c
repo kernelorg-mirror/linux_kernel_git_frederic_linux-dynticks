@@ -65,6 +65,11 @@ void arch_irq_work_raise(void)
 	set_irq_work_pending_flag();
 }
 
+bool arch_irq_work_can_raise(void)
+{
+	return true;
+}
+
 #else  /* CONFIG_IRQ_WORK */
 
 #define test_irq_work_pending()      0

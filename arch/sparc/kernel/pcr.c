@@ -48,6 +48,11 @@ void arch_irq_work_raise(void)
 	set_softint(1 << PIL_DEFERRED_PCR_WORK);
 }
 
+bool arch_irq_work_can_raise(void)
+{
+	return true;
+}
+
 const struct pcr_ops *pcr_ops;
 EXPORT_SYMBOL_GPL(pcr_ops);
 

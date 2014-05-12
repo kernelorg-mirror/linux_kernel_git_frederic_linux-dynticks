@@ -55,6 +55,11 @@ void __weak arch_irq_work_raise(void)
 	 */
 }
 
+bool __weak arch_irq_work_can_raise(void)
+{
+	return false;
+}
+
 /*
  * Enqueue the irq_work @entry unless it's already pending
  * somewhere.

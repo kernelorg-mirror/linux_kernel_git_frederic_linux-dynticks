@@ -472,6 +472,11 @@ void arch_irq_work_raise(void)
 	preempt_enable();
 }
 
+bool arch_irq_work_can_raise(void)
+{
+	return true;
+}
+
 #else  /* CONFIG_IRQ_WORK */
 
 #define test_irq_work_pending()	0

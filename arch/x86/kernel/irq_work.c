@@ -48,3 +48,10 @@ void arch_irq_work_raise(void)
 	apic_wait_icr_idle();
 #endif
 }
+
+#ifdef CONFIG_X86_LOCAL_APIC
+bool arch_irq_work_can_raise(void)
+{
+	return cpu_has_apic;
+}
+#endif
