@@ -88,10 +88,7 @@ EXPORT_SYMBOL_GPL(irq_work_queue);
 
 bool irq_work_needs_cpu(void)
 {
-	struct llist_head *list;
-
-	list = &__get_cpu_var(lazy_list);
-	if (llist_empty(list))
+	if (llist_empty(&__get_cpu_var(lazy_list)))
 		return false;
 
 	/* All work should have been flushed before going offline */
