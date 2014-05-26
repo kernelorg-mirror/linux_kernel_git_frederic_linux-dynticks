@@ -10,6 +10,7 @@ extern seqlock_t jiffies_lock;
 
 #ifdef CONFIG_GENERIC_CLOCKEVENTS_BUILD
 
+#define TICK_DO_TIMER_DEFAULT	0
 #define TICK_DO_TIMER_NONE	-1
 #define TICK_DO_TIMER_BOOT	-2
 
