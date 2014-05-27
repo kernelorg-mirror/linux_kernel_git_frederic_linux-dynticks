@@ -547,8 +547,10 @@ static u64 timekeeping_deferment(struct tick_sched *ts, int cpu)
 
 	if (tick_do_timer_cpu == cpu) {
 		time_delta = timekeeping_max_deferment();
-		tick_do_timer_cpu = TICK_DO_TIMER_NONE;
 		ts->do_timer_last = 1;
+		/* In full dynticks mode, CPU 0 always keeps the duty */
+		if (!tick_nohz_full_enabled())
+			tick_do_timer_cpu = TICK_DO_TIMER_NONE;
 	} else if (ts->do_timer_last) {
 		if (tick_do_timer_cpu == TICK_DO_TIMER_NONE)
 			time_delta = timekeeping_max_deferment();
@@ -745,7 +747,7 @@ static bool can_stop_idle_tick(int cpu, struct tick_sched *ts)
 		 * if there are full dynticks CPUs around
 		 */
 		if (tick_do_timer_cpu == cpu)
-			return false;
+			return rcu_sys_is_idle();
 	}
 
 	return true;
