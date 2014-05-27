@@ -123,7 +123,7 @@ static void tick_sched_do_timer(ktime_t now)
 	 */
 	if (unlikely(tick_do_timer_cpu == TICK_DO_TIMER_NONE)
 	    && !tick_nohz_full_cpu(cpu))
-		tick_do_timer_cpu = cpu;
+		tick_do_timer_cpu_set(cpu);
 #endif
 
 	/* Check, if the jiffies need an update */
@@ -550,7 +550,7 @@ static u64 timekeeping_deferment(struct tick_sched *ts, int cpu)
 		ts->do_timer_last = 1;
 		/* In full dynticks mode, CPU 0 always keeps the duty */
 		if (!tick_nohz_full_enabled())
-			tick_do_timer_cpu = TICK_DO_TIMER_NONE;
+			tick_do_timer_cpu_set(TICK_DO_TIMER_NONE);
 	} else if (ts->do_timer_last) {
 		if (tick_do_timer_cpu == TICK_DO_TIMER_NONE)
 			time_delta = timekeeping_max_deferment();
@@ -600,7 +600,6 @@ static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 	/* Schedule the tick, if we are at least one jiffie off */
 	if ((long)delta_jiffies >= 1) {
 		u64 time_delta = timekeeping_deferment(ts, cpu);
-
 #ifdef CONFIG_NO_HZ_FULL
 		if (!ts->inidle) {
 			time_delta = min(time_delta,
@@ -717,7 +716,7 @@ static bool can_stop_idle_tick(int cpu, struct tick_sched *ts)
 	 */
 	if (unlikely(!cpu_online(cpu))) {
 		if (cpu == tick_do_timer_cpu)
-			tick_do_timer_cpu = TICK_DO_TIMER_NONE;
+			tick_do_timer_cpu_set(TICK_DO_TIMER_NONE);
 		return false;
 	}
 
