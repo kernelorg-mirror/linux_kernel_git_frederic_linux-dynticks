@@ -23,6 +23,13 @@ extern void tick_setup_periodic(struct clock_event_device *dev, int broadcast);
 extern void tick_handle_periodic(struct clock_event_device *dev);
 extern void tick_check_new_device(struct clock_event_device *dev);
 extern void tick_handover_do_timer(int *cpup);
+
+static inline void tick_do_timer_cpu_set(int cpu)
+{
+	WARN_ON_ONCE(tick_nohz_full_enabled() && cpu != TICK_DO_TIMER_DEFAULT);
+	tick_do_timer_cpu = cpu;
+}
+
 extern void tick_shutdown(unsigned int *cpup);
 extern void tick_suspend(void);
 extern void tick_resume(void);

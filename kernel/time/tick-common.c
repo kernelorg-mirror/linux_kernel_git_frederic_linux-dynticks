@@ -180,9 +180,9 @@ static void tick_setup_device(struct tick_device *td,
 		 */
 		if (tick_do_timer_cpu == TICK_DO_TIMER_BOOT) {
 			if (tick_nohz_full_enabled())
-				tick_do_timer_cpu = TICK_DO_TIMER_DEFAULT;
+				tick_do_timer_cpu_set(TICK_DO_TIMER_DEFAULT);
 			else
-				tick_do_timer_cpu = cpu;
+				tick_do_timer_cpu_set(cpu);
 			tick_next_period = ktime_get();
 			tick_period = ktime_set(0, NSEC_PER_SEC / HZ);
 		}
@@ -341,9 +341,8 @@ void tick_handover_do_timer(int *cpup)
 {
 	if (*cpup == tick_do_timer_cpu) {
 		int cpu = cpumask_first(cpu_online_mask);
-
-		tick_do_timer_cpu = (cpu < nr_cpu_ids) ? cpu :
-			TICK_DO_TIMER_NONE;
+		tick_do_timer_cpu_set((cpu < nr_cpu_ids) ? cpu :
+				      TICK_DO_TIMER_NONE);
 	}
 }
 
