@@ -529,6 +529,36 @@ u64 get_cpu_iowait_time_us(int cpu, u64 *last_update_time)
 }
 EXPORT_SYMBOL_GPL(get_cpu_iowait_time_us);
 
+/*
+ * If this cpu is the one which updates jiffies, then
+ * give up the assignment and let it be taken by the
+ * cpu which runs the tick timer next, which might be
+ * this cpu as well. If we don't drop this here the
+ * jiffies might be stale and do_timer() never
+ * invoked. Keep track of the fact that it was the one
+ * which had the do_timer() duty last. If this cpu is
+ * the one which had the do_timer() duty last, we
+ * limit the sleep time to the timekeeping max deferement
+ * value. Otherwise we can sleep as long as we want.
+ */
+static u64 timekeeping_deferment(struct tick_sched *ts, int cpu)
+{
+	u64 time_delta = KTIME_MAX;
+
+	if (tick_do_timer_cpu == cpu) {
+		time_delta = timekeeping_max_deferment();
+		tick_do_timer_cpu = TICK_DO_TIMER_NONE;
+		ts->do_timer_last = 1;
+	} else if (ts->do_timer_last) {
+		if (tick_do_timer_cpu == TICK_DO_TIMER_NONE)
+			time_delta = timekeeping_max_deferment();
+		else
+			ts->do_timer_last = 0;
+	}
+
+	return time_delta;
+}
+
 static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 					 ktime_t now, int cpu)
 {
@@ -536,9 +566,6 @@ static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 	ktime_t last_update, expires, ret = { .tv64 = 0 };
 	unsigned long rcu_delta_jiffies;
 	struct clock_event_device *dev = __get_cpu_var(tick_cpu_device).evtdev;
-	u64 time_delta;
-
-	time_delta = timekeeping_max_deferment();
 
 	/* Read jiffies and the time when jiffies were updated last */
 	do {
@@ -570,29 +597,7 @@ static ktime_t tick_nohz_stop_sched_tick(struct tick_sched *ts,
 
 	/* Schedule the tick, if we are at least one jiffie off */
 	if ((long)delta_jiffies >= 1) {
-
-		/*
-		 * If this cpu is the one which updates jiffies, then
-		 * give up the assignment and let it be taken by the
-		 * cpu which runs the tick timer next, which might be
-		 * this cpu as well. If we don't drop this here the
-		 * jiffies might be stale and do_timer() never
-		 * invoked. Keep track of the fact that it was the one
-		 * which had the do_timer() duty last. If this cpu is
-		 * the one which had the do_timer() duty last, we
-		 * limit the sleep time to the timekeeping
-		 * max_deferement value which we retrieved
-		 * above. Otherwise we can sleep as long as we want.
-		 */
-		if (cpu == tick_do_timer_cpu) {
-			tick_do_timer_cpu = TICK_DO_TIMER_NONE;
-			ts->do_timer_last = 1;
-		} else if (tick_do_timer_cpu != TICK_DO_TIMER_NONE) {
-			time_delta = KTIME_MAX;
-			ts->do_timer_last = 0;
-		} else if (!ts->do_timer_last) {
-			time_delta = KTIME_MAX;
-		}
+		u64 time_delta = timekeeping_deferment(ts, cpu);
 
 #ifdef CONFIG_NO_HZ_FULL
 		if (!ts->inidle) {
