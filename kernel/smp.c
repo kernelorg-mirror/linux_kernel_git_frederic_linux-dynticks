@@ -184,11 +184,19 @@ static int generic_exec_single(int cpu, struct call_single_data *csd,
  */
 void generic_smp_call_function_single_interrupt(void)
 {
+	struct llist_head *head = &__get_cpu_var(call_single_queue);
 	struct llist_node *entry;
 	struct call_single_data *csd, *csd_next;
 	static bool warned;
 
-	entry = llist_del_all(&__get_cpu_var(call_single_queue));
+	/*
+	 * Fast check: in case of irq work remote queue, the IPI list
+	 * is likely empty. We can spare the expensive llist_del_all().
+	 */
+	if (llist_empty(head))
+		goto irq_work;
+
+	entry = llist_del_all(head);
 	entry = llist_reverse_order(entry);
 
 	/*
@@ -212,6 +220,7 @@ void generic_smp_call_function_single_interrupt(void)
 		csd_unlock(csd);
 	}
 
+irq_work:
 	/*
 	 * Handle irq works queued remotely by irq_work_queue_on().
 	 * Smp functions above are typically synchronous so they
