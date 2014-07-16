@@ -658,3 +658,24 @@ void kick_all_cpus_sync(void)
 	smp_call_function(do_nothing, NULL, 1);
 }
 EXPORT_SYMBOL_GPL(kick_all_cpus_sync);
+
+/**
+ * kick_cpu_async(): Run a void IRQ on the target
+ * @cpu: The cpu to run the IRQ on
+ *
+ * Run a void IRQ for its own sake on the target. It's generally
+ * useful for callers which want to run irq_enter() or irq_exit()
+ * on a remote CPU.
+ */
+void kick_cpu_async(int cpu)
+{
+	/*
+	 * NOTE: we could optimize that and spare some IPIs
+	 * after checking that call_single_queue isn't empty before raising.
+	 * This can't be done properly without cmpxchg() though so
+	 * it may make things worse after all. But lets leave that
+	 * possibility open in case people report such issue in the
+	 * future.
+	 */
+	arch_send_call_function_single_ipi(cpu);
+}
