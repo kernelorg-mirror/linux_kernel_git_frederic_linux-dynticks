@@ -81,6 +81,27 @@ bool irq_work_queue_on(struct irq_work *work, int cpu)
 	return true;
 }
 EXPORT_SYMBOL_GPL(irq_work_queue_on);
+
+/**
+ * irq_work_void_on(): Run a void IRQ on the target
+ * @cpu: The cpu to run the IRQ on
+ *
+ * Run a void IRQ for its own sake on the target. It's generally
+ * useful for callers which want to run irq_enter() or irq_exit()
+ * on a remote CPU.
+ */
+void irq_work_void_on(int cpu)
+{
+	/*
+	 * NOTE: we could optimize that and spare some IPIs
+	 * after checking that raised_list isn't empty before raising.
+	 * This can't be done properly without cmpxchg() though so
+	 * it may make things worse after all. But lets leave that
+	 * possibility open in case people report such issue in the
+	 * future.
+	 */
+	arch_send_call_function_single_ipi(cpu);
+}
 #endif
 
 /* Enqueue the irq work @work on the current CPU */

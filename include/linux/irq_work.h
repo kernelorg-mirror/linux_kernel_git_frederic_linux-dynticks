@@ -36,6 +36,7 @@ bool irq_work_queue(struct irq_work *work);
 
 #ifdef CONFIG_SMP
 bool irq_work_queue_on(struct irq_work *work, int cpu);
+void irq_work_void_on(int cpu);
 #endif
 
 void irq_work_run(void);
