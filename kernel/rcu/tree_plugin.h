@@ -2494,7 +2494,7 @@ void rcu_sysidle_force_exit(void)
 				      oldstate, RCU_SYSIDLE_NOT);
 		if (oldstate == newoldstate &&
 		    oldstate == RCU_SYSIDLE_FULL_NOTED) {
-			rcu_kick_nohz_cpu(tick_do_timer_cpu);
+			wake_up_nohz_cpu(tick_do_timer_cpu);
 			return; /* We cleared it, done! */
 		}
 		oldstate = newoldstate;
