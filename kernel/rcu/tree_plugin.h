@@ -2401,14 +2401,16 @@ static bool init_nocb_callback_list(struct rcu_data *rdp)
  * off.  RCU will be paying attention to this CPU because it is in the
  * kernel, but the CPU cannot be guaranteed to be executing the RCU state
  * machine because the scheduling-clock tick has been disabled.  Therefore,
- * if an adaptive-ticks CPU is failing to respond to the current grace
- * period and has not be idle from an RCU perspective, kick it.
+ * if an full dynticks CPU is failing to respond to the current grace
+ * period and has not be idle from an RCU perspective, kick it with a
+ * void IRQ so that it can check that RCU needs its tick from rcu_needs_cpu()
+ * on irq exit.
  */
 static void rcu_kick_nohz_cpu(int cpu)
 {
 #ifdef CONFIG_NO_HZ_FULL
 	if (tick_nohz_full_cpu(cpu))
-		smp_send_reschedule(cpu);
+		irq_work_void_on(cpu);
 #endif /* #ifdef CONFIG_NO_HZ_FULL */
 }
 
