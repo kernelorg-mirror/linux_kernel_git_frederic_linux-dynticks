@@ -92,20 +92,12 @@ void dbs_check_cpu(struct dbs_data *dbs_data, int cpu)
 
 		if (ignore_nice) {
 			u64 cur_nice;
-			unsigned long cur_nice_jiffies;
 
 			cur_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE] -
-					 cdbs->prev_cpu_nice;
-			/*
-			 * Assumption: nice time between sampling periods will
-			 * be less than 2^32 jiffies for 32 bit sys
-			 */
-			cur_nice_jiffies = (unsigned long)
-					cputime64_to_jiffies64(cur_nice);
+				  cdbs->prev_cpu_nice;
 
-			cdbs->prev_cpu_nice =
-				kcpustat_cpu(j).cpustat[CPUTIME_NICE];
-			idle_time += jiffies_to_usecs(cur_nice_jiffies);
+			cdbs->prev_cpu_nice = kcpustat_cpu(j).cpustat[CPUTIME_NICE];
+			idle_time += div_u64(cur_nice, NSEC_PER_USEC);
 		}
 
 		if (unlikely(!wall_time || wall_time < idle_time))

@@ -76,7 +76,7 @@ void irqtime_account_irq(struct task_struct *curr)
 }
 EXPORT_SYMBOL_GPL(irqtime_account_irq);
 
-static int irqtime_account_hi_update(void)
+static int irqtime_account_hi_update(u64 threshold)
 {
 	u64 *cpustat = kcpustat_this_cpu->cpustat;
 	unsigned long flags;
@@ -85,13 +85,13 @@ static int irqtime_account_hi_update(void)
 
 	local_irq_save(flags);
 	latest_ns = this_cpu_read(cpu_hardirq_time);
-	if (nsecs_to_cputime64(latest_ns) > cpustat[CPUTIME_IRQ])
+	if (latest_ns - cpustat[CPUTIME_IRQ] > threshold)
 		ret = 1;
 	local_irq_restore(flags);
 	return ret;
 }
 
-static int irqtime_account_si_update(void)
+static int irqtime_account_si_update(u64 threshold)
 {
 	u64 *cpustat = kcpustat_this_cpu->cpustat;
 	unsigned long flags;
@@ -100,7 +100,7 @@ static int irqtime_account_si_update(void)
 
 	local_irq_save(flags);
 	latest_ns = this_cpu_read(cpu_softirq_time);
-	if (nsecs_to_cputime64(latest_ns) > cpustat[CPUTIME_SOFTIRQ])
+	if (latest_ns - cpustat[CPUTIME_SOFTIRQ] > threshold)
 		ret = 1;
 	local_irq_restore(flags);
 	return ret;
@@ -145,7 +145,7 @@ void account_user_time(struct task_struct *p, cputime_t cputime,
 	index = (task_nice(p) > 0) ? CPUTIME_NICE : CPUTIME_USER;
 
 	/* Add user time to cpustat. */
-	task_group_account_field(p, index, (__force u64) cputime);
+	task_group_account_field(p, index, cputime_to_nsecs(cputime));
 
 	/* Account for user time used */
 	acct_account_cputime(p);
@@ -170,11 +170,11 @@ static void account_guest_time(struct task_struct *p, cputime_t cputime,
 
 	/* Add guest time to cpustat. */
 	if (task_nice(p) > 0) {
-		cpustat[CPUTIME_NICE] += (__force u64) cputime;
-		cpustat[CPUTIME_GUEST_NICE] += (__force u64) cputime;
+		cpustat[CPUTIME_NICE] += cputime_to_nsecs(cputime);
+		cpustat[CPUTIME_GUEST_NICE] += cputime_to_nsecs(cputime);
 	} else {
-		cpustat[CPUTIME_USER] += (__force u64) cputime;
-		cpustat[CPUTIME_GUEST] += (__force u64) cputime;
+		cpustat[CPUTIME_USER] += cputime_to_nsecs(cputime);
+		cpustat[CPUTIME_GUEST] += cputime_to_nsecs(cputime);
 	}
 }
 
@@ -195,7 +195,7 @@ void __account_system_time(struct task_struct *p, cputime_t cputime,
 	account_group_system_time(p, cputime);
 
 	/* Add system time to cpustat. */
-	task_group_account_field(p, index, (__force u64) cputime);
+	task_group_account_field(p, index, cputime_to_nsecs(cputime));
 
 	/* Account for system time used */
 	acct_account_cputime(p);
@@ -236,7 +236,7 @@ void account_steal_time(cputime_t cputime)
 {
 	u64 *cpustat = kcpustat_this_cpu->cpustat;
 
-	cpustat[CPUTIME_STEAL] += (__force u64) cputime;
+	cpustat[CPUTIME_STEAL] += cputime_to_nsecs(cputime);
 }
 
 /*
@@ -249,9 +249,9 @@ void account_idle_time(cputime_t cputime)
 	struct rq *rq = this_rq();
 
 	if (atomic_read(&rq->nr_iowait) > 0)
-		cpustat[CPUTIME_IOWAIT] += (__force u64) cputime;
+		cpustat[CPUTIME_IOWAIT] += cputime_to_nsecs(cputime);
 	else
-		cpustat[CPUTIME_IDLE] += (__force u64) cputime;
+		cpustat[CPUTIME_IDLE] += cputime_to_nsecs(cputime);
 }
 
 static __always_inline bool steal_account_process_tick(void)
@@ -341,6 +341,7 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 {
 	cputime_t scaled = cputime_to_scaled(cputime_one_jiffy);
 	u64 cputime = (__force u64) cputime_one_jiffy;
+	u64 nsec = cputime_to_nsecs(cputime); //TODO: make that build time
 	u64 *cpustat = kcpustat_this_cpu->cpustat;
 
 	if (steal_account_process_tick())
@@ -349,10 +350,10 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 	cputime *= ticks;
 	scaled *= ticks;
 
-	if (irqtime_account_hi_update()) {
-		cpustat[CPUTIME_IRQ] += cputime;
-	} else if (irqtime_account_si_update()) {
-		cpustat[CPUTIME_SOFTIRQ] += cputime;
+	if (irqtime_account_hi_update(nsec)) {
+		cpustat[CPUTIME_IRQ] += nsec;
+	} else if (irqtime_account_si_update(nsec)) {
+		cpustat[CPUTIME_SOFTIRQ] += nsec;
 	} else if (this_cpu_ksoftirqd() == p) {
 		/*
 		 * ksoftirqd time do not get accounted in cpu_softirq_time.
