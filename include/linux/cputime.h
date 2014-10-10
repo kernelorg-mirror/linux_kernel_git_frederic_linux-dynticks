@@ -13,4 +13,14 @@
 	usecs_to_cputime((__nsecs) / NSEC_PER_USEC)
 #endif
 
+#ifndef nsecs_to_cputime
+# define nsecs_to_cputime(__nsecs)	\
+	usecs_to_cputime((__nsecs) / NSEC_PER_USEC)
+#endif
+
+#ifndef nsecs_to_cputime64
+# define nsecs_to_cputime64(__nsecs)	\
+	((__force cputime64_t) nsecs_to_cputime(__nsecs))
+#endif
+
 #endif /* __LINUX_CPUTIME_H */
