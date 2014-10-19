@@ -59,6 +59,11 @@ static inline cputime64_t jiffies64_to_cputime64(const u64 jif)
 	return (__force cputime64_t)(jif * (CPUTIME_PER_SEC / HZ));
 }
 
+static inline u64 cputime64_to_nsecs(cputime64_t cputime)
+{
+	return (__force u64)cputime * CPUTIME_PER_USEC * NSEC_PER_USEC;
+}
+
 /*
  * Convert cputime to microseconds and back.
  */
