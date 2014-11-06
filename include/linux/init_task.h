@@ -50,7 +50,7 @@ extern struct fs_struct init_fs;
 	.cpu_timers	= INIT_CPU_TIMERS(sig.cpu_timers),		\
 	.rlim		= INIT_RLIMITS,					\
 	.cputimer	= { 						\
-		.cputime = INIT_CPUTIME,				\
+		.cputime = INIT_CPUTIME_T,				\
 		.running = 0,						\
 		.lock = __RAW_SPIN_LOCK_UNLOCKED(sig.cputimer.lock),	\
 	},								\

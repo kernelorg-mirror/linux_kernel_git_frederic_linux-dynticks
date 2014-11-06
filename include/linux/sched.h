@@ -511,6 +511,14 @@ struct task_cputime {
 	cputime_t stime;
 	unsigned long long sum_exec_runtime;
 };
+
+/* Temporary type to ease cputime_t to nsecs conversion */
+struct task_cputime_t {
+	cputime_t utime;
+	cputime_t stime;
+	unsigned long long sum_exec_runtime;
+};
+
 /* Alternate field names when used to cache expirations. */
 #define prof_exp	stime
 #define virt_exp	utime
@@ -518,6 +526,13 @@ struct task_cputime {
 
 #define INIT_CPUTIME	\
 	(struct task_cputime) {					\
+		.utime = 0,					\
+		.stime = 0,					\
+		.sum_exec_runtime = 0,				\
+	}
+
+#define INIT_CPUTIME_T	\
+	(struct task_cputime_t) {				\
 		.utime = 0,					\
 		.stime = 0,					\
 		.sum_exec_runtime = 0,				\
@@ -549,7 +564,7 @@ struct task_cputime {
  * used for thread group CPU timer calculations.
  */
 struct thread_group_cputimer {
-	struct task_cputime cputime;
+	struct task_cputime_t cputime;
 	int running;
 	raw_spinlock_t lock;
 };
@@ -627,7 +642,7 @@ struct signal_struct {
 	struct thread_group_cputimer cputimer;
 
 	/* Earliest-expiration cache. */
-	struct task_cputime cputime_expires;
+	struct task_cputime_t cputime_expires;
 
 	struct list_head cpu_timers[3];
 
@@ -1385,7 +1400,7 @@ struct task_struct {
 /* mm fault and swap info: this can arguably be seen as either mm-specific or thread-specific */
 	unsigned long min_flt, maj_flt;
 
-	struct task_cputime cputime_expires;
+	struct task_cputime_t cputime_expires;
 	struct list_head cpu_timers[3];
 
 /* process credentials */
@@ -1892,6 +1907,20 @@ static inline u64 task_gtime(struct task_struct *t)
 	return t->gtime;
 }
 #endif
+
+static inline void task_cputime_t(struct task_struct *t,
+				  cputime_t *utime, cputime_t *stime)
+{
+	task_cputime(t, utime, stime);
+}
+
+static inline void task_cputime_t_scaled(struct task_struct *t,
+					 cputime_t *utimescaled,
+					 cputime_t *stimescaled)
+{
+	task_cputime_scaled(t, utimescaled, stimescaled);
+}
+
 extern void task_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime_t *st);
 extern void thread_group_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime_t *st);
 
@@ -2892,7 +2921,13 @@ static __always_inline bool need_resched(void)
  * Thread group CPU time accounting.
  */
 void thread_group_cputime(struct task_struct *tsk, struct task_cputime *times);
-void thread_group_cputimer(struct task_struct *tsk, struct task_cputime *times);
+void thread_group_cputimer(struct task_struct *tsk, struct task_cputime_t *times);
+
+static inline void thread_group_cputime_t(struct task_struct *tsk,
+					  struct task_cputime_t *times)
+{
+	thread_group_cputime(tsk, (struct task_cputime *)times);
+}
 
 static inline void thread_group_cputime_init(struct signal_struct *sig)
 {
