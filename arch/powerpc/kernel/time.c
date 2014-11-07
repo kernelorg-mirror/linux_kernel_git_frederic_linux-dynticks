@@ -359,7 +359,7 @@ void vtime_account_system(struct task_struct *tsk)
 
 	delta = vtime_delta(tsk, &sys_scaled, &stolen);
 	account_system_time(tsk, 0, delta);
-	tsk->stimescaled += sys_scaled;
+	tsk->stimescaled += cputime_to_nsecs(sys_scaled);
 	if (stolen)
 		account_steal_time(stolen);
 }
@@ -393,7 +393,7 @@ void vtime_account_user(struct task_struct *tsk)
 	acct->user_time_scaled = 0;
 	acct->utime_sspurr = 0;
 	account_user_time(tsk, utime);
-	tsk->utimescaled += utimescaled;
+	tsk->utimescaled += cputime_to_nsecs(utimescaled);
 }
 
 #ifdef CONFIG_PPC32
