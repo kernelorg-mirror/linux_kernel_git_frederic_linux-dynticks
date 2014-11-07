@@ -23,4 +23,16 @@
 	((__force cputime64_t) nsecs_to_cputime(__nsecs))
 #endif
 
+#ifndef nsecs_to_scaled
+static inline u64 nsecs_to_scaled(u64 nsecs)
+{
+	cputime_t cputime, scaled;
+
+	cputime = nsecs_to_cputime(nsecs);
+	scaled = cputime_to_scaled(cputime);
+
+	return cputime_to_nsecs(scaled);
+}
+#endif
+
 #endif /* __LINUX_CPUTIME_H */

@@ -138,8 +138,8 @@ void account_user_time(struct task_struct *p, cputime_t cputime,
 	int index;
 
 	/* Add user time to process. */
-	p->utime += cputime;
-	p->utimescaled += cputime_scaled;
+	p->utime += cputime_to_nsecs(cputime);
+	p->utimescaled += cputime_to_nsecs(cputime_scaled);
 	account_group_user_time(p, cputime);
 
 	index = (task_nice(p) > 0) ? CPUTIME_NICE : CPUTIME_USER;
@@ -163,10 +163,10 @@ static void account_guest_time(struct task_struct *p, cputime_t cputime,
 	u64 *cpustat = kcpustat_this_cpu->cpustat;
 
 	/* Add guest time to process. */
-	p->utime += cputime;
-	p->utimescaled += cputime_scaled;
+	p->utime += cputime_to_nsecs(cputime);
+	p->utimescaled += cputime_to_nsecs(cputime_scaled);
 	account_group_user_time(p, cputime);
-	p->gtime += cptime_to_nsecs(cputime);
+	p->gtime += cputime_to_nsecs(cputime);
 
 	/* Add guest time to cpustat. */
 	if (task_nice(p) > 0) {
@@ -190,8 +190,8 @@ void __account_system_time(struct task_struct *p, cputime_t cputime,
 			cputime_t cputime_scaled, int index)
 {
 	/* Add system time to process. */
-	p->stime += cputime;
-	p->stimescaled += cputime_scaled;
+	p->stime += cputime_to_nsecs(cputime);
+	p->stimescaled += cputime_to_nsecs(cputime_scaled);
 	account_group_system_time(p, cputime);
 
 	/* Add system time to cpustat. */
@@ -286,7 +286,7 @@ static __always_inline bool steal_account_process_tick(void)
 void thread_group_cputime(struct task_struct *tsk, struct task_cputime *times)
 {
 	struct signal_struct *sig = tsk->signal;
-	cputime_t utime, stime;
+	u64 utime, stime;
 	struct task_struct *t;
 	unsigned int seq, nextseq;
 	unsigned long flags;
@@ -440,13 +440,13 @@ EXPORT_SYMBOL_GPL(vtime_common_account_irq_enter);
 
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
-void task_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime_t *st)
+void task_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st)
 {
 	*ut = p->utime;
 	*st = p->stime;
 }
 
-void thread_group_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime_t *st)
+void thread_group_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st)
 {
 	struct task_cputime cputime;
 
@@ -515,7 +515,7 @@ void account_idle_ticks(unsigned long ticks)
  * Perform (stime * rtime) / total, but avoid multiplication overflow by
  * loosing precision when the numbers are big.
  */
-static cputime_t scale_stime(u64 stime, u64 rtime, u64 total)
+static u64 scale_stime(u64 stime, u64 rtime, u64 total)
 {
 	u64 scaled;
 
@@ -552,7 +552,7 @@ drop_precision:
 	 * followed by a 64/32->64 divide.
 	 */
 	scaled = div_u64((u64) (u32) stime * (u64) (u32) rtime, (u32)total);
-	return (__force cputime_t) scaled;
+	return scaled;
 }
 
 /*
@@ -564,12 +564,12 @@ drop_precision:
  * Normally a caller will only go through this loop once, or not
  * at all in case a previous caller updated counter the same jiffy.
  */
-static void cputime_advance(cputime_t *counter, cputime_t new)
+static void cputime_advance(u64 *counter, u64 new)
 {
-	cputime_t old;
+	u64 old;
 
 	while (new > (old = ACCESS_ONCE(*counter)))
-		cmpxchg_cputime(counter, old, new);
+		cmpxchg64(counter, old, new);
 }
 
 /*
@@ -578,9 +578,9 @@ static void cputime_advance(cputime_t *counter, cputime_t new)
  */
 static void cputime_adjust(struct task_cputime *curr,
 			   struct cputime *prev,
-			   cputime_t *ut, cputime_t *st)
+			   u64 *ut, u64 *st)
 {
-	cputime_t rtime, stime, utime;
+	u64 rtime, stime, utime;
 
 	/*
 	 * Tick based cputime accounting depend on random scheduling
@@ -592,7 +592,7 @@ static void cputime_adjust(struct task_cputime *curr,
 	 * Fix this by scaling these tick based values against the total
 	 * runtime accounted by the CFS scheduler.
 	 */
-	rtime = nsecs_to_cputime(curr->sum_exec_runtime);
+	rtime = curr->sum_exec_runtime;
 
 	/*
 	 * Update userspace visible utime/stime values only if actual execution
@@ -610,10 +610,9 @@ static void cputime_adjust(struct task_cputime *curr,
 	} else if (stime == 0) {
 		utime = rtime;
 	} else {
-		cputime_t total = stime + utime;
+		u64 total = stime + utime;
 
-		stime = scale_stime((__force u64)stime,
-				    (__force u64)rtime, (__force u64)total);
+		stime = scale_stime(stime, rtime, total);
 		utime = rtime - stime;
 	}
 
@@ -625,7 +624,7 @@ out:
 	*st = prev->stime;
 }
 
-void task_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime_t *st)
+void task_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st)
 {
 	struct task_cputime cputime = {
 		.sum_exec_runtime = p->se.sum_exec_runtime,
@@ -635,7 +634,7 @@ void task_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime_t *st)
 	cputime_adjust(&cputime, &p->prev_cputime, ut, st);
 }
 
-void thread_group_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime_t *st)
+void thread_group_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st)
 {
 	struct task_cputime cputime;
 
@@ -787,9 +786,9 @@ u64 task_gtime(struct task_struct *t)
  */
 static void
 fetch_task_cputime(struct task_struct *t,
-		   cputime_t *u_dst, cputime_t *s_dst,
-		   cputime_t *u_src, cputime_t *s_src,
-		   cputime_t *udelta, cputime_t *sdelta)
+		   u64 *u_dst, u64 *s_dst,
+		   u64 *u_src, u64 *s_src,
+		   u64 *udelta, u64 *sdelta)
 {
 	unsigned int seq;
 	unsigned long long delta;
@@ -826,9 +825,9 @@ fetch_task_cputime(struct task_struct *t,
 }
 
 
-void task_cputime(struct task_struct *t, cputime_t *utime, cputime_t *stime)
+void task_cputime(struct task_struct *t, u64 *utime, u64 *stime)
 {
-	cputime_t udelta, sdelta;
+	u64 udelta, sdelta;
 
 	fetch_task_cputime(t, utime, stime, &t->utime,
 			   &t->stime, &udelta, &sdelta);
@@ -839,15 +838,15 @@ void task_cputime(struct task_struct *t, cputime_t *utime, cputime_t *stime)
 }
 
 void task_cputime_scaled(struct task_struct *t,
-			 cputime_t *utimescaled, cputime_t *stimescaled)
+			 u64 *utimescaled, u64 *stimescaled)
 {
-	cputime_t udelta, sdelta;
+	u64 udelta, sdelta;
 
 	fetch_task_cputime(t, utimescaled, stimescaled,
 			   &t->utimescaled, &t->stimescaled, &udelta, &sdelta);
 	if (utimescaled)
-		*utimescaled += cputime_to_scaled(udelta);
+		*utimescaled += nsecs_to_scaled(udelta);
 	if (stimescaled)
-		*stimescaled += cputime_to_scaled(sdelta);
+		*stimescaled += nsecs_to_scaled(sdelta);
 }
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING_GEN */

@@ -385,6 +385,7 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 	unsigned long  min_flt = 0,  maj_flt = 0;
 	cputime_t cutime, cstime, utime, stime;
 	u64 cgtime, gtime;
+	u64 nutime, nstime;
 	unsigned long rsslim = 0;
 	char tcomm[sizeof(task->comm)];
 	unsigned long flags;
@@ -439,7 +440,9 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 
 			min_flt += sig->min_flt;
 			maj_flt += sig->maj_flt;
-			thread_group_cputime_adjusted(task, &utime, &stime);
+			thread_group_cputime_adjusted(task, &nutime, &nstime);
+			utime = nsecs_to_cputime(nutime);
+			stime = nsecs_to_cputime(nstime);
 			gtime += sig->gtime;
 		}
 
@@ -455,7 +458,9 @@ static int do_task_stat(struct seq_file *m, struct pid_namespace *ns,
 	if (!whole) {
 		min_flt = task->min_flt;
 		maj_flt = task->maj_flt;
-		task_cputime_adjusted(task, &utime, &stime);
+		task_cputime_adjusted(task, &nutime, &nstime);
+		utime = nsecs_to_cputime(nutime);
+		stime = nsecs_to_cputime(nstime);
 		gtime = task_gtime(task);
 	}
 

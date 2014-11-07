@@ -488,8 +488,8 @@ struct cpu_itimer {
  * Gathers a generic snapshot of user and system time.
  */
 struct cputime {
-	cputime_t utime;
-	cputime_t stime;
+	u64 utime;
+	u64 stime;
 };
 
 /**
@@ -507,8 +507,8 @@ struct cputime {
  * of them in parallel.
  */
 struct task_cputime {
-	cputime_t utime;
-	cputime_t stime;
+	u64 utime;
+	u64 stime;
 	unsigned long long sum_exec_runtime;
 };
 
@@ -663,7 +663,7 @@ struct signal_struct {
 	 * in __exit_signal, except for the group leader.
 	 */
 	seqlock_t stats_lock;
-	cputime_t utime, stime, cutime, cstime;
+	u64 utime, stime, cutime, cstime;
 	u64 gtime;
 	u64 cgtime;
 #ifndef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
@@ -1380,7 +1380,7 @@ struct task_struct {
 	int __user *set_child_tid;		/* CLONE_CHILD_SETTID */
 	int __user *clear_child_tid;		/* CLONE_CHILD_CLEARTID */
 
-	cputime_t utime, stime, utimescaled, stimescaled;
+	u64 utime, stime, utimescaled, stimescaled;
 	u64 gtime;
 #ifndef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 	struct cputime prev_cputime;
@@ -1878,13 +1878,13 @@ static inline void put_task_struct(struct task_struct *t)
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
 extern void task_cputime(struct task_struct *t,
-			 cputime_t *utime, cputime_t *stime);
+			 u64 *utime, u64 *stime);
 extern void task_cputime_scaled(struct task_struct *t,
-				cputime_t *utimescaled, cputime_t *stimescaled);
+				u64 *utimescaled, u64 *stimescaled);
 extern u64 task_gtime(struct task_struct *t);
 #else
 static inline void task_cputime(struct task_struct *t,
-				cputime_t *utime, cputime_t *stime)
+				u64 *utime, u64 *stime)
 {
 	if (utime)
 		*utime = t->utime;
@@ -1893,8 +1893,8 @@ static inline void task_cputime(struct task_struct *t,
 }
 
 static inline void task_cputime_scaled(struct task_struct *t,
-				       cputime_t *utimescaled,
-				       cputime_t *stimescaled)
+				       u64 *utimescaled,
+				       u64 *stimescaled)
 {
 	if (utimescaled)
 		*utimescaled = t->utimescaled;
@@ -1911,18 +1911,30 @@ static inline u64 task_gtime(struct task_struct *t)
 static inline void task_cputime_t(struct task_struct *t,
 				  cputime_t *utime, cputime_t *stime)
 {
-	task_cputime(t, utime, stime);
+	u64 ut, st;
+
+	task_cputime(t, &ut, &st);
+	if (utime)
+		*utime = nsecs_to_cputime(ut);
+	if (stime)
+		*stime = nsecs_to_cputime(st);
 }
 
 static inline void task_cputime_t_scaled(struct task_struct *t,
 					 cputime_t *utimescaled,
 					 cputime_t *stimescaled)
 {
-	task_cputime_scaled(t, utimescaled, stimescaled);
+	u64 ut, st;
+
+	task_cputime_scaled(t, &ut, &st);
+	if (utimescaled)
+		*utimescaled = nsecs_to_cputime(ut);
+	if (stimescaled)
+		*stimescaled = nsecs_to_cputime(st);
 }
 
-extern void task_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime_t *st);
-extern void thread_group_cputime_adjusted(struct task_struct *p, cputime_t *ut, cputime_t *st);
+extern void task_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st);
+extern void thread_group_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st);
 
 /*
  * Per process flags
@@ -2924,9 +2936,14 @@ void thread_group_cputime(struct task_struct *tsk, struct task_cputime *times);
 void thread_group_cputimer(struct task_struct *tsk, struct task_cputime_t *times);
 
 static inline void thread_group_cputime_t(struct task_struct *tsk,
-					  struct task_cputime_t *times)
+					  struct task_cputime_t *cputime)
 {
-	thread_group_cputime(tsk, (struct task_cputime *)times);
+	struct task_cputime times;
+
+	thread_group_cputime(tsk, &times);
+	cputime->utime = nsecs_to_cputime(times.utime);
+	cputime->stime = nsecs_to_cputime(times.stime);
+	cputime->sum_exec_runtime = times.sum_exec_runtime;
 }
 
 static inline void thread_group_cputime_init(struct signal_struct *sig)
