@@ -649,8 +649,8 @@ struct signal_struct {
 	 */
 	seqlock_t stats_lock;
 	cputime_t utime, stime, cutime, cstime;
-	cputime_t gtime;
-	cputime_t cgtime;
+	u64 gtime;
+	u64 cgtime;
 #ifndef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 	struct cputime prev_cputime;
 #endif
@@ -1366,7 +1366,7 @@ struct task_struct {
 	int __user *clear_child_tid;		/* CLONE_CHILD_CLEARTID */
 
 	cputime_t utime, stime, utimescaled, stimescaled;
-	cputime_t gtime;
+	u64 gtime;
 #ifndef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 	struct cputime prev_cputime;
 #endif
@@ -1866,7 +1866,7 @@ extern void task_cputime(struct task_struct *t,
 			 cputime_t *utime, cputime_t *stime);
 extern void task_cputime_scaled(struct task_struct *t,
 				cputime_t *utimescaled, cputime_t *stimescaled);
-extern cputime_t task_gtime(struct task_struct *t);
+extern u64 task_gtime(struct task_struct *t);
 #else
 static inline void task_cputime(struct task_struct *t,
 				cputime_t *utime, cputime_t *stime)
@@ -1887,7 +1887,7 @@ static inline void task_cputime_scaled(struct task_struct *t,
 		*stimescaled = t->stimescaled;
 }
 
-static inline cputime_t task_gtime(struct task_struct *t)
+static inline u64 task_gtime(struct task_struct *t)
 {
 	return t->gtime;
 }

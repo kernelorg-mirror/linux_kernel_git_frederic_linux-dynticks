@@ -166,7 +166,7 @@ static void account_guest_time(struct task_struct *p, cputime_t cputime,
 	p->utime += cputime;
 	p->utimescaled += cputime_scaled;
 	account_group_user_time(p, cputime);
-	p->gtime += cputime;
+	p->gtime += cptime_to_nsecs(cputime);
 
 	/* Add guest time to cpustat. */
 	if (task_nice(p) > 0) {
@@ -763,10 +763,10 @@ void vtime_init_idle(struct task_struct *t, int cpu)
 	write_sequnlock_irqrestore(&t->vtime_seqlock, flags);
 }
 
-cputime_t task_gtime(struct task_struct *t)
+u64 task_gtime(struct task_struct *t)
 {
 	unsigned int seq;
-	cputime_t gtime;
+	u64 gtime;
 
 	do {
 		seq = read_seqbegin(&t->vtime_seqlock);
