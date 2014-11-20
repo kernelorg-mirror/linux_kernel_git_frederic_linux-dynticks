@@ -738,4 +738,22 @@ static inline bool in_compat_syscall(void) { return false; }
 
 #endif /* CONFIG_COMPAT */
 
+/**
+ * ns_to_compat_timeval - Compat version of ns_to_timeval
+ * @nsec:	the nanoseconds value to be converted
+ *
+ * Returns the compat_timeval representation of the nsec parameter.
+ */
+static inline struct compat_timeval ns_to_compat_timeval(const s64 nsec)
+{
+	struct timeval tv;
+	struct compat_timeval ctv;
+
+	tv = ns_to_timeval(nsec);
+	ctv.tv_sec = tv.tv_sec;
+	ctv.tv_usec = tv.tv_usec;
+
+	return ctv;
+}
+
 #endif /* _LINUX_COMPAT_H */
