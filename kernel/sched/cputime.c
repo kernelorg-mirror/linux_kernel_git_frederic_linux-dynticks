@@ -40,12 +40,15 @@ void disable_sched_clock_irqtime(void)
  */
 void irqtime_account_irq(struct task_struct *curr)
 {
+	u64 *cpustat;
 	unsigned long flags;
 	s64 delta;
 	int cpu;
 
 	if (!sched_clock_irqtime)
 		return;
+
+	cpustat = kcpustat_this_cpu->cpustat;
 
 	local_irq_save(flags);
 
@@ -60,42 +63,33 @@ void irqtime_account_irq(struct task_struct *curr)
 	 * in that case, so as not to confuse scheduler with a special task
 	 * that do not consume any time, but still wants to run.
 	 */
-	if (hardirq_count())
+	if (hardirq_count()) {
 		__this_cpu_add(cpu_irqtime.hardirq_time, delta);
-	else if (in_serving_softirq() && curr != this_cpu_ksoftirqd())
+		cpustat[CPUTIME_IRQ] += delta;
+		__this_cpu_add(cpu_irqtime.tick_skip, delta);
+	} else if (in_serving_softirq() && curr != this_cpu_ksoftirqd()) {
 		__this_cpu_add(cpu_irqtime.softirq_time, delta);
+		cpustat[CPUTIME_SOFTIRQ] += delta;
+		__this_cpu_add(cpu_irqtime.tick_skip, delta);
+	}
 
 	u64_stats_update_end(this_cpu_ptr(&cpu_irqtime.stats_sync));
 	local_irq_restore(flags);
 }
 EXPORT_SYMBOL_GPL(irqtime_account_irq);
 
-static int irqtime_account_hi_update(u64 threshold)
+static int irqtime_skip_tick(u64 cputime)
 {
-	u64 *cpustat = kcpustat_this_cpu->cpustat;
 	unsigned long flags;
-	u64 latest_ns;
+	u64 skip;
 	int ret = 0;
 
 	local_irq_save(flags);
-	latest_ns = this_cpu_read(cpu_irqtime.hardirq_time);
-	if (latest_ns - cpustat[CPUTIME_IRQ] > threshold)
+	skip = this_cpu_read(cpu_irqtime.tick_skip);
+	if (cputime >= skip) {
+		__this_cpu_sub(cpu_irqtime.tick_skip, cputime);
 		ret = 1;
-	local_irq_restore(flags);
-	return ret;
-}
-
-static int irqtime_account_si_update(u64 threshold)
-{
-	u64 *cpustat = kcpustat_this_cpu->cpustat;
-	unsigned long flags;
-	u64 latest_ns;
-	int ret = 0;
-
-	local_irq_save(flags);
-	latest_ns = this_cpu_read(cpu_irqtime.softirq_time);
-	if (latest_ns - cpustat[CPUTIME_SOFTIRQ] > threshold)
-		ret = 1;
+	}
 	local_irq_restore(flags);
 	return ret;
 }
@@ -336,7 +330,6 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 	cputime_t scaled = cputime_to_scaled(cputime_one_jiffy);
 	u64 cputime = (__force u64) cputime_one_jiffy;
 	u64 nsec = cputime_to_nsecs(cputime); //TODO: make that build time
-	u64 *cpustat = kcpustat_this_cpu->cpustat;
 
 	if (steal_account_process_tick())
 		return;
@@ -344,11 +337,10 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 	cputime *= ticks;
 	scaled *= ticks;
 
-	if (irqtime_account_hi_update(nsec)) {
-		cpustat[CPUTIME_IRQ] += nsec;
-	} else if (irqtime_account_si_update(nsec)) {
-		cpustat[CPUTIME_SOFTIRQ] += nsec;
-	} else if (this_cpu_ksoftirqd() == p) {
+	if (irqtime_skip_tick(nsec))
+		return;
+
+	if (this_cpu_ksoftirqd() == p) {
 		/*
 		 * ksoftirqd time do not get accounted in cpu_softirq_time.
 		 * So, we have to handle it separately here.

@@ -1526,6 +1526,7 @@ struct cpu_irqtime {
 	u64			hardirq_time;
 	u64			softirq_time;
 	u64			irq_start_time;
+	u64			tick_skip;
 	struct u64_stats_sync	stats_sync;
 };
 
