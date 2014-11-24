@@ -1920,19 +1920,6 @@ static inline void task_cputime_t(struct task_struct *t,
 		*stime = nsecs_to_cputime(st);
 }
 
-static inline void task_cputime_t_scaled(struct task_struct *t,
-					 cputime_t *utimescaled,
-					 cputime_t *stimescaled)
-{
-	u64 ut, st;
-
-	task_cputime_scaled(t, &ut, &st);
-	if (utimescaled)
-		*utimescaled = nsecs_to_cputime(ut);
-	if (stimescaled)
-		*stimescaled = nsecs_to_cputime(st);
-}
-
 extern void task_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st);
 extern void thread_group_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st);
 
