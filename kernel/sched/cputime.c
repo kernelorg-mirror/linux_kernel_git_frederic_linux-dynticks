@@ -20,10 +20,8 @@
  * task when irq is in progress while we read rq->clock. That is a worthy
  * compromise in place of having locks on each irq in account_system_time.
  */
-DEFINE_PER_CPU(u64, cpu_hardirq_time);
-DEFINE_PER_CPU(u64, cpu_softirq_time);
+DEFINE_PER_CPU(struct cpu_irqtime, cpu_irqtime);
 
-static DEFINE_PER_CPU(u64, irq_start_time);
 static int sched_clock_irqtime;
 
 void enable_sched_clock_irqtime(void)
@@ -35,10 +33,6 @@ void disable_sched_clock_irqtime(void)
 {
 	sched_clock_irqtime = 0;
 }
-
-#ifndef CONFIG_64BIT
-DEFINE_PER_CPU(seqcount_t, irq_time_seq);
-#endif /* CONFIG_64BIT */
 
 /*
  * Called before incrementing preempt_count on {soft,}irq_enter
@@ -56,10 +50,10 @@ void irqtime_account_irq(struct task_struct *curr)
 	local_irq_save(flags);
 
 	cpu = smp_processor_id();
-	delta = sched_clock_cpu(cpu) - __this_cpu_read(irq_start_time);
-	__this_cpu_add(irq_start_time, delta);
+	delta = sched_clock_cpu(cpu) - __this_cpu_read(cpu_irqtime.irq_start_time);
+	__this_cpu_add(cpu_irqtime.irq_start_time, delta);
 
-	irq_time_write_begin();
+	u64_stats_update_begin(this_cpu_ptr(&cpu_irqtime.stats_sync));
 	/*
 	 * We do not account for softirq time from ksoftirqd here.
 	 * We want to continue accounting softirq time to ksoftirqd thread
@@ -67,11 +61,11 @@ void irqtime_account_irq(struct task_struct *curr)
 	 * that do not consume any time, but still wants to run.
 	 */
 	if (hardirq_count())
-		__this_cpu_add(cpu_hardirq_time, delta);
+		__this_cpu_add(cpu_irqtime.hardirq_time, delta);
 	else if (in_serving_softirq() && curr != this_cpu_ksoftirqd())
-		__this_cpu_add(cpu_softirq_time, delta);
+		__this_cpu_add(cpu_irqtime.softirq_time, delta);
 
-	irq_time_write_end();
+	u64_stats_update_end(this_cpu_ptr(&cpu_irqtime.stats_sync));
 	local_irq_restore(flags);
 }
 EXPORT_SYMBOL_GPL(irqtime_account_irq);
@@ -84,7 +78,7 @@ static int irqtime_account_hi_update(u64 threshold)
 	int ret = 0;
 
 	local_irq_save(flags);
-	latest_ns = this_cpu_read(cpu_hardirq_time);
+	latest_ns = this_cpu_read(cpu_irqtime.hardirq_time);
 	if (latest_ns - cpustat[CPUTIME_IRQ] > threshold)
 		ret = 1;
 	local_irq_restore(flags);
@@ -99,7 +93,7 @@ static int irqtime_account_si_update(u64 threshold)
 	int ret = 0;
 
 	local_irq_save(flags);
-	latest_ns = this_cpu_read(cpu_softirq_time);
+	latest_ns = this_cpu_read(cpu_irqtime.softirq_time);
 	if (latest_ns - cpustat[CPUTIME_SOFTIRQ] > threshold)
 		ret = 1;
 	local_irq_restore(flags);

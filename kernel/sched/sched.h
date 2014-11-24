@@ -8,6 +8,7 @@
 #include <linux/stop_machine.h>
 #include <linux/tick.h>
 #include <linux/slab.h>
+#include <linux/u64_stats_sync.h>
 
 #include "cpupri.h"
 #include "cpudeadline.h"
@@ -1521,49 +1522,27 @@ enum rq_nohz_flag_bits {
 
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
 
-DECLARE_PER_CPU(u64, cpu_hardirq_time);
-DECLARE_PER_CPU(u64, cpu_softirq_time);
+struct cpu_irqtime {
+	u64			hardirq_time;
+	u64			softirq_time;
+	u64			irq_start_time;
+	struct u64_stats_sync	stats_sync;
+};
 
-#ifndef CONFIG_64BIT
-DECLARE_PER_CPU(seqcount_t, irq_time_seq);
+DECLARE_PER_CPU(struct cpu_irqtime, cpu_irqtime);
 
-static inline void irq_time_write_begin(void)
-{
-	__this_cpu_inc(irq_time_seq.sequence);
-	smp_wmb();
-}
-
-static inline void irq_time_write_end(void)
-{
-	smp_wmb();
-	__this_cpu_inc(irq_time_seq.sequence);
-}
-
+/* Must be called with preemption disabled */
 static inline u64 irq_time_read(int cpu)
 {
 	u64 irq_time;
 	unsigned seq;
 
 	do {
-		seq = read_seqcount_begin(&per_cpu(irq_time_seq, cpu));
-		irq_time = per_cpu(cpu_softirq_time, cpu) +
-			   per_cpu(cpu_hardirq_time, cpu);
-	} while (read_seqcount_retry(&per_cpu(irq_time_seq, cpu), seq));
+		seq = __u64_stats_fetch_begin(&per_cpu(cpu_irqtime, cpu).stats_sync);
+		irq_time = per_cpu(cpu_irqtime.softirq_time, cpu) +
+			   per_cpu(cpu_irqtime.hardirq_time, cpu);
+	} while (__u64_stats_fetch_retry(&per_cpu(cpu_irqtime, cpu).stats_sync, seq));
 
 	return irq_time;
 }
-#else /* CONFIG_64BIT */
-static inline void irq_time_write_begin(void)
-{
-}
-
-static inline void irq_time_write_end(void)
-{
-}
-
-static inline u64 irq_time_read(int cpu)
-{
-	return per_cpu(cpu_softirq_time, cpu) + per_cpu(cpu_hardirq_time, cpu);
-}
-#endif /* CONFIG_64BIT */
 #endif /* CONFIG_IRQ_TIME_ACCOUNTING */
