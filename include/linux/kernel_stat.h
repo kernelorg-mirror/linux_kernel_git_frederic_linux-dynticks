@@ -10,6 +10,7 @@
 #include <linux/vtime.h>
 #include <asm/irq.h>
 #include <linux/cputime.h>
+#include <linux/u64_stats_sync.h>
 
 /*
  * 'kernel_stat.h' contains the definitions needed for doing
@@ -33,6 +34,7 @@ enum cpu_usage_stat {
 
 struct kernel_cpustat {
 	u64 cpustat[NR_STATS];
+	struct u64_stats_sync stats_sync;
 };
 
 struct kernel_stat {

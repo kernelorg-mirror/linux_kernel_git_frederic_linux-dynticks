@@ -8,7 +8,7 @@
 #include <linux/stop_machine.h>
 #include <linux/tick.h>
 #include <linux/slab.h>
-#include <linux/u64_stats_sync.h>
+#include <linux/kernel_stat.h>
 
 #include "cpupri.h"
 #include "cpudeadline.h"
@@ -1521,28 +1521,18 @@ enum rq_nohz_flag_bits {
 #endif
 
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
-
-struct cpu_irqtime {
-	u64			hardirq_time;
-	u64			softirq_time;
-	u64			irq_start_time;
-	u64			tick_skip;
-	struct u64_stats_sync	stats_sync;
-};
-
-DECLARE_PER_CPU(struct cpu_irqtime, cpu_irqtime);
-
 /* Must be called with preemption disabled */
 static inline u64 irq_time_read(int cpu)
 {
+	struct kernel_cpustat *kcpustat = &kcpustat_cpu(cpu);
 	u64 irq_time;
 	unsigned seq;
 
 	do {
-		seq = __u64_stats_fetch_begin(&per_cpu(cpu_irqtime, cpu).stats_sync);
-		irq_time = per_cpu(cpu_irqtime.softirq_time, cpu) +
-			   per_cpu(cpu_irqtime.hardirq_time, cpu);
-	} while (__u64_stats_fetch_retry(&per_cpu(cpu_irqtime, cpu).stats_sync, seq));
+		seq = __u64_stats_fetch_begin(&kcpustat->stats_sync);
+		irq_time = kcpustat->cpustat[CPUTIME_SOFTIRQ] +
+			   kcpustat->cpustat[CPUTIME_IRQ];
+	} while (__u64_stats_fetch_retry(&kcpustat->stats_sync, seq));
 
 	return irq_time;
 }

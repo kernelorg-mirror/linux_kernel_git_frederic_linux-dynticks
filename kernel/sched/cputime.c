@@ -8,19 +8,11 @@
 
 
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
-
-/*
- * There are no locks covering percpu hardirq/softirq time.
- * They are only modified in vtime_account, on corresponding CPU
- * with interrupts disabled. So, writes are safe.
- * They are read and saved off onto struct rq in update_rq_clock().
- * This may result in other CPU reading this CPU's irq time and can
- * race with irq/vtime_account on this CPU. We would either get old
- * or new value with a side effect of accounting a slice of irq time to wrong
- * task when irq is in progress while we read rq->clock. That is a worthy
- * compromise in place of having locks on each irq in account_system_time.
- */
-DEFINE_PER_CPU(struct cpu_irqtime, cpu_irqtime);
+struct cpu_irqtime {
+	u64			irq_start_time;
+	u64			tick_skip;
+};
+static DEFINE_PER_CPU(struct cpu_irqtime, cpu_irqtime);
 
 static int sched_clock_irqtime;
 
@@ -35,11 +27,24 @@ void disable_sched_clock_irqtime(void)
 }
 
 /*
+ * There are no locks covering percpu hardirq/softirq time.
+ * They are only modified in vtime_account, on corresponding CPU
+ * with interrupts disabled. So, writes are safe.
+ * They are read and saved off onto struct rq in update_rq_clock().
+ * This may result in other CPU reading this CPU's irq time and can
+ * race with irq/vtime_account on this CPU. We would either get old
+ * or new value with a side effect of accounting a slice of irq time to wrong
+ * task when irq is in progress while we read rq->clock. That is a worthy
+ * compromise in place of having locks on each irq in account_system_time.
+ */
+
+/*
  * Called before incrementing preempt_count on {soft,}irq_enter
  * and before decrementing preempt_count on {soft,}irq_exit.
  */
 void irqtime_account_irq(struct task_struct *curr)
 {
+	struct kernel_cpustat *kcpustat;
 	u64 *cpustat;
 	unsigned long flags;
 	s64 delta;
@@ -48,7 +53,8 @@ void irqtime_account_irq(struct task_struct *curr)
 	if (!sched_clock_irqtime)
 		return;
 
-	cpustat = kcpustat_this_cpu->cpustat;
+	kcpustat = kcpustat_this_cpu;
+	cpustat = kcpustat->cpustat;
 
 	local_irq_save(flags);
 
@@ -56,7 +62,7 @@ void irqtime_account_irq(struct task_struct *curr)
 	delta = sched_clock_cpu(cpu) - __this_cpu_read(cpu_irqtime.irq_start_time);
 	__this_cpu_add(cpu_irqtime.irq_start_time, delta);
 
-	u64_stats_update_begin(this_cpu_ptr(&cpu_irqtime.stats_sync));
+	u64_stats_update_begin(&kcpustat->stats_sync);
 	/*
 	 * We do not account for softirq time from ksoftirqd here.
 	 * We want to continue accounting softirq time to ksoftirqd thread
@@ -64,16 +70,14 @@ void irqtime_account_irq(struct task_struct *curr)
 	 * that do not consume any time, but still wants to run.
 	 */
 	if (hardirq_count()) {
-		__this_cpu_add(cpu_irqtime.hardirq_time, delta);
 		cpustat[CPUTIME_IRQ] += delta;
 		__this_cpu_add(cpu_irqtime.tick_skip, delta);
 	} else if (in_serving_softirq() && curr != this_cpu_ksoftirqd()) {
-		__this_cpu_add(cpu_irqtime.softirq_time, delta);
 		cpustat[CPUTIME_SOFTIRQ] += delta;
 		__this_cpu_add(cpu_irqtime.tick_skip, delta);
 	}
 
-	u64_stats_update_end(this_cpu_ptr(&cpu_irqtime.stats_sync));
+	u64_stats_update_end(&kcpustat->stats_sync);
 	local_irq_restore(flags);
 }
 EXPORT_SYMBOL_GPL(irqtime_account_irq);
