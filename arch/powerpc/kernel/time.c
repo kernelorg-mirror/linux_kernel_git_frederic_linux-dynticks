@@ -344,7 +344,8 @@ void vtime_account_system(struct task_struct *tsk)
 	u64 delta, sys_scaled, stolen;
 
 	delta = vtime_delta(tsk, &sys_scaled, &stolen);
-	account_system_time(tsk, 0, delta, sys_scaled);
+	account_system_time(tsk, 0, cputime_to_nsecs(delta),
+			    cputime_to_nsecs(sys_scaled));
 	if (stolen)
 		account_steal_time(cputime_to_nsecs(stolen));
 }

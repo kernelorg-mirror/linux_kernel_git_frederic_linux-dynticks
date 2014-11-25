@@ -231,7 +231,7 @@ static inline void account_group_user_time(struct task_struct *tsk,
  * running CPU and update the stime field there.
  */
 static inline void account_group_system_time(struct task_struct *tsk,
-					     cputime_t cputime)
+					     u64 cputime)
 {
 	struct thread_group_cputimer *cputimer = &tsk->signal->cputimer;
 
@@ -239,7 +239,7 @@ static inline void account_group_system_time(struct task_struct *tsk,
 		return;
 
 	raw_spin_lock(&cputimer->lock);
-	cputimer->cputime.stime += cputime;
+	cputimer->cputime.stime += nsecs_to_cputime(cputime);
 	raw_spin_unlock(&cputimer->lock);
 }
 

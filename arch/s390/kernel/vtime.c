@@ -86,7 +86,7 @@ static int do_account_vtime(struct task_struct *tsk, int hardirq_offset)
 	S390_lowcore.steal_timer -= system;
 	ti->system_timer = S390_lowcore.system_timer;
 	nsecs = cputime_to_nsecs(system);
-	account_system_time(tsk, hardirq_offset, system, system);
+	account_system_time(tsk, hardirq_offset, nsecs, nsecs);
 
 	steal = S390_lowcore.steal_timer;
 	if ((s64) steal > 0) {
@@ -128,7 +128,7 @@ void vtime_account_user(struct task_struct *tsk)
 void vtime_account_irq_enter(struct task_struct *tsk)
 {
 	struct thread_info *ti = task_thread_info(tsk);
-	u64 timer, system;
+	u64 timer, system, nsecs;
 
 	WARN_ON_ONCE(!irqs_disabled());
 
@@ -139,7 +139,8 @@ void vtime_account_irq_enter(struct task_struct *tsk)
 	system = S390_lowcore.system_timer - ti->system_timer;
 	S390_lowcore.steal_timer -= system;
 	ti->system_timer = S390_lowcore.system_timer;
-	account_system_time(tsk, 0, system, system);
+	nsecs = cputime_to_nsecs(system);
+	account_system_time(tsk, 0, nsecs, nsecs);
 
 	virt_timer_forward(system);
 }

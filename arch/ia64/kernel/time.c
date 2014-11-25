@@ -135,7 +135,7 @@ static cputime_t vtime_delta(struct task_struct *tsk)
 
 void vtime_account_system(struct task_struct *tsk)
 {
-	cputime_t delta = vtime_delta(tsk);
+	u64 delta = cputime_to_nsecs(vtime_delta(tsk));
 
 	account_system_time(tsk, 0, delta, delta);
 }

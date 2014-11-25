@@ -177,16 +177,16 @@ static void account_guest_time(struct task_struct *p, u64 cputime,
  * @target_cputime64: pointer to cpustat field that has to be updated
  */
 static inline
-void __account_system_time(struct task_struct *p, cputime_t cputime,
-			cputime_t cputime_scaled, int index)
+void __account_system_time(struct task_struct *p, u64 cputime,
+			   u64 cputime_scaled, int index)
 {
 	/* Add system time to process. */
-	p->stime += cputime_to_nsecs(cputime);
-	p->stimescaled += cputime_to_nsecs(cputime_scaled);
+	p->stime += cputime;
+	p->stimescaled += cputime_scaled;
 	account_group_system_time(p, cputime);
 
 	/* Add system time to cpustat. */
-	task_group_account_field(p, index, cputime_to_nsecs(cputime));
+	task_group_account_field(p, index, cputime);
 
 	/* Account for system time used */
 	acct_account_cputime(p);
@@ -200,12 +200,12 @@ void __account_system_time(struct task_struct *p, cputime_t cputime,
  * @cputime_scaled: cputime scaled by cpu frequency
  */
 void account_system_time(struct task_struct *p, int hardirq_offset,
-			 cputime_t cputime, cputime_t cputime_scaled)
+			 u64 cputime, u64 cputime_scaled)
 {
 	int index;
 
 	if ((p->flags & PF_VCPU) && (irq_count() - hardirq_offset == 0)) {
-		account_guest_time(p, cputime_to_nsecs(cputime), cputime_to_nsecs(cputime_scaled));
+		account_guest_time(p, cputime, cputime_scaled);
 		return;
 	}
 
@@ -344,7 +344,7 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 		 * So, we have to handle it separately here.
 		 * Also, p->stime needs to be updated for ksoftirqd.
 		 */
-		__account_system_time(p, cputime, scaled, CPUTIME_SOFTIRQ);
+		__account_system_time(p, nsec, nsec_scaled, CPUTIME_SOFTIRQ);
 	} else if (user_tick) {
 		account_user_time(p, nsec, nsec_scaled);
 	} else if (p == rq->idle) {
@@ -352,7 +352,7 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 	} else if (p->flags & PF_VCPU) { /* System time or guest time */
 		account_guest_time(p, nsec, nsec_scaled);
 	} else {
-		__account_system_time(p, cputime, scaled,	CPUTIME_SYSTEM);
+		__account_system_time(p, nsec, nsec_scaled, CPUTIME_SYSTEM);
 	}
 }
 
@@ -468,8 +468,8 @@ void account_process_tick(struct task_struct *p, int user_tick)
 	if (user_tick)
 		account_user_time(p, nsec, nsec_scaled);
 	else if ((p != rq->idle) || (irq_count() != HARDIRQ_OFFSET))
-		account_system_time(p, HARDIRQ_OFFSET, cputime_one_jiffy,
-				    one_jiffy_scaled);
+		account_system_time(p, HARDIRQ_OFFSET, nsec,
+				    nsec_scaled);
 	else
 		account_idle_time(cputime_one_jiffy);
 }
