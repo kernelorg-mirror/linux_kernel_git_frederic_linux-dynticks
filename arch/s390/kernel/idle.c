@@ -41,7 +41,7 @@ void __kprobes enabled_wait(void)
 	idle->clock_idle_enter = idle->clock_idle_exit = 0ULL;
 	idle->idle_time += idle_time;
 	idle->idle_count++;
-	account_idle_time(idle_time);
+	account_idle_time(cputime_to_nsecs(idle_time));
 	write_seqcount_end(&idle->seqcount);
 }
 

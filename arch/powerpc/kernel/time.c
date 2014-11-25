@@ -355,7 +355,7 @@ void vtime_account_idle(struct task_struct *tsk)
 	u64 delta, sys_scaled, stolen;
 
 	delta = vtime_delta(tsk, &sys_scaled, &stolen);
-	account_idle_time(delta + stolen);
+	account_idle_time(cputime_to_nsecs(delta + stolen));
 }
 
 /*

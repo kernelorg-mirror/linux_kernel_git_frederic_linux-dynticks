@@ -234,15 +234,15 @@ void account_steal_time(u64 cputime)
  * Account for idle time.
  * @cputime: the cpu time spent in idle wait
  */
-void account_idle_time(cputime_t cputime)
+void account_idle_time(u64 cputime)
 {
 	u64 *cpustat = kcpustat_this_cpu->cpustat;
 	struct rq *rq = this_rq();
 
 	if (atomic_read(&rq->nr_iowait) > 0)
-		cpustat[CPUTIME_IOWAIT] += cputime_to_nsecs(cputime);
+		cpustat[CPUTIME_IOWAIT] += cputime;
 	else
-		cpustat[CPUTIME_IDLE] += cputime_to_nsecs(cputime);
+		cpustat[CPUTIME_IDLE] += cputime;
 }
 
 static __always_inline bool steal_account_process_tick(void)
@@ -348,7 +348,7 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 	} else if (user_tick) {
 		account_user_time(p, nsec, nsec_scaled);
 	} else if (p == rq->idle) {
-		account_idle_time(cputime);
+		account_idle_time(nsec);
 	} else if (p->flags & PF_VCPU) { /* System time or guest time */
 		account_guest_time(p, cputime, scaled);
 	} else {
@@ -496,7 +496,7 @@ void account_idle_ticks(unsigned long ticks)
 		return;
 	}
 
-	account_idle_time(jiffies_to_cputime(ticks));
+	account_idle_time(jiffies_to_nsecs(ticks));
 }
 
 /*
