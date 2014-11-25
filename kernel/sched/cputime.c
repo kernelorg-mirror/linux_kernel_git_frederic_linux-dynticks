@@ -148,24 +148,24 @@ void account_user_time(struct task_struct *p, u64 cputime, u64 cputime_scaled)
  * @cputime: the cpu time spent in virtual machine since the last update
  * @cputime_scaled: cputime scaled by cpu frequency
  */
-static void account_guest_time(struct task_struct *p, cputime_t cputime,
-			       cputime_t cputime_scaled)
+static void account_guest_time(struct task_struct *p, u64 cputime,
+			       u64 cputime_scaled)
 {
 	u64 *cpustat = kcpustat_this_cpu->cpustat;
 
 	/* Add guest time to process. */
-	p->utime += cputime_to_nsecs(cputime);
-	p->utimescaled += cputime_to_nsecs(cputime_scaled);
-	account_group_user_time(p, cputime_to_nsecs(cputime));
-	p->gtime += cputime_to_nsecs(cputime);
+	p->utime += cputime;
+	p->utimescaled += cputime_scaled;
+	account_group_user_time(p, cputime);
+	p->gtime += cputime;
 
 	/* Add guest time to cpustat. */
 	if (task_nice(p) > 0) {
-		cpustat[CPUTIME_NICE] += cputime_to_nsecs(cputime);
-		cpustat[CPUTIME_GUEST_NICE] += cputime_to_nsecs(cputime);
+		cpustat[CPUTIME_NICE] += cputime;
+		cpustat[CPUTIME_GUEST_NICE] += cputime;
 	} else {
-		cpustat[CPUTIME_USER] += cputime_to_nsecs(cputime);
-		cpustat[CPUTIME_GUEST] += cputime_to_nsecs(cputime);
+		cpustat[CPUTIME_USER] += cputime;
+		cpustat[CPUTIME_GUEST] += cputime;
 	}
 }
 
@@ -205,7 +205,7 @@ void account_system_time(struct task_struct *p, int hardirq_offset,
 	int index;
 
 	if ((p->flags & PF_VCPU) && (irq_count() - hardirq_offset == 0)) {
-		account_guest_time(p, cputime, cputime_scaled);
+		account_guest_time(p, cputime_to_nsecs(cputime), cputime_to_nsecs(cputime_scaled));
 		return;
 	}
 
@@ -350,7 +350,7 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 	} else if (p == rq->idle) {
 		account_idle_time(nsec);
 	} else if (p->flags & PF_VCPU) { /* System time or guest time */
-		account_guest_time(p, cputime, scaled);
+		account_guest_time(p, nsec, nsec_scaled);
 	} else {
 		__account_system_time(p, cputime, scaled,	CPUTIME_SYSTEM);
 	}
