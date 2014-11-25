@@ -60,7 +60,7 @@ static inline int virt_timer_forward(u64 elapsed)
 static int do_account_vtime(struct task_struct *tsk, int hardirq_offset)
 {
 	struct thread_info *ti = task_thread_info(tsk);
-	u64 timer, clock, user, system, steal;
+	u64 timer, clock, user, system, steal, nsecs;
 
 	timer = S390_lowcore.last_update_timer;
 	clock = S390_lowcore.last_update_clock;
@@ -79,11 +79,13 @@ static int do_account_vtime(struct task_struct *tsk, int hardirq_offset)
 	user = S390_lowcore.user_timer - ti->user_timer;
 	S390_lowcore.steal_timer -= user;
 	ti->user_timer = S390_lowcore.user_timer;
-	account_user_time(tsk, user, user);
+	nsecs = cputime_to_nsecs(user);
+	account_user_time(tsk, nsecs, nsecs);
 
 	system = S390_lowcore.system_timer - ti->system_timer;
 	S390_lowcore.steal_timer -= system;
 	ti->system_timer = S390_lowcore.system_timer;
+	nsecs = cputime_to_nsecs(system);
 	account_system_time(tsk, hardirq_offset, system, system);
 
 	steal = S390_lowcore.steal_timer;

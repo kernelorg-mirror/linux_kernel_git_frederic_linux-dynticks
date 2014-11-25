@@ -89,8 +89,11 @@ void vtime_account_user(struct task_struct *tsk)
 	struct thread_info *ti = task_thread_info(tsk);
 
 	if (ti->ac_utime) {
+		u64 utime;
+		//TODO: cycle_to_nsec()
 		delta_utime = cycle_to_cputime(ti->ac_utime);
-		account_user_time(tsk, delta_utime, delta_utime);
+		utime = cputime_to_nsecs(delta_utime);
+		account_user_time(tsk, utime, utime);
 		ti->ac_utime = 0;
 	}
 }

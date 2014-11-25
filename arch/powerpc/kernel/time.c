@@ -376,7 +376,8 @@ void vtime_account_user(struct task_struct *tsk)
 	get_paca()->user_time = 0;
 	get_paca()->user_time_scaled = 0;
 	get_paca()->utime_sspurr = 0;
-	account_user_time(tsk, utime, utimescaled);
+	account_user_time(tsk, cputime_to_nsecs(utime),
+			  cputime_to_nsecs(utimescaled));
 }
 
 #else /* ! CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */

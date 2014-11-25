@@ -124,20 +124,19 @@ static inline void task_group_account_field(struct task_struct *p, int index,
  * @cputime: the cpu time spent in user space since the last update
  * @cputime_scaled: cputime scaled by cpu frequency
  */
-void account_user_time(struct task_struct *p, cputime_t cputime,
-		       cputime_t cputime_scaled)
+void account_user_time(struct task_struct *p, u64 cputime, u64 cputime_scaled)
 {
 	int index;
 
 	/* Add user time to process. */
-	p->utime += cputime_to_nsecs(cputime);
-	p->utimescaled += cputime_to_nsecs(cputime_scaled);
+	p->utime += cputime;
+	p->utimescaled += cputime_scaled;
 	account_group_user_time(p, cputime);
 
 	index = (task_nice(p) > 0) ? CPUTIME_NICE : CPUTIME_USER;
 
 	/* Add user time to cpustat. */
-	task_group_account_field(p, index, cputime_to_nsecs(cputime));
+	task_group_account_field(p, index, cputime);
 
 	/* Account for user time used */
 	acct_account_cputime(p);
@@ -157,7 +156,7 @@ static void account_guest_time(struct task_struct *p, cputime_t cputime,
 	/* Add guest time to process. */
 	p->utime += cputime_to_nsecs(cputime);
 	p->utimescaled += cputime_to_nsecs(cputime_scaled);
-	account_group_user_time(p, cputime);
+	account_group_user_time(p, cputime_to_nsecs(cputime));
 	p->gtime += cputime_to_nsecs(cputime);
 
 	/* Add guest time to cpustat. */
@@ -333,13 +332,16 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 {
 	cputime_t scaled = cputime_to_scaled(cputime_one_jiffy);
 	u64 cputime = (__force u64) cputime_one_jiffy;
-	u64 nsec = cputime_to_nsecs(cputime); //TODO: make that build time
+	u64 nsec, nsec_scaled;
 
 	if (steal_account_process_tick())
 		return;
 
 	cputime *= ticks;
 	scaled *= ticks;
+
+	nsec = cputime_to_nsecs(cputime);
+	nsec_scaled = cputime_to_nsecs(scaled);
 
 	if (irqtime_skip_tick(nsec))
 		return;
@@ -352,7 +354,7 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 		 */
 		__account_system_time(p, cputime, scaled, CPUTIME_SOFTIRQ);
 	} else if (user_tick) {
-		account_user_time(p, cputime, scaled);
+		account_user_time(p, nsec, nsec_scaled);
 	} else if (p == rq->idle) {
 		account_idle_time(cputime);
 	} else if (p->flags & PF_VCPU) { /* System time or guest time */
@@ -454,10 +456,14 @@ void thread_group_cputime_adjusted(struct task_struct *p, u64 *ut, u64 *st)
 void account_process_tick(struct task_struct *p, int user_tick)
 {
 	cputime_t one_jiffy_scaled = cputime_to_scaled(cputime_one_jiffy);
+	u64 nsec, nsec_scaled;
 	struct rq *rq = this_rq();
 
 	if (vtime_accounting_enabled())
 		return;
+
+	nsec = cputime_to_nsecs(cputime_one_jiffy); //TODO: Make that build time
+	nsec_scaled = cputime_to_nsecs(one_jiffy_scaled); //Ditto
 
 	if (sched_clock_irqtime) {
 		irqtime_account_process_tick(p, user_tick, rq, 1);
@@ -468,7 +474,7 @@ void account_process_tick(struct task_struct *p, int user_tick)
 		return;
 
 	if (user_tick)
-		account_user_time(p, cputime_one_jiffy, one_jiffy_scaled);
+		account_user_time(p, nsec, nsec_scaled);
 	else if ((p != rq->idle) || (irq_count() != HARDIRQ_OFFSET))
 		account_system_time(p, HARDIRQ_OFFSET, cputime_one_jiffy,
 				    one_jiffy_scaled);
