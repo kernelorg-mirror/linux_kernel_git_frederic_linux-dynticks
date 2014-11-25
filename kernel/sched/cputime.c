@@ -223,11 +223,11 @@ void account_system_time(struct task_struct *p, int hardirq_offset,
  * Account for involuntary wait time.
  * @cputime: the cpu time spent in involuntary wait
  */
-void account_steal_time(cputime_t cputime)
+void account_steal_time(u64 cputime)
 {
 	u64 *cpustat = kcpustat_this_cpu->cpustat;
 
-	cpustat[CPUTIME_STEAL] += cputime_to_nsecs(cputime);
+	cpustat[CPUTIME_STEAL] += cputime;
 }
 
 /*
@@ -250,21 +250,13 @@ static __always_inline bool steal_account_process_tick(void)
 #ifdef CONFIG_PARAVIRT
 	if (static_key_false(&paravirt_steal_enabled)) {
 		u64 steal;
-		cputime_t steal_ct;
 
 		steal = paravirt_steal_clock(smp_processor_id());
 		steal -= this_rq()->prev_steal_time;
+		this_rq()->prev_steal_time += steal;
+		account_steal_time(steal);
 
-		/*
-		 * cputime_t may be less precise than nsecs (eg: if it's
-		 * based on jiffies). Lets cast the result to cputime
-		 * granularity and account the rest on the next rounds.
-		 */
-		steal_ct = nsecs_to_cputime(steal);
-		this_rq()->prev_steal_time += cputime_to_nsecs(steal_ct);
-
-		account_steal_time(steal_ct);
-		return steal_ct;
+		return steal;
 	}
 #endif
 	return false;
@@ -489,7 +481,7 @@ void account_process_tick(struct task_struct *p, int user_tick)
  */
 void account_steal_ticks(unsigned long ticks)
 {
-	account_steal_time(jiffies_to_cputime(ticks));
+	account_steal_time(jiffies_to_nsecs(ticks));
 }
 
 /*
