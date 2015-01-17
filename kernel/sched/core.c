@@ -2760,7 +2760,6 @@ static void __sched __schedule(void)
 	struct rq *rq;
 	int cpu;
 
-	preempt_disable();
 	cpu = smp_processor_id();
 	rq = cpu_rq(cpu);
 	rcu_note_context_switch();
@@ -2822,8 +2821,6 @@ static void __sched __schedule(void)
 		raw_spin_unlock_irq(&rq->lock);
 
 	post_schedule(rq);
-
-	sched_preempt_enable_no_resched();
 }
 
 static inline void sched_submit_work(struct task_struct *tsk)
@@ -2844,7 +2841,9 @@ asmlinkage __visible void __sched schedule(void)
 
 	sched_submit_work(tsk);
 	do {
+		preempt_disable();
 		__schedule();
+		sched_preempt_enable_no_resched();
 	} while (need_resched());
 }
 EXPORT_SYMBOL(schedule);
@@ -2883,9 +2882,9 @@ void __sched schedule_preempt_disabled(void)
 static void preempt_schedule_common(void)
 {
 	do {
-		preempt_count_add(PREEMPT_ACTIVE);
+		preempt_count_add(PREEMPT_ACTIVE + PREEMPT_CHECK_OFFSET);
 		__schedule();
-		preempt_count_sub(PREEMPT_ACTIVE);
+		preempt_count_sub(PREEMPT_ACTIVE + PREEMPT_CHECK_OFFSET);
 
 		/*
 		 * Check again in case we missed a preemption opportunity
@@ -2938,7 +2937,7 @@ asmlinkage __visible void __sched notrace preempt_schedule_context(void)
 		return;
 
 	do {
-		preempt_count_add(PREEMPT_ACTIVE);
+		preempt_count_add(PREEMPT_ACTIVE + PREEMPT_CHECK_OFFSET);
 		/*
 		 * Needs preempt disabled in case user_exit() is traced
 		 * and the tracer calls preempt_enable_notrace() causing
@@ -2947,8 +2946,7 @@ asmlinkage __visible void __sched notrace preempt_schedule_context(void)
 		prev_ctx = exception_enter();
 		__schedule();
 		exception_exit(prev_ctx);
-
-		preempt_count_sub(PREEMPT_ACTIVE);
+		preempt_count_sub(PREEMPT_ACTIVE  + PREEMPT_CHECK_OFFSET);
 		barrier();
 	} while (need_resched());
 }
@@ -2973,11 +2971,11 @@ asmlinkage __visible void __sched preempt_schedule_irq(void)
 	prev_state = exception_enter();
 
 	do {
-		preempt_count_add(PREEMPT_ACTIVE);
+		preempt_count_add(PREEMPT_ACTIVE  + PREEMPT_CHECK_OFFSET);
 		local_irq_enable();
 		__schedule();
 		local_irq_disable();
-		preempt_count_sub(PREEMPT_ACTIVE);
+		preempt_count_sub(PREEMPT_ACTIVE  + PREEMPT_CHECK_OFFSET);
 
 		/*
 		 * Check again in case we missed a preemption opportunity
