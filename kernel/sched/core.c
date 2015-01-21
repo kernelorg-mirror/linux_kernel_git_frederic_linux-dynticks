@@ -2882,9 +2882,9 @@ void __sched schedule_preempt_disabled(void)
 static void preempt_schedule_common(void)
 {
 	do {
-		preempt_count_add(PREEMPT_ACTIVE + PREEMPT_CHECK_OFFSET);
+		preempt_count_add(PREEMPT_ACTIVE);
 		__schedule();
-		preempt_count_sub(PREEMPT_ACTIVE + PREEMPT_CHECK_OFFSET);
+		preempt_count_sub(PREEMPT_ACTIVE);
 
 		/*
 		 * Check again in case we missed a preemption opportunity
@@ -2937,7 +2937,7 @@ asmlinkage __visible void __sched notrace preempt_schedule_context(void)
 		return;
 
 	do {
-		preempt_count_add(PREEMPT_ACTIVE + PREEMPT_CHECK_OFFSET);
+		preempt_count_add(PREEMPT_ACTIVE);
 		/*
 		 * Needs preempt disabled in case user_exit() is traced
 		 * and the tracer calls preempt_enable_notrace() causing
@@ -2946,7 +2946,7 @@ asmlinkage __visible void __sched notrace preempt_schedule_context(void)
 		prev_ctx = exception_enter();
 		__schedule();
 		exception_exit(prev_ctx);
-		preempt_count_sub(PREEMPT_ACTIVE  + PREEMPT_CHECK_OFFSET);
+		preempt_count_sub(PREEMPT_ACTIVE);
 		barrier();
 	} while (need_resched());
 }
@@ -2971,11 +2971,11 @@ asmlinkage __visible void __sched preempt_schedule_irq(void)
 	prev_state = exception_enter();
 
 	do {
-		preempt_count_add(PREEMPT_ACTIVE  + PREEMPT_CHECK_OFFSET);
+		preempt_count_add(PREEMPT_ACTIVE);
 		local_irq_enable();
 		__schedule();
 		local_irq_disable();
-		preempt_count_sub(PREEMPT_ACTIVE  + PREEMPT_CHECK_OFFSET);
+		preempt_count_sub(PREEMPT_ACTIVE);
 
 		/*
 		 * Check again in case we missed a preemption opportunity

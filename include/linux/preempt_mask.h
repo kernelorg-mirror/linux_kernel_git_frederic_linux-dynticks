@@ -99,14 +99,14 @@
  * used in the general case to determine whether sleeping is possible.
  * Do not use in_atomic() in driver code.
  */
-#define in_atomic()	((preempt_count() & ~PREEMPT_ACTIVE) != 0)
+#define in_atomic()	(preempt_count() != 0)
 
 /*
  * Check whether we were atomic before we did preempt_disable():
  * (used by the scheduler, *after* releasing the kernel lock)
  */
 #define in_atomic_preempt_off() \
-		((preempt_count() & ~PREEMPT_ACTIVE) != PREEMPT_CHECK_OFFSET)
+	(preempt_count() & ~(PREEMPT_ACTIVE | PREEMPT_CHECK_OFFSET))
 
 #ifdef CONFIG_PREEMPT_COUNT
 # define preemptible()	(preempt_count() == 0 && !irqs_disabled())
