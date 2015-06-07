@@ -97,6 +97,18 @@ static inline void tick_broadcast_exit(void)
 	tick_broadcast_oneshot_control(TICK_BROADCAST_EXIT);
 }
 
+enum tick_dependency_bit {
+	TICK_POSIX_TIMER_BIT	= 0,
+	TICK_PERF_EVENTS_BIT	= 1,
+	TICK_SCHED_BIT		= 2,
+	TICK_CLOCK_UNSTABLE_BIT	= 3
+};
+
+#define TICK_POSIX_TIMER_MASK		(1 << TICK_POSIX_TIMER_BIT)
+#define TICK_PERF_EVENTS_MASK		(1 << TICK_PERF_EVENTS_BIT)
+#define TICK_SCHED_MASK			(1 << TICK_SCHED_BIT)
+#define TICK_CLOCK_UNSTABLE_MASK	(1 << TICK_CLOCK_UNSTABLE_BIT)
+
 #ifdef CONFIG_NO_HZ_COMMON
 extern int tick_nohz_enabled;
 extern int tick_nohz_tick_stopped(void);
@@ -154,6 +166,72 @@ static inline int housekeeping_any_cpu(void)
 	return cpumask_any_and(housekeeping_mask, cpu_online_mask);
 }
 
+extern void tick_nohz_set_dep(enum tick_dependency_bit bit);
+extern void tick_nohz_clear_dep(enum tick_dependency_bit bit);
+extern void tick_nohz_set_dep_cpu(int cpu, enum tick_dependency_bit bit);
+extern void tick_nohz_clear_dep_cpu(int cpu, enum tick_dependency_bit bit);
+extern void tick_nohz_set_dep_task(struct task_struct *tsk,
+				   enum tick_dependency_bit bit);
+extern void tick_nohz_clear_dep_task(struct task_struct *tsk,
+				     enum tick_dependency_bit bit);
+extern void tick_nohz_set_dep_signal(struct signal_struct *signal,
+				     enum tick_dependency_bit bit);
+extern void tick_nohz_clear_dep_signal(struct signal_struct *signal,
+				       enum tick_dependency_bit bit);
+
+/*
+ * The below are tick_nohz_[set,clear]_dep() wrappers that optimize off-cases
+ * on top of static keys.
+ */
+static inline void tick_set_dep(enum tick_dependency_bit bit)
+{
+	if (tick_nohz_full_enabled())
+		tick_nohz_set_dep(bit);
+}
+
+static inline void tick_clear_dep(enum tick_dependency_bit bit)
+{
+	if (tick_nohz_full_enabled())
+		tick_nohz_clear_dep(bit);
+}
+
+static inline void tick_set_dep_cpu(int cpu, enum tick_dependency_bit bit)
+{
+	if (tick_nohz_full_cpu(cpu))
+		tick_nohz_set_dep_cpu(cpu, bit);
+}
+
+static inline void tick_clear_dep_cpu(int cpu, enum tick_dependency_bit bit)
+{
+	if (tick_nohz_full_cpu(cpu))
+		tick_nohz_clear_dep_cpu(cpu, bit);
+}
+
+static inline void tick_set_dep_task(struct task_struct *tsk,
+				     enum tick_dependency_bit bit)
+{
+	if (tick_nohz_full_enabled())
+		tick_nohz_set_dep_task(tsk, bit);
+}
+static inline void tick_clear_dep_task(struct task_struct *tsk,
+				       enum tick_dependency_bit bit)
+{
+	if (tick_nohz_full_enabled())
+		tick_nohz_clear_dep_task(tsk, bit);
+}
+static inline void tick_set_dep_signal(struct signal_struct *signal,
+				       enum tick_dependency_bit bit)
+{
+	if (tick_nohz_full_enabled())
+		tick_nohz_set_dep_signal(signal, bit);
+}
+static inline void tick_clear_dep_signal(struct signal_struct *signal,
+					 enum tick_dependency_bit bit)
+{
+	if (tick_nohz_full_enabled())
+		tick_nohz_clear_dep_signal(signal, bit);
+}
+
 extern void tick_nohz_full_kick(void);
 extern void tick_nohz_full_kick_cpu(int cpu);
 extern void tick_nohz_full_kick_all(void);
@@ -166,6 +244,20 @@ static inline int housekeeping_any_cpu(void)
 static inline bool tick_nohz_full_enabled(void) { return false; }
 static inline bool tick_nohz_full_cpu(int cpu) { return false; }
 static inline void tick_nohz_full_add_cpus_to(struct cpumask *mask) { }
+
+static inline void tick_set_dep(enum tick_dependency_bit bit) { }
+static inline void tick_clear_dep(enum tick_dependency_bit bit) { }
+static inline void tick_set_dep_cpu(int cpu, enum tick_dependency_bit bit) { }
+static inline void tick_clear_dep_cpu(int cpu, enum tick_dependency_bit bit) { }
+static inline void tick_set_dep_task(struct task_struct *tsk,
+				     enum tick_dependency_bit bit) { }
+static inline void tick_clear_dep_task(struct task_struct *tsk,
+				       enum tick_dependency_bit bit) { }
+static inline void tick_set_dep_signal(struct signal_struct *signal,
+				       enum tick_dependency_bit bit) { }
+static inline void tick_clear_dep_signal(struct signal_struct *signal,
+					 enum tick_dependency_bit bit) { }
+
 static inline void tick_nohz_full_kick_cpu(int cpu) { }
 static inline void tick_nohz_full_kick(void) { }
 static inline void tick_nohz_full_kick_all(void) { }
