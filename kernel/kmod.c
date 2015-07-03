@@ -221,9 +221,6 @@ static int call_usermodehelper_exec_async(void *data)
 	flush_signal_handlers(current, 1);
 	spin_unlock_irq(&current->sighand->siglock);
 
-	/* We can run anywhere, unlike our parent (unbound workqueue). */
-	set_cpus_allowed_ptr(current, cpu_all_mask);
-
 	/*
 	 * Our parent is the unbound workqueue, which runs with elevated
 	 * scheduling priority. Avoid propagating that into the userspace child.
