@@ -45,8 +45,6 @@
 
 extern int max_threads;
 
-static struct workqueue_struct *khelper_wq;
-
 #define CAP_BSET	(void *)1
 #define CAP_PI		(void *)2
 
@@ -224,7 +222,7 @@ static int call_usermodehelper_exec_async(void *data)
 	spin_unlock_irq(&current->sighand->siglock);
 
 	/*
-	 * Our parent is khelper which runs with elevated scheduling
+	 * Our parent (unbound workqueue) runs with elevated scheduling
 	 * priority. Avoid propagating that into the userspace child.
 	 */
 	set_user_nice(current, 0);
@@ -267,9 +265,10 @@ out:
 }
 
 /*
- * Handles UMH_WAIT_PROC. Our parent khelper can't wait for usermodehelper
- * completion without blocking every other pending requests. That's why
- * we use a kernel thread dedicated for that purpose.
+ * Handles UMH_WAIT_PROC. Our parent (unbound workqueue) might not be able to
+ * run enough instances to handle usermodehelper completions without blocking
+ * some other pending requests. That's why we use a kernel thread dedicated for
+ * that purpose.
  */
 static int call_usermodehelper_exec_sync(void *data)
 {
@@ -311,14 +310,15 @@ static int call_usermodehelper_exec_sync(void *data)
 /*
  * This function doesn't strictly needs to be called asynchronously. But we
  * need to create the usermodehelper kernel threads from a task that is affine
- * to all CPUs (or nohz housekeeping ones) such that they inherit a widest
- * affinity irrespective of call_usermodehelper() callers with possibly reduced
- * affinity (eg: per-cpu workqueues). We don't want usermodehelper targets to
- * contend any busy CPU.
- * Khelper provides such wide affinity.
+ * to an optimized set of CPUs (or nohz housekeeping ones) such that they
+ * inherit a widest affinity irrespective of call_usermodehelper() callers with
+ * possibly reduced affinity (eg: per-cpu workqueues). We don't want
+ * usermodehelper targets to contend a busy CPU.
  *
- * Besides, khelper provides the privilege level that caller might not have to
- * perform the usermodehelper request.
+ * Unbound workqueues provide such wide affinity.
+ *
+ * Besides, workqueues provide the privilege level that caller might not have
+ * to perform the usermodehelper request.
  *
  */
 static void call_usermodehelper_exec_work(struct work_struct *work)
@@ -548,8 +548,8 @@ EXPORT_SYMBOL(call_usermodehelper_setup);
  *        from interrupt context.
  *
  * Runs a user-space application.  The application is started
- * asynchronously if wait is not set, and runs as a child of khelper.
- * (ie. it runs with full root capabilities and wide affinity).
+ * asynchronously if wait is not set, and runs as a child of system workqueues.
+ * (ie. it runs with full root capabilities and optimized affinity).
  */
 int call_usermodehelper_exec(struct subprocess_info *sub_info, int wait)
 {
@@ -561,7 +561,7 @@ int call_usermodehelper_exec(struct subprocess_info *sub_info, int wait)
 		return -EINVAL;
 	}
 	helper_lock();
-	if (!khelper_wq || usermodehelper_disabled) {
+	if (usermodehelper_disabled) {
 		retval = -EBUSY;
 		goto out;
 	}
@@ -573,7 +573,7 @@ int call_usermodehelper_exec(struct subprocess_info *sub_info, int wait)
 	sub_info->complete = (wait == UMH_NO_WAIT) ? NULL : &done;
 	sub_info->wait = wait;
 
-	queue_work(khelper_wq, &sub_info->work);
+	queue_work(system_unbound_wq, &sub_info->work);
 	if (wait == UMH_NO_WAIT)	/* task has freed sub_info */
 		goto unlock;
 
@@ -703,9 +703,3 @@ struct ctl_table usermodehelper_table[] = {
 	},
 	{ }
 };
-
-void __init usermodehelper_init(void)
-{
-	khelper_wq = create_singlethread_workqueue("khelper");
-	BUG_ON(!khelper_wq);
-}
