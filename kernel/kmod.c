@@ -265,9 +265,8 @@ out:
 }
 
 /* Handles UMH_WAIT_PROC.  */
-static int call_usermodehelper_exec_sync(void *data)
+static void call_usermodehelper_exec_sync(struct subprocess_info *sub_info)
 {
-	struct subprocess_info *sub_info = data;
 	pid_t pid;
 
 	/* If SIGCLD is ignored sys_wait4 won't populate the status. */
@@ -281,9 +280,9 @@ static int call_usermodehelper_exec_sync(void *data)
 		 * Normally it is bogus to call wait4() from in-kernel because
 		 * wait4() wants to write the exit code to a userspace address.
 		 * But call_usermodehelper_exec_sync() always runs as kernel
-		 * thread and put_user() to a kernel address works OK for kernel
-		 * threads, due to their having an mm_segment_t which spans the
-		 * entire address space.
+		 * thread (workqueue) and put_user() to a kernel address works
+		 * OK for kernel threads, due to their having an mm_segment_t
+		 * which spans the entire address space.
 		 *
 		 * Thus the __user pointer cast is valid here.
 		 */
@@ -299,7 +298,6 @@ static int call_usermodehelper_exec_sync(void *data)
 	}
 
 	umh_complete(sub_info);
-	do_exit(0);
 }
 
 /*
@@ -316,18 +314,18 @@ static void call_usermodehelper_exec_work(struct work_struct *work)
 {
 	struct subprocess_info *sub_info =
 		container_of(work, struct subprocess_info, work);
-	pid_t pid;
 
-	if (sub_info->wait & UMH_WAIT_PROC)
-		pid = kernel_thread(call_usermodehelper_exec_sync, sub_info,
-				    CLONE_FS | CLONE_FILES | SIGCHLD);
-	else
+	if (sub_info->wait & UMH_WAIT_PROC) {
+		call_usermodehelper_exec_sync(sub_info);
+	} else {
+		pid_t pid;
+
 		pid = kernel_thread(call_usermodehelper_exec_async, sub_info,
 				    SIGCHLD);
-
-	if (pid < 0) {
-		sub_info->retval = pid;
-		umh_complete(sub_info);
+		if (pid < 0) {
+			sub_info->retval = pid;
+			umh_complete(sub_info);
+		}
 	}
 }
 
