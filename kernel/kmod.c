@@ -45,8 +45,6 @@
 
 extern int max_threads;
 
-static struct workqueue_struct *khelper_wq;
-
 #define CAP_BSET	(void *)1
 #define CAP_PI		(void *)2
 
@@ -548,7 +546,7 @@ int call_usermodehelper_exec(struct subprocess_info *sub_info, int wait)
 		return -EINVAL;
 	}
 	helper_lock();
-	if (!khelper_wq || usermodehelper_disabled) {
+	if (usermodehelper_disabled) {
 		retval = -EBUSY;
 		goto out;
 	}
@@ -560,7 +558,7 @@ int call_usermodehelper_exec(struct subprocess_info *sub_info, int wait)
 	sub_info->complete = (wait == UMH_NO_WAIT) ? NULL : &done;
 	sub_info->wait = wait;
 
-	queue_work(khelper_wq, &sub_info->work);
+	queue_work(system_unbound_wq, &sub_info->work);
 	if (wait == UMH_NO_WAIT)	/* task has freed sub_info */
 		goto unlock;
 
@@ -690,9 +688,3 @@ struct ctl_table usermodehelper_table[] = {
 	},
 	{ }
 };
-
-void __init usermodehelper_init(void)
-{
-	khelper_wq = create_singlethread_workqueue("khelper");
-	BUG_ON(!khelper_wq);
-}
