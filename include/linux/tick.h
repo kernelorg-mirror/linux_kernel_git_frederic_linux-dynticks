@@ -104,6 +104,7 @@ enum tick_dependency_bit {
 	TICK_CLOCK_UNSTABLE_BIT	= 3
 };
 
+#define TICK_NONE_MASK			0
 #define TICK_POSIX_TIMER_MASK		(1 << TICK_POSIX_TIMER_BIT)
 #define TICK_PERF_EVENTS_MASK		(1 << TICK_PERF_EVENTS_BIT)
 #define TICK_SCHED_MASK			(1 << TICK_SCHED_BIT)
