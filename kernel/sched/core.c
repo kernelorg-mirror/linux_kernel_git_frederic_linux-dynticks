@@ -7327,8 +7327,9 @@ void __init sched_init(void)
 
 		for (j = 0; j < CPU_LOAD_IDX_MAX; j++)
 			rq->cpu_load[j] = 0;
-
+#ifdef CONFIG_NO_HZ_COMMON
 		rq->last_load_update_tick = jiffies;
+#endif
 
 #ifdef CONFIG_SMP
 		rq->sd = NULL;
