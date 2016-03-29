@@ -4526,7 +4526,7 @@ decay_load_missed(unsigned long load, unsigned long missed_updates, int idx)
  * see decay_load_misses(). For NOHZ_FULL we get to subtract and add the extra
  * term. See the @active paramter.
  */
-static void __cpu_load_update(struct rq *this_rq, unsigned long this_load,
+static void cpu_load_update(struct rq *this_rq, unsigned long this_load,
 			      unsigned long pending_updates)
 {
 	unsigned long tickless_load = this_rq->cpu_load[0];
@@ -4567,24 +4567,6 @@ static void __cpu_load_update(struct rq *this_rq, unsigned long this_load,
 	sched_avg_update(this_rq);
 }
 
-static void cpu_load_update(struct rq *this_rq,
-			    unsigned long curr_jiffies,
-			    unsigned long load)
-{
-	unsigned long pending_updates;
-
-	pending_updates = curr_jiffies - this_rq->last_load_update_tick;
-	if (pending_updates) {
-		this_rq->last_load_update_tick = curr_jiffies;
-		/*
-		 * In the regular NOHZ case, we were idle, this means load 0.
-		 * In the NOHZ_FULL case, we were non-idle, we should consider
-		 * its weighted load.
-		 */
-		__cpu_load_update(this_rq, load, pending_updates);
-	}
-}
-
 /* Used instead of source_load when we know the type == 0 */
 static unsigned long weighted_cpuload(const int cpu)
 {
@@ -4592,6 +4574,18 @@ static unsigned long weighted_cpuload(const int cpu)
 }
 
 #ifdef CONFIG_NO_HZ_COMMON
+static unsigned long cpu_load_pending(struct rq *this_rq)
+{
+	unsigned long curr_jiffies = READ_ONCE(jiffies);
+	unsigned long pending_updates;
+
+	pending_updates = curr_jiffies - this_rq->last_load_update_tick;
+	if (pending_updates)
+		this_rq->last_load_update_tick = curr_jiffies;
+
+	return pending_updates;
+}
+
 /*
  * There is no sane way to deal with nohz on smp when using jiffies because the
  * cpu doing the jiffies update might drift wrt the cpu doing the jiffy reading
@@ -4617,7 +4611,7 @@ static void cpu_load_update_idle(struct rq *this_rq)
 	if (weighted_cpuload(cpu_of(this_rq)))
 		return;
 
-	cpu_load_update(this_rq, READ_ONCE(jiffies), 0);
+	cpu_load_update(this_rq, 0, cpu_load_pending(this_rq));
 }
 
 /*
@@ -4641,17 +4635,22 @@ void cpu_load_update_nohz_start(void)
  */
 void cpu_load_update_nohz_stop(void)
 {
-	unsigned long curr_jiffies = READ_ONCE(jiffies);
 	struct rq *this_rq = this_rq();
 	unsigned long load;
 
-	if (curr_jiffies == this_rq->last_load_update_tick)
+	if (jiffies == this_rq->last_load_update_tick)
 		return;
 
 	load = weighted_cpuload(cpu_of(this_rq));
+
 	raw_spin_lock(&this_rq->lock);
-	cpu_load_update(this_rq, curr_jiffies, load);
+	cpu_load_update(this_rq, load, cpu_load_pending(this_rq));
 	raw_spin_unlock(&this_rq->lock);
+}
+#else /* !CONFIG_NO_HZ_COMMON */
+static inline unsigned long cpu_load_pending(struct rq *this_rq)
+{
+	return 1;
 }
 #endif /* CONFIG_NO_HZ_COMMON */
 
@@ -4662,7 +4661,7 @@ void cpu_load_update_active(struct rq *this_rq)
 {
 	unsigned long load = weighted_cpuload(cpu_of(this_rq));
 
-	cpu_load_update(this_rq, READ_ONCE(jiffies), load);
+	cpu_load_update(this_rq, load, cpu_load_pending(this_rq));
 }
 
 /*
