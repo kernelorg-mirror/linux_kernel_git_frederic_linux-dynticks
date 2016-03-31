@@ -4423,6 +4423,7 @@ static void dequeue_task_fair(struct rq *rq, struct task_struct *p, int flags)
 }
 
 #ifdef CONFIG_SMP
+#ifdef CONFIG_NO_HZ_COMMON
 
 /*
  * per rq 'load' arrray crap; XXX kill this.
@@ -4490,6 +4491,33 @@ decay_load_missed(unsigned long load, unsigned long missed_updates, int idx)
 	return load;
 }
 
+static unsigned long
+cpu_load_update_missed(unsigned long old_load, unsigned long tickless_load,
+		       unsigned long pending_updates, int idx)
+{
+	old_load = decay_load_missed(old_load, pending_updates - 1, idx);
+	if (tickless_load) {
+		old_load -= decay_load_missed(tickless_load, pending_updates - 1, idx);
+		/*
+		 * old_load can never be a negative value because a
+		 * decayed tickless_load cannot be greater than the
+		 * original tickless_load.
+		 */
+		old_load += tickless_load;
+	}
+	return old_load;
+}
+#else /* !CONFIG_NO_HZ_COMMON */
+
+static inline unsigned long
+cpu_load_update_missed(unsigned long old_load, unsigned long tickless_load,
+		       unsigned long pending_updates, int idx)
+{
+	return old_load;
+}
+
+#endif /* CONFIG_NO_HZ_COMMON */
+
 /**
  * __cpu_load_update - update the rq->cpu_load[] statistics
  * @this_rq: The rq to update statistics for
@@ -4541,17 +4569,8 @@ static void cpu_load_update(struct rq *this_rq, unsigned long this_load,
 
 		/* scale is effectively 1 << i now, and >> i divides by scale */
 
-		old_load = this_rq->cpu_load[i];
-		old_load = decay_load_missed(old_load, pending_updates - 1, i);
-		if (tickless_load) {
-			old_load -= decay_load_missed(tickless_load, pending_updates - 1, i);
-			/*
-			 * old_load can never be a negative value because a
-			 * decayed tickless_load cannot be greater than the
-			 * original tickless_load.
-			 */
-			old_load += tickless_load;
-		}
+		old_load = cpu_load_update_missed(this_rq->cpu_load[i],
+						  tickless_load, pending_updates, i);
 		new_load = this_load;
 		/*
 		 * Round up the averaging division if load is increasing. This
