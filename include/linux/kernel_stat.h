@@ -9,7 +9,6 @@
 #include <linux/sched.h>
 #include <linux/vtime.h>
 #include <asm/irq.h>
-#include <linux/cputime.h>
 
 /*
  * 'kernel_stat.h' contains the definitions needed for doing
@@ -79,7 +78,7 @@ static inline unsigned int kstat_cpu_irqs_sum(unsigned int cpu)
 }
 
 extern void account_user_time(struct task_struct *, u64);
-extern void account_system_time(struct task_struct *, int, cputime_t);
+extern void account_system_time(struct task_struct *, int, u64);
 extern void account_steal_time(u64);
 extern void account_idle_time(u64);
 

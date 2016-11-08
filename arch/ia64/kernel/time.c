@@ -113,7 +113,7 @@ void vtime_account_system(struct task_struct *tsk)
 {
 	cputime_t delta = vtime_delta(tsk);
 
-	account_system_time(tsk, 0, delta);
+	account_system_time(tsk, 0, cputime_to_nsecs(delta));
 }
 EXPORT_SYMBOL_GPL(vtime_account_system);
 
