@@ -361,7 +361,7 @@ void vtime_account_system(struct task_struct *tsk)
 	account_system_time(tsk, 0, delta);
 	tsk->stimescaled += cputime_to_nsecs(sys_scaled);
 	if (stolen)
-		account_steal_time(stolen);
+		account_steal_time(cputime_to_nsecs(stolen));
 }
 EXPORT_SYMBOL_GPL(vtime_account_system);
 
