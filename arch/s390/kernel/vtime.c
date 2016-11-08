@@ -137,7 +137,7 @@ static int do_account_vtime(struct task_struct *tsk, int hardirq_offset)
 		user_scaled = (user_scaled * mult) / div;
 		system_scaled = (system_scaled * mult) / div;
 	}
-	account_user_time(tsk, user);
+	account_user_time(tsk, cputime_to_nsecs(user));
 	tsk->utimescaled += cputime_to_nsecs(user_scaled);
 	account_system_time(tsk, hardirq_offset, system);
 	tsk->stimescaled += cputime_to_nsecs(system_scaled);

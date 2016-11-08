@@ -63,11 +63,12 @@ extern cputime_t cycle_to_cputime(u64 cyc);
 
 void vtime_account_user(struct task_struct *tsk)
 {
-	cputime_t delta_utime;
+	u64 delta_utime;
 	struct thread_info *ti = task_thread_info(tsk);
 
 	if (ti->ac_utime) {
-		delta_utime = cycle_to_cputime(ti->ac_utime);
+		/* TODO: cycle_to_ns */
+		delta_utime = cputime_to_nsecs(cycle_to_cputime(ti->ac_utime));
 		account_user_time(tsk, delta_utime);
 		ti->ac_utime = 0;
 	}

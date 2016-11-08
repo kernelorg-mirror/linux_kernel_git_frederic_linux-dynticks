@@ -392,7 +392,7 @@ void vtime_account_user(struct task_struct *tsk)
 	acct->user_time = 0;
 	acct->user_time_scaled = 0;
 	acct->utime_sspurr = 0;
-	account_user_time(tsk, utime);
+	account_user_time(tsk, cputime_to_nsecs(utime));
 	tsk->utimescaled += cputime_to_nsecs(utimescaled);
 }
 
