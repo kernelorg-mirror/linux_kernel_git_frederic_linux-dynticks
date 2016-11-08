@@ -119,7 +119,7 @@ EXPORT_SYMBOL_GPL(vtime_account_system);
 
 void vtime_account_idle(struct task_struct *tsk)
 {
-	account_idle_time(vtime_delta(tsk));
+	account_idle_time(cputime_to_nsecs(vtime_delta(tsk)));
 }
 
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */

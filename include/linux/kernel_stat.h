@@ -81,7 +81,7 @@ static inline unsigned int kstat_cpu_irqs_sum(unsigned int cpu)
 extern void account_user_time(struct task_struct *, u64);
 extern void account_system_time(struct task_struct *, int, cputime_t);
 extern void account_steal_time(u64);
-extern void account_idle_time(cputime_t);
+extern void account_idle_time(u64);
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 static inline void account_process_tick(struct task_struct *tsk, int user)
