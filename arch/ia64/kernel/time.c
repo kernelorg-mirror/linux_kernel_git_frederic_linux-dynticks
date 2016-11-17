@@ -59,7 +59,7 @@ static struct clocksource *itc_clocksource;
 
 #include <linux/kernel_stat.h>
 
-extern cputime_t cycle_to_cputime(u64 cyc);
+extern u64 cycle_to_nsec(u64 cyc);
 
 void vtime_account_user(struct task_struct *tsk)
 {
@@ -67,8 +67,7 @@ void vtime_account_user(struct task_struct *tsk)
 	struct thread_info *ti = task_thread_info(tsk);
 
 	if (ti->ac_utime) {
-		/* TODO: cycle_to_ns */
-		delta_utime = cputime_to_nsecs(cycle_to_cputime(ti->ac_utime));
+		delta_utime = cycle_to_nsec(ti->ac_utime);
 		account_user_time(tsk, delta_utime);
 		ti->ac_utime = 0;
 	}
@@ -92,17 +91,17 @@ void arch_vtime_task_switch(struct task_struct *prev)
  * Account time for a transition between system, hard irq or soft irq state.
  * Note that this function is called with interrupts enabled.
  */
-static cputime_t vtime_delta(struct task_struct *tsk)
+static u64 vtime_delta(struct task_struct *tsk)
 {
 	struct thread_info *ti = task_thread_info(tsk);
-	cputime_t delta_stime;
+	u64 delta_stime;
 	__u64 now;
 
 	WARN_ON_ONCE(!irqs_disabled());
 
 	now = ia64_get_itc();
 
-	delta_stime = cycle_to_cputime(ti->ac_stime + (now - ti->ac_stamp));
+	delta_stime = cycle_to_nsec(ti->ac_stime + (now - ti->ac_stamp));
 	ti->ac_stime = 0;
 	ti->ac_stamp = now;
 
@@ -111,15 +110,15 @@ static cputime_t vtime_delta(struct task_struct *tsk)
 
 void vtime_account_system(struct task_struct *tsk)
 {
-	cputime_t delta = vtime_delta(tsk);
+	u64 delta = vtime_delta(tsk);
 
-	account_system_time(tsk, 0, cputime_to_nsecs(delta));
+	account_system_time(tsk, 0, delta);
 }
 EXPORT_SYMBOL_GPL(vtime_account_system);
 
 void vtime_account_idle(struct task_struct *tsk)
 {
-	account_idle_time(cputime_to_nsecs(vtime_delta(tsk)));
+	account_idle_time(vtime_delta(tsk));
 }
 
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING_NATIVE */
