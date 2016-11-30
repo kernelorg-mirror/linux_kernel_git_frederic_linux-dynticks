@@ -176,8 +176,8 @@ static void account_guest_time(struct task_struct *p, cputime_t cputime)
  * @cputime: the cpu time spent in kernel space since the last update
  * @index: pointer to cpustat field that has to be updated
  */
-static inline
-void __account_system_time(struct task_struct *p, cputime_t cputime, int index)
+void account_system_index_time(struct task_struct *p,
+			       cputime_t cputime, enum cpu_usage_stat index)
 {
 	/* Add system time to process. */
 	p->stime += cputime;
@@ -189,6 +189,15 @@ void __account_system_time(struct task_struct *p, cputime_t cputime, int index)
 	/* Account for system time used */
 	acct_account_cputime(p);
 }
+
+#ifdef CONFIG_ARCH_HAS_SCALED_CPUTIME
+void account_system_index_scaled(struct task_struct *p, cputime_t cputime,
+				 cputime_t scaled, enum cpu_usage_stat index)
+{
+	p->stimescaled += scaled;
+	account_system_index_time(p, cputime, index);
+}
+#endif
 
 /*
  * Account system cpu time to a process.
@@ -213,7 +222,7 @@ void account_system_time(struct task_struct *p, int hardirq_offset,
 	else
 		index = CPUTIME_SYSTEM;
 
-	__account_system_time(p, cputime, index);
+	account_system_index_time(p, cputime, index);
 }
 
 /*
@@ -400,7 +409,7 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 		 * So, we have to handle it separately here.
 		 * Also, p->stime needs to be updated for ksoftirqd.
 		 */
-		__account_system_time(p, cputime, CPUTIME_SOFTIRQ);
+		account_system_index_time(p, cputime, CPUTIME_SOFTIRQ);
 	} else if (user_tick) {
 		account_user_time(p, cputime);
 	} else if (p == rq->idle) {
@@ -408,7 +417,7 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 	} else if (p->flags & PF_VCPU) { /* System time or guest time */
 		account_guest_time(p, cputime);
 	} else {
-		__account_system_time(p, cputime, CPUTIME_SYSTEM);
+		account_system_index_time(p, cputime, CPUTIME_SYSTEM);
 	}
 }
 
