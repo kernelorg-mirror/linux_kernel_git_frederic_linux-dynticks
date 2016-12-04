@@ -91,7 +91,7 @@ extern void account_system_index_scaled(struct task_struct *, cputime_t,
 					cputime_t, enum cpu_usage_stat);
 static inline void account_process_tick(struct task_struct *tsk, int user)
 {
-	vtime_account_user(tsk);
+	vtime_flush(tsk);
 }
 #else
 extern void account_process_tick(struct task_struct *, int user);
