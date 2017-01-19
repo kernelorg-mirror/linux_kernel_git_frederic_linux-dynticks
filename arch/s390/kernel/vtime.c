@@ -94,8 +94,14 @@ static inline u64 update_tsk_timer(unsigned long *tsk_vtime, u64 new)
 {
 	u64 delta;
 
-	delta = new - *tsk_vtime;
-	*tsk_vtime = new;
+	/*
+	 * Since nsecs is less granular than cputime_t in s390,
+	 * the conversion to nsecs is rounded. Make sure we don't
+	 * lose the remainder.
+	 */
+	delta = cputime_to_nsecs(new - *tsk_vtime);
+	*tsk_vtime += nsecs_to_cputime(delta);
+
 	return delta;
 }
 
@@ -124,7 +130,8 @@ static void account_system_index_scaled(struct task_struct *p,
  */
 static int do_account_vtime(struct task_struct *tsk)
 {
-	u64 timer, clock, user, guest, system, hardirq, softirq, steal;
+	u64 timer, clock, delta;
+	u64 user, guest, system, hardirq, softirq, steal;
 
 	timer = S390_lowcore.last_update_timer;
 	clock = S390_lowcore.last_update_clock;
@@ -161,18 +168,19 @@ static int do_account_vtime(struct task_struct *tsk)
 				   READ_ONCE(S390_lowcore.hardirq_timer));
 	softirq = update_tsk_timer(&tsk->thread.softirq_timer,
 				   READ_ONCE(S390_lowcore.softirq_timer));
-	S390_lowcore.steal_timer +=
-		clock - user - guest - system - hardirq - softirq;
+
+	delta = nsecs_to_cputime(user + guest + system + hardirq + softirq);
+	S390_lowcore.steal_timer += clock - delta;
 
 	/* Push account value */
 	if (user) {
-		account_user_time(tsk, cputime_to_nsecs(user));
-		tsk->utimescaled += cputime_to_nsecs(scale_vtime(user));
+		account_user_time(tsk, user);
+		tsk->utimescaled += scale_vtime(user);
 	}
 
 	if (guest) {
-		account_guest_time(tsk, cputime_to_nsecs(guest));
-		tsk->utimescaled += cputime_to_nsecs(scale_vtime(guest));
+		account_guest_time(tsk, guest);
+		tsk->utimescaled += scale_vtime(guest);
 	}
 
 	if (system)
@@ -187,11 +195,12 @@ static int do_account_vtime(struct task_struct *tsk)
 
 	steal = S390_lowcore.steal_timer;
 	if ((s64) steal > 0) {
-		S390_lowcore.steal_timer = 0;
-		account_steal_time(cputime_to_nsecs(steal));
+		u64 nsecs = cputime_to_nsecs(steal);
+		S390_lowcore.steal_timer -= nsecs_to_cputime(nsecs);
+		account_steal_time(nsecs);
 	}
 
-	return virt_timer_forward(user + guest + system + hardirq + softirq);
+	return virt_timer_forward(delta);
 }
 
 void vtime_task_switch(struct task_struct *prev)
