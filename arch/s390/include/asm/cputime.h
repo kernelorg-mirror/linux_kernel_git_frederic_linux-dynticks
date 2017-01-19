@@ -33,6 +33,10 @@ static inline unsigned int cputime_to_usecs(const cputime_t cputime)
 	return (__force unsigned long long) cputime >> 12;
 }
 
+static inline cputime_t nsecs_to_cputime(u64 cputime)
+{
+	return (__force cputime_t) cputime * CPUTIME_PER_USEC * NSEC_PER_USEC;
+}
 
 u64 arch_cpu_idle_time(int cpu);
 
