@@ -941,15 +941,10 @@ void __init lockup_detector_init(void)
 {
 	set_sample_period();
 
-#ifdef CONFIG_NO_HZ_FULL
-	if (tick_nohz_full_enabled()) {
+	if (tick_nohz_full_enabled())
 		pr_info("Disabling watchdog on nohz_full cores by default\n");
-		cpumask_copy(&watchdog_cpumask, housekeeping_mask);
-	} else
-		cpumask_copy(&watchdog_cpumask, cpu_possible_mask);
-#else
-	cpumask_copy(&watchdog_cpumask, cpu_possible_mask);
-#endif
+
+	cpumask_copy(&watchdog_cpumask, housekeeping_cpumask());
 
 	if (watchdog_enabled)
 		watchdog_enable_all_cpus();
