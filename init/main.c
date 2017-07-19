@@ -46,7 +46,6 @@
 #include <linux/cgroup.h>
 #include <linux/efi.h>
 #include <linux/tick.h>
-#include <linux/housekeeping.h>
 #include <linux/interrupt.h>
 #include <linux/taskstats_kern.h>
 #include <linux/delayacct.h>
@@ -608,7 +607,6 @@ asmlinkage __visible void __init start_kernel(void)
 	early_irq_init();
 	init_IRQ();
 	tick_init();
-	housekeeping_init();
 	rcu_init_nohz();
 	init_timers();
 	hrtimers_init();

@@ -45,23 +45,21 @@ bool housekeeping_test_cpu(int cpu)
 	return true;
 }
 
-void __init housekeeping_init(void)
+/* Parse the boot-time housekeeping CPU list from the kernel parameters. */
+static int __init housekeeping_setup(char *str)
 {
-	if (!tick_nohz_full_enabled())
-		return;
-
-	if (!alloc_cpumask_var(&housekeeping_mask, GFP_KERNEL)) {
-		WARN(1, "NO_HZ: Can't allocate not-full dynticks cpumask\n");
-		cpumask_clear(tick_nohz_full_mask);
-		tick_nohz_full_running = false;
-		return;
+	alloc_bootmem_cpumask_var(&housekeeping_mask);
+	if (cpulist_parse(str, housekeeping_mask) < 0) {
+		pr_warn("Housekeeping: Incorrect cpumask\n");
+		free_bootmem_cpumask_var(housekeeping_mask);
+		return 1;
 	}
-
-	cpumask_andnot(housekeeping_mask,
-		       cpu_possible_mask, tick_nohz_full_mask);
 
 	static_branch_enable(&housekeeping_overriden);
 
 	/* We need at least one CPU to handle housekeeping work */
 	WARN_ON_ONCE(cpumask_empty(housekeeping_mask));
+
+	return 1;
 }
+__setup("housekeeping=", housekeeping_setup);
