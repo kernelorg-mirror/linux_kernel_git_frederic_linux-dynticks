@@ -472,6 +472,12 @@ config TASK_IO_ACCOUNTING
 
 endmenu # "CPU/Task time and stats accounting"
 
+config HOUSEKEEPING
+	bool "Housekeeping work tuning"
+	help
+	  Allow to affine and offload kernel internal routine jobs that are
+	  usually executed on any CPU.
+
 source "kernel/rcu/Kconfig"
 
 config BUILD_BIN2C

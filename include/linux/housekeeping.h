@@ -5,7 +5,7 @@
 #include <linux/init.h>
 #include <linux/tick.h>
 
-#ifdef CONFIG_NO_HZ_FULL
+#ifdef CONFIG_HOUSEKEEPING
 DECLARE_STATIC_KEY_FALSE(housekeeping_overriden);
 extern int housekeeping_any_cpu(void);
 extern const struct cpumask *housekeeping_cpumask(void);
@@ -25,11 +25,11 @@ static inline const struct cpumask *housekeeping_cpumask(void)
 }
 
 static inline void housekeeping_affine(struct task_struct *t) { }
-#endif /* CONFIG_NO_HZ_FULL */
+#endif /* CONFIG_HOUSEKEEPING */
 
 static inline bool housekeeping_cpu(int cpu)
 {
-#ifdef CONFIG_NO_HZ_FULL
+#ifdef CONFIG_HOUSEKEEPING
 	if (static_branch_unlikely(&housekeeping_overriden))
 		return housekeeping_test_cpu(cpu);
 #endif
