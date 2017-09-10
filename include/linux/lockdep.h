@@ -719,9 +719,22 @@ do {									\
 	lock_acquire(&(lock)->dep_map, 0, 0, 1, 1, NULL, _THIS_IP_);	\
 	lock_release(&(lock)->dep_map, 0, _THIS_IP_);			\
 } while (0)
+
+#define lockdep_assert_irqs_enabled()	({				\
+		!WARN_ONCE(debug_locks && !current->hardirqs_enabled,	\
+			   "IRQs not enabled as expected\n");		\
+	})
+
+#define lockdep_assert_irqs_disabled()	({				\
+		!WARN_ONCE(debug_locks && current->hardirqs_enabled,	\
+			   "IRQs not disabled as expected\n");		\
+	})
+
 #else
 # define might_lock(lock) do { } while (0)
 # define might_lock_read(lock) do { } while (0)
+static inline int lockdep_assert_irqs_enabled(void) { return 1; }
+static inline int lockdep_assert_irqs_disabled(void) { return 1; }
 #endif
 
 #ifdef CONFIG_LOCKDEP
