@@ -136,6 +136,12 @@ static int __init housekeeping_isolcpus_setup(char *str)
 			continue;
 		}
 
+		if (!strncmp(str, "nohz_offload,", 13)) {
+			str += 13;
+			flags |= HK_FLAG_TICK | HK_FLAG_TICK_SCHED;
+			continue;
+		}
+
 		if (!strncmp(str, "domain,", 7)) {
 			str += 7;
 			flags |= HK_FLAG_DOMAIN;
