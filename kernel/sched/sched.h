@@ -1676,7 +1676,9 @@ static inline int hrtick_enabled(struct rq *rq)
 	return hrtimer_is_hres_active(&rq->hrtick_timer);
 }
 
-void hrtick_start(struct rq *rq, u64 delay);
+extern void hrtick_start(struct rq *rq, u64 delay);
+extern void hrtick_clear(struct rq *rq);
+extern void init_rq_hrtick(struct rq *rq);
 
 #else
 
@@ -1684,6 +1686,9 @@ static inline int hrtick_enabled(struct rq *rq)
 {
 	return 0;
 }
+
+static inline void hrtick_clear(struct rq *rq) { }
+static inline void init_rq_hrtick(struct rq *rq) { }
 
 #endif /* CONFIG_SCHED_HRTICK */
 
