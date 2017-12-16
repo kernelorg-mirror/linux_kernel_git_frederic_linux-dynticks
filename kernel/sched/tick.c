@@ -161,7 +161,7 @@ void hrtick_start(struct rq *rq, u64 delay)
 }
 #endif /* CONFIG_SMP */
 
-void init_rq_hrtick(struct rq *rq)
+void hrtick_rq_init(struct rq *rq)
 {
 #ifdef CONFIG_SMP
 	rq->hrtick_csd_pending = 0;

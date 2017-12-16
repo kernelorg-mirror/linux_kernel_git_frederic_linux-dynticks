@@ -5773,7 +5773,7 @@ void __init sched_init(void)
 		rq->last_sched_tick = 0;
 #endif
 #endif /* CONFIG_SMP */
-		init_rq_hrtick(rq);
+		hrtick_rq_init(rq);
 		atomic_set(&rq->nr_iowait, 0);
 	}
 
