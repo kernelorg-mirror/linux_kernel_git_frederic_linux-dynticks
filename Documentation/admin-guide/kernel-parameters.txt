@@ -1749,7 +1749,12 @@
 			specified in the flag list (default: domain):
 
 			nohz
-			  Disable the tick when a single task runs.
+			  Disable the tick when a single task runs. A residual 1Hz
+			  tick remains to maintain scheduler stats alive.
+			nohz_offload
+			  Like nohz but the residual 1Hz tick is offloaded to
+			  housekeeping CPUs, leaving the CPU free of any tick if
+			  nothing else requests it.
 			domain
 			  Isolate from the general SMP balancing and scheduling
 			  algorithms. Note that performing domain isolation this way
