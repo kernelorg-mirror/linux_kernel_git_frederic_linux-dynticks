@@ -12,6 +12,7 @@
 #include <linux/kernel.h>
 #include <linux/static_key.h>
 #include <linux/ctype.h>
+#include "sched.h"
 
 DEFINE_STATIC_KEY_FALSE(housekeeping_overriden);
 EXPORT_SYMBOL_GPL(housekeeping_overriden);
@@ -59,6 +60,9 @@ void __init housekeeping_init(void)
 		return;
 
 	static_branch_enable(&housekeeping_overriden);
+
+	if (housekeeping_flags & HK_FLAG_TICK_SCHED)
+		sched_tick_offload_init();
 
 	/* We need at least one CPU to handle housekeeping work */
 	WARN_ON_ONCE(cpumask_empty(housekeeping_mask));
