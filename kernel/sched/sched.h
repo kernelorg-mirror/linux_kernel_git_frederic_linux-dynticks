@@ -1587,6 +1587,9 @@ extern void post_init_entity_util_avg(struct sched_entity *se);
 
 #ifdef CONFIG_NO_HZ_FULL
 extern bool sched_can_stop_tick(struct rq *rq);
+extern void sched_tick_start(int cpu);
+extern void sched_tick_stop(int cpu);
+extern int __init sched_tick_offload_init(void);
 
 /*
  * Tick may be needed by tasks in the runqueue depending on their policy and
@@ -1611,6 +1614,9 @@ static inline void sched_update_tick_dependency(struct rq *rq)
 		tick_nohz_dep_set_cpu(cpu, TICK_DEP_BIT_SCHED);
 }
 #else
+static inline void sched_tick_start(int cpu) { }
+static inline void sched_tick_stop(int cpu) { }
+static inline int sched_tick_offload_init(void) { return 0; }
 static inline void sched_update_tick_dependency(struct rq *rq) { }
 #endif
 

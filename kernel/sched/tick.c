@@ -1,5 +1,6 @@
 #include <linux/sched.h>
 #include <linux/sched/clock.h>
+#include <linux/sched/isolation.h>
 #include <linux/perf_event.h>
 #include "sched.h"
 
@@ -50,9 +51,14 @@ void scheduler_tick(void)
  */
 u64 scheduler_tick_max_deferment(void)
 {
-	struct rq *rq = this_rq();
-	unsigned long next, now = READ_ONCE(jiffies);
+	struct rq *rq;
+	unsigned long next, now;
 
+	if (!housekeeping_cpu(smp_processor_id(), HK_FLAG_TICK_SCHED))
+		return ktime_to_ns(KTIME_MAX);
+
+	rq = this_rq();
+	now = READ_ONCE(jiffies);
 	next = rq->last_sched_tick + HZ;
 
 	if (time_before_eq(next, now))
@@ -60,7 +66,74 @@ u64 scheduler_tick_max_deferment(void)
 
 	return jiffies_to_nsecs(next - now);
 }
-#endif
+
+struct tick_work {
+	int			cpu;
+	struct delayed_work	work;
+};
+
+static struct tick_work __percpu *tick_work_cpu;
+
+static void sched_tick_remote(struct work_struct *work)
+{
+	struct delayed_work *dwork = to_delayed_work(work);
+	struct tick_work *twork = container_of(dwork, struct tick_work, work);
+	struct rq *rq = cpu_rq(twork->cpu);
+	struct rq_flags rf;
+
+	rq_lock_irq(rq, &rf);
+	update_rq_clock(rq);
+	rq->curr->sched_class->task_tick(rq, rq->curr, 0);
+	rq_unlock_irq(rq, &rf);
+
+	queue_delayed_work(system_unbound_wq, dwork, HZ);
+}
+
+void sched_tick_start(int cpu)
+{
+	struct tick_work *twork;
+
+	if (housekeeping_cpu(cpu, HK_FLAG_TICK_SCHED))
+		return;
+
+	WARN_ON_ONCE(!tick_work_cpu);
+
+	twork = per_cpu_ptr(tick_work_cpu, cpu);
+	twork->cpu = cpu;
+	INIT_DELAYED_WORK(&twork->work, sched_tick_remote);
+	queue_delayed_work(system_unbound_wq, &twork->work, HZ);
+
+	return;
+}
+
+#ifdef CONFIG_HOTPLUG_CPU
+void sched_tick_stop(int cpu)
+{
+	struct tick_work *twork;
+
+	if (housekeeping_cpu(cpu, HK_FLAG_TICK_SCHED))
+		return;
+
+	WARN_ON_ONCE(!tick_work_cpu);
+
+	twork = per_cpu_ptr(tick_work_cpu, cpu);
+	cancel_delayed_work_sync(&twork->work);
+
+	return;
+}
+#endif /* CONFIG_HOTPLUG_CPU */
+
+int __init sched_tick_offload_init(void)
+{
+	tick_work_cpu = alloc_percpu(struct tick_work);
+	if (!tick_work_cpu) {
+		pr_err("Can't allocate remote tick struct\n");
+		return -ENOMEM;
+	}
+
+	return 0;
+}
+#endif /* CONFIG_NO_HZ_FULL */
 
 #ifdef CONFIG_SCHED_HRTICK
 /*

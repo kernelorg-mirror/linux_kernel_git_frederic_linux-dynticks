@@ -5531,6 +5531,7 @@ int sched_cpu_starting(unsigned int cpu)
 {
 	set_cpu_rq_start_time(cpu);
 	sched_rq_cpu_starting(cpu);
+	sched_tick_start(cpu);
 	return 0;
 }
 
@@ -5542,6 +5543,7 @@ int sched_cpu_dying(unsigned int cpu)
 
 	/* Handle pending wakeups and then migrate everything off */
 	sched_ttwu_pending();
+	sched_tick_stop(cpu);
 
 	rq_lock_irqsave(rq, &rf);
 	if (rq->rd) {
