@@ -1762,7 +1762,11 @@
 			specified in the flag list (default: domain):
 
 			nohz
-			  Disable the tick when a single task runs.
+			  Disable the tick when a single task runs. A residual 1Hz
+			  tick is offloaded to workqueues that you need to affine
+			  to housekeeping through the sysfs file
+			  /sys/devices/virtual/workqueue/cpumask or using the below
+			  domain flag.
 			domain
 			  Isolate from the general SMP balancing and scheduling
 			  algorithms. Note that performing domain isolation this way
