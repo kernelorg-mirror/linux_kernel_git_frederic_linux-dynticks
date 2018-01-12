@@ -74,6 +74,13 @@ struct softirq_stat {
 
 static DEFINE_PER_CPU(struct softirq_stat, softirq_stat_cpu);
 
+struct vector_work {
+	int vec;
+	struct work_struct work;
+};
+
+static DEFINE_PER_CPU(struct vector_work[NR_SOFTIRQS], vector_work_cpu);
+
 /*
  * we cannot loop indefinitely here to avoid userspace starvation,
  * but we also don't want to introduce a worst case 1/HZ latency
@@ -251,6 +258,70 @@ static inline bool lockdep_softirq_start(void) { return false; }
 static inline void lockdep_softirq_end(bool in_hardirq) { }
 #endif
 
+static void vector_work_func(struct work_struct *work)
+{
+	struct vector_work *vector_work;
+	u32 pending;
+	int vec;
+
+	vector_work = container_of(work, struct vector_work, work);
+	vec = vector_work->vec;
+
+	local_irq_disable();
+	pending = local_softirq_pending();
+	account_irq_enter_time(current);
+	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
+	lockdep_softirq_enter();
+	set_softirq_pending(pending & ~(1 << vec));
+	local_irq_enable();
+
+	if (pending & (1 << vec)) {
+		struct softirq_action *sa = &softirq_vec[vec];
+
+		kstat_incr_softirqs_this_cpu(vec);
+		trace_softirq_entry(vec);
+		sa->action(sa);
+		trace_softirq_exit(vec);
+	}
+
+	local_irq_disable();
+
+	pending = local_softirq_pending();
+	if (pending & (1 << vec))
+		schedule_work_on(smp_processor_id(), work);
+
+	lockdep_softirq_exit();
+	account_irq_exit_time(current);
+	__local_bh_enable(SOFTIRQ_OFFSET);
+	local_irq_enable();
+}
+
+static int do_softirq_overrun(u32 overrun, u32 pending)
+{
+	struct softirq_action *h = softirq_vec;
+	int softirq_bit;
+
+	if (!overrun)
+		return pending;
+
+	overrun &= pending;
+	pending &= ~overrun;
+
+	while ((softirq_bit = ffs(overrun))) {
+		struct vector_work *work;
+		unsigned int vec_nr;
+
+		h += softirq_bit - 1;
+		vec_nr = h - softirq_vec;
+		work = this_cpu_ptr(&vector_work_cpu[vec_nr]);
+		schedule_work_on(smp_processor_id(), &work->work);
+		h++;
+		overrun >>= softirq_bit;
+	}
+
+	return pending;
+}
+
 asmlinkage __visible void __softirq_entry __do_softirq(void)
 {
 	struct softirq_stat *sstat = this_cpu_ptr(&softirq_stat_cpu);
@@ -321,10 +392,13 @@ restart:
 
 	pending = local_softirq_pending();
 	if (pending) {
-		if (overrun || need_resched())
+		if (need_resched()) {
 			wakeup_softirqd();
-		else
-			goto restart;
+		} else {
+			pending = do_softirq_overrun(overrun, pending);
+			if (pending)
+				goto restart;
+		}
 	}
 
 	lockdep_softirq_end(in_hardirq);
@@ -661,10 +735,20 @@ void __init softirq_init(void)
 	int cpu;
 
 	for_each_possible_cpu(cpu) {
+		int i;
+
 		per_cpu(tasklet_vec, cpu).tail =
 			&per_cpu(tasklet_vec, cpu).head;
 		per_cpu(tasklet_hi_vec, cpu).tail =
 			&per_cpu(tasklet_hi_vec, cpu).head;
+
+		for (i = 0; i < NR_SOFTIRQS; i++) {
+			struct vector_work *work;
+
+			work = &per_cpu(vector_work_cpu[i], cpu);
+			work->vec = i;
+			INIT_WORK(&work->work, vector_work_func);
+		}
 	}
 
 	open_softirq(TASKLET_SOFTIRQ, tasklet_action);
