@@ -62,6 +62,15 @@ const char * const softirq_to_name[NR_SOFTIRQS] = {
 	"TASKLET", "SCHED", "HRTIMER", "RCU"
 };
 
+struct vector {
+	unsigned int jiffy_calls;
+	unsigned long jiffy_snap;
+};
+
+static DEFINE_PER_CPU(struct vector, vector_cpu[NR_SOFTIRQS]) = {
+	[0 ... NR_SOFTIRQS-1] = { 0, INITIAL_JIFFIES }
+};
+
 /*
  * we cannot loop indefinitely here to avoid userspace starvation,
  * but we also don't want to introduce a worst case 1/HZ latency
@@ -192,19 +201,13 @@ EXPORT_SYMBOL(__local_bh_enable_ip);
 
 /*
  * We restart softirq processing for at most MAX_SOFTIRQ_RESTART times,
- * but break the loop if need_resched() is set or after 2 ms.
- * The MAX_SOFTIRQ_TIME provides a nice upper bound in most cases, but in
- * certain cases, such as stop_machine(), jiffies may cease to
- * increment and so we need the MAX_SOFTIRQ_RESTART limit as
- * well to make sure we eventually return from this method.
- *
+ * but break the loop if need_resched() is set.
  * These limits have been established via experimentation.
  * The two things to balance is latency against fairness -
  * we want to handle softirqs as soon as possible, but they
  * should not be able to lock up the box.
  */
-#define MAX_SOFTIRQ_TIME  msecs_to_jiffies(2)
-#define MAX_SOFTIRQ_RESTART 10
+#define MAX_SOFTIRQ_RESTART 20
 
 #ifdef CONFIG_TRACE_IRQFLAGS
 /*
@@ -241,12 +244,10 @@ static inline void lockdep_softirq_end(bool in_hardirq) { }
 
 asmlinkage __visible void __softirq_entry __do_softirq(void)
 {
-	unsigned long end = jiffies + MAX_SOFTIRQ_TIME;
 	unsigned long old_flags = current->flags;
-	int max_restart = MAX_SOFTIRQ_RESTART;
 	struct softirq_action *h;
 	bool in_hardirq;
-	__u32 pending;
+	__u32 pending, overrun = 0;
 	int softirq_bit;
 
 	/*
@@ -271,6 +272,7 @@ restart:
 	h = softirq_vec;
 
 	while ((softirq_bit = ffs(pending))) {
+		struct vector *vector;
 		unsigned int vec_nr;
 		int prev_count;
 
@@ -284,6 +286,16 @@ restart:
 		trace_softirq_entry(vec_nr);
 		h->action(h);
 		trace_softirq_exit(vec_nr);
+
+		vector = this_cpu_ptr(&vector_cpu[vec_nr]);
+		if (time_before(vector->jiffy_snap, jiffies)) {
+			vector->jiffy_calls = 0;
+			vector->jiffy_snap = jiffies;
+		}
+
+		if (++vector->jiffy_calls > MAX_SOFTIRQ_RESTART)
+			overrun |= 1 << vec_nr;
+
 		if (unlikely(prev_count != preempt_count())) {
 			pr_err("huh, entered softirq %u %s %p with preempt_count %08x, exited with %08x?\n",
 			       vec_nr, softirq_to_name[vec_nr], h->action,
@@ -299,11 +311,10 @@ restart:
 
 	pending = local_softirq_pending();
 	if (pending) {
-		if (time_before(jiffies, end) && !need_resched() &&
-		    --max_restart)
+		if (overrun || need_resched())
+			wakeup_softirqd();
+		else
 			goto restart;
-
-		wakeup_softirqd();
 	}
 
 	lockdep_softirq_end(in_hardirq);
