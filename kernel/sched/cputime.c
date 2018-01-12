@@ -71,7 +71,8 @@ void irqtime_account_irq(struct task_struct *curr)
 	 */
 	if (hardirq_count())
 		irqtime_account_delta(irqtime, delta, CPUTIME_IRQ);
-	else if (in_serving_softirq() && curr != this_cpu_ksoftirqd())
+	else if (in_serving_softirq() && curr != this_cpu_ksoftirqd() &&
+		 !softirq_serving_workqueue())
 		irqtime_account_delta(irqtime, delta, CPUTIME_SOFTIRQ);
 }
 EXPORT_SYMBOL_GPL(irqtime_account_irq);
@@ -375,7 +376,7 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 
 	cputime -= other;
 
-	if (this_cpu_ksoftirqd() == p) {
+	if (this_cpu_ksoftirqd() == p || softirq_serving_workqueue()) {
 		/*
 		 * ksoftirqd time do not get accounted in cpu_softirq_time.
 		 * So, we have to handle it separately here.

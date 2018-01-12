@@ -62,6 +62,19 @@ const char * const softirq_to_name[NR_SOFTIRQS] = {
 	"TASKLET", "SCHED", "HRTIMER", "RCU"
 };
 
+struct vector {
+	int nr;
+	struct work_struct work;
+};
+
+struct softirq {
+	unsigned int pending_work_mask;
+	int work_running;
+	struct vector vector[NR_SOFTIRQS];
+};
+
+static DEFINE_PER_CPU(struct softirq, softirq_cpu);
+
 /*
  * we cannot loop indefinitely here to avoid userspace starvation,
  * but we also don't want to introduce a worst case 1/HZ latency
@@ -223,8 +236,77 @@ static inline bool lockdep_softirq_start(void) { return false; }
 static inline void lockdep_softirq_end(bool in_hardirq) { }
 #endif
 
+int softirq_serving_workqueue(void)
+{
+	return __this_cpu_read(softirq_cpu.work_running);
+}
+
+static void vector_work_func(struct work_struct *work)
+{
+	struct vector *vector = container_of(work, struct vector, work);
+	struct softirq *softirq = this_cpu_ptr(&softirq_cpu);
+	int vec_nr = vector->nr;
+	int vec_bit = BIT(vec_nr);
+	u32 pending;
+
+	local_irq_disable();
+	pending = local_softirq_pending();
+	account_irq_enter_time(current);
+	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
+	lockdep_softirq_enter();
+	set_softirq_pending(pending & ~vec_bit);
+	local_irq_enable();
+
+	if (pending & vec_bit) {
+		struct softirq_action *sa = &softirq_vec[vec_nr];
+
+		kstat_incr_softirqs_this_cpu(vec_nr);
+		softirq->work_running = 1;
+		trace_softirq_entry(vec_nr);
+		sa->action(sa);
+		trace_softirq_exit(vec_nr);
+		softirq->work_running = 0;
+	}
+
+	local_irq_disable();
+
+	pending = local_softirq_pending();
+	if (pending & vec_bit)
+		schedule_work_on(smp_processor_id(), &vector->work);
+	else
+		softirq->pending_work_mask &= ~vec_bit;
+
+	lockdep_softirq_exit();
+	account_irq_exit_time(current);
+	__local_bh_enable(SOFTIRQ_OFFSET);
+	local_irq_enable();
+}
+
+static void do_softirq_workqueue(u32 pending)
+{
+	struct softirq *softirq = this_cpu_ptr(&softirq_cpu);
+	struct softirq_action *h = softirq_vec;
+	int softirq_bit;
+
+	pending &= ~softirq->pending_work_mask;
+
+	while ((softirq_bit = ffs(pending))) {
+		struct vector *vector;
+		unsigned int vec_nr;
+
+		h += softirq_bit - 1;
+		vec_nr = h - softirq_vec;
+		softirq->pending_work_mask |= BIT(vec_nr);
+		vector = &softirq->vector[vec_nr];
+		schedule_work_on(smp_processor_id(), &vector->work);
+		h++;
+		pending >>= softirq_bit;
+	}
+}
+
 asmlinkage __visible void __softirq_entry __do_softirq(void)
 {
+	struct softirq *softirq = this_cpu_ptr(&softirq_cpu);
 	unsigned long old_flags = current->flags;
 	struct softirq_action *h;
 	bool in_hardirq;
@@ -238,15 +320,18 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 	 */
 	current->flags &= ~PF_MEMALLOC;
 
-	pending = local_softirq_pending();
+	/* Ignore vectors pending on workqueues, they have been punished */
+	pending = local_softirq_pending() & ~softirq->pending_work_mask;
 	account_irq_enter_time(current);
 
 	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
 	in_hardirq = lockdep_softirq_start();
-
 restart:
-	/* Reset the pending bitmask before enabling irqs */
-	set_softirq_pending(0);
+	/*
+	 * Reset the pending bitmask before enabling irqs but keep
+	 * those pending on workqueues so they get properly handled there.
+	 */
+	set_softirq_pending(softirq->pending_work_mask);
 
 	local_irq_enable();
 
@@ -282,12 +367,18 @@ restart:
 	rcu_bh_qs();
 	local_irq_disable();
 
-	pending = local_softirq_pending();
+	pending = local_softirq_pending() & ~softirq->pending_work_mask;
 	if (pending) {
-		if (pending & executed || need_resched())
+		if (need_resched()) {
 			wakeup_softirqd();
-		else
-			goto restart;
+		} else {
+			/* Vectors that got re-enqueued are threaded */
+			if (executed & pending)
+				do_softirq_workqueue(executed & pending);
+			pending &= ~executed;
+			if (pending)
+				goto restart;
+		}
 	}
 
 	lockdep_softirq_end(in_hardirq);
@@ -624,10 +715,23 @@ void __init softirq_init(void)
 	int cpu;
 
 	for_each_possible_cpu(cpu) {
+		struct softirq *softirq;
+		int i;
+
 		per_cpu(tasklet_vec, cpu).tail =
 			&per_cpu(tasklet_vec, cpu).head;
 		per_cpu(tasklet_hi_vec, cpu).tail =
 			&per_cpu(tasklet_hi_vec, cpu).head;
+
+		softirq = &per_cpu(softirq_cpu, cpu);
+
+		for (i = 0; i < NR_SOFTIRQS; i++) {
+			struct vector *vector;
+
+			vector = &softirq->vector[i];
+			vector->nr = i;
+			INIT_WORK(&vector->work, vector_work_func);
+		}
 	}
 
 	open_softirq(TASKLET_SOFTIRQ, tasklet_action);
