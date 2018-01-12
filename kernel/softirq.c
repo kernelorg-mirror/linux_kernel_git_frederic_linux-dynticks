@@ -26,6 +26,7 @@
 #include <linux/smpboot.h>
 #include <linux/tick.h>
 #include <linux/irq.h>
+#include <linux/sched/clock.h>
 
 #define CREATE_TRACE_POINTS
 #include <trace/events/irq.h>
@@ -61,6 +62,17 @@ const char * const softirq_to_name[NR_SOFTIRQS] = {
 	"HI", "TIMER", "NET_TX", "NET_RX", "BLOCK", "IRQ_POLL",
 	"TASKLET", "SCHED", "HRTIMER", "RCU"
 };
+
+struct vector_stat {
+	u64 time;
+	int count;
+};
+
+struct softirq_stat {
+	struct vector_stat stat[NR_SOFTIRQS];
+};
+
+static DEFINE_PER_CPU(struct softirq_stat, softirq_stat_cpu);
 
 /*
  * we cannot loop indefinitely here to avoid userspace starvation,
@@ -203,7 +215,7 @@ EXPORT_SYMBOL(__local_bh_enable_ip);
  * we want to handle softirqs as soon as possible, but they
  * should not be able to lock up the box.
  */
-#define MAX_SOFTIRQ_TIME  msecs_to_jiffies(2)
+#define MAX_SOFTIRQ_TIME  (2 * NSEC_PER_MSEC)
 #define MAX_SOFTIRQ_RESTART 10
 
 #ifdef CONFIG_TRACE_IRQFLAGS
@@ -241,12 +253,11 @@ static inline void lockdep_softirq_end(bool in_hardirq) { }
 
 asmlinkage __visible void __softirq_entry __do_softirq(void)
 {
-	unsigned long end = jiffies + MAX_SOFTIRQ_TIME;
+	struct softirq_stat *sstat = this_cpu_ptr(&softirq_stat_cpu);
 	unsigned long old_flags = current->flags;
-	int max_restart = MAX_SOFTIRQ_RESTART;
 	struct softirq_action *h;
 	bool in_hardirq;
-	__u32 pending;
+	__u32 pending, overrun = 0;
 	int softirq_bit;
 
 	/*
@@ -262,6 +273,7 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
 	in_hardirq = lockdep_softirq_start();
 
+	memzero_explicit(sstat, sizeof(*sstat));
 restart:
 	/* Reset the pending bitmask before enabling irqs */
 	set_softirq_pending(0);
@@ -271,8 +283,10 @@ restart:
 	h = softirq_vec;
 
 	while ((softirq_bit = ffs(pending))) {
+		struct vector_stat *vstat;
 		unsigned int vec_nr;
 		int prev_count;
+		u64 startime;
 
 		h += softirq_bit - 1;
 
@@ -280,10 +294,18 @@ restart:
 		prev_count = preempt_count();
 
 		kstat_incr_softirqs_this_cpu(vec_nr);
+		vstat = &sstat->stat[vec_nr];
 
 		trace_softirq_entry(vec_nr);
+		startime = local_clock();
 		h->action(h);
+		vstat->time += local_clock() - startime;
+		vstat->count++;
 		trace_softirq_exit(vec_nr);
+
+		if (vstat->time > MAX_SOFTIRQ_TIME || vstat->count > MAX_SOFTIRQ_RESTART)
+			overrun |= 1 << vec_nr;
+
 		if (unlikely(prev_count != preempt_count())) {
 			pr_err("huh, entered softirq %u %s %p with preempt_count %08x, exited with %08x?\n",
 			       vec_nr, softirq_to_name[vec_nr], h->action,
@@ -299,11 +321,10 @@ restart:
 
 	pending = local_softirq_pending();
 	if (pending) {
-		if (time_before(jiffies, end) && !need_resched() &&
-		    --max_restart)
+		if (overrun || need_resched())
+			wakeup_softirqd();
+		else
 			goto restart;
-
-		wakeup_softirqd();
 	}
 
 	lockdep_softirq_end(in_hardirq);
