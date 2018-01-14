@@ -55,8 +55,6 @@ EXPORT_SYMBOL(irq_stat);
 
 static struct softirq_action softirq_vec[NR_SOFTIRQS] __cacheline_aligned_in_smp;
 
-DEFINE_PER_CPU(struct task_struct *, ksoftirqd);
-
 const char * const softirq_to_name[NR_SOFTIRQS] = {
 	"HI", "TIMER", "NET_TX", "NET_RX", "BLOCK", "IRQ_POLL",
 	"TASKLET", "SCHED", "HRTIMER", "RCU"
@@ -74,32 +72,6 @@ struct softirq {
 };
 
 static DEFINE_PER_CPU(struct softirq, softirq_cpu);
-
-/*
- * we cannot loop indefinitely here to avoid userspace starvation,
- * but we also don't want to introduce a worst case 1/HZ latency
- * to the pending events, so lets the scheduler to balance
- * the softirq load for us.
- */
-static void wakeup_softirqd(void)
-{
-	/* Interrupts are disabled: no need to stop preemption */
-	struct task_struct *tsk = __this_cpu_read(ksoftirqd);
-
-	if (tsk && tsk->state != TASK_RUNNING)
-		wake_up_process(tsk);
-}
-
-/*
- * If ksoftirqd is scheduled, we do not want to process pending softirqs
- * right now. Let ksoftirqd handle this at its own rate, to get fairness.
- */
-static bool ksoftirqd_running(void)
-{
-	struct task_struct *tsk = __this_cpu_read(ksoftirqd);
-
-	return tsk && (tsk->state == TASK_RUNNING);
-}
 
 /*
  * preempt_count and SOFTIRQ_OFFSET usage:
@@ -388,7 +360,7 @@ restart:
 
 asmlinkage __visible void do_softirq(void)
 {
-	__u32 pending;
+	__u32 pending, pending_work;
 	unsigned long flags;
 
 	if (in_interrupt())
@@ -397,8 +369,9 @@ asmlinkage __visible void do_softirq(void)
 	local_irq_save(flags);
 
 	pending = local_softirq_pending();
+	pending_work = __this_cpu_read(softirq_cpu.pending_work_mask);
 
-	if (pending && !ksoftirqd_running())
+	if (pending & ~pending_work)
 		do_softirq_own_stack();
 
 	local_irq_restore(flags);
@@ -412,7 +385,7 @@ void irq_enter(void)
 	rcu_irq_enter();
 	if (is_idle_task(current) && !in_interrupt()) {
 		/*
-		 * Prevent raise_softirq from needlessly waking up ksoftirqd
+		 * Prevent raise_softirq from needlessly waking up workqueue
 		 * here, as softirq will be serviced on return from interrupt.
 		 */
 		local_bh_disable();
@@ -425,7 +398,15 @@ void irq_enter(void)
 
 static inline void invoke_softirq(void)
 {
-	if (ksoftirqd_running())
+	unsigned int pending_work, pending = local_softirq_pending();
+
+	if (!pending)
+		return;
+
+	pending_work = __this_cpu_read(softirq_cpu.pending_work_mask);
+	pending &= ~pending_work;
+
+	if (!pending)
 		return;
 
 	if (!force_irqthreads) {
@@ -445,7 +426,7 @@ static inline void invoke_softirq(void)
 		do_softirq_own_stack();
 #endif
 	} else {
-		wakeup_softirqd();
+		do_softirq_workqueue(pending);
 	}
 }
 
@@ -474,7 +455,7 @@ void irq_exit(void)
 #endif
 	account_irq_exit_time(current);
 	preempt_count_sub(HARDIRQ_OFFSET);
-	if (!in_interrupt() && local_softirq_pending())
+	if (!in_interrupt())
 		invoke_softirq();
 
 	tick_irq_exit();
@@ -495,11 +476,11 @@ inline void raise_softirq_irqoff(unsigned int nr)
 	 * actually run the softirq once we return from
 	 * the irq or softirq.
 	 *
-	 * Otherwise we wake up ksoftirqd to make sure we
+	 * Otherwise we wake up workqueue to make sure we
 	 * schedule the softirq soon.
 	 */
 	if (!in_interrupt())
-		wakeup_softirqd();
+		do_softirq_workqueue(BIT(nr));
 }
 
 void raise_softirq(unsigned int nr)
@@ -736,27 +717,6 @@ void __init softirq_init(void)
 	open_softirq(HI_SOFTIRQ, tasklet_hi_action);
 }
 
-static int ksoftirqd_should_run(unsigned int cpu)
-{
-	return local_softirq_pending();
-}
-
-static void run_ksoftirqd(unsigned int cpu)
-{
-	local_irq_disable();
-	if (local_softirq_pending()) {
-		/*
-		 * We can safely run softirq on inline stack, as we are not deep
-		 * in the task stack here.
-		 */
-		__do_softirq();
-		local_irq_enable();
-		cond_resched_rcu_qs();
-		return;
-	}
-	local_irq_enable();
-}
-
 #ifdef CONFIG_HOTPLUG_CPU
 /*
  * tasklet_kill_immediate is called to remove a tasklet which can already be
@@ -819,22 +779,13 @@ static int takeover_tasklets(unsigned int cpu)
 #define takeover_tasklets	NULL
 #endif /* CONFIG_HOTPLUG_CPU */
 
-static struct smp_hotplug_thread softirq_threads = {
-	.store			= &ksoftirqd,
-	.thread_should_run	= ksoftirqd_should_run,
-	.thread_fn		= run_ksoftirqd,
-	.thread_comm		= "ksoftirqd/%u",
-};
-
-static __init int spawn_ksoftirqd(void)
+static __init int tasklet_set_takeover(void)
 {
 	cpuhp_setup_state_nocalls(CPUHP_SOFTIRQ_DEAD, "softirq:dead", NULL,
 				  takeover_tasklets);
-	BUG_ON(smpboot_register_percpu_thread(&softirq_threads));
-
 	return 0;
 }
-early_initcall(spawn_ksoftirqd);
+early_initcall(tasklet_set_takeover);
 
 /*
  * [ These __weak aliases are kept in a separate compilation unit, so that

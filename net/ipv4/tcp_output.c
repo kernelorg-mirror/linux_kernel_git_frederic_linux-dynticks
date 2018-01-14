@@ -912,7 +912,7 @@ void tcp_wfree(struct sk_buff *skb)
 	 */
 	WARN_ON(refcount_sub_and_test(skb->truesize - 1, &sk->sk_wmem_alloc));
 
-	/* If this softirq is serviced by ksoftirqd, we are likely under stress.
+	/* If this softirq is serviced by workqueue, we are likely under stress.
 	 * Wait until our queues (qdisc + devices) are drained.
 	 * This gives :
 	 * - less callbacks to tcp_write_xmit(), reducing stress (batches)
@@ -920,7 +920,7 @@ void tcp_wfree(struct sk_buff *skb)
 	 *   to migrate this flow (skb->ooo_okay will be eventually set)
 	 */
 	if (refcount_read(&sk->sk_wmem_alloc) >= SKB_TRUESIZE(1) &&
-	    (this_cpu_ksoftirqd() == current || softirq_serving_workqueue()))
+	    softirq_serving_workqueue())
 		goto out;
 
 	for (oval = READ_ONCE(sk->sk_tsq_flags);; oval = nval) {
