@@ -255,10 +255,13 @@ static void vector_work_func(struct work_struct *work)
 	local_irq_disable();
 
 	pending = local_softirq_pending();
-	if (pending & vec_bit)
+	if (pending & vec_bit) {
 		schedule_work_on(smp_processor_id(), &vector->work);
-	else
+	} else {
 		softirq->pending_work_mask &= ~vec_bit;
+		vector->jiffy_calls = 0;
+		vector->jiffy_snap = jiffies;
+	}
 
 	lockdep_softirq_exit();
 	account_irq_exit_time(current);
