@@ -369,16 +369,14 @@ restart:
 
 	pending = local_softirq_pending() & ~softirq->pending_work_mask;
 	if (pending) {
-		if (need_resched()) {
-			wakeup_softirqd();
-		} else {
-			/* Vectors that got re-enqueued are threaded */
-			if (executed & pending)
-				do_softirq_workqueue(executed & pending);
-			pending &= ~executed;
-			if (pending)
-				goto restart;
-		}
+		if (need_resched())
+			executed = pending;
+		/* Vectors that got re-enqueued are threaded */
+		if (executed & pending)
+			do_softirq_workqueue(executed & pending);
+		pending &= ~executed;
+		if (pending)
+			goto restart;
 	}
 
 	lockdep_softirq_end(in_hardirq);
