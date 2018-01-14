@@ -2061,8 +2061,8 @@ struct irqtime {
 DECLARE_PER_CPU(struct irqtime, cpu_irqtime);
 
 /*
- * Returns the irqtime minus the softirq time computed by ksoftirqd.
- * Otherwise ksoftirqd's sum_exec_runtime is substracted its own runtime
+ * Returns the irqtime minus the softirq time computed by workqueue.
+ * Otherwise workqueue's sum_exec_runtime is substracted its own runtime
  * and never move forward.
  */
 static inline u64 irq_time_read(int cpu)

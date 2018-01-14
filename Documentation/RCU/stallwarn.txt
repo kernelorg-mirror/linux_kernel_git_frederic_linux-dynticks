@@ -17,8 +17,8 @@ o	A CPU looping in an RCU read-side critical section.
 o	A CPU looping with interrupts disabled.
 
 o	A CPU looping with preemption disabled.  This condition can
-	result in RCU-sched stalls and, if ksoftirqd is in use, RCU-bh
-	stalls.
+	result in RCU-sched stalls and, if softirq workqueue is in use,
+	RCU-bh stalls.
 
 o	A CPU looping with bottom halves disabled.  This condition can
 	result in RCU-sched and RCU-bh stalls.

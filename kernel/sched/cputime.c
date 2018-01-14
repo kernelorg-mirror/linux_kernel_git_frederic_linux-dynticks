@@ -64,15 +64,14 @@ void irqtime_account_irq(struct task_struct *curr)
 	irqtime->irq_start_time += delta;
 
 	/*
-	 * We do not account for softirq time from ksoftirqd here.
-	 * We want to continue accounting softirq time to ksoftirqd thread
+	 * We do not account for softirq time from workqueue here.
+	 * We want to continue accounting softirq time to workqueue thread
 	 * in that case, so as not to confuse scheduler with a special task
 	 * that do not consume any time, but still wants to run.
 	 */
 	if (hardirq_count())
 		irqtime_account_delta(irqtime, delta, CPUTIME_IRQ);
-	else if (in_serving_softirq() && curr != this_cpu_ksoftirqd() &&
-		 !softirq_serving_workqueue())
+	else if (in_serving_softirq() && !softirq_serving_workqueue())
 		irqtime_account_delta(irqtime, delta, CPUTIME_SOFTIRQ);
 }
 EXPORT_SYMBOL_GPL(irqtime_account_irq);
@@ -376,11 +375,11 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 
 	cputime -= other;
 
-	if (this_cpu_ksoftirqd() == p || softirq_serving_workqueue()) {
+	if (softirq_serving_workqueue()) {
 		/*
-		 * ksoftirqd time do not get accounted in cpu_softirq_time.
+		 * Softirq wq time do not get accounted in cpu_softirq_time.
 		 * So, we have to handle it separately here.
-		 * Also, p->stime needs to be updated for ksoftirqd.
+		 * Also, p->stime needs to be updated for workqueue.
 		 */
 		account_system_index_time(p, cputime, CPUTIME_SOFTIRQ);
 	} else if (user_tick) {
