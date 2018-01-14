@@ -389,16 +389,14 @@ restart:
 
 	pending = local_softirq_pending() & ~softirq->pending_work_mask;
 	if (pending) {
-		if (need_resched()) {
-			wakeup_softirqd();
-		} else {
-			/* Vectors that overreached the limits are threaded */
-			if (overrun & pending)
-				do_softirq_workqueue(overrun & pending);
-			pending &= ~overrun;
-			if (pending)
-				goto restart;
-		}
+		if (need_resched())
+			overrun = pending;
+		/* Vectors that overreached the limits are threaded */
+		if (overrun & pending)
+			do_softirq_workqueue(overrun & pending);
+		pending &= ~overrun;
+		if (pending)
+			goto restart;
 	}
 
 	lockdep_softirq_end(in_hardirq);
