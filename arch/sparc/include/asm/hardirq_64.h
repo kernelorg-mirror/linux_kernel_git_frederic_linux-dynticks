@@ -10,8 +10,8 @@
 #include <asm/cpudata.h>
 
 #define __ARCH_IRQ_STAT
-#define local_softirq_pending() \
-	(__this_cpu_read(__cpu_data.__softirq_pending))
+#define local_softirq_pending_ref \
+	__cpu_data.__softirq_pending
 
 void ack_bad_irq(unsigned int irq);
 
