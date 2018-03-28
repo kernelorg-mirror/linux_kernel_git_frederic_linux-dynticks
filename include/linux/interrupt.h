@@ -446,10 +446,8 @@ extern bool force_irqthreads;
 
 #else /* local_softirq_pending */
 
-#ifndef __ARCH_SET_SOFTIRQ_PENDING
 #define set_softirq_pending(x) (local_softirq_pending() = (x))
 #define or_softirq_pending(x)  (local_softirq_pending() |= (x))
-#endif
 
 #endif /* local_softirq_pending */
 
