@@ -515,45 +515,33 @@ int arch_bp_generic_fields(struct arch_hw_breakpoint_ctrl ctrl,
 	return 0;
 }
 
-/*
- * Construct an arch_hw_breakpoint from a perf_event.
- */
-static int arch_build_bp_info(struct perf_event *bp)
+static int hw_breakpoint_arch_check(struct perf_event *bp,
+				    const struct perf_event_attr *attr)
 {
-	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
+	u32 offset, alignment_mask = 0x3;
+
+	/* Ensure that we are in monitor debug mode. */
+	if (!monitor_mode_enabled())
+		return -ENODEV;
 
 	/* Type */
-	switch (bp->attr.bp_type) {
+	switch (attr->bp_type) {
 	case HW_BREAKPOINT_X:
-		info->ctrl.type = ARM_BREAKPOINT_EXECUTE;
-		break;
 	case HW_BREAKPOINT_R:
-		info->ctrl.type = ARM_BREAKPOINT_LOAD;
-		break;
 	case HW_BREAKPOINT_W:
-		info->ctrl.type = ARM_BREAKPOINT_STORE;
-		break;
 	case HW_BREAKPOINT_RW:
-		info->ctrl.type = ARM_BREAKPOINT_LOAD | ARM_BREAKPOINT_STORE;
 		break;
 	default:
 		return -EINVAL;
 	}
 
 	/* Len */
-	switch (bp->attr.bp_len) {
+	switch (attr->bp_len) {
 	case HW_BREAKPOINT_LEN_1:
-		info->ctrl.len = ARM_BREAKPOINT_LEN_1;
-		break;
 	case HW_BREAKPOINT_LEN_2:
-		info->ctrl.len = ARM_BREAKPOINT_LEN_2;
-		break;
 	case HW_BREAKPOINT_LEN_4:
-		info->ctrl.len = ARM_BREAKPOINT_LEN_4;
-		break;
 	case HW_BREAKPOINT_LEN_8:
-		info->ctrl.len = ARM_BREAKPOINT_LEN_8;
-		if ((info->ctrl.type != ARM_BREAKPOINT_EXECUTE)
+		if ((attr->bp_type != HW_BREAKPOINT_X)
 			&& max_watchpoint_len >= 8)
 			break;
 	default:
@@ -566,50 +554,17 @@ static int arch_build_bp_info(struct perf_event *bp)
 	 * by the hardware and must be aligned to the appropriate number of
 	 * bytes.
 	 */
-	if (info->ctrl.type == ARM_BREAKPOINT_EXECUTE &&
-	    info->ctrl.len != ARM_BREAKPOINT_LEN_2 &&
-	    info->ctrl.len != ARM_BREAKPOINT_LEN_4)
+	if (attr->bp_type == HW_BREAKPOINT_X &&
+	    attr->bp_len != HW_BREAKPOINT_LEN_2 &&
+	    attr->bp_len != HW_BREAKPOINT_LEN_4)
 		return -EINVAL;
 
-	/* Address */
-	info->address = bp->attr.bp_addr;
-
-	/* Privilege */
-	info->ctrl.privilege = ARM_BREAKPOINT_USER;
-	if (arch_check_bp_in_kernelspace(bp))
-		info->ctrl.privilege |= ARM_BREAKPOINT_PRIV;
-
-	/* Enabled? */
-	info->ctrl.enabled = !bp->attr.disabled;
-
-	/* Mismatch */
-	info->ctrl.mismatch = 0;
-
-	return 0;
-}
-
-/*
- * Validate the arch-specific HW Breakpoint register settings.
- */
-int arch_validate_hwbkpt_settings(struct perf_event *bp)
-{
-	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
-	int ret = 0;
-	u32 offset, alignment_mask = 0x3;
-
-	/* Ensure that we are in monitor debug mode. */
-	if (!monitor_mode_enabled())
-		return -ENODEV;
-
-	/* Build the arch_hw_breakpoint. */
-	ret = arch_build_bp_info(bp);
-	if (ret)
-		goto out;
-
 	/* Check address alignment. */
-	if (info->ctrl.len == ARM_BREAKPOINT_LEN_8)
+	if (attr->bp_len == HW_BREAKPOINT_LEN_8)
 		alignment_mask = 0x7;
-	offset = info->address & alignment_mask;
+
+	offset = attr->bp_addr & alignment_mask;
+
 	switch (offset) {
 	case 0:
 		/* Aligned */
@@ -617,19 +572,15 @@ int arch_validate_hwbkpt_settings(struct perf_event *bp)
 	case 1:
 	case 2:
 		/* Allow halfword watchpoints and breakpoints. */
-		if (info->ctrl.len == ARM_BREAKPOINT_LEN_2)
+		if (attr->bp_len == HW_BREAKPOINT_LEN_2)
 			break;
 	case 3:
 		/* Allow single byte watchpoint. */
-		if (info->ctrl.len == ARM_BREAKPOINT_LEN_1)
+		if (attr->bp_len == HW_BREAKPOINT_LEN_1)
 			break;
 	default:
-		ret = -EINVAL;
-		goto out;
+		return -EINVAL;
 	}
-
-	info->address &= ~alignment_mask;
-	info->ctrl.len <<= offset;
 
 	if (is_default_overflow_handler(bp)) {
 		/*
@@ -655,13 +606,92 @@ int arch_validate_hwbkpt_settings(struct perf_event *bp)
 		 * reports them.
 		 */
 		if (!debug_exception_updates_fsr() &&
-		    (info->ctrl.type == ARM_BREAKPOINT_LOAD ||
-		     info->ctrl.type == ARM_BREAKPOINT_STORE))
+		    (attr->bp_type == HW_BREAKPOINT_R ||
+		     attr->bp_type == HW_BREAKPOINT_W))
 			return -EINVAL;
 	}
 
-out:
-	return ret;
+	return 0;
+}
+
+static void hw_breakpoint_arch_commit(struct perf_event *bp)
+{
+	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
+	struct perf_event_attr *attr = &bp->attr;
+	u32 offset, alignment_mask = 0x3;
+
+	/* Type */
+	switch (attr->bp_type) {
+	case HW_BREAKPOINT_X:
+		info->ctrl.type = ARM_BREAKPOINT_EXECUTE;
+		break;
+	case HW_BREAKPOINT_R:
+		info->ctrl.type = ARM_BREAKPOINT_LOAD;
+		break;
+	case HW_BREAKPOINT_W:
+		info->ctrl.type = ARM_BREAKPOINT_STORE;
+		break;
+	case HW_BREAKPOINT_RW:
+		info->ctrl.type = ARM_BREAKPOINT_LOAD | ARM_BREAKPOINT_STORE;
+		break;
+	default:
+		WARN_ON_ONCE(1);
+	}
+
+	/* Len */
+	switch (attr->bp_len) {
+	case HW_BREAKPOINT_LEN_1:
+		info->ctrl.len = ARM_BREAKPOINT_LEN_1;
+		break;
+	case HW_BREAKPOINT_LEN_2:
+		info->ctrl.len = ARM_BREAKPOINT_LEN_2;
+		break;
+	case HW_BREAKPOINT_LEN_4:
+		info->ctrl.len = ARM_BREAKPOINT_LEN_4;
+		break;
+	case HW_BREAKPOINT_LEN_8:
+		info->ctrl.len = ARM_BREAKPOINT_LEN_8;
+		break;
+	default:
+		WARN_ON_ONCE(1);
+	}
+
+	/* Address */
+	info->address = attr->bp_addr;
+
+	/* Privilege */
+	info->ctrl.privilege = ARM_BREAKPOINT_USER;
+	if (arch_check_bp_in_kernelspace(bp))
+		info->ctrl.privilege |= ARM_BREAKPOINT_PRIV;
+
+	/* Enabled? */
+	info->ctrl.enabled = !attr->disabled;
+
+	/* Mismatch */
+	info->ctrl.mismatch = 0;
+
+	if (info->ctrl.len == ARM_BREAKPOINT_LEN_8)
+		alignment_mask = 0x7;
+
+	offset = info->address & alignment_mask;
+	info->address &= ~alignment_mask;
+	info->ctrl.len <<= offset;
+}
+
+/*
+ * Validate the arch-specific HW Breakpoint register settings.
+ */
+int arch_validate_hwbkpt_settings(struct perf_event *bp)
+{
+	int err;
+
+	err = hw_breakpoint_arch_check(bp, &bp->attr);
+	if (err)
+		return err;
+
+	hw_breakpoint_arch_commit(bp);
+
+	return 0;
 }
 
 /*
