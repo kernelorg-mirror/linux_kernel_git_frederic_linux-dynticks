@@ -174,14 +174,53 @@ int arch_bp_generic_fields(int sh_len, int sh_type,
 	return 0;
 }
 
-static int arch_build_bp_info(struct perf_event *bp)
+static int hw_breakpoint_arch_check(struct perf_event *bp,
+				    const struct perf_event_attr *attr)
+{
+	unsigned int align;
+
+	/* Check type */
+	switch (attr->bp_type) {
+	case HW_BREAKPOINT_W:
+	case HW_BREAKPOINT_R:
+	case HW_BREAKPOINT_W | HW_BREAKPOINT_R:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	/* Check len */
+	switch (attr->bp_len) {
+	case HW_BREAKPOINT_LEN_1:
+	case HW_BREAKPOINT_LEN_2:
+	case HW_BREAKPOINT_LEN_4:
+	case HW_BREAKPOINT_LEN_8:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	align = attr->bp_len - 1;
+
+	/*
+	 * Check that the low-order bits of the address are appropriate
+	 * for the alignment implied by len.
+	 */
+	if (attr->bp_addr & align)
+		return -EINVAL;
+
+	return 0;
+}
+
+static void hw_breakpoint_arch_commit(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
+	struct perf_event_attr *attr = &bp->attr;
 
-	info->address = bp->attr.bp_addr;
+	info->address = attr->bp_addr;
 
 	/* Len */
-	switch (bp->attr.bp_len) {
+	switch (attr->bp_len) {
 	case HW_BREAKPOINT_LEN_1:
 		info->len = SH_BREAKPOINT_LEN_1;
 		break;
@@ -195,11 +234,11 @@ static int arch_build_bp_info(struct perf_event *bp)
 		info->len = SH_BREAKPOINT_LEN_8;
 		break;
 	default:
-		return -EINVAL;
+		WARN_ON_ONCE(1);
 	}
 
 	/* Type */
-	switch (bp->attr.bp_type) {
+	switch (attr->bp_type) {
 	case HW_BREAKPOINT_R:
 		info->type = SH_BREAKPOINT_READ;
 		break;
@@ -210,10 +249,8 @@ static int arch_build_bp_info(struct perf_event *bp)
 		info->type = SH_BREAKPOINT_RW;
 		break;
 	default:
-		return -EINVAL;
+		WARN_ON_ONCE(1);
 	}
-
-	return 0;
 }
 
 /*
@@ -221,39 +258,13 @@ static int arch_build_bp_info(struct perf_event *bp)
  */
 int arch_validate_hwbkpt_settings(struct perf_event *bp)
 {
-	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
-	unsigned int align;
-	int ret;
+	int err;
 
-	ret = arch_build_bp_info(bp);
-	if (ret)
-		return ret;
+	err = hw_breakpoint_arch_check(bp, &bp->attr);
+	if (err)
+		return err;
 
-	ret = -EINVAL;
-
-	switch (info->len) {
-	case SH_BREAKPOINT_LEN_1:
-		align = 0;
-		break;
-	case SH_BREAKPOINT_LEN_2:
-		align = 1;
-		break;
-	case SH_BREAKPOINT_LEN_4:
-		align = 3;
-		break;
-	case SH_BREAKPOINT_LEN_8:
-		align = 7;
-		break;
-	default:
-		return ret;
-	}
-
-	/*
-	 * Check that the low-order bits of the address are appropriate
-	 * for the alignment implied by len.
-	 */
-	if (info->address & align)
-		return -EINVAL;
+	hw_breakpoint_arch_commit(bp);
 
 	return 0;
 }
