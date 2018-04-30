@@ -138,33 +138,20 @@ int arch_bp_generic_fields(int type, int *gen_bp_type)
 	return 0;
 }
 
-/*
- * Validate the arch-specific HW Breakpoint register settings
- */
-int arch_validate_hwbkpt_settings(struct perf_event *bp)
+static int hw_breakpoint_arch_check(struct perf_event *bp,
+				    const struct perf_event_attr *attr)
 {
-	int ret = -EINVAL, length_max;
-	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
+	int length_max;
 
 	if (!bp)
-		return ret;
+		return -EINVAL;
 
-	info->type = HW_BRK_TYPE_TRANSLATE;
-	if (bp->attr.bp_type & HW_BREAKPOINT_R)
-		info->type |= HW_BRK_TYPE_READ;
-	if (bp->attr.bp_type & HW_BREAKPOINT_W)
-		info->type |= HW_BRK_TYPE_WRITE;
-	if (info->type == HW_BRK_TYPE_TRANSLATE)
-		/* must set alteast read or write */
-		return ret;
-	if (!(bp->attr.exclude_user))
-		info->type |= HW_BRK_TYPE_USER;
-	if (!(bp->attr.exclude_kernel))
-		info->type |= HW_BRK_TYPE_KERNEL;
-	if (!(bp->attr.exclude_hv))
-		info->type |= HW_BRK_TYPE_HYP;
-	info->address = bp->attr.bp_addr;
-	info->len = bp->attr.bp_len;
+	/* Must set at least read or write */
+	if (!(attr->bp_type & (HW_BREAKPOINT_R | HW_BREAKPOINT_W)))
+		return -EINVAL;
+
+	if (!ppc_breakpoint_available())
+		return -ENODEV;
 
 	/*
 	 * Since breakpoint length can be a maximum of HW_BREAKPOINT_LEN(8)
@@ -172,19 +159,56 @@ int arch_validate_hwbkpt_settings(struct perf_event *bp)
 	 * HW_BREAKPOINT_ALIGN by rounding off to the lower address, the
 	 * 'symbolsize' should satisfy the check below.
 	 */
-	if (!ppc_breakpoint_available())
-		return -ENODEV;
 	length_max = 8; /* DABR */
 	if (cpu_has_feature(CPU_FTR_DAWR)) {
 		length_max = 512 ; /* 64 doublewords */
 		/* DAWR region can't cross 512 boundary */
-		if ((bp->attr.bp_addr >> 10) != 
-		    ((bp->attr.bp_addr + bp->attr.bp_len - 1) >> 10))
+		if ((attr->bp_addr >> 10) !=
+		    ((attr->bp_addr + attr->bp_len - 1) >> 10))
 			return -EINVAL;
 	}
-	if (info->len >
-	    (length_max - (info->address & HW_BREAKPOINT_ALIGN)))
+	if (attr->bp_len >
+	    (length_max - (attr->bp_addr & HW_BREAKPOINT_ALIGN)))
 		return -EINVAL;
+
+	return 0;
+}
+
+static void hw_breakpoint_arch_commit(struct perf_event *bp)
+{
+	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
+	struct perf_event_attr *attr = &bp->attr;
+
+	info->type = HW_BRK_TYPE_TRANSLATE;
+	if (attr->bp_type & HW_BREAKPOINT_R)
+		info->type |= HW_BRK_TYPE_READ;
+	if (attr->bp_type & HW_BREAKPOINT_W)
+		info->type |= HW_BRK_TYPE_WRITE;
+
+	if (!attr->exclude_user)
+		info->type |= HW_BRK_TYPE_USER;
+	if (!attr->exclude_kernel)
+		info->type |= HW_BRK_TYPE_KERNEL;
+	if (!attr->exclude_hv)
+		info->type |= HW_BRK_TYPE_HYP;
+
+	info->address = attr->bp_addr;
+	info->len = attr->bp_len;
+}
+
+/*
+ * Validate the arch-specific HW Breakpoint register settings
+ */
+int arch_validate_hwbkpt_settings(struct perf_event *bp)
+{
+	int err;
+
+	err = hw_breakpoint_arch_check(bp, &bp->attr);
+	if (err)
+		return err;
+
+	hw_breakpoint_arch_commit(bp);
+
 	return 0;
 }
 
