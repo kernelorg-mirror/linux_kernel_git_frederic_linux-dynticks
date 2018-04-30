@@ -45,15 +45,38 @@ int arch_check_bp_in_kernelspace(struct perf_event *bp)
 	return (va >= TASK_SIZE) && ((va + len - 1) >= TASK_SIZE);
 }
 
-/*
- * Construct an arch_hw_breakpoint from a perf_event.
- */
-static int arch_build_bp_info(struct perf_event *bp)
+static int hw_breakpoint_arch_check(struct perf_event *bp,
+				    const struct perf_event_attr *attr)
+{
+	/* Type */
+	switch (attr->bp_type) {
+	case HW_BREAKPOINT_X:
+	case HW_BREAKPOINT_R:
+	case HW_BREAKPOINT_W:
+	case HW_BREAKPOINT_RW:
+		break;
+	default:
+		return -EINVAL;
+	}
+
+	/* Len */
+	if (attr->bp_len < 1 || attr->bp_len > 64 || !is_power_of_2(attr->bp_len))
+		return -EINVAL;
+
+	/* Address */
+	if (attr->bp_addr & (attr->bp_len - 1))
+		return -EINVAL;
+
+	return 0;
+}
+
+static void hw_breakpoint_arch_commit(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
+	struct perf_event_attr *attr = &bp->attr;
 
 	/* Type */
-	switch (bp->attr.bp_type) {
+	switch (attr->bp_type) {
 	case HW_BREAKPOINT_X:
 		info->type = XTENSA_BREAKPOINT_EXECUTE;
 		break;
@@ -67,29 +90,30 @@ static int arch_build_bp_info(struct perf_event *bp)
 		info->type = XTENSA_BREAKPOINT_LOAD | XTENSA_BREAKPOINT_STORE;
 		break;
 	default:
-		return -EINVAL;
+		WARN_ON_ONCE(1);
 	}
 
 	/* Len */
-	info->len = bp->attr.bp_len;
-	if (info->len < 1 || info->len > 64 || !is_power_of_2(info->len))
-		return -EINVAL;
+	info->len = attr->bp_len;
 
 	/* Address */
-	info->address = bp->attr.bp_addr;
-	if (info->address & (info->len - 1))
-		return -EINVAL;
-
-	return 0;
+	info->address = attr->bp_addr;
 }
 
+/*
+ * Validate the arch-specific HW Breakpoint register settings
+ */
 int arch_validate_hwbkpt_settings(struct perf_event *bp)
 {
-	int ret;
+	int err;
 
-	/* Build the arch_hw_breakpoint. */
-	ret = arch_build_bp_info(bp);
-	return ret;
+	err = hw_breakpoint_arch_check(bp, &bp->attr);
+	if (err)
+		return err;
+
+	hw_breakpoint_arch_commit(bp);
+
+	return 0;
 }
 
 int hw_breakpoint_exceptions_notify(struct notifier_block *unused,
