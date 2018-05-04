@@ -40,6 +40,7 @@ struct sh_ubc {
 	struct clk	*clk;	/* optional interface clock / MSTP bit */
 };
 
+struct perf_event_attr;
 struct perf_event;
 struct task_struct;
 struct pmu;
@@ -54,7 +55,9 @@ static inline int hw_breakpoint_slots(int type)
 
 /* arch/sh/kernel/hw_breakpoint.c */
 extern int arch_check_bp_in_kernelspace(struct perf_event *bp);
-extern int arch_validate_hwbkpt_settings(struct perf_event *bp);
+extern int hw_breakpoint_arch_check(struct perf_event *bp,
+				    const struct perf_event_attr *attr);
+extern void hw_breakpoint_arch_commit(struct perf_event *bp);
 extern int hw_breakpoint_exceptions_notify(struct notifier_block *unused,
 					   unsigned long val, void *data);
 

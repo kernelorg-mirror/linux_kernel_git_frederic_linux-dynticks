@@ -233,8 +233,8 @@ int arch_bp_generic_fields(int x86_len, int x86_type,
 	return 0;
 }
 
-static int hw_breakpoint_arch_check(struct perf_event *bp,
-				    const struct perf_event_attr *attr)
+int hw_breakpoint_arch_check(struct perf_event *bp,
+			     const struct perf_event_attr *attr)
 {
 	unsigned int align;
 
@@ -295,7 +295,7 @@ static int hw_breakpoint_arch_check(struct perf_event *bp,
 	return 0;
 }
 
-static void hw_breakpoint_arch_commit(struct perf_event *bp)
+void hw_breakpoint_arch_commit(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
 	struct perf_event_attr *attr = &bp->attr;
@@ -352,23 +352,6 @@ static void hw_breakpoint_arch_commit(struct perf_event *bp)
 		info->mask = attr->bp_len - 1;
 		info->len = X86_BREAKPOINT_LEN_1;
 	}
-}
-
-
-/*
- * Validate the arch-specific HW Breakpoint register settings
- */
-int arch_validate_hwbkpt_settings(struct perf_event *bp)
-{
-	int err;
-
-	err = hw_breakpoint_arch_check(bp, &bp->attr);
-	if (err)
-		return err;
-
-	hw_breakpoint_arch_commit(bp);
-
-	return 0;
 }
 
 /*

@@ -402,11 +402,12 @@ int dbg_release_bp_slot(struct perf_event *bp)
 
 static int validate_hw_breakpoint(struct perf_event *bp)
 {
-	int ret;
+	int err;
 
-	ret = arch_validate_hwbkpt_settings(bp);
-	if (ret)
-		return ret;
+	err = hw_breakpoint_arch_check(bp, &bp->attr);
+	if (err)
+		return err;
+	hw_breakpoint_arch_commit(bp);
 
 	if (arch_check_bp_in_kernelspace(bp)) {
 		if (bp->attr.exclude_kernel)
@@ -432,7 +433,7 @@ int register_perf_hw_breakpoint(struct perf_event *bp)
 
 	ret = validate_hw_breakpoint(bp);
 
-	/* if arch_validate_hwbkpt_settings() fails then release bp slot */
+	/* if hw_breakpoint_arch_check() fails then release bp slot */
 	if (ret)
 		release_bp_slot(bp);
 

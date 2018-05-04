@@ -45,8 +45,8 @@ int arch_check_bp_in_kernelspace(struct perf_event *bp)
 	return (va >= TASK_SIZE) && ((va + len - 1) >= TASK_SIZE);
 }
 
-static int hw_breakpoint_arch_check(struct perf_event *bp,
-				    const struct perf_event_attr *attr)
+int hw_breakpoint_arch_check(struct perf_event *bp,
+			     const struct perf_event_attr *attr)
 {
 	/* Type */
 	switch (attr->bp_type) {
@@ -70,7 +70,7 @@ static int hw_breakpoint_arch_check(struct perf_event *bp,
 	return 0;
 }
 
-static void hw_breakpoint_arch_commit(struct perf_event *bp)
+void hw_breakpoint_arch_commit(struct perf_event *bp)
 {
 	struct arch_hw_breakpoint *info = counter_arch_bp(bp);
 	struct perf_event_attr *attr = &bp->attr;
@@ -98,22 +98,6 @@ static void hw_breakpoint_arch_commit(struct perf_event *bp)
 
 	/* Address */
 	info->address = attr->bp_addr;
-}
-
-/*
- * Validate the arch-specific HW Breakpoint register settings
- */
-int arch_validate_hwbkpt_settings(struct perf_event *bp)
-{
-	int err;
-
-	err = hw_breakpoint_arch_check(bp, &bp->attr);
-	if (err)
-		return err;
-
-	hw_breakpoint_arch_commit(bp);
-
-	return 0;
 }
 
 int hw_breakpoint_exceptions_notify(struct notifier_block *unused,
