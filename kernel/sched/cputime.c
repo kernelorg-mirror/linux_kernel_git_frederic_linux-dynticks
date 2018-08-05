@@ -818,7 +818,10 @@ void arch_vtime_task_switch(struct task_struct *prev)
 	vtime = &current->vtime;
 
 	write_seqcount_begin(&vtime->seqcount);
-	vtime->state = VTIME_SYS;
+	if (is_idle_task(current))
+		vtime->state = VTIME_IDLE;
+	else
+		vtime->state = VTIME_SYS;
 	vtime->starttime = sched_clock();
 	write_seqcount_end(&vtime->seqcount);
 }
@@ -830,7 +833,7 @@ void vtime_init_idle(struct task_struct *t, int cpu)
 
 	local_irq_save(flags);
 	write_seqcount_begin(&vtime->seqcount);
-	vtime->state = VTIME_SYS;
+	vtime->state = VTIME_IDLE;
 	vtime->starttime = sched_clock();
 	write_seqcount_end(&vtime->seqcount);
 	local_irq_restore(flags);
@@ -880,8 +883,8 @@ void task_cputime(struct task_struct *t, u64 *utime, u64 *stime)
 		*utime = t->utime;
 		*stime = t->stime;
 
-		/* Task is sleeping, nothing to add */
-		if (vtime->state == VTIME_INACTIVE || is_idle_task(t))
+		/* Task is sleeping or idle, nothing to add */
+		if (vtime->state < VTIME_SYS)
 			continue;
 
 		delta = vtime_delta(vtime);
