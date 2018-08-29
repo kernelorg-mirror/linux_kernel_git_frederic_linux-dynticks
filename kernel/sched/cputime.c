@@ -809,35 +809,38 @@ void vtime_account_idle(struct task_struct *tsk)
 	write_seqcount_end(&vtime->seqcount);
 }
 
+static void vtime_sched_in(struct vtime *vtime,
+			   enum vtime_state state, u64 starttime)
+{
+	write_seqcount_begin(&vtime->seqcount);
+	vtime->state = state;
+	vtime->starttime = starttime;
+	write_seqcount_end(&vtime->seqcount);
+}
+
 void arch_vtime_task_switch(struct task_struct *prev)
 {
 	struct vtime *vtime = &prev->vtime;
+	enum vtime_state state;
 
 	write_seqcount_begin(&vtime->seqcount);
 	vtime->state = VTIME_INACTIVE;
 	write_seqcount_end(&vtime->seqcount);
 
-	vtime = &current->vtime;
-
-	write_seqcount_begin(&vtime->seqcount);
 	if (is_idle_task(current))
-		vtime->state = VTIME_IDLE;
+		state = VTIME_IDLE;
 	else
-		vtime->state = VTIME_SYS;
-	vtime->starttime = sched_clock();
-	write_seqcount_end(&vtime->seqcount);
+		state = VTIME_SYS;
+
+	vtime_sched_in(&current->vtime, state, sched_clock());
 }
 
 void vtime_init_idle(struct task_struct *t, int cpu)
 {
-	struct vtime *vtime = &t->vtime;
 	unsigned long flags;
 
 	local_irq_save(flags);
-	write_seqcount_begin(&vtime->seqcount);
-	vtime->state = VTIME_IDLE;
-	vtime->starttime = sched_clock();
-	write_seqcount_end(&vtime->seqcount);
+	vtime_sched_in(&t->vtime, VTIME_IDLE, sched_clock());
 	local_irq_restore(flags);
 }
 
