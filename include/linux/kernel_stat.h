@@ -32,6 +32,7 @@ enum cpu_usage_stat {
 };
 
 struct kernel_cpustat {
+	struct vtime vtime;
 	u64 cpustat[NR_STATS];
 };
 

@@ -710,6 +710,16 @@ static u64 get_vtime_delta(struct vtime *vtime)
 	return delta - other;
 }
 
+static void vtime_kcpustat_update(struct vtime *task_vtime)
+{
+	struct vtime *kcpustat_vtime = &kcpustat_this_cpu.vtime;
+
+	write_seqcount_begin(&kcpustat_vtime->seqcount);
+	kcpustat_vtime->starttime = task_vtime->starttime;
+	kcpustat_vtime->state = task_vtime->state;
+	write_seqcount_end(&kcpustat_vtime->seqcount);
+}
+
 static void __vtime_account_system(struct task_struct *tsk,
 				   struct vtime *vtime)
 {
@@ -744,6 +754,8 @@ void vtime_account_system(struct task_struct *tsk)
 	else
 		__vtime_account_system(tsk, vtime);
 	write_seqcount_end(&vtime->seqcount);
+
+	vtime_kcpustat_update(vtime);
 }
 
 void vtime_user_enter(struct task_struct *tsk)
@@ -754,6 +766,8 @@ void vtime_user_enter(struct task_struct *tsk)
 	__vtime_account_system(tsk, vtime);
 	vtime->state = VTIME_USER;
 	write_seqcount_end(&vtime->seqcount);
+
+	vtime_kcpustat_update(vtime);
 }
 
 void vtime_user_exit(struct task_struct *tsk)
@@ -768,6 +782,8 @@ void vtime_user_exit(struct task_struct *tsk)
 	}
 	vtime->state = VTIME_SYS;
 	write_seqcount_end(&vtime->seqcount);
+
+	vtime_kcpustat_update(vtime);
 }
 
 void vtime_guest_enter(struct task_struct *tsk)
@@ -785,6 +801,8 @@ void vtime_guest_enter(struct task_struct *tsk)
 	current->flags |= PF_VCPU;
 	vtime->state = VTIME_GUEST;
 	write_seqcount_end(&vtime->seqcount);
+
+	vtime_kcpustat_update(vtime);
 }
 EXPORT_SYMBOL_GPL(vtime_guest_enter);
 
@@ -797,6 +815,8 @@ void vtime_guest_exit(struct task_struct *tsk)
 	current->flags &= ~PF_VCPU;
 	vtime->state = VTIME_SYS;
 	write_seqcount_end(&vtime->seqcount);
+
+	vtime_kcpustat_update(vtime);
 }
 EXPORT_SYMBOL_GPL(vtime_guest_exit);
 
@@ -822,6 +842,7 @@ void arch_vtime_task_switch(struct task_struct *prev)
 {
 	struct vtime *vtime = &prev->vtime;
 	enum vtime_state state;
+	u64 starttime;
 
 	write_seqcount_begin(&vtime->seqcount);
 	vtime->state = VTIME_INACTIVE;
@@ -831,8 +852,10 @@ void arch_vtime_task_switch(struct task_struct *prev)
 		state = VTIME_IDLE;
 	else
 		state = VTIME_SYS;
+	starttime = sched_clock();
 
-	vtime_sched_in(&current->vtime, state, sched_clock());
+	vtime_sched_in(&current->vtime, state, starttime);
+	vtime_sched_in(&kcpustat_this_cpu->vtime, state, starttime);
 }
 
 void vtime_init_idle(struct task_struct *t, int cpu)
@@ -841,6 +864,7 @@ void vtime_init_idle(struct task_struct *t, int cpu)
 
 	local_irq_save(flags);
 	vtime_sched_in(&t->vtime, VTIME_IDLE, sched_clock());
+	vtime_sched_in(&kcpustat_cpu(cpu).vtime, VTIME_IDLE, sched_clock());
 	local_irq_restore(flags);
 }
 

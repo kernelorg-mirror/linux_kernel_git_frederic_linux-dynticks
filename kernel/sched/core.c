@@ -2965,7 +2965,9 @@ unlock:
 #endif
 
 DEFINE_PER_CPU(struct kernel_stat, kstat);
-DEFINE_PER_CPU(struct kernel_cpustat, kernel_cpustat);
+DEFINE_PER_CPU(struct kernel_cpustat, kernel_cpustat) = {
+	.vtime.seqcount = SEQCNT_ZERO(kernel_cpustat.vtime.seqcount),
+};
 
 EXPORT_PER_CPU_SYMBOL(kstat);
 EXPORT_PER_CPU_SYMBOL(kernel_cpustat);
