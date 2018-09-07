@@ -1024,4 +1024,94 @@ void task_cputime(struct task_struct *t, u64 *utime, u64 *stime)
 			*utime += vtime->utime + delta;
 	} while (read_seqcount_retry(&vtime->seqcount, seq));
 }
+
+static int kcpustat_vtime(struct kernel_cpustat *kcpustat, struct vtime *vtime,
+			  int cpu, u64 *user, u64 *nice,
+			  u64 *system, u64 *guest, u64 *guest_nice)
+{
+	unsigned int seq;
+	u64 delta;
+	int err;
+
+	do {
+		seq = read_seqcount_begin(&vtime->seqcount);
+
+		/*
+		 * We raced against context switch, fetch the
+		 * kcpustat task again.
+		 */
+		if (vtime->cpu != cpu && vtime->cpu != -1) {
+			err = -EAGAIN;
+			continue;
+		}
+
+		err = 0;
+
+		kcpustat_cputime_raw(kcpustat, user, nice,
+				     system, guest, guest_nice);
+
+		/* Task is sleeping, dead or idle, nothing to add */
+		if (vtime->state < VTIME_SYS)
+			continue;
+
+		delta = vtime_delta(vtime);
+
+		/*
+		 * Task runs either in user (including guest) or kernel space,
+		 * add pending nohz time to the right place.
+		 */
+		if (vtime->state == VTIME_SYS) {
+			*system += vtime->stime + delta;
+		} else if (vtime->state == VTIME_USER) {
+			if (vtime->nice)
+				*nice += vtime->utime + delta;
+			else
+				*user += vtime->utime + delta;
+		} else {
+			WARN_ON_ONCE(vtime->state != VTIME_GUEST);
+			if (vtime->nice) {
+				*guest_nice += vtime->gtime + delta;
+				*nice += vtime->gtime + delta;
+			} else {
+				*guest += vtime->gtime + delta;
+				*user += vtime->gtime + delta;
+			}
+		}
+	} while (read_seqcount_retry(&vtime->seqcount, seq));
+
+	return err;
+}
+
+void kcpustat_cputime(struct kernel_cpustat *kcpustat, int cpu,
+		      u64 *user, u64 *nice, u64 *system,
+		      u64 *guest, u64 *guest_nice)
+{
+	struct task_struct *curr;
+	struct vtime *vtime;
+	int err;
+
+	if (!vtime_accounting_enabled()) {
+		kcpustat_cputime_raw(kcpustat, user, nice,
+				     system, guest, guest_nice);
+		return;
+	}
+
+	rcu_read_lock();
+
+	do {
+		curr = rcu_dereference(kcpustat->curr);
+		if (!curr) {
+			kcpustat_cputime_raw(kcpustat, user, nice,
+					     system, guest, guest_nice);
+			break;
+		}
+
+		vtime = &curr->vtime;
+		err = kcpustat_vtime(kcpustat, vtime, cpu, user,
+				     nice, system, guest, guest_nice);
+	} while (err == -EAGAIN);
+
+	rcu_read_unlock();
+}
+
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING_GEN */
