@@ -929,31 +929,35 @@ void task_cputime(struct task_struct *t, u64 *utime, u64 *stime)
 	} while (read_seqcount_retry(&vtime->seqcount, seq));
 }
 
-void kcpustat_cputime(struct kernel_cpustat *kcpustat, u64 *utime, u64 *stime)
+void kcpustat_cputime(struct kernel_cpustat *kcpustat,
+		      u64 *utime, u64 *stime, u64 *gtime)
 {
 	struct vtime *vtime = &kcpustat->vtime;
 	unsigned int seq;
 	u64 delta;
 
 	if (!vtime_accounting_enabled()) {
-		kcpustat_cputime_raw(kcpustat, utime, stime);
+		kcpustat_cputime_raw(kcpustat, utime, stime, gtime);
 		return;
 	}
 
 	do {
 		seq = read_seqcount_begin(&vtime->seqcount);
 
-		kcpustat_cputime_raw(kcpustat, utime, stime);
+		kcpustat_cputime_raw(kcpustat, utime, stime, gtime);
 
 		if (vtime->state < VTIME_SYS)
 			continue;
 
 		delta = vtime_delta(vtime);
 
-		if (vtime->state == VTIME_SYS)
+		if (vtime->state == VTIME_SYS) {
 			*stime += delta;
-		else
+		} else {
 			*utime += delta;
+			if (vtime->state == VTIME_GUEST)
+				*gtime += delta;
+		}
 
 	} while (read_seqcount_retry(&vtime->seqcount, seq));
 }

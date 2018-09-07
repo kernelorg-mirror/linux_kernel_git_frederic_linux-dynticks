@@ -80,20 +80,21 @@ static inline unsigned int kstat_cpu_irqs_sum(unsigned int cpu)
 }
 
 static inline void kcpustat_cputime_raw(struct kernel_cpustat *kcpustat,
-					u64 *utime, u64 *stime)
+					u64 *utime, u64 *stime, u64 *gtime)
 {
 	*utime = kcpustat->cpustat[CPUTIME_USER];
 	*stime = kcpustat->cpustat[CPUTIME_SYSTEM];
+	*gtime = kcpustat->cpustat[CPUTIME_GUEST];
 }
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
 extern void kcpustat_cputime(struct kernel_cpustat *kcpustat,
-			     u64 *utime, u64 *stime);
+			     u64 *utime, u64 *stime, u64 *gtime);
 #else
 static inline void kcpustat_cputime(struct kernel_cpustat *kcpustat,
-				    u64 *utime, u64 *stime)
+				    u64 *utime, u64 *stime, u64 *gtime)
 {
-	kcpustat_cputime_raw(kcpustat, utime, stime);
+	kcpustat_cputime_raw(kcpustat, utime, stime, gtime);
 }
 #endif
 
