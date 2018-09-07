@@ -95,11 +95,11 @@ static int show_stat(struct seq_file *p, void *v)
 	getboottime64(&boottime);
 
 	for_each_possible_cpu(i) {
-		u64 cpu_system;
+		u64 cpu_user, cpu_system;
 
-		user += kcpustat_cpu(i).cpustat[CPUTIME_USER];
+		kcpustat_cputime(&kcpustat_cpu(i), &cpu_user, &cpu_system);
+		user += cpu_user;
 		nice += kcpustat_cpu(i).cpustat[CPUTIME_NICE];
-		kcpustat_cputime(&kcpustat_cpu(i), &cpu_system);
 		system += cpu_system;
 		idle += get_idle_time(i);
 		iowait += get_iowait_time(i);
@@ -134,9 +134,8 @@ static int show_stat(struct seq_file *p, void *v)
 
 	for_each_online_cpu(i) {
 		/* Copy values here to work around gcc-2.95.3, gcc-2.96 */
-		user = kcpustat_cpu(i).cpustat[CPUTIME_USER];
+		kcpustat_cputime(&kcpustat_cpu(i), &user, &system);
 		nice = kcpustat_cpu(i).cpustat[CPUTIME_NICE];
-		kcpustat_cputime(&kcpustat_cpu(i), &system);
 		idle = get_idle_time(i);
 		iowait = get_iowait_time(i);
 		irq = kcpustat_cpu(i).cpustat[CPUTIME_IRQ];

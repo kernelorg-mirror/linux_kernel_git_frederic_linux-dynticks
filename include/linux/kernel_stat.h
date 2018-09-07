@@ -79,12 +79,21 @@ static inline unsigned int kstat_cpu_irqs_sum(unsigned int cpu)
 	return kstat_cpu(cpu).irqs_sum;
 }
 
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
-extern void kcpustat_cputime(struct kernel_cpustat *kcpustat, u64 *stime);
-#else
-static inline void kcpustat_cputime(struct kernel_cpustat *kcpustat, u64 *stime)
+static inline void kcpustat_cputime_raw(struct kernel_cpustat *kcpustat,
+					u64 *utime, u64 *stime)
 {
+	*utime = kcpustat->cpustat[CPUTIME_USER];
 	*stime = kcpustat->cpustat[CPUTIME_SYSTEM];
+}
+
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
+extern void kcpustat_cputime(struct kernel_cpustat *kcpustat,
+			     u64 *utime, u64 *stime);
+#else
+static inline void kcpustat_cputime(struct kernel_cpustat *kcpustat,
+				    u64 *utime, u64 *stime)
+{
+	kcpustat_cputime_raw(kcpustat, utime, stime);
 }
 #endif
 
