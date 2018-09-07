@@ -712,7 +712,7 @@ static u64 get_vtime_delta(struct vtime *vtime)
 
 static void vtime_kcpustat_update(struct vtime *task_vtime)
 {
-	struct vtime *kcpustat_vtime = &kcpustat_this_cpu.vtime;
+	struct vtime *kcpustat_vtime = &kcpustat_this_cpu->vtime;
 
 	write_seqcount_begin(&kcpustat_vtime->seqcount);
 	kcpustat_vtime->starttime = task_vtime->starttime;
@@ -926,6 +926,27 @@ void task_cputime(struct task_struct *t, u64 *utime, u64 *stime)
 			*stime += vtime->stime + delta;
 		else
 			*utime += vtime->utime + delta;
+	} while (read_seqcount_retry(&vtime->seqcount, seq));
+}
+
+void kcpustat_cputime(struct kernel_cpustat *kcpustat, u64 *stime)
+{
+	struct vtime *vtime = &kcpustat->vtime;
+	unsigned int seq;
+
+	if (!vtime_accounting_enabled()) {
+		*stime = kcpustat->cpustat[CPUTIME_SYSTEM];
+		return;
+	}
+
+	do {
+		seq = read_seqcount_begin(&vtime->seqcount);
+
+		*stime = kcpustat->cpustat[CPUTIME_SYSTEM];
+
+		if (vtime->state == VTIME_SYS)
+			*stime += vtime_delta(vtime);
+
 	} while (read_seqcount_retry(&vtime->seqcount, seq));
 }
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING_GEN */
