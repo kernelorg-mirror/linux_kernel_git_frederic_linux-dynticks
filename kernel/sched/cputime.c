@@ -800,7 +800,11 @@ EXPORT_SYMBOL_GPL(vtime_guest_exit);
 
 void vtime_account_idle(struct task_struct *tsk)
 {
+	struct vtime *vtime = &tsk->vtime;
+
+	write_seqcount_begin(&vtime->seqcount);
 	account_idle_time(get_vtime_delta(&tsk->vtime));
+	write_seqcount_end(&vtime->seqcount);
 }
 
 void arch_vtime_task_switch(struct task_struct *prev)
