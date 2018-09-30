@@ -76,7 +76,8 @@ static __inline__ int isdn_net_lp_busy(isdn_net_local *lp)
  * For the given net device, this will get a non-busy channel out of the
  * corresponding bundle. The returned channel is locked.
  */
-static __inline__ isdn_net_local *isdn_net_get_locked_lp(isdn_net_dev *nd)
+static __inline__ isdn_net_local *isdn_net_get_locked_lp(isdn_net_dev *nd,
+							 unsigned int *bh)
 {
 	unsigned long flags;
 	isdn_net_local *lp;

@@ -41,9 +41,10 @@
 
 static int isdn_concap_dl_data_req(struct concap_proto *concap, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct net_device *ndev = concap->net_dev;
 	isdn_net_dev *nd = ((isdn_net_local *) netdev_priv(ndev))->netdev;
-	isdn_net_local *lp = isdn_net_get_locked_lp(nd);
+	isdn_net_local *lp = isdn_net_get_locked_lp(nd, &bh);
 
 	IX25DEBUG("isdn_concap_dl_data_req: %s \n", concap->net_dev->name);
 	if (!lp) {

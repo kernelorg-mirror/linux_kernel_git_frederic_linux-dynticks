@@ -1258,6 +1258,7 @@ isdn_ppp_xmit(struct sk_buff *skb, struct net_device *netdev)
 	unsigned int proto = PPP_IP;     /* 0x21 */
 	struct ippp_struct *ipt, *ipts;
 	int slot, retval = NETDEV_TX_OK;
+	unsigned int bh;
 
 	mlp = netdev_priv(netdev);
 	nd = mlp->netdev;       /* get master lp */
@@ -1292,7 +1293,7 @@ isdn_ppp_xmit(struct sk_buff *skb, struct net_device *netdev)
 		goto out;
 	}
 
-	lp = isdn_net_get_locked_lp(nd);
+	lp = isdn_net_get_locked_lp(nd, &bh);
 	if (!lp) {
 		printk(KERN_WARNING "%s: all channels busy - requeuing!\n", netdev->name);
 		retval = NETDEV_TX_BUSY;

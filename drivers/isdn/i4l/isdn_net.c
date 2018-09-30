@@ -1054,6 +1054,7 @@ isdn_net_xmit(struct net_device *ndev, struct sk_buff *skb)
 	isdn_net_local *slp;
 	isdn_net_local *lp = netdev_priv(ndev);
 	int retv = NETDEV_TX_OK;
+	unsigned int bh;
 
 	if (((isdn_net_local *) netdev_priv(ndev))->master) {
 		printk("isdn BUG at %s:%d!\n", __FILE__, __LINE__);
@@ -1068,7 +1069,7 @@ isdn_net_xmit(struct net_device *ndev, struct sk_buff *skb)
 	}
 #endif
 	nd = ((isdn_net_local *) netdev_priv(ndev))->netdev;
-	lp = isdn_net_get_locked_lp(nd);
+	lp = isdn_net_get_locked_lp(nd, &bh);
 	if (!lp) {
 		printk(KERN_WARNING "%s: all channels busy - requeuing!\n", ndev->name);
 		return NETDEV_TX_BUSY;
