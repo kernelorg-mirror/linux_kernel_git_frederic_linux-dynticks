@@ -101,13 +101,14 @@ static struct xfrm6_tunnel_spi *__xfrm6_tunnel_spi_lookup(struct net *net, const
 
 __be32 xfrm6_tunnel_spi_lookup(struct net *net, const xfrm_address_t *saddr)
 {
+	unsigned int bh;
 	struct xfrm6_tunnel_spi *x6spi;
 	u32 spi;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	x6spi = __xfrm6_tunnel_spi_lookup(net, saddr);
 	spi = x6spi ? x6spi->spi : 0;
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	return htonl(spi);
 }
 EXPORT_SYMBOL(xfrm6_tunnel_spi_lookup);

@@ -183,6 +183,7 @@ EXPORT_SYMBOL_GPL(ip_build_and_send_pkt);
 
 static int ip_finish_output2(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct dst_entry *dst = skb_dst(skb);
 	struct rtable *rt = (struct rtable *)dst;
 	struct net_device *dev = dst->dev;
@@ -217,7 +218,7 @@ static int ip_finish_output2(struct net *net, struct sock *sk, struct sk_buff *s
 			return res;
 	}
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	nexthop = (__force u32) rt_nexthop(rt, ip_hdr(skb)->daddr);
 	neigh = __ipv4_neigh_lookup_noref(dev, nexthop);
 	if (unlikely(!neigh))
@@ -228,10 +229,10 @@ static int ip_finish_output2(struct net *net, struct sock *sk, struct sk_buff *s
 		sock_confirm_neigh(skb, neigh);
 		res = neigh_output(neigh, skb);
 
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 		return res;
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	net_dbg_ratelimited("%s: No header cache and no neighbour!\n",
 			    __func__);

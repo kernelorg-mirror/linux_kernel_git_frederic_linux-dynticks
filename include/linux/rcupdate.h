@@ -700,13 +700,14 @@ static inline void rcu_read_unlock(void)
  * rcu_read_unlock_bh() from one task if the matching rcu_read_lock_bh()
  * was invoked from some other task.
  */
-static inline void rcu_read_lock_bh(void)
+static inline unsigned int rcu_read_lock_bh(void)
 {
 	local_bh_disable();
 	__acquire(RCU_BH);
 	rcu_lock_acquire(&rcu_bh_lock_map);
 	RCU_LOCKDEP_WARN(!rcu_is_watching(),
 			 "rcu_read_lock_bh() used illegally while idle");
+	return 0;
 }
 
 /*
@@ -714,7 +715,7 @@ static inline void rcu_read_lock_bh(void)
  *
  * See rcu_read_lock_bh() for more information.
  */
-static inline void rcu_read_unlock_bh(void)
+static inline void rcu_read_unlock_bh(unsigned int bh)
 {
 	RCU_LOCKDEP_WARN(!rcu_is_watching(),
 			 "rcu_read_unlock_bh() used illegally while idle");

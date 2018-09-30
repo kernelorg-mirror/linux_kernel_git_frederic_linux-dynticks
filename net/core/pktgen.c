@@ -2502,6 +2502,7 @@ static u32 pktgen_dst_metrics[RTAX_MAX + 1] = {
 
 static int pktgen_output_ipsec(struct sk_buff *skb, struct pktgen_dev *pkt_dev)
 {
+	unsigned int bh;
 	struct xfrm_state *x = pkt_dev->flows[pkt_dev->curfl].x;
 	int err = 0;
 	struct net *net = dev_net(pkt_dev->odev);
@@ -2519,9 +2520,9 @@ static int pktgen_output_ipsec(struct sk_buff *skb, struct pktgen_dev *pkt_dev)
 	if ((x->props.mode == XFRM_MODE_TUNNEL) && (pkt_dev->spi != 0))
 		skb->_skb_refdst = (unsigned long)&pkt_dev->xdst.u.dst | SKB_DST_NOREF;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	err = x->outer_mode->output(x, skb);
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	if (err) {
 		XFRM_INC_STATS(net, LINUX_MIB_XFRMOUTSTATEMODEERROR);
 		goto error;

@@ -1684,19 +1684,20 @@ int fib_sync_up(struct net_device *dev, unsigned int nh_flags)
 #ifdef CONFIG_IP_ROUTE_MULTIPATH
 static bool fib_good_nh(const struct fib_nh *nh)
 {
+	unsigned int bh;
 	int state = NUD_REACHABLE;
 
 	if (nh->nh_scope == RT_SCOPE_LINK) {
 		struct neighbour *n;
 
-		rcu_read_lock_bh();
+		bh = rcu_read_lock_bh();
 
 		n = __ipv4_neigh_lookup_noref(nh->nh_dev,
 					      (__force u32)nh->nh_gw);
 		if (n)
 			state = n->nud_state;
 
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 	}
 
 	return !!(state & NUD_VALID);

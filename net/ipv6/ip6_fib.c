@@ -2386,7 +2386,7 @@ static void *ipv6_route_seq_start(struct seq_file *seq, loff_t *pos)
 	struct net *net = seq_file_net(seq);
 	struct ipv6_route_iter *iter = seq->private;
 
-	rcu_read_lock_bh();
+	iter->bh = rcu_read_lock_bh();
 	iter->tbl = ipv6_route_seq_next_table(NULL, net);
 	iter->skip = *pos;
 
@@ -2413,7 +2413,7 @@ static void ipv6_route_seq_stop(struct seq_file *seq, void *v)
 	if (ipv6_route_iter_active(iter))
 		fib6_walker_unlink(net, &iter->w);
 
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(iter->bh);
 }
 
 const struct seq_operations ipv6_route_seq_ops = {

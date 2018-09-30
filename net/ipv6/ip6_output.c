@@ -61,6 +61,7 @@
 
 static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct dst_entry *dst = skb_dst(skb);
 	struct net_device *dev = dst->dev;
 	struct neighbour *neigh;
@@ -110,7 +111,7 @@ static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *
 			return res;
 	}
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	nexthop = rt6_nexthop((struct rt6_info *)dst, &ipv6_hdr(skb)->daddr);
 	neigh = __ipv6_neigh_lookup_noref(dst->dev, nexthop);
 	if (unlikely(!neigh))
@@ -118,10 +119,10 @@ static int ip6_finish_output2(struct net *net, struct sock *sk, struct sk_buff *
 	if (!IS_ERR(neigh)) {
 		sock_confirm_neigh(skb, neigh);
 		ret = neigh_output(neigh, skb);
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 		return ret;
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	IP6_INC_STATS(net, ip6_dst_idev(dst), IPSTATS_MIB_OUTNOROUTES);
 	kfree_skb(skb);
@@ -924,6 +925,7 @@ out:
 static int ip6_dst_lookup_tail(struct net *net, const struct sock *sk,
 			       struct dst_entry **dst, struct flowi6 *fl6)
 {
+	unsigned int bh;
 #ifdef CONFIG_IPV6_OPTIMISTIC_DAD
 	struct neighbour *n;
 	struct rt6_info *rt;
@@ -989,11 +991,11 @@ static int ip6_dst_lookup_tail(struct net *net, const struct sock *sk,
 	 * dst entry of the nexthop router
 	 */
 	rt = (struct rt6_info *) *dst;
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	n = __ipv6_neigh_lookup_noref(rt->dst.dev,
 				      rt6_nexthop(rt, &fl6->daddr));
 	err = n && !(n->nud_state & NUD_VALID) ? -EINVAL : 0;
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	if (err) {
 		struct inet6_ifaddr *ifp;

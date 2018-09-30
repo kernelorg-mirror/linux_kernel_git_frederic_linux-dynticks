@@ -165,19 +165,20 @@ EXPORT_SYMBOL(l2tp_tunnel_free);
 /* Lookup a tunnel. A new reference is held on the returned tunnel. */
 struct l2tp_tunnel *l2tp_tunnel_get(const struct net *net, u32 tunnel_id)
 {
+	unsigned int bh;
 	const struct l2tp_net *pn = l2tp_pernet(net);
 	struct l2tp_tunnel *tunnel;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	list_for_each_entry_rcu(tunnel, &pn->l2tp_tunnel_list, list) {
 		if (tunnel->tunnel_id == tunnel_id) {
 			l2tp_tunnel_inc_refcount(tunnel);
-			rcu_read_unlock_bh();
+			rcu_read_unlock_bh(bh);
 
 			return tunnel;
 		}
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	return NULL;
 }
@@ -185,19 +186,20 @@ EXPORT_SYMBOL_GPL(l2tp_tunnel_get);
 
 struct l2tp_tunnel *l2tp_tunnel_get_nth(const struct net *net, int nth)
 {
+	unsigned int bh;
 	const struct l2tp_net *pn = l2tp_pernet(net);
 	struct l2tp_tunnel *tunnel;
 	int count = 0;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	list_for_each_entry_rcu(tunnel, &pn->l2tp_tunnel_list, list) {
 		if (++count > nth) {
 			l2tp_tunnel_inc_refcount(tunnel);
-			rcu_read_unlock_bh();
+			rcu_read_unlock_bh(bh);
 			return tunnel;
 		}
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	return NULL;
 }
@@ -227,20 +229,21 @@ EXPORT_SYMBOL_GPL(l2tp_tunnel_get_session);
 
 struct l2tp_session *l2tp_session_get(const struct net *net, u32 session_id)
 {
+	unsigned int bh;
 	struct hlist_head *session_list;
 	struct l2tp_session *session;
 
 	session_list = l2tp_session_id_hash_2(l2tp_pernet(net), session_id);
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	hlist_for_each_entry_rcu(session, session_list, global_hlist)
 		if (session->session_id == session_id) {
 			l2tp_session_inc_refcount(session);
-			rcu_read_unlock_bh();
+			rcu_read_unlock_bh(bh);
 
 			return session;
 		}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	return NULL;
 }
@@ -275,23 +278,24 @@ EXPORT_SYMBOL_GPL(l2tp_session_get_nth);
 struct l2tp_session *l2tp_session_get_by_ifname(const struct net *net,
 						const char *ifname)
 {
+	unsigned int bh;
 	struct l2tp_net *pn = l2tp_pernet(net);
 	int hash;
 	struct l2tp_session *session;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	for (hash = 0; hash < L2TP_HASH_SIZE_2; hash++) {
 		hlist_for_each_entry_rcu(session, &pn->l2tp_session_hlist[hash], global_hlist) {
 			if (!strcmp(session->ifname, ifname)) {
 				l2tp_session_inc_refcount(session);
-				rcu_read_unlock_bh();
+				rcu_read_unlock_bh(bh);
 
 				return session;
 			}
 		}
 	}
 
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	return NULL;
 }
@@ -1723,15 +1727,16 @@ static __net_init int l2tp_init_net(struct net *net)
 
 static __net_exit void l2tp_exit_net(struct net *net)
 {
+	unsigned int bh;
 	struct l2tp_net *pn = l2tp_pernet(net);
 	struct l2tp_tunnel *tunnel = NULL;
 	int hash;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	list_for_each_entry_rcu(tunnel, &pn->l2tp_tunnel_list, list) {
 		l2tp_tunnel_delete(tunnel);
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	flush_workqueue(l2tp_wq);
 	rcu_barrier();

@@ -1247,11 +1247,12 @@ e_neighbour:
  */
 static int __dn_route_output_key(struct dst_entry **pprt, const struct flowidn *flp, int flags)
 {
+	unsigned int bh;
 	unsigned int hash = dn_hash(flp->saddr, flp->daddr);
 	struct dn_route *rt = NULL;
 
 	if (!(flags & MSG_TRYHARD)) {
-		rcu_read_lock_bh();
+		bh = rcu_read_lock_bh();
 		for (rt = rcu_dereference_bh(dn_rt_hash_table[hash].chain); rt;
 			rt = rcu_dereference_bh(rt->dn_next)) {
 			if ((flp->daddr == rt->fld.daddr) &&
@@ -1260,12 +1261,12 @@ static int __dn_route_output_key(struct dst_entry **pprt, const struct flowidn *
 			    dn_is_output_route(rt) &&
 			    (rt->fld.flowidn_oif == flp->flowidn_oif)) {
 				dst_hold_and_use(&rt->dst, jiffies);
-				rcu_read_unlock_bh();
+				rcu_read_unlock_bh(bh);
 				*pprt = &rt->dst;
 				return 0;
 			}
 		}
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 	}
 
 	return dn_route_output_slow(pprt, flp, flags);
@@ -1725,6 +1726,7 @@ out_free:
  */
 int dn_cache_dump(struct sk_buff *skb, struct netlink_callback *cb)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct dn_route *rt;
 	int h, s_h;
@@ -1748,7 +1750,7 @@ int dn_cache_dump(struct sk_buff *skb, struct netlink_callback *cb)
 			continue;
 		if (h > s_h)
 			s_idx = 0;
-		rcu_read_lock_bh();
+		bh = rcu_read_lock_bh();
 		for(rt = rcu_dereference_bh(dn_rt_hash_table[h].chain), idx = 0;
 			rt;
 			rt = rcu_dereference_bh(rt->dn_next), idx++) {
@@ -1759,12 +1761,12 @@ int dn_cache_dump(struct sk_buff *skb, struct netlink_callback *cb)
 					cb->nlh->nlmsg_seq, RTM_NEWROUTE,
 					1, NLM_F_MULTI) < 0) {
 				skb_dst_drop(skb);
-				rcu_read_unlock_bh();
+				rcu_read_unlock_bh(bh);
 				goto done;
 			}
 			skb_dst_drop(skb);
 		}
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 	}
 
 done:
@@ -1775,6 +1777,7 @@ done:
 
 #ifdef CONFIG_PROC_FS
 struct dn_rt_cache_iter_state {
+	unsigned int bh;
 	int bucket;
 };
 
@@ -1784,25 +1787,26 @@ static struct dn_route *dn_rt_cache_get_first(struct seq_file *seq)
 	struct dn_rt_cache_iter_state *s = seq->private;
 
 	for(s->bucket = dn_rt_hash_mask; s->bucket >= 0; --s->bucket) {
-		rcu_read_lock_bh();
+		s->bh = rcu_read_lock_bh();
 		rt = rcu_dereference_bh(dn_rt_hash_table[s->bucket].chain);
 		if (rt)
 			break;
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(s->bh);
 	}
 	return rt;
 }
 
 static struct dn_route *dn_rt_cache_get_next(struct seq_file *seq, struct dn_route *rt)
 {
+	unsigned int bh;
 	struct dn_rt_cache_iter_state *s = seq->private;
 
 	rt = rcu_dereference_bh(rt->dn_next);
 	while (!rt) {
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(s->bh);
 		if (--s->bucket < 0)
 			break;
-		rcu_read_lock_bh();
+		s->bh = rcu_read_lock_bh();
 		rt = rcu_dereference_bh(dn_rt_hash_table[s->bucket].chain);
 	}
 	return rt;
@@ -1828,8 +1832,9 @@ static void *dn_rt_cache_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 
 static void dn_rt_cache_seq_stop(struct seq_file *seq, void *v)
 {
+	struct dn_rt_cache_iter_state *s = seq->private;
 	if (v)
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(s->bh);
 }
 
 static int dn_rt_cache_seq_show(struct seq_file *seq, void *v)

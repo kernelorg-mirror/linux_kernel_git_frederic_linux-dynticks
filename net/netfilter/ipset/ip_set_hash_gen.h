@@ -548,6 +548,7 @@ mtype_gc(struct timer_list *t)
 static int
 mtype_resize(struct ip_set *set, bool retried)
 {
+	unsigned int bh;
 	struct htype *h = set->data;
 	struct htable *t, *orig;
 	u8 htable_bits;
@@ -567,10 +568,10 @@ mtype_resize(struct ip_set *set, bool retried)
 	if (!tmp)
 		return -ENOMEM;
 #endif
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	orig = rcu_dereference_bh_nfnl(h->table);
 	htable_bits = orig->htable_bits;
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 retry:
 	ret = 0;
@@ -1033,6 +1034,7 @@ out:
 static int
 mtype_head(struct ip_set *set, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct htype *h = set->data;
 	const struct htable *t;
 	struct nlattr *nested;
@@ -1051,11 +1053,11 @@ mtype_head(struct ip_set *set, struct sk_buff *skb)
 		spin_unlock_bh(&set->lock);
 	}
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	t = rcu_dereference_bh_nfnl(h->table);
 	memsize = mtype_ahash_memsize(h, t) + set->ext_size;
 	htable_bits = t->htable_bits;
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	nested = ipset_nest_start(skb, IPSET_ATTR_DATA);
 	if (!nested)
@@ -1090,15 +1092,16 @@ nla_put_failure:
 static void
 mtype_uref(struct ip_set *set, struct netlink_callback *cb, bool start)
 {
+	unsigned int bh;
 	struct htype *h = set->data;
 	struct htable *t;
 
 	if (start) {
-		rcu_read_lock_bh();
+		bh = rcu_read_lock_bh();
 		t = rcu_dereference_bh_nfnl(h->table);
 		atomic_inc(&t->uref);
 		cb->args[IPSET_CB_PRIVATE] = (unsigned long)t;
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 	} else if (cb->args[IPSET_CB_PRIVATE]) {
 		t = (struct htable *)cb->args[IPSET_CB_PRIVATE];
 		if (atomic_dec_and_test(&t->uref) && atomic_read(&t->ref)) {

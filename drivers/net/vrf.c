@@ -327,6 +327,7 @@ static netdev_tx_t vrf_xmit(struct sk_buff *skb, struct net_device *dev)
 static int vrf_finish_direct(struct net *net, struct sock *sk,
 			     struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct net_device *vrf_dev = skb->dev;
 
 	if (!list_empty(&vrf_dev->ptype_all) &&
@@ -337,9 +338,9 @@ static int vrf_finish_direct(struct net *net, struct sock *sk,
 		eth_zero_addr(eth->h_dest);
 		eth->h_proto = skb->protocol;
 
-		rcu_read_lock_bh();
+		bh = rcu_read_lock_bh();
 		dev_queue_xmit_nit(skb, vrf_dev);
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 
 		skb_pull(skb, ETH_HLEN);
 	}
@@ -352,6 +353,7 @@ static int vrf_finish_direct(struct net *net, struct sock *sk,
 static int vrf_finish_output6(struct net *net, struct sock *sk,
 			      struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct dst_entry *dst = skb_dst(skb);
 	struct net_device *dev = dst->dev;
 	struct neighbour *neigh;
@@ -363,7 +365,7 @@ static int vrf_finish_output6(struct net *net, struct sock *sk,
 	skb->protocol = htons(ETH_P_IPV6);
 	skb->dev = dev;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	nexthop = rt6_nexthop((struct rt6_info *)dst, &ipv6_hdr(skb)->daddr);
 	neigh = __ipv6_neigh_lookup_noref(dst->dev, nexthop);
 	if (unlikely(!neigh))
@@ -371,10 +373,10 @@ static int vrf_finish_output6(struct net *net, struct sock *sk,
 	if (!IS_ERR(neigh)) {
 		sock_confirm_neigh(skb, neigh);
 		ret = neigh_output(neigh, skb);
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 		return ret;
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	IP6_INC_STATS(dev_net(dst->dev),
 		      ip6_dst_idev(dst), IPSTATS_MIB_OUTNOROUTES);
@@ -544,6 +546,7 @@ static int vrf_rt6_create(struct net_device *dev)
 /* modelled after ip_finish_output2 */
 static int vrf_finish_output(struct net *net, struct sock *sk, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct dst_entry *dst = skb_dst(skb);
 	struct rtable *rt = (struct rtable *)dst;
 	struct net_device *dev = dst->dev;
@@ -570,7 +573,7 @@ static int vrf_finish_output(struct net *net, struct sock *sk, struct sk_buff *s
 		skb = skb2;
 	}
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 
 	nexthop = (__force u32)rt_nexthop(rt, ip_hdr(skb)->daddr);
 	neigh = __ipv4_neigh_lookup_noref(dev, nexthop);
@@ -579,11 +582,11 @@ static int vrf_finish_output(struct net *net, struct sock *sk, struct sk_buff *s
 	if (!IS_ERR(neigh)) {
 		sock_confirm_neigh(skb, neigh);
 		ret = neigh_output(neigh, skb);
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 		return ret;
 	}
 
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 err:
 	vrf_tx_error(skb->dev, skb);
 	return ret;

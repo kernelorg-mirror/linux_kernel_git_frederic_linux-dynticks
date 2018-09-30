@@ -84,13 +84,14 @@ static inline struct ip6_flowlabel *__fl_lookup(struct net *net, __be32 label)
 
 static struct ip6_flowlabel *fl_lookup(struct net *net, __be32 label)
 {
+	unsigned int bh;
 	struct ip6_flowlabel *fl;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	fl = __fl_lookup(net, label);
 	if (fl && !atomic_inc_not_zero(&fl->users))
 		fl = NULL;
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	return fl;
 }
 
@@ -240,22 +241,23 @@ static struct ip6_flowlabel *fl_intern(struct net *net,
 
 struct ip6_flowlabel *fl6_sock_lookup(struct sock *sk, __be32 label)
 {
+	unsigned int bh;
 	struct ipv6_fl_socklist *sfl;
 	struct ipv6_pinfo *np = inet6_sk(sk);
 
 	label &= IPV6_FLOWLABEL_MASK;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	for_each_sk_fl_rcu(np, sfl) {
 		struct ip6_flowlabel *fl = sfl->fl;
 		if (fl->label == label) {
 			fl->lastuse = jiffies;
 			atomic_inc(&fl->users);
-			rcu_read_unlock_bh();
+			rcu_read_unlock_bh(bh);
 			return fl;
 		}
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	return NULL;
 }
 EXPORT_SYMBOL_GPL(fl6_sock_lookup);
@@ -441,6 +443,7 @@ done:
 
 static int mem_check(struct sock *sk)
 {
+	unsigned int bh;
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct ipv6_fl_socklist *sfl;
 	int room = FL_MAX_SIZE - atomic_read(&fl_size);
@@ -449,10 +452,10 @@ static int mem_check(struct sock *sk)
 	if (room > FL_MAX_SIZE - FL_MAX_PER_SOCK)
 		return 0;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	for_each_sk_fl_rcu(np, sfl)
 		count++;
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	if (room <= 0 ||
 	    ((count >= FL_MAX_PER_SOCK ||
@@ -476,6 +479,7 @@ static inline void fl_link(struct ipv6_pinfo *np, struct ipv6_fl_socklist *sfl,
 int ipv6_flowlabel_opt_get(struct sock *sk, struct in6_flowlabel_req *freq,
 			   int flags)
 {
+	unsigned int bh;
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct ipv6_fl_socklist *sfl;
 
@@ -489,7 +493,7 @@ int ipv6_flowlabel_opt_get(struct sock *sk, struct in6_flowlabel_req *freq,
 		return 0;
 	}
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 
 	for_each_sk_fl_rcu(np, sfl) {
 		if (sfl->fl->label == (np->flow_label & IPV6_FLOWLABEL_MASK)) {
@@ -501,17 +505,18 @@ int ipv6_flowlabel_opt_get(struct sock *sk, struct in6_flowlabel_req *freq,
 			freq->flr_linger = sfl->fl->linger / HZ;
 
 			spin_unlock_bh(&ip6_fl_lock);
-			rcu_read_unlock_bh();
+			rcu_read_unlock_bh(bh);
 			return 0;
 		}
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	return -ENOENT;
 }
 
 int ipv6_flowlabel_opt(struct sock *sk, char __user *optval, int optlen)
 {
+	unsigned int bh;
 	int uninitialized_var(err);
 	struct net *net = sock_net(sk);
 	struct ipv6_pinfo *np = inet6_sk(sk);
@@ -558,15 +563,15 @@ int ipv6_flowlabel_opt(struct sock *sk, char __user *optval, int optlen)
 		return -ESRCH;
 
 	case IPV6_FL_A_RENEW:
-		rcu_read_lock_bh();
+		bh = rcu_read_lock_bh();
 		for_each_sk_fl_rcu(np, sfl) {
 			if (sfl->fl->label == freq.flr_label) {
 				err = fl6_renew(sfl->fl, freq.flr_linger, freq.flr_expires);
-				rcu_read_unlock_bh();
+				rcu_read_unlock_bh(bh);
 				return err;
 			}
 		}
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 
 		if (freq.flr_share == IPV6_FL_S_NONE &&
 		    ns_capable(net->user_ns, CAP_NET_ADMIN)) {
@@ -608,11 +613,11 @@ int ipv6_flowlabel_opt(struct sock *sk, char __user *optval, int optlen)
 
 		if (freq.flr_label) {
 			err = -EEXIST;
-			rcu_read_lock_bh();
+			bh = rcu_read_lock_bh();
 			for_each_sk_fl_rcu(np, sfl) {
 				if (sfl->fl->label == freq.flr_label) {
 					if (freq.flr_flags&IPV6_FL_F_EXCL) {
-						rcu_read_unlock_bh();
+						rcu_read_unlock_bh(bh);
 						goto done;
 					}
 					fl1 = sfl->fl;
@@ -620,7 +625,7 @@ int ipv6_flowlabel_opt(struct sock *sk, char __user *optval, int optlen)
 					break;
 				}
 			}
-			rcu_read_unlock_bh();
+			rcu_read_unlock_bh(bh);
 
 			if (!fl1)
 				fl1 = fl_lookup(net, freq.flr_label);
@@ -695,6 +700,7 @@ done:
 struct ip6fl_iter_state {
 	struct seq_net_private p;
 	struct pid_namespace *pid_ns;
+	unsigned int bh;
 	int bucket;
 };
 
@@ -757,7 +763,7 @@ static void *ip6fl_seq_start(struct seq_file *seq, loff_t *pos)
 
 	state->pid_ns = proc_pid_ns(file_inode(seq->file));
 
-	rcu_read_lock_bh();
+	state->bh = rcu_read_lock_bh();
 	return *pos ? ip6fl_get_idx(seq, *pos - 1) : SEQ_START_TOKEN;
 }
 
@@ -776,7 +782,8 @@ static void *ip6fl_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 static void ip6fl_seq_stop(struct seq_file *seq, void *v)
 	__releases(RCU)
 {
-	rcu_read_unlock_bh();
+	struct ip6fl_iter_state *state = ip6fl_seq_private(seq);
+	rcu_read_unlock_bh(state->bh);
 }
 
 static int ip6fl_seq_show(struct seq_file *seq, void *v)

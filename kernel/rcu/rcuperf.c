@@ -201,7 +201,7 @@ static int rcu_bh_perf_read_lock(void) __acquires(RCU_BH)
 
 static void rcu_bh_perf_read_unlock(int idx) __releases(RCU_BH)
 {
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(0);
 }
 
 static struct rcu_perf_ops rcu_bh_ops = {

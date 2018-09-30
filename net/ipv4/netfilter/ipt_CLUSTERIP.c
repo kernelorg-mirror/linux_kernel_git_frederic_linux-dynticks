@@ -142,9 +142,10 @@ __clusterip_config_find(struct net *net, __be32 clusterip)
 static inline struct clusterip_config *
 clusterip_config_find_get(struct net *net, __be32 clusterip, int entry)
 {
+	unsigned int bh;
 	struct clusterip_config *c;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	c = __clusterip_config_find(net, clusterip);
 	if (c) {
 #ifdef CONFIG_PROC_FS
@@ -161,7 +162,7 @@ clusterip_config_find_get(struct net *net, __be32 clusterip, int entry)
 			}
 		}
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	return c;
 }

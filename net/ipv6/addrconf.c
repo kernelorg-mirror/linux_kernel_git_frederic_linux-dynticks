@@ -987,6 +987,7 @@ static struct inet6_ifaddr *
 ipv6_add_addr(struct inet6_dev *idev, struct ifa6_config *cfg,
 	      bool can_block, struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	gfp_t gfp_flags = can_block ? GFP_KERNEL : GFP_ATOMIC;
 	int addr_type = ipv6_addr_type(cfg->pfx);
 	struct net *net = dev_net(idev->dev);
@@ -1072,11 +1073,11 @@ ipv6_add_addr(struct inet6_dev *idev, struct ifa6_config *cfg,
 	/* For caller */
 	refcount_set(&ifa->refcnt, 1);
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 
 	err = ipv6_add_addr_hash(idev->dev, ifa);
 	if (err < 0) {
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 		goto out;
 	}
 
@@ -1093,7 +1094,7 @@ ipv6_add_addr(struct inet6_dev *idev, struct ifa6_config *cfg,
 	in6_ifa_hold(ifa);
 	write_unlock(&idev->lock);
 
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	inet6addr_notifier_call_chain(NETDEV_UP, ifa);
 out:
@@ -4339,13 +4340,14 @@ int ipv6_chk_home_addr(struct net *net, const struct in6_addr *addr)
 
 static void addrconf_verify_rtnl(void)
 {
+	unsigned int bh;
 	unsigned long now, next, next_sec, next_sched;
 	struct inet6_ifaddr *ifp;
 	int i;
 
 	ASSERT_RTNL();
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	now = jiffies;
 	next = round_jiffies_up(now + ADDR_CHECK_FREQUENCY);
 
@@ -4418,11 +4420,11 @@ restart:
 						spin_lock(&ifpub->lock);
 						ifpub->regen_count = 0;
 						spin_unlock(&ifpub->lock);
-						rcu_read_unlock_bh();
+						rcu_read_unlock_bh(bh);
 						ipv6_create_tempaddr(ifpub, ifp, true);
 						in6_ifa_put(ifpub);
 						in6_ifa_put(ifp);
-						rcu_read_lock_bh();
+						bh = rcu_read_lock_bh();
 						goto restart;
 					}
 				} else if (time_before(ifp->tstamp + ifp->prefered_lft * HZ - regen_advance * HZ, next))
@@ -4451,7 +4453,7 @@ restart:
 	pr_debug("now = %lu, schedule = %lu, rounded schedule = %lu => %lu\n",
 		 now, next, next_sec, next_sched);
 	mod_delayed_work(addrconf_wq, &addr_chk_work, next_sched - now);
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 }
 
 static void addrconf_verify_work(struct work_struct *w)
@@ -5714,10 +5716,11 @@ static void __ipv6_ifa_notify(int event, struct inet6_ifaddr *ifp)
 
 static void ipv6_ifa_notify(int event, struct inet6_ifaddr *ifp)
 {
-	rcu_read_lock_bh();
+	unsigned int bh;
+	bh = rcu_read_lock_bh();
 	if (likely(ifp->idev->dead == 0))
 		__ipv6_ifa_notify(event, ifp);
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 }
 
 #ifdef CONFIG_SYSCTL

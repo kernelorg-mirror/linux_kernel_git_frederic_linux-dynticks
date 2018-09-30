@@ -381,13 +381,14 @@ static inline struct neighbour *__ipv6_neigh_lookup_noref(struct net_device *dev
 
 static inline struct neighbour *__ipv6_neigh_lookup(struct net_device *dev, const void *pkey)
 {
+	unsigned int bh;
 	struct neighbour *n;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	n = __ipv6_neigh_lookup_noref(dev, pkey);
 	if (n && !refcount_inc_not_zero(&n->refcnt))
 		n = NULL;
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	return n;
 }
@@ -395,9 +396,10 @@ static inline struct neighbour *__ipv6_neigh_lookup(struct net_device *dev, cons
 static inline void __ipv6_confirm_neigh(struct net_device *dev,
 					const void *pkey)
 {
+	unsigned int bh;
 	struct neighbour *n;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	n = __ipv6_neigh_lookup_noref(dev, pkey);
 	if (n) {
 		unsigned long now = jiffies;
@@ -406,7 +408,7 @@ static inline void __ipv6_confirm_neigh(struct net_device *dev,
 		if (n->confirmed != now)
 			n->confirmed = now;
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 }
 
 int ndisc_init(void);

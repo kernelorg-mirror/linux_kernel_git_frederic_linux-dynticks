@@ -69,13 +69,14 @@ out:
  */
 struct llc_sap *llc_sap_find(unsigned char sap_value)
 {
+	unsigned int bh;
 	struct llc_sap *sap;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	sap = __llc_sap_find(sap_value);
 	if (!sap || !llc_sap_hold_safe(sap))
 		sap = NULL;
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	return sap;
 }
 

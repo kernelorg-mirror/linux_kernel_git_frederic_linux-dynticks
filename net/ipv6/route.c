@@ -517,6 +517,7 @@ static void rt6_probe_deferred(struct work_struct *w)
 
 static void rt6_probe(struct fib6_info *rt)
 {
+	unsigned int bh;
 	struct __rt6_probe_work *work;
 	const struct in6_addr *nh_gw;
 	struct neighbour *neigh;
@@ -535,7 +536,7 @@ static void rt6_probe(struct fib6_info *rt)
 
 	nh_gw = &rt->fib6_nh.nh_gw;
 	dev = rt->fib6_nh.nh_dev;
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	neigh = __ipv6_neigh_lookup_noref(dev, nh_gw);
 	if (neigh) {
 		struct inet6_dev *idev;
@@ -567,7 +568,7 @@ static void rt6_probe(struct fib6_info *rt)
 	}
 
 out:
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 }
 #else
 static inline void rt6_probe(struct fib6_info *rt)
@@ -589,6 +590,7 @@ static inline int rt6_check_dev(struct fib6_info *rt, int oif)
 
 static inline enum rt6_nud_state rt6_check_neigh(struct fib6_info *rt)
 {
+	unsigned int bh;
 	enum rt6_nud_state ret = RT6_NUD_FAIL_HARD;
 	struct neighbour *neigh;
 
@@ -596,7 +598,7 @@ static inline enum rt6_nud_state rt6_check_neigh(struct fib6_info *rt)
 	    !(rt->fib6_flags & RTF_GATEWAY))
 		return RT6_NUD_SUCCEED;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	neigh = __ipv6_neigh_lookup_noref(rt->fib6_nh.nh_dev,
 					  &rt->fib6_nh.nh_gw);
 	if (neigh) {
@@ -614,7 +616,7 @@ static inline enum rt6_nud_state rt6_check_neigh(struct fib6_info *rt)
 		ret = IS_ENABLED(CONFIG_IPV6_ROUTER_PREF) ?
 		      RT6_NUD_SUCCEED : RT6_NUD_FAIL_DO_RR;
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	return ret;
 }
@@ -1788,6 +1790,7 @@ void rt6_age_exceptions(struct fib6_info *rt,
 			struct fib6_gc_args *gc_args,
 			unsigned long now)
 {
+	unsigned int bh;
 	struct rt6_exception_bucket *bucket;
 	struct rt6_exception *rt6_ex;
 	struct hlist_node *tmp;
@@ -1796,7 +1799,7 @@ void rt6_age_exceptions(struct fib6_info *rt,
 	if (!rcu_access_pointer(rt->rt6i_exception_bucket))
 		return;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	spin_lock(&rt6_exception_lock);
 	bucket = rcu_dereference_protected(rt->rt6i_exception_bucket,
 				    lockdep_is_held(&rt6_exception_lock));
@@ -1812,7 +1815,7 @@ void rt6_age_exceptions(struct fib6_info *rt,
 		}
 	}
 	spin_unlock(&rt6_exception_lock);
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 }
 
 /* must be called with rcu lock held */

@@ -73,12 +73,13 @@ struct pcrypt_aead_ctx {
 static int pcrypt_do_parallel(struct padata_priv *padata, unsigned int *cb_cpu,
 			      struct padata_pcrypt *pcrypt)
 {
+	unsigned int bh;
 	unsigned int cpu_index, cpu, i;
 	struct pcrypt_cpumask *cpumask;
 
 	cpu = *cb_cpu;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	cpumask = rcu_dereference_bh(pcrypt->cb_cpumask);
 	if (cpumask_test_cpu(cpu, cpumask->mask))
 			goto out;
@@ -95,7 +96,7 @@ static int pcrypt_do_parallel(struct padata_priv *padata, unsigned int *cb_cpu,
 	*cb_cpu = cpu;
 
 out:
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	return padata_do_parallel(pcrypt->pinst, padata, cpu);
 }
 

@@ -374,6 +374,7 @@ struct neigh_seq_state {
 				struct neighbour *n, loff_t *pos);
 	unsigned int bucket;
 	unsigned int flags;
+	unsigned int bh;
 #define NEIGH_SEQ_NEIGH_ONLY	0x00000001
 #define NEIGH_SEQ_IS_PNEIGH	0x00000002
 #define NEIGH_SEQ_SKIP_NOARP	0x00000004

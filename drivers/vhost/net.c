@@ -371,11 +371,12 @@ static void vhost_zerocopy_signal_used(struct vhost_net *net,
 
 static void vhost_zerocopy_callback(struct ubuf_info *ubuf, bool success)
 {
+	unsigned int bh;
 	struct vhost_net_ubuf_ref *ubufs = ubuf->ctx;
 	struct vhost_virtqueue *vq = ubufs->vq;
 	int cnt;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 
 	/* set len to mark this desc buffers done DMA */
 	vq->heads[ubuf->desc].len = success ?
@@ -392,7 +393,7 @@ static void vhost_zerocopy_callback(struct ubuf_info *ubuf, bool success)
 	if (cnt <= 1 || !(cnt % 16))
 		vhost_poll_queue(&vq->poll);
 
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 }
 
 static inline unsigned long busy_clock(void)

@@ -597,6 +597,7 @@ static void count_tx(struct net_device *dev, int ret, int len)
 
 static void macsec_encrypt_done(struct crypto_async_request *base, int err)
 {
+	unsigned int bh;
 	struct sk_buff *skb = base->data;
 	struct net_device *dev = skb->dev;
 	struct macsec_dev *macsec = macsec_priv(dev);
@@ -605,13 +606,13 @@ static void macsec_encrypt_done(struct crypto_async_request *base, int err)
 
 	aead_request_free(macsec_skb_cb(skb)->req);
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	macsec_encrypt_finish(skb, dev);
 	macsec_count_tx(skb, &macsec->secy.tx_sc, macsec_skb_cb(skb)->tx_sa);
 	len = skb->len;
 	ret = dev_queue_xmit(skb);
 	count_tx(dev, ret, len);
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	macsec_txsa_put(sa);
 	dev_put(dev);
@@ -886,6 +887,7 @@ static void count_rx(struct net_device *dev, int len)
 
 static void macsec_decrypt_done(struct crypto_async_request *base, int err)
 {
+	unsigned int bh;
 	struct sk_buff *skb = base->data;
 	struct net_device *dev = skb->dev;
 	struct macsec_dev *macsec = macsec_priv(dev);
@@ -899,10 +901,10 @@ static void macsec_decrypt_done(struct crypto_async_request *base, int err)
 	if (!err)
 		macsec_skb_cb(skb)->valid = true;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	pn = ntohl(macsec_ethhdr(skb)->packet_number);
 	if (!macsec_post_decrypt(skb, &macsec->secy, pn)) {
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 		kfree_skb(skb);
 		goto out;
 	}
@@ -915,7 +917,7 @@ static void macsec_decrypt_done(struct crypto_async_request *base, int err)
 	if (gro_cells_receive(&macsec->gro_cells, skb) == NET_RX_SUCCESS)
 		count_rx(dev, len);
 
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 out:
 	macsec_rxsa_put(rx_sa);

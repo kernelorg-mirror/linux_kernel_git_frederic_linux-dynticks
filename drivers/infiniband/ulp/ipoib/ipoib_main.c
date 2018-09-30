@@ -1260,13 +1260,14 @@ static u32 ipoib_addr_hash(struct ipoib_neigh_hash *htbl, u8 *daddr)
 
 struct ipoib_neigh *ipoib_neigh_get(struct net_device *dev, u8 *daddr)
 {
+	unsigned int bh;
 	struct ipoib_dev_priv *priv = ipoib_priv(dev);
 	struct ipoib_neigh_table *ntbl = &priv->ntbl;
 	struct ipoib_neigh_hash *htbl;
 	struct ipoib_neigh *neigh = NULL;
 	u32 hash_val;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 
 	htbl = rcu_dereference_bh(ntbl->htbl);
 
@@ -1292,7 +1293,7 @@ struct ipoib_neigh *ipoib_neigh_get(struct net_device *dev, u8 *daddr)
 	}
 
 out_unlock:
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	return neigh;
 }
 

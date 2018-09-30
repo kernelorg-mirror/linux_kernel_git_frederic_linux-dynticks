@@ -104,11 +104,12 @@ static void padata_parallel_worker(struct work_struct *parallel_work)
 int padata_do_parallel(struct padata_instance *pinst,
 		       struct padata_priv *padata, int cb_cpu)
 {
+	unsigned int bh;
 	int target_cpu, err;
 	struct padata_parallel_queue *queue;
 	struct parallel_data *pd;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 
 	pd = rcu_dereference_bh(pinst->pd);
 
@@ -142,7 +143,7 @@ int padata_do_parallel(struct padata_instance *pinst,
 	queue_work_on(target_cpu, pinst->wq, &queue->work);
 
 out:
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	return err;
 }

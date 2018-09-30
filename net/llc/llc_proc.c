@@ -59,8 +59,9 @@ found:
 static void *llc_seq_start(struct seq_file *seq, loff_t *pos)
 {
 	loff_t l = *pos;
+	unsigned int *bh = seq->private
 
-	rcu_read_lock_bh();
+	*bh = rcu_read_lock_bh();
 	return l ? llc_get_sk_idx(--l) : SEQ_START_TOKEN;
 }
 
@@ -113,6 +114,8 @@ out:
 
 static void llc_seq_stop(struct seq_file *seq, void *v)
 {
+	unsigned int *bh = seq->private;
+
 	if (v && v != SEQ_START_TOKEN) {
 		struct sock *sk = v;
 		struct llc_sock *llc = llc_sk(sk);
@@ -120,7 +123,7 @@ static void llc_seq_stop(struct seq_file *seq, void *v)
 
 		spin_unlock_bh(&sap->sk_lock);
 	}
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(*bh);
 }
 
 static int llc_seq_socket_show(struct seq_file *seq, void *v)
@@ -225,11 +228,13 @@ int __init llc_proc_init(void)
 	if (!llc_proc_dir)
 		goto out;
 
-	p = proc_create_seq("socket", 0444, llc_proc_dir, &llc_seq_socket_ops);
+	p = proc_create_seq_private("socket", 0444, llc_proc_dir,
+				    &llc_seq_socket_ops, sizeof(unsigned int), NULL);
 	if (!p)
 		goto out_socket;
 
-	p = proc_create_seq("core", 0444, llc_proc_dir, &llc_seq_core_ops);
+	p = proc_create_seq_private("core", 0444, llc_proc_dir,
+				    &llc_seq_core_ops, sizeof(unsigned int), NULL);
 	if (!p)
 		goto out_core;
 

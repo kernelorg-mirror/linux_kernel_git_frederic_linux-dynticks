@@ -438,11 +438,12 @@ static struct neigh_hash_table *neigh_hash_grow(struct neigh_table *tbl,
 struct neighbour *neigh_lookup(struct neigh_table *tbl, const void *pkey,
 			       struct net_device *dev)
 {
+	unsigned int bh;
 	struct neighbour *n;
 
 	NEIGH_CACHE_STAT_INC(tbl, lookups);
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	n = __neigh_lookup_noref(tbl, pkey, dev);
 	if (n) {
 		if (!refcount_inc_not_zero(&n->refcnt))
@@ -450,7 +451,7 @@ struct neighbour *neigh_lookup(struct neigh_table *tbl, const void *pkey,
 		NEIGH_CACHE_STAT_INC(tbl, hits);
 	}
 
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	return n;
 }
 EXPORT_SYMBOL(neigh_lookup);
@@ -458,6 +459,7 @@ EXPORT_SYMBOL(neigh_lookup);
 struct neighbour *neigh_lookup_nodev(struct neigh_table *tbl, struct net *net,
 				     const void *pkey)
 {
+	unsigned int bh;
 	struct neighbour *n;
 	unsigned int key_len = tbl->key_len;
 	u32 hash_val;
@@ -465,7 +467,7 @@ struct neighbour *neigh_lookup_nodev(struct neigh_table *tbl, struct net *net,
 
 	NEIGH_CACHE_STAT_INC(tbl, lookups);
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	nht = rcu_dereference_bh(tbl->nht);
 	hash_val = tbl->hash(pkey, NULL, nht->hash_rnd) >> (32 - nht->hash_shift);
 
@@ -481,7 +483,7 @@ struct neighbour *neigh_lookup_nodev(struct neigh_table *tbl, struct net *net,
 		}
 	}
 
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	return n;
 }
 EXPORT_SYMBOL(neigh_lookup_nodev);
@@ -1856,6 +1858,7 @@ nla_put_failure:
 static int neightbl_fill_info(struct sk_buff *skb, struct neigh_table *tbl,
 			      u32 pid, u32 seq, int type, int flags)
 {
+	unsigned int bh;
 	struct nlmsghdr *nlh;
 	struct ndtmsg *ndtmsg;
 
@@ -1890,11 +1893,11 @@ static int neightbl_fill_info(struct sk_buff *skb, struct neigh_table *tbl,
 			.ndtc_proxy_qlen	= tbl->proxy_queue.qlen,
 		};
 
-		rcu_read_lock_bh();
+		bh = rcu_read_lock_bh();
 		nht = rcu_dereference_bh(tbl->nht);
 		ndc.ndtc_hash_rnd = nht->hash_rnd[0];
 		ndc.ndtc_hash_mask = ((1 << nht->hash_shift) - 1);
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 
 		if (nla_put(skb, NDTA_CONFIG, sizeof(ndc), &ndc))
 			goto nla_put_failure;
@@ -2330,6 +2333,7 @@ static bool neigh_ifindex_filtered(struct net_device *dev, int filter_idx)
 static int neigh_dump_table(struct neigh_table *tbl, struct sk_buff *skb,
 			    struct netlink_callback *cb)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	const struct nlmsghdr *nlh = cb->nlh;
 	struct nlattr *tb[NDA_MAX + 1];
@@ -2357,7 +2361,7 @@ static int neigh_dump_table(struct neigh_table *tbl, struct sk_buff *skb,
 			flags |= NLM_F_DUMP_FILTERED;
 	}
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	nht = rcu_dereference_bh(tbl->nht);
 
 	for (h = s_h; h < (1 << nht->hash_shift); h++) {
@@ -2384,7 +2388,7 @@ next:
 	}
 	rc = skb->len;
 out:
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	cb->args[1] = h;
 	cb->args[2] = idx;
 	return rc;
@@ -2470,10 +2474,11 @@ static int neigh_dump_info(struct sk_buff *skb, struct netlink_callback *cb)
 
 void neigh_for_each(struct neigh_table *tbl, void (*cb)(struct neighbour *, void *), void *cookie)
 {
+	unsigned int bh;
 	int chain;
 	struct neigh_hash_table *nht;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	nht = rcu_dereference_bh(tbl->nht);
 
 	read_lock(&tbl->lock); /* avoid resizes */
@@ -2486,7 +2491,7 @@ void neigh_for_each(struct neigh_table *tbl, void (*cb)(struct neighbour *, void
 			cb(n, cookie);
 	}
 	read_unlock(&tbl->lock);
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 }
 EXPORT_SYMBOL(neigh_for_each);
 
@@ -2528,6 +2533,7 @@ EXPORT_SYMBOL(__neigh_for_each_release);
 int neigh_xmit(int index, struct net_device *dev,
 	       const void *addr, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int err = -EAFNOSUPPORT;
 	if (likely(index < NEIGH_NR_TABLES)) {
 		struct neigh_table *tbl;
@@ -2536,17 +2542,17 @@ int neigh_xmit(int index, struct net_device *dev,
 		tbl = neigh_tables[index];
 		if (!tbl)
 			goto out;
-		rcu_read_lock_bh();
+		bh = rcu_read_lock_bh();
 		neigh = __neigh_lookup_noref(tbl, addr, dev);
 		if (!neigh)
 			neigh = __neigh_create(tbl, addr, dev, false);
 		err = PTR_ERR(neigh);
 		if (IS_ERR(neigh)) {
-			rcu_read_unlock_bh();
+			rcu_read_unlock_bh(bh);
 			goto out_kfree_skb;
 		}
 		err = neigh->output(neigh, skb);
-		rcu_read_unlock_bh();
+		rcu_read_unlock_bh(bh);
 	}
 	else if (index == NEIGH_LINK_TABLE) {
 		err = dev_hard_header(skb, dev, ntohs(skb->protocol),
@@ -2753,7 +2759,7 @@ void *neigh_seq_start(struct seq_file *seq, loff_t *pos, struct neigh_table *tbl
 	state->bucket = 0;
 	state->flags = (neigh_seq_flags & ~NEIGH_SEQ_IS_PNEIGH);
 
-	rcu_read_lock_bh();
+	state->bh = rcu_read_lock_bh();
 	state->nht = rcu_dereference_bh(tbl->nht);
 
 	return *pos ? neigh_get_idx_any(seq, pos) : SEQ_START_TOKEN;
@@ -2790,7 +2796,8 @@ EXPORT_SYMBOL(neigh_seq_next);
 void neigh_seq_stop(struct seq_file *seq, void *v)
 	__releases(rcu_bh)
 {
-	rcu_read_unlock_bh();
+	struct neigh_seq_state *state = seq->private;
+	rcu_read_unlock_bh(state->bh);
 }
 EXPORT_SYMBOL(neigh_seq_stop);
 

@@ -123,13 +123,14 @@ instance_get(struct nfulnl_instance *inst)
 static struct nfulnl_instance *
 instance_lookup_get(struct nfnl_log_net *log, u_int16_t group_num)
 {
+	unsigned int bh;
 	struct nfulnl_instance *inst;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	inst = __instance_lookup(log, group_num);
 	if (inst && !refcount_inc_not_zero(&inst->use))
 		inst = NULL;
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	return inst;
 }
@@ -955,6 +956,7 @@ static const struct nfnetlink_subsystem nfulnl_subsys = {
 
 #ifdef CONFIG_PROC_FS
 struct iter_state {
+	unsigned int bh;
 	struct seq_net_private p;
 	unsigned int bucket;
 };
@@ -1009,8 +1011,11 @@ static struct hlist_node *get_idx(struct net *net, struct iter_state *st,
 static void *seq_start(struct seq_file *s, loff_t *pos)
 	__acquires(rcu_bh)
 {
-	rcu_read_lock_bh();
-	return get_idx(seq_file_net(s), s->private, *pos);
+	struct iter_state *st = s->private;
+
+	st->bh = rcu_read_lock_bh();
+
+	return get_idx(seq_file_net(s), st, *pos);
 }
 
 static void *seq_next(struct seq_file *s, void *v, loff_t *pos)
@@ -1022,7 +1027,9 @@ static void *seq_next(struct seq_file *s, void *v, loff_t *pos)
 static void seq_stop(struct seq_file *s, void *v)
 	__releases(rcu_bh)
 {
-	rcu_read_unlock_bh();
+	struct iter_state *st = s->private;
+
+	rcu_read_unlock_bh(st->bh);
 }
 
 static int seq_show(struct seq_file *s, void *v)

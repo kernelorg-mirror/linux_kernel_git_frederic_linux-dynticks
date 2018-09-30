@@ -3725,6 +3725,7 @@ struct netdev_queue *netdev_pick_tx(struct net_device *dev,
  */
 static int __dev_queue_xmit(struct sk_buff *skb, struct net_device *sb_dev)
 {
+	unsigned int bh;
 	struct net_device *dev = skb->dev;
 	struct netdev_queue *txq;
 	struct Qdisc *q;
@@ -3739,7 +3740,7 @@ static int __dev_queue_xmit(struct sk_buff *skb, struct net_device *sb_dev)
 	/* Disable soft irqs for various locks below. Also
 	 * stops preemption for RCU.
 	 */
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 
 	skb_update_prio(skb);
 
@@ -3820,13 +3821,13 @@ recursion_alert:
 	}
 
 	rc = -ENETDOWN;
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	atomic_long_inc(&dev->tx_dropped);
 	kfree_skb_list(skb);
 	return rc;
 out:
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	return rc;
 }
 

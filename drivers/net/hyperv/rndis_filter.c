@@ -214,6 +214,7 @@ static void dump_rndis_message(struct net_device *netdev,
 static int rndis_filter_send_request(struct rndis_device *dev,
 				  struct rndis_request *req)
 {
+	unsigned int bh;
 	struct hv_netvsc_packet *packet;
 	struct hv_page_buffer page_buf[2];
 	struct hv_page_buffer *pb = page_buf;
@@ -245,9 +246,9 @@ static int rndis_filter_send_request(struct rndis_device *dev,
 
 	trace_rndis_send(dev->ndev, 0, &req->request_msg);
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	ret = netvsc_send(dev->ndev, packet, NULL, pb, NULL);
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	return ret;
 }

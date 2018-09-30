@@ -165,13 +165,14 @@ static void caif_flow_cb(struct sk_buff *skb)
 
 static int transmit(struct cflayer *layer, struct cfpkt *pkt)
 {
+	unsigned int bh;
 	int err, high = 0, qlen = 0;
 	struct caif_device_entry *caifd =
 	    container_of(layer, struct caif_device_entry, layer);
 	struct sk_buff *skb;
 	struct netdev_queue *txq;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 
 	skb = cfpkt_tonative(pkt);
 	skb->dev = caifd->netdev;
@@ -225,7 +226,7 @@ static int transmit(struct cflayer *layer, struct cfpkt *pkt)
 					_CAIF_CTRLCMD_PHYIF_FLOW_OFF_IND,
 					caifd->layer.id);
 noxoff:
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	err = dev_queue_xmit(skb);
 	if (err > 0)

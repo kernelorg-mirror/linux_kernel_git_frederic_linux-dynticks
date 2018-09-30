@@ -560,6 +560,7 @@ int
 ip_set_test(ip_set_id_t index, const struct sk_buff *skb,
 	    const struct xt_action_param *par, struct ip_set_adt_opt *opt)
 {
+	unsigned int bh;
 	struct ip_set *set = ip_set_rcu_get(xt_net(par), index);
 	int ret = 0;
 
@@ -570,9 +571,9 @@ ip_set_test(ip_set_id_t index, const struct sk_buff *skb,
 	    !(opt->family == set->family || set->family == NFPROTO_UNSPEC))
 		return 0;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	ret = set->variant->kadt(set, skb, par, IPSET_TEST, opt);
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 
 	if (ret == -EAGAIN) {
 		/* Type requests element to be completed */
@@ -1659,6 +1660,7 @@ static int ip_set_utest(struct net *net, struct sock *ctnl, struct sk_buff *skb,
 			const struct nlattr * const attr[],
 			struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct ip_set_net *inst = ip_set_pernet(net);
 	struct ip_set *set;
 	struct nlattr *tb[IPSET_ATTR_ADT_MAX + 1] = {};
@@ -1678,9 +1680,9 @@ static int ip_set_utest(struct net *net, struct sock *ctnl, struct sk_buff *skb,
 			     set->type->adt_policy, NULL))
 		return -IPSET_ERR_PROTOCOL;
 
-	rcu_read_lock_bh();
+	bh = rcu_read_lock_bh();
 	ret = set->variant->uadt(set, tb, IPSET_TEST, NULL, 0, 0);
-	rcu_read_unlock_bh();
+	rcu_read_unlock_bh(bh);
 	/* Userspace can't trigger element to be re-added */
 	if (ret == -EAGAIN)
 		ret = 1;

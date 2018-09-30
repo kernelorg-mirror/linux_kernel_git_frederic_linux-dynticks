@@ -439,6 +439,7 @@ struct ipv6_route_iter {
 	loff_t skip;
 	struct fib6_table *tbl;
 	int sernum;
+	unsigned int bh;
 };
 
 extern const struct seq_operations ipv6_route_seq_ops;
