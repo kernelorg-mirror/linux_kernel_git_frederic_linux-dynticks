@@ -449,13 +449,13 @@ extern bool force_irqthreads;
 
 #ifndef local_softirq_pending
 
-#ifndef local_softirq_pending_ref
-#define local_softirq_pending_ref irq_stat.__softirq_pending
+#ifndef local_softirq_data_ref
+#define local_softirq_data_ref irq_stat.__softirq_data
 #endif
 
-#define local_softirq_pending()	(__this_cpu_read(local_softirq_pending_ref))
-#define set_softirq_pending(x)	(__this_cpu_write(local_softirq_pending_ref, (x)))
-#define or_softirq_pending(x)	(__this_cpu_or(local_softirq_pending_ref, (x)))
+#define local_softirq_pending()	(__this_cpu_read(local_softirq_data_ref))
+#define set_softirq_pending(x)	(__this_cpu_write(local_softirq_data_ref, (x)))
+#define or_softirq_pending(x)	(__this_cpu_or(local_softirq_data_ref, (x)))
 
 #endif /* local_softirq_pending */
 
