@@ -13,9 +13,14 @@
 
 #include <asm/lowcore.h>
 
-#define local_softirq_pending() (S390_lowcore.softirq_data)
-#define softirq_pending_clear_mask(x) (S390_lowcore.softirq_data &= ~(x))
+#define local_softirq_data() (S390_lowcore.softirq_data)
+#define local_softirq_pending() (local_softirq_data() & SOFTIRQ_PENDING_MASK)
+#define local_softirq_enabled() (local_softirq_data() >> SOFTIRQ_ENABLED_SHIFT)
+#define softirq_enabled_set_mask(x) (S390_lowcore.softirq_data |= ((x) << SOFTIRQ_ENABLED_SHIFT))
+#define softirq_enabled_clear_mask(x) (S390_lowcore.softirq_data &= ~((x) << SOFTIRQ_ENABLED_SHIFT))
+#define softirq_enabled_set(x) (S390_lowcore.softirq_data = local_softirq_pending() | ((x) << SOFTIRQ_ENABLED_SHIFT))
 #define softirq_pending_set_mask(x)  (S390_lowcore.softirq_data |= (x))
+#define softirq_pending_clear_mask(x) (S390_lowcore.softirq_data &= ~(x))
 
 #define __ARCH_IRQ_STAT
 #define __ARCH_HAS_DO_SOFTIRQ
