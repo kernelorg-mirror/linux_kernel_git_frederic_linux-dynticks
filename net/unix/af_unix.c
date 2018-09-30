@@ -488,6 +488,7 @@ static void unix_dgram_disconnected(struct sock *sk, struct sock *other)
 
 static void unix_sock_destructor(struct sock *sk)
 {
+	unsigned int bh;
 	struct unix_sock *u = unix_sk(sk);
 
 	skb_queue_purge(&sk->sk_receive_queue);
@@ -504,9 +505,9 @@ static void unix_sock_destructor(struct sock *sk)
 		unix_release_addr(u->addr);
 
 	atomic_long_dec(&unix_nr_socks);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
-	local_bh_enable();
+	local_bh_enable(bh);
 #ifdef UNIX_REFCNT_DEBUG
 	pr_debug("UNIX %p is destroyed, %ld are still alive.\n", sk,
 		atomic_long_read(&unix_nr_socks));
@@ -752,6 +753,7 @@ static struct proto unix_proto = {
 
 static struct sock *unix_create1(struct net *net, struct socket *sock, int kern)
 {
+	unsigned int bh;
 	struct sock *sk = NULL;
 	struct unix_sock *u;
 
@@ -784,9 +786,9 @@ out:
 	if (sk == NULL)
 		atomic_long_dec(&unix_nr_socks);
 	else {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		sock_prot_inuse_add(sock_net(sk), sk->sk_prot, 1);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 	return sk;
 }

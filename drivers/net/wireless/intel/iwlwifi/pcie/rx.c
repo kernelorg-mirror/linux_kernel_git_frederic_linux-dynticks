@@ -1485,6 +1485,7 @@ static struct iwl_trans_pcie *iwl_pcie_get_trans_pcie(struct msix_entry *entry)
  */
 irqreturn_t iwl_pcie_irq_rx_msix_handler(int irq, void *dev_id)
 {
+	unsigned int bh;
 	struct msix_entry *entry = dev_id;
 	struct iwl_trans_pcie *trans_pcie = iwl_pcie_get_trans_pcie(entry);
 	struct iwl_trans *trans = trans_pcie->trans;
@@ -1496,9 +1497,9 @@ irqreturn_t iwl_pcie_irq_rx_msix_handler(int irq, void *dev_id)
 
 	lock_map_acquire(&trans->sync_cmd_lockdep_map);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	iwl_pcie_rx_handle(trans, entry->entry);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	iwl_pcie_clear_irq(trans, entry);
 
@@ -1664,6 +1665,7 @@ void iwl_pcie_handle_rfkill_irq(struct iwl_trans *trans)
 
 irqreturn_t iwl_pcie_irq_handler(int irq, void *dev_id)
 {
+	unsigned int bh;
 	struct iwl_trans *trans = dev_id;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	struct isr_statistics *isr_stats = &trans_pcie->isr_stats;
@@ -1860,9 +1862,9 @@ irqreturn_t iwl_pcie_irq_handler(int irq, void *dev_id)
 
 		isr_stats->rx++;
 
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		iwl_pcie_rx_handle(trans, 0);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	/* This "Tx" DMA channel is used only for loading uCode */
@@ -2014,6 +2016,7 @@ irqreturn_t iwl_pcie_msix_isr(int irq, void *data)
 
 irqreturn_t iwl_pcie_irq_msix_handler(int irq, void *dev_id)
 {
+	unsigned int bh;
 	struct msix_entry *entry = dev_id;
 	struct iwl_trans_pcie *trans_pcie = iwl_pcie_get_trans_pcie(entry);
 	struct iwl_trans *trans = trans_pcie->trans;
@@ -2047,16 +2050,16 @@ irqreturn_t iwl_pcie_irq_msix_handler(int irq, void *dev_id)
 
 	if ((trans_pcie->shared_vec_mask & IWL_SHARED_IRQ_NON_RX) &&
 	    inta_fh & MSIX_FH_INT_CAUSES_Q0) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		iwl_pcie_rx_handle(trans, 0);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	if ((trans_pcie->shared_vec_mask & IWL_SHARED_IRQ_FIRST_RSS) &&
 	    inta_fh & MSIX_FH_INT_CAUSES_Q1) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		iwl_pcie_rx_handle(trans, 1);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	/* This "Tx" DMA channel is used only for loading uCode */

@@ -535,6 +535,7 @@ sclp_sync_wait(void)
 	unsigned long long old_tick;
 	unsigned long flags;
 	unsigned long cr0, cr0_sync;
+	unsigned int bh;
 	u64 timeout;
 	int irq_context;
 
@@ -551,7 +552,7 @@ sclp_sync_wait(void)
 	/* Prevent bottom half from executing once we force interrupts open */
 	irq_context = in_interrupt();
 	if (!irq_context)
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	/* Enable service-signal interruption, disable timer interrupts */
 	old_tick = local_tick_disable();
 	trace_hardirqs_on();
@@ -572,7 +573,7 @@ sclp_sync_wait(void)
 	local_irq_disable();
 	__ctl_load(cr0, 0, 0);
 	if (!irq_context)
-		local_bh_enable_no_softirq();
+		local_bh_enable_no_softirq(bh);
 	local_tick_enable(old_tick);
 	local_irq_restore(flags);
 }

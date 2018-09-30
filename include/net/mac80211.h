@@ -4140,9 +4140,10 @@ void ieee80211_rx_irqsafe(struct ieee80211_hw *hw, struct sk_buff *skb);
 static inline void ieee80211_rx_ni(struct ieee80211_hw *hw,
 				   struct sk_buff *skb)
 {
-	local_bh_disable();
+	unsigned int bh;
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ieee80211_rx(hw, skb);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /**
@@ -4180,11 +4181,12 @@ int ieee80211_sta_ps_transition(struct ieee80211_sta *sta, bool start);
 static inline int ieee80211_sta_ps_transition_ni(struct ieee80211_sta *sta,
 						  bool start)
 {
+	unsigned int bh;
 	int ret;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ret = ieee80211_sta_ps_transition(sta, start);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return ret;
 }
@@ -4371,9 +4373,10 @@ static inline void ieee80211_tx_status_noskb(struct ieee80211_hw *hw,
 static inline void ieee80211_tx_status_ni(struct ieee80211_hw *hw,
 					  struct sk_buff *skb)
 {
-	local_bh_disable();
+	unsigned int bh;
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ieee80211_tx_status(hw, skb);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /**

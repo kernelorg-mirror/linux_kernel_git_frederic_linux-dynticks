@@ -4676,6 +4676,7 @@ out:
  */
 static int sctp_init_sock(struct sock *sk)
 {
+	unsigned int bh;
 	struct net *net = sock_net(sk);
 	struct sctp_sock *sp;
 
@@ -4800,7 +4801,7 @@ static int sctp_init_sock(struct sock *sk)
 
 	SCTP_DBG_OBJCNT_INC(sock);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	sk_sockets_allocated_inc(sk);
 	sock_prot_inuse_add(net, sk->sk_prot, 1);
 
@@ -4817,7 +4818,7 @@ static int sctp_init_sock(struct sock *sk)
 		sp->do_auto_asconf = 0;
 	}
 
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return 0;
 }
@@ -4827,6 +4828,7 @@ static int sctp_init_sock(struct sock *sk)
  */
 static void sctp_destroy_sock(struct sock *sk)
 {
+	unsigned int bh;
 	struct sctp_sock *sp;
 
 	pr_debug("%s: sk:%p\n", __func__, sk);
@@ -4844,10 +4846,10 @@ static void sctp_destroy_sock(struct sock *sk)
 		list_del(&sp->auto_asconf_list);
 	}
 	sctp_endpoint_free(sp->ep);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	sk_sockets_allocated_dec(sk);
 	sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /* Triggered when there are no references on the socket anymore */
@@ -7659,6 +7661,7 @@ static struct sctp_bind_bucket *sctp_bucket_create(
 
 static long sctp_get_port_local(struct sock *sk, union sctp_addr *addr)
 {
+	unsigned int bh;
 	bool reuse = (sk->sk_reuse || sctp_sk(sk)->reuse);
 	struct sctp_bind_hashbucket *head; /* hash list */
 	struct sctp_bind_bucket *pp;
@@ -7669,7 +7672,7 @@ static long sctp_get_port_local(struct sock *sk, union sctp_addr *addr)
 
 	pr_debug("%s: begins, snum:%d\n", __func__, snum);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	if (snum == 0) {
 		/* Search for an available port. */
@@ -7802,7 +7805,7 @@ fail_unlock:
 	spin_unlock(&head->lock);
 
 fail:
-	local_bh_enable();
+	local_bh_enable(bh);
 	return ret;
 }
 
@@ -8052,9 +8055,10 @@ static inline void __sctp_put_port(struct sock *sk)
 
 void sctp_put_port(struct sock *sk)
 {
-	local_bh_disable();
+	unsigned int bh;
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	__sctp_put_port(sk);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /*

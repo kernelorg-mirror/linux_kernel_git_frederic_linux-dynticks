@@ -1040,6 +1040,7 @@ static inline u8 iwl_mvm_tid_to_ac_queue(int tid)
 static void iwl_mvm_tx_deferred_stream(struct iwl_mvm *mvm,
 				       struct ieee80211_sta *sta, int tid)
 {
+	unsigned int bh;
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
 	struct iwl_mvm_tid_data *tid_data = &mvmsta->tid_data[tid];
 	struct sk_buff *skb;
@@ -1075,7 +1076,7 @@ static void iwl_mvm_tx_deferred_stream(struct iwl_mvm *mvm,
 	__skb_queue_head_init(&deferred_tx);
 
 	/* Disable bottom-halves when entering TX path */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	spin_lock(&mvmsta->lock);
 	skb_queue_splice_init(&tid_data->deferred_tx_frames, &deferred_tx);
 	mvmsta->deferred_traffic_tid_map &= ~BIT(tid);
@@ -1084,7 +1085,7 @@ static void iwl_mvm_tx_deferred_stream(struct iwl_mvm *mvm,
 	while ((skb = __skb_dequeue(&deferred_tx)))
 		if (no_queue || iwl_mvm_tx_skb(mvm, skb, sta))
 			ieee80211_free_txskb(mvm->hw, skb);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	/* Wake queue */
 	iwl_mvm_start_mac_queues(mvm, BIT(mac_queue));

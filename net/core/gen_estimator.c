@@ -132,6 +132,7 @@ int gen_new_estimator(struct gnet_stats_basic_packed *bstats,
 		      seqcount_t *running,
 		      struct nlattr *opt)
 {
+	unsigned int bh;
 	struct gnet_estimator *parm = nla_data(opt);
 	struct net_rate_estimator *old, *est;
 	struct gnet_stats_basic_packed b;
@@ -161,10 +162,10 @@ int gen_new_estimator(struct gnet_stats_basic_packed *bstats,
 	est->cpu_bstats = cpu_bstats;
 
 	if (lock)
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	est_fetch_counters(est, &b);
 	if (lock)
-		local_bh_enable();
+		local_bh_enable(bh);
 	est->last_bytes = b.bytes;
 	est->last_packets = b.packets;
 

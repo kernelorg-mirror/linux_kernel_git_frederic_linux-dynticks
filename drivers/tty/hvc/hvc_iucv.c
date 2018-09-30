@@ -975,11 +975,12 @@ static void hvc_iucv_msg_complete(struct iucv_path *path,
  */
 static int hvc_iucv_pm_freeze(struct device *dev)
 {
+	unsigned int bh;
 	struct hvc_iucv_private *priv = dev_get_drvdata(dev);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	hvc_iucv_hangup(priv);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return 0;
 }

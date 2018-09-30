@@ -5616,6 +5616,7 @@ static void be_log_sfp_info(struct be_adapter *adapter)
 
 static void be_worker(struct work_struct *work)
 {
+	unsigned int bh;
 	struct be_adapter *adapter =
 		container_of(work, struct be_adapter, work.work);
 	struct be_rx_obj *rxo;
@@ -5629,9 +5630,9 @@ static void be_worker(struct work_struct *work)
 	 * mcc completions
 	 */
 	if (!netif_running(adapter->netdev)) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		be_process_mcc(adapter);
-		local_bh_enable();
+		local_bh_enable(bh);
 		goto reschedule;
 	}
 

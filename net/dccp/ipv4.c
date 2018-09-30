@@ -506,6 +506,7 @@ out:
 
 static void dccp_v4_ctl_send_reset(const struct sock *sk, struct sk_buff *rxskb)
 {
+	unsigned int bh;
 	int err;
 	const struct iphdr *rxiph;
 	struct sk_buff *skb;
@@ -533,7 +534,7 @@ static void dccp_v4_ctl_send_reset(const struct sock *sk, struct sk_buff *rxskb)
 								 rxiph->daddr);
 	skb_dst_set(skb, dst_clone(dst));
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	bh_lock_sock(ctl_sk);
 	err = ip_build_and_send_pkt(skb, ctl_sk,
 				    rxiph->daddr, rxiph->saddr, NULL);
@@ -543,7 +544,7 @@ static void dccp_v4_ctl_send_reset(const struct sock *sk, struct sk_buff *rxskb)
 		__DCCP_INC_STATS(DCCP_MIB_OUTSEGS);
 		__DCCP_INC_STATS(DCCP_MIB_OUTRSTS);
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 out:
 	dst_release(dst);
 }

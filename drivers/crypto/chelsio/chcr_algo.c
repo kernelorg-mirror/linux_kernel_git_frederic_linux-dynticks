@@ -559,19 +559,20 @@ static inline int get_cryptoalg_subtype(struct crypto_tfm *tfm)
 
 static int cxgb4_is_crypto_q_full(struct net_device *dev, unsigned int idx)
 {
+	unsigned int bh;
 	struct adapter *adap = netdev2adap(dev);
 	struct sge_uld_txq_info *txq_info =
 		adap->sge.uld_txq_info[CXGB4_TX_CRYPTO];
 	struct sge_uld_txq *txq;
 	int ret = 0;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	txq = &txq_info->uldtxq[idx];
 	spin_lock(&txq->sendq.lock);
 	if (txq->full)
 		ret = -1;
 	spin_unlock(&txq->sendq.lock);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return ret;
 }
 

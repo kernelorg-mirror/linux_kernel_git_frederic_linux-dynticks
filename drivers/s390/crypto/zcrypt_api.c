@@ -691,13 +691,14 @@ static void zcrypt_status_mask(char status[], size_t max_adapters)
 
 static void zcrypt_qdepth_mask(char qdepth[], size_t max_adapters)
 {
+	unsigned int bh;
 	struct zcrypt_card *zc;
 	struct zcrypt_queue *zq;
 	int card;
 
 	memset(qdepth, 0, max_adapters);
 	spin_lock(&zcrypt_list_lock);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	for_each_zcrypt_card(zc) {
 		for_each_zcrypt_queue(zq, zc) {
 			card = AP_QID_CARD(zq->queue->qid);
@@ -711,19 +712,20 @@ static void zcrypt_qdepth_mask(char qdepth[], size_t max_adapters)
 			spin_unlock(&zq->queue->lock);
 		}
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 	spin_unlock(&zcrypt_list_lock);
 }
 
 static void zcrypt_perdev_reqcnt(int reqcnt[], size_t max_adapters)
 {
+	unsigned int bh;
 	struct zcrypt_card *zc;
 	struct zcrypt_queue *zq;
 	int card;
 
 	memset(reqcnt, 0, sizeof(int) * max_adapters);
 	spin_lock(&zcrypt_list_lock);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	for_each_zcrypt_card(zc) {
 		for_each_zcrypt_queue(zq, zc) {
 			card = AP_QID_CARD(zq->queue->qid);
@@ -735,19 +737,20 @@ static void zcrypt_perdev_reqcnt(int reqcnt[], size_t max_adapters)
 			spin_unlock(&zq->queue->lock);
 		}
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 	spin_unlock(&zcrypt_list_lock);
 }
 
 static int zcrypt_pendingq_count(void)
 {
+	unsigned int bh;
 	struct zcrypt_card *zc;
 	struct zcrypt_queue *zq;
 	int pendingq_count;
 
 	pendingq_count = 0;
 	spin_lock(&zcrypt_list_lock);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	for_each_zcrypt_card(zc) {
 		for_each_zcrypt_queue(zq, zc) {
 			if (AP_QID_QUEUE(zq->queue->qid) != ap_domain_index)
@@ -757,20 +760,21 @@ static int zcrypt_pendingq_count(void)
 			spin_unlock(&zq->queue->lock);
 		}
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 	spin_unlock(&zcrypt_list_lock);
 	return pendingq_count;
 }
 
 static int zcrypt_requestq_count(void)
 {
+	unsigned int bh;
 	struct zcrypt_card *zc;
 	struct zcrypt_queue *zq;
 	int requestq_count;
 
 	requestq_count = 0;
 	spin_lock(&zcrypt_list_lock);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	for_each_zcrypt_card(zc) {
 		for_each_zcrypt_queue(zq, zc) {
 			if (AP_QID_QUEUE(zq->queue->qid) != ap_domain_index)
@@ -780,7 +784,7 @@ static int zcrypt_requestq_count(void)
 			spin_unlock(&zq->queue->lock);
 		}
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 	spin_unlock(&zcrypt_list_lock);
 	return requestq_count;
 }

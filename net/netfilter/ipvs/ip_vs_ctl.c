@@ -96,6 +96,7 @@ static bool __ip_vs_addr_is_local_v6(struct net *net,
  */
 static void update_defense_level(struct netns_ipvs *ipvs)
 {
+	unsigned int bh;
 	struct sysinfo i;
 	static int old_secure_tcp = 0;
 	int availmem;
@@ -112,7 +113,7 @@ static void update_defense_level(struct netns_ipvs *ipvs)
 
 	nomem = (availmem < ipvs->sysctl_amemthresh);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	/* drop_entry */
 	spin_lock(&ipvs->dropentry_lock);
@@ -212,7 +213,7 @@ static void update_defense_level(struct netns_ipvs *ipvs)
 					      ipvs->sysctl_secure_tcp > 1);
 	spin_unlock(&ipvs->securetcp_lock);
 
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 

@@ -199,12 +199,12 @@ EXPORT_SYMBOL(__local_bh_enable_ip);
 
 void local_bh_disable_all(void)
 {
-	local_bh_disable();
+	local_bh_disable(SOFTIRQ_ALL_MASK);
 }
 
 void local_bh_enable_all(void)
 {
-	local_bh_enable();
+	local_bh_enable(SOFTIRQ_ALL_MASK);
 }
 
 /*
@@ -359,7 +359,7 @@ void irq_enter(void)
 		 * Prevent raise_softirq from needlessly waking up ksoftirqd
 		 * here, as softirq will be serviced on return from interrupt.
 		 */
-		local_bh_disable();
+		local_bh_disable(SOFTIRQ_ALL_MASK);
 		tick_irq_enter();
 		local_bh_enable_no_softirq();
 	}

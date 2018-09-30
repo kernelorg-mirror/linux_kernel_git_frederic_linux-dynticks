@@ -441,6 +441,7 @@ static int set_rxmode(struct net_device *dev, int mtu, bool sleep_ok)
  */
 static int link_start(struct net_device *dev)
 {
+	unsigned int bh;
 	int ret;
 	struct port_info *pi = netdev_priv(dev);
 	unsigned int mb = pi->adapter->pf;
@@ -464,10 +465,10 @@ static int link_start(struct net_device *dev)
 		ret = t4_link_l1cfg(pi->adapter, mb, pi->tx_chan,
 				    &pi->link_cfg);
 	if (ret == 0) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		ret = t4_enable_pi_params(pi->adapter, mb, pi, true,
 					  true, CXGB4_DCB_ENABLED);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	return ret;

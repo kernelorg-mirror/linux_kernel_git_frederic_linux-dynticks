@@ -877,10 +877,11 @@ static struct notifier_block iucv_reboot_notifier = {
 int iucv_path_accept(struct iucv_path *path, struct iucv_handler *handler,
 		     u8 *userdata, void *private)
 {
+	unsigned int bh;
 	union iucv_param *parm;
 	int rc;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (cpumask_empty(&iucv_buffer_cpumask)) {
 		rc = -EIO;
 		goto out;
@@ -901,7 +902,7 @@ int iucv_path_accept(struct iucv_path *path, struct iucv_handler *handler,
 		path->flags = parm->ctrl.ipflags1;
 	}
 out:
-	local_bh_enable();
+	local_bh_enable(bh);
 	return rc;
 }
 EXPORT_SYMBOL(iucv_path_accept);
@@ -986,10 +987,11 @@ EXPORT_SYMBOL(iucv_path_connect);
  */
 int iucv_path_quiesce(struct iucv_path *path, u8 *userdata)
 {
+	unsigned int bh;
 	union iucv_param *parm;
 	int rc;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (cpumask_empty(&iucv_buffer_cpumask)) {
 		rc = -EIO;
 		goto out;
@@ -1001,7 +1003,7 @@ int iucv_path_quiesce(struct iucv_path *path, u8 *userdata)
 	parm->ctrl.ippathid = path->pathid;
 	rc = iucv_call_b2f0(IUCV_QUIESCE, parm);
 out:
-	local_bh_enable();
+	local_bh_enable(bh);
 	return rc;
 }
 EXPORT_SYMBOL(iucv_path_quiesce);
@@ -1018,10 +1020,11 @@ EXPORT_SYMBOL(iucv_path_quiesce);
  */
 int iucv_path_resume(struct iucv_path *path, u8 *userdata)
 {
+	unsigned int bh;
 	union iucv_param *parm;
 	int rc;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (cpumask_empty(&iucv_buffer_cpumask)) {
 		rc = -EIO;
 		goto out;
@@ -1033,7 +1036,7 @@ int iucv_path_resume(struct iucv_path *path, u8 *userdata)
 	parm->ctrl.ippathid = path->pathid;
 	rc = iucv_call_b2f0(IUCV_RESUME, parm);
 out:
-	local_bh_enable();
+	local_bh_enable(bh);
 	return rc;
 }
 
@@ -1081,10 +1084,11 @@ EXPORT_SYMBOL(iucv_path_sever);
 int iucv_message_purge(struct iucv_path *path, struct iucv_message *msg,
 		       u32 srccls)
 {
+	unsigned int bh;
 	union iucv_param *parm;
 	int rc;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (cpumask_empty(&iucv_buffer_cpumask)) {
 		rc = -EIO;
 		goto out;
@@ -1101,7 +1105,7 @@ int iucv_message_purge(struct iucv_path *path, struct iucv_message *msg,
 		msg->tag = parm->purge.ipmsgtag;
 	}
 out:
-	local_bh_enable();
+	local_bh_enable(bh);
 	return rc;
 }
 EXPORT_SYMBOL(iucv_message_purge);
@@ -1221,14 +1225,15 @@ EXPORT_SYMBOL(__iucv_message_receive);
 int iucv_message_receive(struct iucv_path *path, struct iucv_message *msg,
 			 u8 flags, void *buffer, size_t size, size_t *residual)
 {
+	unsigned int bh;
 	int rc;
 
 	if (msg->flags & IUCV_IPRMDATA)
 		return iucv_message_receive_iprmdata(path, msg, flags,
 						     buffer, size, residual);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rc = __iucv_message_receive(path, msg, flags, buffer, size, residual);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return rc;
 }
 EXPORT_SYMBOL(iucv_message_receive);
@@ -1246,10 +1251,11 @@ EXPORT_SYMBOL(iucv_message_receive);
  */
 int iucv_message_reject(struct iucv_path *path, struct iucv_message *msg)
 {
+	unsigned int bh;
 	union iucv_param *parm;
 	int rc;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (cpumask_empty(&iucv_buffer_cpumask)) {
 		rc = -EIO;
 		goto out;
@@ -1262,7 +1268,7 @@ int iucv_message_reject(struct iucv_path *path, struct iucv_message *msg)
 	parm->db.ipflags1 = (IUCV_IPTRGCLS | IUCV_IPFGMID | IUCV_IPFGPID);
 	rc = iucv_call_b2f0(IUCV_REJECT, parm);
 out:
-	local_bh_enable();
+	local_bh_enable(bh);
 	return rc;
 }
 EXPORT_SYMBOL(iucv_message_reject);
@@ -1285,10 +1291,11 @@ EXPORT_SYMBOL(iucv_message_reject);
 int iucv_message_reply(struct iucv_path *path, struct iucv_message *msg,
 		       u8 flags, void *reply, size_t size)
 {
+	unsigned int bh;
 	union iucv_param *parm;
 	int rc;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (cpumask_empty(&iucv_buffer_cpumask)) {
 		rc = -EIO;
 		goto out;
@@ -1311,7 +1318,7 @@ int iucv_message_reply(struct iucv_path *path, struct iucv_message *msg,
 	}
 	rc = iucv_call_b2f0(IUCV_REPLY, parm);
 out:
-	local_bh_enable();
+	local_bh_enable(bh);
 	return rc;
 }
 EXPORT_SYMBOL(iucv_message_reply);
@@ -1390,11 +1397,12 @@ EXPORT_SYMBOL(__iucv_message_send);
 int iucv_message_send(struct iucv_path *path, struct iucv_message *msg,
 		      u8 flags, u32 srccls, void *buffer, size_t size)
 {
+	unsigned int bh;
 	int rc;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rc = __iucv_message_send(path, msg, flags, srccls, buffer, size);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return rc;
 }
 EXPORT_SYMBOL(iucv_message_send);
@@ -1422,10 +1430,11 @@ int iucv_message_send2way(struct iucv_path *path, struct iucv_message *msg,
 			  u8 flags, u32 srccls, void *buffer, size_t size,
 			  void *answer, size_t asize, size_t *residual)
 {
+	unsigned int bh;
 	union iucv_param *parm;
 	int rc;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (cpumask_empty(&iucv_buffer_cpumask)) {
 		rc = -EIO;
 		goto out;
@@ -1456,7 +1465,7 @@ int iucv_message_send2way(struct iucv_path *path, struct iucv_message *msg,
 	if (!rc)
 		msg->id = parm->db.ipmsgid;
 out:
-	local_bh_enable();
+	local_bh_enable(bh);
 	return rc;
 }
 EXPORT_SYMBOL(iucv_message_send2way);

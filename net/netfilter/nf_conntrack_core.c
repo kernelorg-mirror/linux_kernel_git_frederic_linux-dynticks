@@ -529,6 +529,7 @@ EXPORT_SYMBOL_GPL(nf_ct_tmpl_free);
 static void
 destroy_conntrack(struct nf_conntrack *nfct)
 {
+	unsigned int bh;
 	struct nf_conn *ct = (struct nf_conn *)nfct;
 	const struct nf_conntrack_l4proto *l4proto;
 
@@ -543,7 +544,7 @@ destroy_conntrack(struct nf_conntrack *nfct)
 	if (l4proto->destroy)
 		l4proto->destroy(ct);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	/* Expectations will have been removed in clean_from_lists,
 	 * except TFTP can create an expectation on the first packet,
 	 * before connection is in the list, so we need to clean here,
@@ -553,7 +554,7 @@ destroy_conntrack(struct nf_conntrack *nfct)
 
 	nf_ct_del_from_dying_or_unconfirmed_list(ct);
 
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (ct->master)
 		nf_ct_put(ct->master);
@@ -564,13 +565,14 @@ destroy_conntrack(struct nf_conntrack *nfct)
 
 static void nf_ct_delete_from_lists(struct nf_conn *ct)
 {
+	unsigned int bh;
 	struct net *net = nf_ct_net(ct);
 	unsigned int hash, reply_hash;
 	unsigned int sequence;
 
 	nf_ct_helper_destroy(ct);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	do {
 		sequence = read_seqcount_begin(&nf_conntrack_generation);
 		hash = hash_conntrack(net,
@@ -584,7 +586,7 @@ static void nf_ct_delete_from_lists(struct nf_conn *ct)
 
 	nf_ct_add_to_dying_list(ct);
 
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 bool nf_ct_delete(struct nf_conn *ct, u32 portid, int report)
@@ -752,6 +754,7 @@ static void __nf_conntrack_hash_insert(struct nf_conn *ct,
 int
 nf_conntrack_hash_check_insert(struct nf_conn *ct)
 {
+	unsigned int bh;
 	const struct nf_conntrack_zone *zone;
 	struct net *net = nf_ct_net(ct);
 	unsigned int hash, reply_hash;
@@ -761,7 +764,7 @@ nf_conntrack_hash_check_insert(struct nf_conn *ct)
 
 	zone = nf_ct_zone(ct);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	do {
 		sequence = read_seqcount_begin(&nf_conntrack_generation);
 		hash = hash_conntrack(net,
@@ -787,13 +790,13 @@ nf_conntrack_hash_check_insert(struct nf_conn *ct)
 	__nf_conntrack_hash_insert(ct, hash, reply_hash);
 	nf_conntrack_double_unlock(hash, reply_hash);
 	NF_CT_STAT_INC(net, insert);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return 0;
 
 out:
 	nf_conntrack_double_unlock(hash, reply_hash);
 	NF_CT_STAT_INC(net, insert_failed);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return -EEXIST;
 }
 EXPORT_SYMBOL_GPL(nf_conntrack_hash_check_insert);
@@ -861,6 +864,7 @@ static int nf_ct_resolve_clash(struct net *net, struct sk_buff *skb,
 int
 __nf_conntrack_confirm(struct sk_buff *skb)
 {
+	unsigned int bh;
 	const struct nf_conntrack_zone *zone;
 	unsigned int hash, reply_hash;
 	struct nf_conntrack_tuple_hash *h;
@@ -884,7 +888,7 @@ __nf_conntrack_confirm(struct sk_buff *skb)
 		return NF_ACCEPT;
 
 	zone = nf_ct_zone(ct);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	do {
 		sequence = read_seqcount_begin(&nf_conntrack_generation);
@@ -953,7 +957,7 @@ __nf_conntrack_confirm(struct sk_buff *skb)
 	 */
 	__nf_conntrack_hash_insert(ct, hash, reply_hash);
 	nf_conntrack_double_unlock(hash, reply_hash);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	help = nfct_help(ct);
 	if (help && help->helper)
@@ -969,7 +973,7 @@ out:
 dying:
 	nf_conntrack_double_unlock(hash, reply_hash);
 	NF_CT_STAT_INC(net, insert_failed);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(__nf_conntrack_confirm);
@@ -1343,6 +1347,7 @@ init_conntrack(struct net *net, struct nf_conn *tmpl,
 	       struct sk_buff *skb,
 	       unsigned int dataoff, u32 hash)
 {
+	unsigned int bh;
 	struct nf_conn *ct;
 	struct nf_conn_help *help;
 	struct nf_conntrack_tuple repl_tuple;
@@ -1389,7 +1394,7 @@ init_conntrack(struct net *net, struct nf_conn *tmpl,
 				 ecache ? ecache->expmask : 0,
 			     GFP_ATOMIC);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (net->ct.expect_count) {
 		spin_lock(&nf_conntrack_expect_lock);
 		exp = nf_ct_find_expectation(net, zone, tuple);
@@ -1423,7 +1428,7 @@ init_conntrack(struct net *net, struct nf_conn *tmpl,
 	nf_conntrack_get(&ct->ct_general);
 	nf_ct_add_to_unconfirmed_list(ct);
 
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (exp) {
 		if (exp->expectfn)
@@ -1844,6 +1849,7 @@ static struct nf_conn *
 get_next_corpse(int (*iter)(struct nf_conn *i, void *data),
 		void *data, unsigned int *bucket)
 {
+	unsigned int bh;
 	struct nf_conntrack_tuple_hash *h;
 	struct nf_conn *ct;
 	struct hlist_nulls_node *n;
@@ -1851,7 +1857,7 @@ get_next_corpse(int (*iter)(struct nf_conn *i, void *data),
 
 	for (; *bucket < nf_conntrack_htable_size; (*bucket)++) {
 		lockp = &nf_conntrack_locks[*bucket % CONNTRACK_LOCKS];
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		nf_conntrack_lock(lockp);
 		if (*bucket < nf_conntrack_htable_size) {
 			hlist_nulls_for_each_entry(h, n, &nf_conntrack_hash[*bucket], hnnode) {
@@ -1863,7 +1869,7 @@ get_next_corpse(int (*iter)(struct nf_conn *i, void *data),
 			}
 		}
 		spin_unlock(lockp);
-		local_bh_enable();
+		local_bh_enable(bh);
 		cond_resched();
 	}
 
@@ -1871,7 +1877,7 @@ get_next_corpse(int (*iter)(struct nf_conn *i, void *data),
 found:
 	atomic_inc(&ct->ct_general.use);
 	spin_unlock(lockp);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return ct;
 }
 
@@ -2118,6 +2124,7 @@ EXPORT_SYMBOL_GPL(nf_ct_alloc_hashtable);
 
 int nf_conntrack_hash_resize(unsigned int hashsize)
 {
+	unsigned int bh;
 	int i, bucket;
 	unsigned int old_size;
 	struct hlist_nulls_head *hash, *old_hash;
@@ -2137,7 +2144,7 @@ int nf_conntrack_hash_resize(unsigned int hashsize)
 		return 0;
 	}
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	nf_conntrack_all_lock();
 	write_seqcount_begin(&nf_conntrack_generation);
 
@@ -2166,7 +2173,7 @@ int nf_conntrack_hash_resize(unsigned int hashsize)
 
 	write_seqcount_end(&nf_conntrack_generation);
 	nf_conntrack_all_unlock();
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	synchronize_net();
 	kvfree(old_hash);

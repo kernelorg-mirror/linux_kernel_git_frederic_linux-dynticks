@@ -3870,9 +3870,9 @@ static inline void netif_tx_lock(struct net_device *dev)
 
 static inline unsigned int netif_tx_lock_bh(struct net_device *dev)
 {
-	unsigned int bh = 0;
+	unsigned int bh;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	netif_tx_lock(dev);
 
 	return bh;
@@ -3899,7 +3899,7 @@ static inline void netif_tx_unlock_bh(struct net_device *dev,
 				      unsigned int bh)
 {
 	netif_tx_unlock(dev);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 #define HARD_TX_LOCK(dev, txq, cpu) {			\
@@ -3925,10 +3925,11 @@ static inline void netif_tx_unlock_bh(struct net_device *dev,
 
 static inline void netif_tx_disable(struct net_device *dev)
 {
+	unsigned int bh;
 	unsigned int i;
 	int cpu;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	cpu = smp_processor_id();
 	for (i = 0; i < dev->num_tx_queues; i++) {
 		struct netdev_queue *txq = netdev_get_tx_queue(dev, i);
@@ -3937,7 +3938,7 @@ static inline void netif_tx_disable(struct net_device *dev)
 		netif_tx_stop_queue(txq);
 		__netif_tx_unlock(txq);
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static inline void netif_addr_lock(struct net_device *dev)

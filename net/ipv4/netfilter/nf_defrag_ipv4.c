@@ -28,11 +28,12 @@ static DEFINE_MUTEX(defrag4_mutex);
 static int nf_ct_ipv4_gather_frags(struct net *net, struct sk_buff *skb,
 				   u_int32_t user)
 {
+	unsigned int bh;
 	int err;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	err = ip_defrag(net, skb, user);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (!err)
 		skb->ignore_df = 1;

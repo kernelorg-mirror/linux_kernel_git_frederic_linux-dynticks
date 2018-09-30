@@ -103,7 +103,7 @@ void __lockfunc __raw_##op##_lock_bh(locktype##_t *lock)		\
 	/* function:						*/	\
 	/**/								\
 	flags = _raw_##op##_lock_irqsave(lock);				\
-	local_bh_disable();						\
+	local_bh_disable(SOFTIRQ_ALL_MASK);						\
 	local_irq_restore(flags);					\
 }									\
 

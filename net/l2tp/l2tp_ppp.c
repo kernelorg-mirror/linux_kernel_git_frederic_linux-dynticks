@@ -276,6 +276,7 @@ no_sock:
 static int pppol2tp_sendmsg(struct socket *sock, struct msghdr *m,
 			    size_t total_len)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 	struct sk_buff *skb;
 	int error;
@@ -325,9 +326,9 @@ static int pppol2tp_sendmsg(struct socket *sock, struct msghdr *m,
 		goto error_put_sess;
 	}
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	l2tp_xmit_skb(session, skb, session->hdr_len);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	sock_put(sk);
 
@@ -355,6 +356,7 @@ error:
  */
 static int pppol2tp_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct sock *sk = (struct sock *) chan->private;
 	struct l2tp_session *session;
 	struct l2tp_tunnel *tunnel;
@@ -384,9 +386,9 @@ static int pppol2tp_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 	skb->data[0] = PPP_ALLSTATIONS;
 	skb->data[1] = PPP_UI;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	l2tp_xmit_skb(session, skb, session->hdr_len);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	sock_put(sk);
 

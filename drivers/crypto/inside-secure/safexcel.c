@@ -684,6 +684,7 @@ cdesc_rollback:
 static inline void safexcel_handle_result_descriptor(struct safexcel_crypto_priv *priv,
 						     int ring)
 {
+	unsigned int bh;
 	struct crypto_async_request *req;
 	struct safexcel_context *ctx;
 	int ret, i, nreq, ndesc, tot_descs, handled = 0;
@@ -710,9 +711,9 @@ handle_results:
 		}
 
 		if (should_complete) {
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			req->complete(req, ret);
-			local_bh_enable();
+			local_bh_enable(bh);
 		}
 
 		tot_descs += ndesc;

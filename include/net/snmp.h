@@ -166,9 +166,10 @@ struct linux_xfrm_mib {
 
 #define SNMP_ADD_STATS64(mib, field, addend) 				\
 	do {								\
-		local_bh_disable();					\
+		unsigned int bh;					\
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);				\
 		__SNMP_ADD_STATS64(mib, field, addend);			\
-		local_bh_enable();				\
+		local_bh_enable(bh);				\
 	} while (0)
 
 #define __SNMP_INC_STATS64(mib, field) SNMP_ADD_STATS64(mib, field, 1)
@@ -184,9 +185,10 @@ struct linux_xfrm_mib {
 	} while (0)
 #define SNMP_UPD_PO_STATS64(mib, basefield, addend)			\
 	do {								\
-		local_bh_disable();					\
+		unsigned int bh;					\
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);				\
 		__SNMP_UPD_PO_STATS64(mib, basefield, addend);		\
-		local_bh_enable();				\
+		local_bh_enable(bh);				\
 	} while (0)
 #else
 #define __SNMP_INC_STATS64(mib, field)		__SNMP_INC_STATS(mib, field)

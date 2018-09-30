@@ -575,6 +575,7 @@ i915_gem_object_wait_reservation(struct reservation_object *resv,
 static void __fence_set_priority(struct dma_fence *fence,
 				 const struct i915_sched_attr *attr)
 {
+	unsigned int bh;
 	struct i915_request *rq;
 	struct intel_engine_cs *engine;
 
@@ -584,12 +585,12 @@ static void __fence_set_priority(struct dma_fence *fence,
 	rq = to_request(fence);
 	engine = rq->engine;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rcu_read_lock(); /* RCU serialisation for set-wedged protection */
 	if (engine->schedule)
 		engine->schedule(rq, attr);
 	rcu_read_unlock();
-	local_bh_enable(); /* kick the tasklets if queues were reprioritised */
+	local_bh_enable(bh); /* kick the tasklets if queues were reprioritised */
 }
 
 static void fence_set_priority(struct dma_fence *fence,

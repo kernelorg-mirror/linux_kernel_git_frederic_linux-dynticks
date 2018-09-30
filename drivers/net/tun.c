@@ -1482,6 +1482,7 @@ static struct sk_buff *tun_napi_alloc_frags(struct tun_file *tfile,
 					    size_t len,
 					    const struct iov_iter *it)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	size_t linear;
 	int err;
@@ -1490,9 +1491,9 @@ static struct sk_buff *tun_napi_alloc_frags(struct tun_file *tfile,
 	if (it->nr_segs > MAX_SKB_FRAGS + 1)
 		return ERR_PTR(-ENOMEM);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	skb = napi_get_frags(&tfile->napi);
-	local_bh_enable();
+	local_bh_enable(bh);
 	if (!skb)
 		return ERR_PTR(-ENOMEM);
 
@@ -1562,15 +1563,16 @@ static struct sk_buff *tun_alloc_skb(struct tun_file *tfile,
 static void tun_rx_batched(struct tun_struct *tun, struct tun_file *tfile,
 			   struct sk_buff *skb, int more)
 {
+	unsigned int bh;
 	struct sk_buff_head *queue = &tfile->sk.sk_write_queue;
 	struct sk_buff_head process_queue;
 	u32 rx_batched = tun->rx_batched;
 	bool rcv = false;
 
 	if (!rx_batched || (!more && skb_queue_empty(queue))) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		netif_receive_skb(skb);
-		local_bh_enable();
+		local_bh_enable(bh);
 		return;
 	}
 
@@ -1587,11 +1589,11 @@ static void tun_rx_batched(struct tun_struct *tun, struct tun_file *tfile,
 	if (rcv) {
 		struct sk_buff *nskb;
 
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		while ((nskb = __skb_dequeue(&process_queue)))
 			netif_receive_skb(nskb);
 		netif_receive_skb(skb);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 }
 
@@ -1623,6 +1625,7 @@ static struct sk_buff *tun_build_skb(struct tun_struct *tun,
 				     struct virtio_net_hdr *hdr,
 				     int len, int *skb_xdp)
 {
+	unsigned int bh;
 	struct page_frag *alloc_frag = &current->task_frag;
 	struct sk_buff *skb;
 	struct bpf_prog *xdp_prog;
@@ -1659,7 +1662,7 @@ static struct sk_buff *tun_build_skb(struct tun_struct *tun,
 	else
 		*skb_xdp = 0;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rcu_read_lock();
 	xdp_prog = rcu_dereference(tun->xdp_prog);
 	if (xdp_prog && !*skb_xdp) {
@@ -1684,7 +1687,7 @@ static struct sk_buff *tun_build_skb(struct tun_struct *tun,
 			if (err)
 				goto err_redirect;
 			rcu_read_unlock();
-			local_bh_enable();
+			local_bh_enable(bh);
 			return NULL;
 		case XDP_TX:
 			get_page(alloc_frag->page);
@@ -1692,7 +1695,7 @@ static struct sk_buff *tun_build_skb(struct tun_struct *tun,
 			if (tun_xdp_tx(tun->dev, &xdp) < 0)
 				goto err_redirect;
 			rcu_read_unlock();
-			local_bh_enable();
+			local_bh_enable(bh);
 			return NULL;
 		case XDP_PASS:
 			delta = orig_data - xdp.data;
@@ -1712,7 +1715,7 @@ static struct sk_buff *tun_build_skb(struct tun_struct *tun,
 	skb = build_skb(buf, buflen);
 	if (!skb) {
 		rcu_read_unlock();
-		local_bh_enable();
+		local_bh_enable(bh);
 		return ERR_PTR(-ENOMEM);
 	}
 
@@ -1722,7 +1725,7 @@ static struct sk_buff *tun_build_skb(struct tun_struct *tun,
 	alloc_frag->offset += buflen;
 
 	rcu_read_unlock();
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return skb;
 
@@ -1730,7 +1733,7 @@ err_redirect:
 	put_page(alloc_frag->page);
 err_xdp:
 	rcu_read_unlock();
-	local_bh_enable();
+	local_bh_enable(bh);
 	this_cpu_inc(tun->pcpu_stats->rx_dropped);
 	return NULL;
 }
@@ -1740,6 +1743,7 @@ static ssize_t tun_get_user(struct tun_struct *tun, struct tun_file *tfile,
 			    void *msg_control, struct iov_iter *from,
 			    int noblock, bool more)
 {
+	unsigned int bh;
 	struct tun_pi pi = { 0, cpu_to_be16(ETH_P_IP) };
 	struct sk_buff *skb;
 	size_t total_len = iov_iter_count(from);
@@ -1926,19 +1930,19 @@ static ssize_t tun_get_user(struct tun_struct *tun, struct tun_file *tfile,
 		struct bpf_prog *xdp_prog;
 		int ret;
 
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		rcu_read_lock();
 		xdp_prog = rcu_dereference(tun->xdp_prog);
 		if (xdp_prog) {
 			ret = do_xdp_generic(xdp_prog, skb);
 			if (ret != XDP_PASS) {
 				rcu_read_unlock();
-				local_bh_enable();
+				local_bh_enable(bh);
 				return total_len;
 			}
 		}
 		rcu_read_unlock();
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	/* Compute the costly rx hash only if needed for flow updates.
@@ -1961,9 +1965,9 @@ static ssize_t tun_get_user(struct tun_struct *tun, struct tun_file *tfile,
 			return -ENOMEM;
 		}
 
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		napi_gro_frags(&tfile->napi);
-		local_bh_enable();
+		local_bh_enable(bh);
 		mutex_unlock(&tfile->napi_mutex);
 	} else if (tfile->napi_enabled) {
 		struct sk_buff_head *queue = &tfile->sk.sk_write_queue;
@@ -1977,7 +1981,7 @@ static ssize_t tun_get_user(struct tun_struct *tun, struct tun_file *tfile,
 		if (!more || queue_len > NAPI_POLL_WEIGHT)
 			napi_schedule(&tfile->napi);
 
-		local_bh_enable();
+		local_bh_enable(0);
 	} else if (!IS_ENABLED(CONFIG_4KSTACKS)) {
 		tun_rx_batched(tun, tfile, skb, more);
 	} else {

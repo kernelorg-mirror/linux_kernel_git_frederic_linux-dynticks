@@ -1141,6 +1141,7 @@ static ssize_t iwl_dbgfs_inject_packet_write(struct iwl_mvm *mvm,
 					     char *buf, size_t count,
 					     loff_t *ppos)
 {
+	unsigned int bh;
 	struct iwl_rx_cmd_buffer rxb = {
 		._rx_page_order = 0,
 		.truesize = 0, /* not used */
@@ -1186,9 +1187,9 @@ static ssize_t iwl_dbgfs_inject_packet_write(struct iwl_mvm *mvm,
 	    (bin_len - mpdu_cmd_hdr_size - sizeof(*pkt)))
 		goto out;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	iwl_mvm_rx_mpdu_mq(mvm, NULL, &rxb, 0);
-	local_bh_enable();
+	local_bh_enable(bh);
 	ret = 0;
 
 out:

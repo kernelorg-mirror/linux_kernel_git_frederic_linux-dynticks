@@ -1360,6 +1360,7 @@ xt_replace_table(struct xt_table *table,
 	      struct xt_table_info *newinfo,
 	      int *error)
 {
+	unsigned int bh;
 	struct xt_table_info *private;
 	unsigned int cpu;
 	int ret;
@@ -1371,14 +1372,14 @@ xt_replace_table(struct xt_table *table,
 	}
 
 	/* Do the substitution. */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	private = table->private;
 
 	/* Check inside lock: is the old number correct? */
 	if (num_counters != private->number) {
 		pr_debug("num_counters != table->private->number (%u/%u)\n",
 			 num_counters, private->number);
-		local_bh_enable();
+		local_bh_enable(bh);
 		*error = -EAGAIN;
 		return NULL;
 	}
@@ -1398,7 +1399,7 @@ xt_replace_table(struct xt_table *table,
 	 * Even though table entries have now been swapped, other CPU's
 	 * may still be using the old entries...
 	 */
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	/* ... so wait for even xt_recseq on all cpus */
 	for_each_possible_cpu(cpu) {

@@ -648,6 +648,7 @@ EXPORT_SYMBOL(tcp_v4_send_check);
 
 static void tcp_v4_send_reset(const struct sock *sk, struct sk_buff *skb)
 {
+	unsigned int bh;
 	const struct tcphdr *th = tcp_hdr(skb);
 	struct {
 		struct tcphdr th;
@@ -766,7 +767,7 @@ static void tcp_v4_send_reset(const struct sock *sk, struct sk_buff *skb)
 
 	arg.tos = ip_hdr(skb)->tos;
 	arg.uid = sock_net_uid(net, sk && sk_fullsock(sk) ? sk : NULL);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ctl_sk = *this_cpu_ptr(net->ipv4.tcp_sk);
 	if (sk)
 		ctl_sk->sk_mark = (sk->sk_state == TCP_TIME_WAIT) ?
@@ -779,7 +780,7 @@ static void tcp_v4_send_reset(const struct sock *sk, struct sk_buff *skb)
 	ctl_sk->sk_mark = 0;
 	__TCP_INC_STATS(net, TCP_MIB_OUTSEGS);
 	__TCP_INC_STATS(net, TCP_MIB_OUTRSTS);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 #ifdef CONFIG_TCP_MD5SIG
 out:
@@ -797,6 +798,7 @@ static void tcp_v4_send_ack(const struct sock *sk,
 			    struct tcp_md5sig_key *key,
 			    int reply_flags, u8 tos)
 {
+	unsigned int bh;
 	const struct tcphdr *th = tcp_hdr(skb);
 	struct {
 		struct tcphdr th;
@@ -858,7 +860,7 @@ static void tcp_v4_send_ack(const struct sock *sk,
 		arg.bound_dev_if = oif;
 	arg.tos = tos;
 	arg.uid = sock_net_uid(net, sk_fullsock(sk) ? sk : NULL);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ctl_sk = *this_cpu_ptr(net->ipv4.tcp_sk);
 	if (sk)
 		ctl_sk->sk_mark = (sk->sk_state == TCP_TIME_WAIT) ?
@@ -870,7 +872,7 @@ static void tcp_v4_send_ack(const struct sock *sk,
 
 	ctl_sk->sk_mark = 0;
 	__TCP_INC_STATS(net, TCP_MIB_OUTSEGS);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static void tcp_v4_timewait_ack(struct sock *sk, struct sk_buff *skb)

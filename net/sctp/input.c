@@ -300,6 +300,7 @@ discard_release:
  */
 int sctp_backlog_rcv(struct sock *sk, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct sctp_chunk *chunk = SCTP_INPUT_CB(skb)->chunk;
 	struct sctp_inq *inqueue = &chunk->rcvr->inqueue;
 	struct sctp_transport *t = chunk->transport;
@@ -330,7 +331,7 @@ int sctp_backlog_rcv(struct sock *sk, struct sk_buff *skb)
 		 */
 
 		sk = rcvr->sk;
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		bh_lock_sock(sk);
 
 		if (sock_owned_by_user(sk)) {
@@ -342,7 +343,7 @@ int sctp_backlog_rcv(struct sock *sk, struct sk_buff *skb)
 			sctp_inq_push(inqueue, chunk);
 
 		bh_unlock_sock(sk);
-		local_bh_enable();
+		local_bh_enable(bh);
 
 		/* If the chunk was backloged again, don't drop refs */
 		if (backloged)
@@ -738,9 +739,10 @@ static void __sctp_hash_endpoint(struct sctp_endpoint *ep)
 /* Add an endpoint to the hash. Local BH-safe. */
 void sctp_hash_endpoint(struct sctp_endpoint *ep)
 {
-	local_bh_disable();
+	unsigned int bh;
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	__sctp_hash_endpoint(ep);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /* Remove endpoint from the hash table.  */
@@ -764,9 +766,10 @@ static void __sctp_unhash_endpoint(struct sctp_endpoint *ep)
 /* Remove endpoint from the hash.  Local BH-safe. */
 void sctp_unhash_endpoint(struct sctp_endpoint *ep)
 {
-	local_bh_disable();
+	unsigned int bh;
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	__sctp_unhash_endpoint(ep);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /* Look up an endpoint. */

@@ -2311,6 +2311,7 @@ bool tcp_check_oom(struct sock *sk, int shift)
 
 void tcp_close(struct sock *sk, long timeout)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	int data_was_unread = 0;
 	int state;
@@ -2411,7 +2412,7 @@ adjudge_to_death:
 	/* Now socket is owned by kernel and we acquire BH lock
 	 *  to finish close. No need to check for user refs.
 	 */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	bh_lock_sock(sk);
 	WARN_ON(sock_owned_by_user(sk));
 
@@ -2481,7 +2482,7 @@ adjudge_to_death:
 
 out:
 	bh_unlock_sock(sk);
-	local_bh_enable();
+	local_bh_enable(bh);
 	sock_put(sk);
 }
 EXPORT_SYMBOL(tcp_close);
@@ -3669,8 +3670,7 @@ EXPORT_SYMBOL(tcp_alloc_md5sig_pool);
  */
 struct tcp_md5sig_pool *tcp_get_md5sig_pool(unsigned int *bh)
 {
-	local_bh_disable();
-	*bh = 0;
+	*bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	if (tcp_md5sig_pool_populated) {
 		/* coupled with smp_wmb() in __tcp_alloc_md5sig_pool() */
@@ -3678,7 +3678,7 @@ struct tcp_md5sig_pool *tcp_get_md5sig_pool(unsigned int *bh)
 		return this_cpu_ptr(&tcp_md5sig_pool);
 	}
 
-	local_bh_enable();
+	local_bh_enable(*bh);
 
 	return NULL;
 }
@@ -3758,13 +3758,14 @@ EXPORT_SYMBOL_GPL(tcp_done);
 
 int tcp_abort(struct sock *sk, int err)
 {
+	unsigned int bh;
 	if (!sk_fullsock(sk)) {
 		if (sk->sk_state == TCP_NEW_SYN_RECV) {
 			struct request_sock *req = inet_reqsk(sk);
 
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			inet_csk_reqsk_queue_drop(req->rsk_listener, req);
-			local_bh_enable();
+			local_bh_enable(bh);
 			return 0;
 		}
 		return -EOPNOTSUPP;
@@ -3779,7 +3780,7 @@ int tcp_abort(struct sock *sk, int err)
 	}
 
 	/* Don't race with BH socket closes such as inet_csk_listen_stop. */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	bh_lock_sock(sk);
 
 	if (!sock_flag(sk, SOCK_DEAD)) {
@@ -3793,7 +3794,7 @@ int tcp_abort(struct sock *sk, int err)
 	}
 
 	bh_unlock_sock(sk);
-	local_bh_enable();
+	local_bh_enable(bh);
 	tcp_write_queue_purge(sk);
 	release_sock(sk);
 	return 0;

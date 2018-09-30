@@ -973,6 +973,7 @@ static bool ring_is_idle(struct intel_engine_cs *engine)
  */
 bool intel_engine_is_idle(struct intel_engine_cs *engine)
 {
+	unsigned int bh;
 	struct drm_i915_private *dev_priv = engine->i915;
 
 	/* More white lies, if wedged, hw state is inconsistent */
@@ -991,14 +992,14 @@ bool intel_engine_is_idle(struct intel_engine_cs *engine)
 	if (READ_ONCE(engine->execlists.active)) {
 		struct tasklet_struct *t = &engine->execlists.tasklet;
 
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		if (tasklet_trylock(t)) {
 			/* Must wait for any GPU reset in progress. */
 			if (__tasklet_is_enabled(t))
 				t->func(t->data);
 			tasklet_unlock(t);
 		}
-		local_bh_enable();
+		local_bh_enable(bh);
 
 		if (READ_ONCE(engine->execlists.active))
 			return false;

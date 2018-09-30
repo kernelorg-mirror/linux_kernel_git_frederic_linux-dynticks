@@ -3294,6 +3294,7 @@ static void pktgen_wait_for_skb(struct pktgen_dev *pkt_dev)
 
 static void pktgen_xmit(struct pktgen_dev *pkt_dev)
 {
+	unsigned int bh;
 	unsigned int burst = READ_ONCE(pkt_dev->burst);
 	struct net_device *odev = pkt_dev->odev;
 	struct netdev_queue *txq;
@@ -3338,7 +3339,7 @@ static void pktgen_xmit(struct pktgen_dev *pkt_dev)
 		skb = pkt_dev->skb;
 		skb->protocol = eth_type_trans(skb, skb->dev);
 		refcount_add(burst, &skb->users);
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		do {
 			ret = netif_receive_skb(skb);
 			if (ret == NET_RX_DROP)
@@ -3362,7 +3363,7 @@ static void pktgen_xmit(struct pktgen_dev *pkt_dev)
 		} while (--burst > 0);
 		goto out; /* Skips xmit_mode M_START_XMIT */
 	} else if (pkt_dev->xmit_mode == M_QUEUE_XMIT) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		refcount_inc(&pkt_dev->skb->users);
 
 		ret = dev_queue_xmit(pkt_dev->skb);
@@ -3395,7 +3396,7 @@ static void pktgen_xmit(struct pktgen_dev *pkt_dev)
 
 	txq = skb_get_tx_queue(odev, pkt_dev->skb);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	HARD_TX_LOCK(odev, txq, smp_processor_id());
 
@@ -3439,7 +3440,7 @@ unlock:
 	HARD_TX_UNLOCK(odev, txq);
 
 out:
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	/* If pkt_dev->count is zero, then run forever */
 	if ((pkt_dev->count != 0) && (pkt_dev->sofar >= pkt_dev->count)) {

@@ -1068,7 +1068,7 @@ out_unlock_bh:
 		neigh_probe(neigh);
 	else
 		write_unlock(&neigh->lock);
-	local_bh_enable();
+	local_bh_enable(0);
 	return rc;
 
 out_dead:

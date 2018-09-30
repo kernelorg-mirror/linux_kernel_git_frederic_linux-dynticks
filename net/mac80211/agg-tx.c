@@ -213,6 +213,7 @@ ieee80211_agg_stop_txq(struct sta_info *sta, int tid)
 static void
 ieee80211_agg_start_txq(struct sta_info *sta, int tid, bool enable)
 {
+	unsigned int bh;
 	struct ieee80211_txq *txq = sta->sta.txq[tid];
 	struct txq_info *txqi;
 
@@ -227,11 +228,11 @@ ieee80211_agg_start_txq(struct sta_info *sta, int tid, bool enable)
 		clear_bit(IEEE80211_TXQ_AMPDU, &txqi->flags);
 
 	clear_bit(IEEE80211_TXQ_STOP, &txqi->flags);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rcu_read_lock();
 	drv_wake_tx_queue(sta->sdata->local, txqi);
 	rcu_read_unlock();
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /*

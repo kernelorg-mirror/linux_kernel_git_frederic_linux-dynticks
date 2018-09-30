@@ -168,6 +168,7 @@ out_put_cpu:
  * do. */
 static void cryptd_queue_worker(struct work_struct *work)
 {
+	unsigned int bh;
 	struct cryptd_cpu_queue *cpu_queue;
 	struct crypto_async_request *req, *backlog;
 
@@ -178,12 +179,12 @@ static void cryptd_queue_worker(struct work_struct *work)
 	 * cryptd_enqueue_request(). local_bh_disable/enable is used to prevent
 	 * cryptd_enqueue_request() being accessed from software interrupts.
 	 */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	preempt_disable();
 	backlog = crypto_get_backlog(&cpu_queue->queue);
 	req = crypto_dequeue_request(&cpu_queue->queue);
 	preempt_enable();
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (!req)
 		return;
@@ -240,6 +241,7 @@ static void cryptd_blkcipher_crypt(struct ablkcipher_request *req,
 						struct scatterlist *src,
 						unsigned int len))
 {
+	unsigned int bh;
 	struct cryptd_blkcipher_request_ctx *rctx;
 	struct cryptd_blkcipher_ctx *ctx;
 	struct crypto_ablkcipher *tfm;
@@ -264,9 +266,9 @@ out:
 	ctx = crypto_ablkcipher_ctx(tfm);
 	refcnt = atomic_read(&ctx->refcnt);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rctx->complete(&req->base, err);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (err != -EINPROGRESS && refcnt && atomic_dec_and_test(&ctx->refcnt))
 		crypto_free_ablkcipher(tfm);
@@ -463,14 +465,15 @@ static int cryptd_skcipher_setkey(struct crypto_skcipher *parent,
 
 static void cryptd_skcipher_complete(struct skcipher_request *req, int err)
 {
+	unsigned int bh;
 	struct crypto_skcipher *tfm = crypto_skcipher_reqtfm(req);
 	struct cryptd_skcipher_ctx *ctx = crypto_skcipher_ctx(tfm);
 	struct cryptd_skcipher_request_ctx *rctx = skcipher_request_ctx(req);
 	int refcnt = atomic_read(&ctx->refcnt);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rctx->complete(&req->base, err);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (err != -EINPROGRESS && refcnt && atomic_dec_and_test(&ctx->refcnt))
 		crypto_free_skcipher(tfm);
@@ -713,14 +716,15 @@ static int cryptd_hash_enqueue(struct ahash_request *req,
 
 static void cryptd_hash_complete(struct ahash_request *req, int err)
 {
+	unsigned int bh;
 	struct crypto_ahash *tfm = crypto_ahash_reqtfm(req);
 	struct cryptd_hash_ctx *ctx = crypto_ahash_ctx(tfm);
 	struct cryptd_hash_request_ctx *rctx = ahash_request_ctx(req);
 	int refcnt = atomic_read(&ctx->refcnt);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rctx->complete(&req->base, err);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (err != -EINPROGRESS && refcnt && atomic_dec_and_test(&ctx->refcnt))
 		crypto_free_ahash(tfm);
@@ -952,6 +956,7 @@ static void cryptd_aead_crypt(struct aead_request *req,
 			int err,
 			int (*crypt)(struct aead_request *req))
 {
+	unsigned int bh;
 	struct cryptd_aead_request_ctx *rctx;
 	struct cryptd_aead_ctx *ctx;
 	crypto_completion_t compl;
@@ -972,9 +977,9 @@ out:
 	ctx = crypto_aead_ctx(tfm);
 	refcnt = atomic_read(&ctx->refcnt);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	compl(&req->base, err);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (err != -EINPROGRESS && refcnt && atomic_dec_and_test(&ctx->refcnt))
 		crypto_free_aead(tfm);

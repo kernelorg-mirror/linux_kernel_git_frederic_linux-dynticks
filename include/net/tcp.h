@@ -1556,7 +1556,7 @@ bool tcp_alloc_md5sig_pool(void);
 struct tcp_md5sig_pool *tcp_get_md5sig_pool(unsigned int *bh);
 static inline void tcp_put_md5sig_pool(unsigned int bh)
 {
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 int tcp_md5_hash_skb_data(struct tcp_md5sig_pool *, const struct sk_buff *,

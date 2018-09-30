@@ -331,6 +331,7 @@ static int mcryptd_hash_enqueue(struct ahash_request *req,
 
 static void mcryptd_hash_init(struct crypto_async_request *req_async, int err)
 {
+	unsigned int bh;
 	struct mcryptd_hash_ctx *ctx = crypto_tfm_ctx(req_async->tfm);
 	struct crypto_ahash *child = ctx->child;
 	struct ahash_request *req = ahash_request_cast(req_async);
@@ -348,9 +349,9 @@ static void mcryptd_hash_init(struct crypto_async_request *req_async, int err)
 	err = crypto_ahash_init(desc);
 
 out:
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rctx->complete(&req->base, err);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static int mcryptd_hash_init_enqueue(struct ahash_request *req)
@@ -360,6 +361,7 @@ static int mcryptd_hash_init_enqueue(struct ahash_request *req)
 
 static void mcryptd_hash_update(struct crypto_async_request *req_async, int err)
 {
+	unsigned int bh;
 	struct ahash_request *req = ahash_request_cast(req_async);
 	struct mcryptd_hash_request_ctx *rctx = ahash_request_ctx(req);
 
@@ -375,9 +377,9 @@ static void mcryptd_hash_update(struct crypto_async_request *req_async, int err)
 
 	return;
 out:
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rctx->complete(&req->base, err);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static int mcryptd_hash_update_enqueue(struct ahash_request *req)
@@ -387,6 +389,7 @@ static int mcryptd_hash_update_enqueue(struct ahash_request *req)
 
 static void mcryptd_hash_final(struct crypto_async_request *req_async, int err)
 {
+	unsigned int bh;
 	struct ahash_request *req = ahash_request_cast(req_async);
 	struct mcryptd_hash_request_ctx *rctx = ahash_request_ctx(req);
 
@@ -402,9 +405,9 @@ static void mcryptd_hash_final(struct crypto_async_request *req_async, int err)
 
 	return;
 out:
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rctx->complete(&req->base, err);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static int mcryptd_hash_final_enqueue(struct ahash_request *req)
@@ -414,6 +417,7 @@ static int mcryptd_hash_final_enqueue(struct ahash_request *req)
 
 static void mcryptd_hash_finup(struct crypto_async_request *req_async, int err)
 {
+	unsigned int bh;
 	struct ahash_request *req = ahash_request_cast(req_async);
 	struct mcryptd_hash_request_ctx *rctx = ahash_request_ctx(req);
 
@@ -429,9 +433,9 @@ static void mcryptd_hash_finup(struct crypto_async_request *req_async, int err)
 
 	return;
 out:
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rctx->complete(&req->base, err);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static int mcryptd_hash_finup_enqueue(struct ahash_request *req)
@@ -441,6 +445,7 @@ static int mcryptd_hash_finup_enqueue(struct ahash_request *req)
 
 static void mcryptd_hash_digest(struct crypto_async_request *req_async, int err)
 {
+	unsigned int bh;
 	struct mcryptd_hash_ctx *ctx = crypto_tfm_ctx(req_async->tfm);
 	struct crypto_ahash *child = ctx->child;
 	struct ahash_request *req = ahash_request_cast(req_async);
@@ -458,9 +463,9 @@ static void mcryptd_hash_digest(struct crypto_async_request *req_async, int err)
 	err = crypto_ahash_init(desc) ?: crypto_ahash_finup(desc);
 
 out:
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rctx->complete(&req->base, err);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static int mcryptd_hash_digest_enqueue(struct ahash_request *req)

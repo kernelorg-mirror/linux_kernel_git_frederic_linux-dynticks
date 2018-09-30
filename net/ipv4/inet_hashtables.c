@@ -121,9 +121,10 @@ static void __inet_put_port(struct sock *sk)
 
 void inet_put_port(struct sock *sk)
 {
-	local_bh_disable();
+	unsigned int bh;
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	__inet_put_port(sk);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 EXPORT_SYMBOL(inet_put_port);
 
@@ -615,12 +616,13 @@ EXPORT_SYMBOL(__inet_hash);
 
 int inet_hash(struct sock *sk)
 {
+	unsigned int bh;
 	int err = 0;
 
 	if (sk->sk_state != TCP_CLOSE) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		err = __inet_hash(sk, NULL);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	return err;
@@ -689,7 +691,7 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
 		spin_unlock(&head->lock);
 		/* No definite answer... Walk to established hash table */
 		ret = check_established(death_row, sk, port, NULL);
-		local_bh_enable();
+		local_bh_enable(0);
 		return ret;
 	}
 
@@ -765,7 +767,7 @@ ok:
 	spin_unlock(&head->lock);
 	if (tw)
 		inet_twsk_deschedule_put(tw);
-	local_bh_enable();
+	local_bh_enable(0);
 	return 0;
 }
 

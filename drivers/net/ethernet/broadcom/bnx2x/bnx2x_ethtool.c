@@ -2460,6 +2460,7 @@ static void bnx2x_wait_for_link(struct bnx2x *bp, u8 link_up, u8 is_serdes)
 
 static int bnx2x_run_loopback(struct bnx2x *bp, int loopback_mode)
 {
+	unsigned int bh;
 	unsigned int pkt_size, num_pkts, i;
 	struct sk_buff *skb;
 	unsigned char *packet;
@@ -2616,9 +2617,9 @@ static int bnx2x_run_loopback(struct bnx2x *bp, int loopback_mode)
 		 * sch_direct_xmit() and bnx2x_run_loopback() (calling
 		 * bnx2x_tx_int()), as both are taking netif_tx_lock().
 		 */
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		bnx2x_tx_int(bp, txdata);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	rx_idx = le16_to_cpu(*fp_rx->rx_cons_sb);

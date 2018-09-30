@@ -521,6 +521,7 @@ static int svc_udp_get_dest_address(struct svc_rqst *rqstp,
  */
 static int svc_udp_recvfrom(struct svc_rqst *rqstp)
 {
+	unsigned int bh;
 	struct svc_sock	*svsk =
 		container_of(rqstp->rq_xprt, struct svc_sock, sk_xprt);
 	struct svc_serv	*serv = svsk->sk_xprt.xpt_server;
@@ -591,13 +592,13 @@ static int svc_udp_recvfrom(struct svc_rqst *rqstp)
 
 	if (skb_is_nonlinear(skb)) {
 		/* we have to copy */
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		if (csum_partial_copy_to_xdr(&rqstp->rq_arg, skb)) {
-			local_bh_enable();
+			local_bh_enable(bh);
 			/* checksum error */
 			goto out_free;
 		}
-		local_bh_enable();
+		local_bh_enable(bh);
 		consume_skb(skb);
 	} else {
 		/* we can use it in-place */

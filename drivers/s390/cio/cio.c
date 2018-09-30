@@ -587,6 +587,7 @@ void cio_tsch(struct subchannel *sch)
 {
 	struct irb *irb;
 	int irq_context;
+	unsigned int bh;
 
 	irb = this_cpu_ptr(&cio_irb);
 	/* Store interrupt response block to lowcore. */
@@ -597,7 +598,7 @@ void cio_tsch(struct subchannel *sch)
 	/* Call interrupt handler with updated status. */
 	irq_context = in_interrupt();
 	if (!irq_context) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		irq_enter();
 	}
 	kstat_incr_irq_this_cpu(IO_INTERRUPT);
@@ -607,7 +608,7 @@ void cio_tsch(struct subchannel *sch)
 		inc_irq_stat(IRQIO_CIO);
 	if (!irq_context) {
 		irq_exit();
-		local_bh_enable_no_softirq();
+		local_bh_enable_no_softirq(bh);
 	}
 }
 

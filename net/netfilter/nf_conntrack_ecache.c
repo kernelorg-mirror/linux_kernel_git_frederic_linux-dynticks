@@ -85,12 +85,13 @@ static enum retry_state ecache_work_evict_list(struct ct_pcpu *pcpu)
 
 static void ecache_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct netns_ct *ctnet =
 		container_of(work, struct netns_ct, ecache_dwork.work);
 	int cpu, delay = -1;
 	struct ct_pcpu *pcpu;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	for_each_possible_cpu(cpu) {
 		enum retry_state ret;
@@ -112,7 +113,7 @@ static void ecache_work(struct work_struct *work)
 	}
 
  out:
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	ctnet->ecache_dwork_pending = delay > 0;
 	if (delay >= 0)

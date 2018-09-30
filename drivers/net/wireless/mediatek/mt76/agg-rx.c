@@ -94,6 +94,7 @@ mt76_rx_aggr_check_release(struct mt76_rx_tid *tid, struct sk_buff_head *frames)
 static void
 mt76_rx_aggr_reorder_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct mt76_rx_tid *tid = container_of(work, struct mt76_rx_tid,
 					       reorder_work.work);
 	struct mt76_dev *dev = tid->dev;
@@ -102,7 +103,7 @@ mt76_rx_aggr_reorder_work(struct work_struct *work)
 
 	__skb_queue_head_init(&frames);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rcu_read_lock();
 
 	spin_lock(&tid->lock);
@@ -116,7 +117,7 @@ mt76_rx_aggr_reorder_work(struct work_struct *work)
 	mt76_rx_complete(dev, &frames, NULL);
 
 	rcu_read_unlock();
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static void

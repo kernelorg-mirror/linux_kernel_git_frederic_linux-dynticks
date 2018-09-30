@@ -805,12 +805,13 @@ static int efx_ptp_disable(struct efx_nic *efx)
 
 static void efx_ptp_deliver_rx_queue(struct sk_buff_head *q)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 
 	while ((skb = skb_dequeue(q))) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		netif_receive_skb(skb);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 }
 
@@ -1225,9 +1226,10 @@ static void efx_ptp_process_events(struct efx_nic *efx, struct sk_buff_head *q)
 /* Complete processing of a received packet */
 static inline void efx_ptp_process_rx(struct efx_nic *efx, struct sk_buff *skb)
 {
-	local_bh_disable();
+	unsigned int bh;
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	netif_receive_skb(skb);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static void efx_ptp_remove_multicast_filters(struct efx_nic *efx)

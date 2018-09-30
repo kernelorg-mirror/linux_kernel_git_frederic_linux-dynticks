@@ -577,6 +577,7 @@ int be_process_mcc(struct be_adapter *adapter)
 /* Wait till no more pending mcc requests are present */
 static int be_mcc_wait_compl(struct be_adapter *adapter)
 {
+	unsigned int bh;
 #define mcc_timeout		12000 /* 12s timeout */
 	int i, status = 0;
 	struct be_mcc_obj *mcc_obj = &adapter->mcc_obj;
@@ -585,9 +586,9 @@ static int be_mcc_wait_compl(struct be_adapter *adapter)
 		if (be_check_error(adapter, BE_ERROR_ANY))
 			return -EIO;
 
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		status = be_process_mcc(adapter);
-		local_bh_enable();
+		local_bh_enable(bh);
 
 		if (atomic_read(&mcc_obj->q.used) == 0)
 			break;

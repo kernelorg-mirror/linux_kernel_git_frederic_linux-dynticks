@@ -575,6 +575,7 @@ static int dccp_rcv_respond_partopen_state_process(struct sock *sk,
 int dccp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 			   struct dccp_hdr *dh, unsigned int len)
 {
+	unsigned int bh;
 	struct dccp_sock *dp = dccp_sk(sk);
 	struct dccp_skb_cb *dcb = DCCP_SKB_CB(skb);
 	const int old_state = sk->sk_state;
@@ -608,9 +609,9 @@ int dccp_rcv_state_process(struct sock *sk, struct sk_buff *skb,
 			/* It is possible that we process SYN packets from backlog,
 			 * so we need to make sure to disable BH right there.
 			 */
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			acceptable = inet_csk(sk)->icsk_af_ops->conn_request(sk, skb) >= 0;
-			local_bh_enable();
+			local_bh_enable(bh);
 			if (!acceptable)
 				return 1;
 			consume_skb(skb);

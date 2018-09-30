@@ -5987,6 +5987,7 @@ reset_and_undo:
 
 int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct tcp_sock *tp = tcp_sk(sk);
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	const struct tcphdr *th = tcp_hdr(skb);
@@ -6011,9 +6012,9 @@ int tcp_rcv_state_process(struct sock *sk, struct sk_buff *skb)
 			/* It is possible that we process SYN packets from backlog,
 			 * so we need to make sure to disable BH right there.
 			 */
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			acceptable = icsk->icsk_af_ops->conn_request(sk, skb) >= 0;
-			local_bh_enable();
+			local_bh_enable(bh);
 
 			if (!acceptable)
 				return 1;

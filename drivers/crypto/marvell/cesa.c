@@ -107,10 +107,11 @@ static inline void
 mv_cesa_complete_req(struct mv_cesa_ctx *ctx, struct crypto_async_request *req,
 		     int res)
 {
+	unsigned int bh;
 	ctx->ops->cleanup(req);
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	req->complete(req, res);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static irqreturn_t mv_cesa_int(int irq, void *priv)

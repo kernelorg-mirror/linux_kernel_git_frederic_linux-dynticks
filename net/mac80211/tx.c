@@ -4796,6 +4796,7 @@ void __ieee80211_tx_skb_tid_band(struct ieee80211_sub_if_data *sdata,
 				 struct sk_buff *skb, int tid,
 				 enum nl80211_band band, u32 txdata_flags)
 {
+	unsigned int bh;
 	int ac = ieee80211_ac_from_tid(tid);
 
 	skb_reset_mac_header(skb);
@@ -4809,16 +4810,17 @@ void __ieee80211_tx_skb_tid_band(struct ieee80211_sub_if_data *sdata,
 	 * and while we can handle concurrent transmissions locking
 	 * requirements are that we do not come into tx with bhs on.
 	 */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	IEEE80211_SKB_CB(skb)->band = band;
 	ieee80211_xmit(sdata, NULL, skb, txdata_flags);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 int ieee80211_tx_control_port(struct wiphy *wiphy, struct net_device *dev,
 			      const u8 *buf, size_t len,
 			      const u8 *dest, __be16 proto, bool unencrypted)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 	struct ieee80211_local *local = sdata->local;
 	struct sk_buff *skb;
@@ -4856,9 +4858,9 @@ int ieee80211_tx_control_port(struct wiphy *wiphy, struct net_device *dev,
 	skb_reset_network_header(skb);
 	skb_reset_mac_header(skb);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	__ieee80211_subif_start_xmit(skb, skb->dev, flags);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return 0;
 }

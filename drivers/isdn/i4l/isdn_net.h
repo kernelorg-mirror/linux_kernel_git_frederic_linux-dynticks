@@ -95,7 +95,7 @@ static __inline__ isdn_net_local *isdn_net_get_locked_lp(isdn_net_dev *nd,
 	nd->queue = nd->queue->next;
 	spin_unlock_irqrestore(&nd->queue_lock, flags);
 	spin_lock(&lp->xmit_lock);
-	local_bh_disable();
+	*bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	return lp;
 errout:
 	spin_unlock_irqrestore(&nd->queue_lock, flags);

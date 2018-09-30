@@ -879,6 +879,7 @@ static int ctnetlink_filter_match(struct nf_conn *ct, void *data)
 static int
 ctnetlink_dump_table(struct sk_buff *skb, struct netlink_callback *cb)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct nf_conn *ct, *last;
 	struct nf_conntrack_tuple_hash *h;
@@ -892,7 +893,7 @@ ctnetlink_dump_table(struct sk_buff *skb, struct netlink_callback *cb)
 	last = (struct nf_conn *)cb->args[1];
 	i = 0;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	for (; cb->args[0] < nf_conntrack_htable_size; cb->args[0]++) {
 restart:
 		while (i) {
@@ -957,7 +958,7 @@ restart:
 		}
 	}
 out:
-	local_bh_enable();
+	local_bh_enable(bh);
 	if (last) {
 		/* nf ct hash resize happened, now clear the leftover. */
 		if ((struct nf_conn *)cb->args[1] == last)

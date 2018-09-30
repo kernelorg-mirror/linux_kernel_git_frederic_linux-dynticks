@@ -434,6 +434,7 @@ static int sha_complete_job(struct mcryptd_hash_request_ctx *rctx,
 			    struct mcryptd_alg_cstate *cstate,
 			    int err)
 {
+	unsigned int bh;
 	struct ahash_request *req = cast_mcryptd_ctx_to_req(rctx);
 	struct sha256_hash_ctx *sha_ctx;
 	struct mcryptd_hash_request_ctx *req_ctx;
@@ -447,9 +448,9 @@ static int sha_complete_job(struct mcryptd_hash_request_ctx *rctx,
 	if (irqs_disabled())
 		rctx->complete(&req->base, err);
 	else {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		rctx->complete(&req->base, err);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	/* check to see if there are other jobs that are done */
@@ -466,9 +467,9 @@ static int sha_complete_job(struct mcryptd_hash_request_ctx *rctx,
 			if (irqs_disabled())
 				req_ctx->complete(&req->base, ret);
 			else {
-				local_bh_disable();
+				bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 				req_ctx->complete(&req->base, ret);
-				local_bh_enable();
+				local_bh_enable(bh);
 			}
 		}
 		sha_ctx = sha256_ctx_mgr_get_comp_ctx(cstate->mgr);

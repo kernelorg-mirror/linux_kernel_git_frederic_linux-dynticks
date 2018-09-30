@@ -3312,6 +3312,7 @@ done:
 static void sctp_asconf_param_success(struct sctp_association *asoc,
 				      struct sctp_addip_param *asconf_param)
 {
+	unsigned int bh;
 	struct sctp_bind_addr *bp = &asoc->base.bind_addr;
 	union sctp_addr_param *addr_param;
 	struct sctp_sockaddr_entry *saddr;
@@ -3330,26 +3331,26 @@ static void sctp_asconf_param_success(struct sctp_association *asoc,
 		/* This is always done in BH context with a socket lock
 		 * held, so the list can not change.
 		 */
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		list_for_each_entry(saddr, &bp->address_list, list) {
 			if (sctp_cmp_addr_exact(&saddr->a, &addr))
 				saddr->state = SCTP_ADDR_SRC;
 		}
-		local_bh_enable();
+		local_bh_enable(bh);
 		list_for_each_entry(transport, &asoc->peer.transport_addr_list,
 				transports) {
 			sctp_transport_dst_release(transport);
 		}
 		break;
 	case SCTP_PARAM_DEL_IP:
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		sctp_del_bind_addr(bp, &addr);
 		if (asoc->asconf_addr_del_pending != NULL &&
 		    sctp_cmp_addr_exact(asoc->asconf_addr_del_pending, &addr)) {
 			kfree(asoc->asconf_addr_del_pending);
 			asoc->asconf_addr_del_pending = NULL;
 		}
-		local_bh_enable();
+		local_bh_enable(bh);
 		list_for_each_entry(transport, &asoc->peer.transport_addr_list,
 				transports) {
 			sctp_transport_dst_release(transport);

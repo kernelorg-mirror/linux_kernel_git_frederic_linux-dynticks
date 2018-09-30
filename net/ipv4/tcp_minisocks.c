@@ -251,6 +251,7 @@ EXPORT_SYMBOL(tcp_timewait_state_process);
  */
 void tcp_time_wait(struct sock *sk, int state, int timeo)
 {
+	unsigned int bh;
 	const struct inet_connection_sock *icsk = inet_csk(sk);
 	const struct tcp_sock *tp = tcp_sk(sk);
 	struct inet_timewait_sock *tw;
@@ -315,13 +316,13 @@ void tcp_time_wait(struct sock *sk, int state, int timeo)
 		 * in following section, otherwise timer handler could run before
 		 * we complete the initialization.
 		 */
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		inet_twsk_schedule(tw, timeo);
 		/* Linkage updates.
 		 * Note that access to tw after this point is illegal.
 		 */
 		inet_twsk_hashdance(tw, sk, &tcp_hashinfo);
-		local_bh_enable();
+		local_bh_enable(bh);
 	} else {
 		/* Sorry, if we're out of memory, just CLOSE this
 		 * socket up.  We've got bigger problems than

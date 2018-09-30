@@ -2480,6 +2480,7 @@ static struct smack_known *smack_ipv6host_label(struct sockaddr_in6 *sip)
  */
 static int smack_netlabel(struct sock *sk, int labeled)
 {
+	unsigned int bh;
 	struct smack_known *skp;
 	struct socket_smack *ssp = sk->sk_security;
 	int rc = 0;
@@ -2492,7 +2493,7 @@ static int smack_netlabel(struct sock *sk, int labeled)
 	 * even though the label is usually associated with a packet
 	 * label.
 	 */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	bh_lock_sock_nested(sk);
 
 	if (ssp->smk_out == smack_net_ambient ||
@@ -2504,7 +2505,7 @@ static int smack_netlabel(struct sock *sk, int labeled)
 	}
 
 	bh_unlock_sock(sk);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return rc;
 }

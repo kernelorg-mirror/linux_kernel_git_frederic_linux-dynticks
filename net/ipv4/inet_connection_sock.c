@@ -967,6 +967,7 @@ EXPORT_SYMBOL(inet_csk_complete_hashdance);
  */
 void inet_csk_listen_stop(struct sock *sk)
 {
+	unsigned int bh;
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct request_sock_queue *queue = &icsk->icsk_accept_queue;
 	struct request_sock *next, *req;
@@ -982,7 +983,7 @@ void inet_csk_listen_stop(struct sock *sk)
 	while ((req = reqsk_queue_remove(queue, sk)) != NULL) {
 		struct sock *child = req->sk;
 
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		bh_lock_sock(child);
 		WARN_ON(sock_owned_by_user(child));
 		sock_hold(child);
@@ -990,7 +991,7 @@ void inet_csk_listen_stop(struct sock *sk)
 		inet_child_forget(sk, req, child);
 		reqsk_put(req);
 		bh_unlock_sock(child);
-		local_bh_enable();
+		local_bh_enable(bh);
 		sock_put(child);
 
 		cond_resched();

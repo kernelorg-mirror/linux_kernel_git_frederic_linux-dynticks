@@ -121,6 +121,7 @@ EXPORT_SYMBOL_GPL(__srcu_read_unlock);
  */
 void srcu_drive_gp(struct work_struct *wp)
 {
+	unsigned int bh;
 	int idx;
 	struct rcu_head *lh;
 	struct rcu_head *rhp;
@@ -147,9 +148,9 @@ void srcu_drive_gp(struct work_struct *wp)
 	while (lh) {
 		rhp = lh;
 		lh = lh->next;
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		rhp->func(rhp);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	/*

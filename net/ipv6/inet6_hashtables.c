@@ -333,12 +333,13 @@ EXPORT_SYMBOL_GPL(inet6_hash_connect);
 
 int inet6_hash(struct sock *sk)
 {
+	unsigned int bh;
 	int err = 0;
 
 	if (sk->sk_state != TCP_CLOSE) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		err = __inet_hash(sk, NULL);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	return err;

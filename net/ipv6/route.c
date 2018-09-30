@@ -1854,6 +1854,7 @@ struct rt6_info *ip6_pol_route(struct net *net, struct fib6_table *table,
 			       int oif, struct flowi6 *fl6,
 			       const struct sk_buff *skb, int flags)
 {
+	unsigned int bh;
 	struct fib6_info *f6i;
 	struct rt6_info *rt;
 	int strict = 0;
@@ -1914,13 +1915,13 @@ struct rt6_info *ip6_pol_route(struct net *net, struct fib6_table *table,
 
 		struct rt6_info *pcpu_rt;
 
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		pcpu_rt = rt6_get_pcpu_route(f6i);
 
 		if (!pcpu_rt)
 			pcpu_rt = rt6_make_pcpu_route(net, f6i);
 
-		local_bh_enable();
+		local_bh_enable(bh);
 		rcu_read_unlock();
 
 		return pcpu_rt;

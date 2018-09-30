@@ -1621,6 +1621,7 @@ static void mlx4_en_init_recycle_ring(struct mlx4_en_priv *priv,
 
 int mlx4_en_start_port(struct net_device *dev)
 {
+	unsigned int bh;
 	struct mlx4_en_priv *priv = netdev_priv(dev);
 	struct mlx4_en_dev *mdev = priv->mdev;
 	struct mlx4_en_cq *cq;
@@ -1835,9 +1836,9 @@ int mlx4_en_start_port(struct net_device *dev)
 	 * the queues freezing if they are full
 	 */
 	for (i = 0; i < priv->rx_ring_num; i++) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		napi_schedule(&priv->rx_cq[i]->napi);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	netif_tx_start_all_queues(dev);

@@ -662,6 +662,7 @@ static void check_holdout_task(struct task_struct *t,
 /* RCU-tasks kthread that detects grace periods and invokes callbacks. */
 static int __noreturn rcu_tasks_kthread(void *arg)
 {
+	unsigned int bh;
 	unsigned long flags;
 	struct task_struct *g, *t;
 	unsigned long lastreport;
@@ -808,9 +809,9 @@ static int __noreturn rcu_tasks_kthread(void *arg)
 		/* Invoke the callbacks. */
 		while (list) {
 			next = list->next;
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			list->func(list);
-			local_bh_enable();
+			local_bh_enable(bh);
 			list = next;
 			cond_resched();
 		}

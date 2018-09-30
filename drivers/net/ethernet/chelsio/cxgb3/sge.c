@@ -1562,10 +1562,11 @@ static void restart_ctrlq(unsigned long data)
  */
 int t3_mgmt_tx(struct adapter *adap, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int ret;
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ret = ctrl_xmit(adap, &adap->sge.qs[0].txq[TXQ_CTRL], skb);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return ret;
 }

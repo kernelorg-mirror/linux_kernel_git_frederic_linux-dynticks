@@ -810,6 +810,7 @@ static int cgw_parse_attr(struct nlmsghdr *nlh, struct cf_mod *mod,
 static int cgw_create_job(struct sk_buff *skb,  struct nlmsghdr *nlh,
 			  struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct rtcanmsg *r;
 	struct cgw_job *gwj;
@@ -851,9 +852,9 @@ static int cgw_create_job(struct sk_buff *skb,  struct nlmsghdr *nlh,
 				return -EINVAL;
 
 			/* update modifications with disabled softirq & quit */
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			memcpy(&gwj->mod, &mod, sizeof(mod));
-			local_bh_enable();
+			local_bh_enable(bh);
 			return 0;
 		}
 	}

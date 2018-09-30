@@ -1118,6 +1118,7 @@ no_promotions:
 
 static void nl_fib_lookup(struct net *net, struct fib_result_nl *frn)
 {
+	unsigned int bh;
 
 	struct fib_result       res;
 	struct flowi4           fl4 = {
@@ -1134,7 +1135,7 @@ static void nl_fib_lookup(struct net *net, struct fib_result_nl *frn)
 
 	frn->err = -ENOENT;
 	if (tb) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 		frn->tb_id = tb->tb_id;
 		frn->err = fib_table_lookup(tb, &fl4, &res, FIB_LOOKUP_NOREF);
@@ -1145,7 +1146,7 @@ static void nl_fib_lookup(struct net *net, struct fib_result_nl *frn)
 			frn->type = res.type;
 			frn->scope = res.scope;
 		}
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	rcu_read_unlock();

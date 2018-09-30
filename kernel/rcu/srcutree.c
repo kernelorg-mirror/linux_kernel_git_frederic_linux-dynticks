@@ -1168,6 +1168,7 @@ static void srcu_advance_state(struct srcu_struct *sp)
  */
 static void srcu_invoke_callbacks(struct work_struct *work)
 {
+	unsigned int bh;
 	bool more;
 	struct rcu_cblist ready_cbs;
 	struct rcu_head *rhp;
@@ -1193,9 +1194,9 @@ static void srcu_invoke_callbacks(struct work_struct *work)
 	rhp = rcu_cblist_dequeue(&ready_cbs);
 	for (; rhp != NULL; rhp = rcu_cblist_dequeue(&ready_cbs)) {
 		debug_rcu_head_unqueue(rhp);
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		rhp->func(rhp);
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 
 	/*

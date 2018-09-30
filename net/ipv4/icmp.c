@@ -401,6 +401,7 @@ static void icmp_push_reply(struct icmp_bxm *icmp_param,
 
 static void icmp_reply(struct icmp_bxm *icmp_param, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ipcm_cookie ipc;
 	struct rtable *rt = skb_rtable(skb);
 	struct net *net = dev_net(rt->dst.dev);
@@ -416,7 +417,7 @@ static void icmp_reply(struct icmp_bxm *icmp_param, struct sk_buff *skb)
 		return;
 
 	/* Needed by both icmp_global_allow and icmp_xmit_lock */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	/* global icmp_msgs_per_sec */
 	if (!icmpv4_global_allow(net, type, code))
@@ -458,7 +459,7 @@ static void icmp_reply(struct icmp_bxm *icmp_param, struct sk_buff *skb)
 out_unlock:
 	icmp_xmit_unlock(sk);
 out_bh_enable:
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static struct rtable *icmp_route_lookup(struct net *net,
@@ -572,6 +573,7 @@ relookup_failed:
 
 void icmp_send(struct sk_buff *skb_in, int type, int code, __be32 info)
 {
+	unsigned int bh;
 	struct iphdr *iph;
 	int room;
 	struct icmp_bxm icmp_param;
@@ -652,7 +654,7 @@ void icmp_send(struct sk_buff *skb_in, int type, int code, __be32 info)
 	}
 
 	/* Needed by both icmp_global_allow and icmp_xmit_lock */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	/* Check global sysctl_icmp_msgs_per_sec ratelimit, unless
 	 * incoming dev is loopback.  If outgoing dev change to not be
@@ -739,7 +741,7 @@ ende:
 out_unlock:
 	icmp_xmit_unlock(sk);
 out_bh_enable:
-	local_bh_enable();
+	local_bh_enable(bh);
 out:;
 }
 EXPORT_SYMBOL(icmp_send);

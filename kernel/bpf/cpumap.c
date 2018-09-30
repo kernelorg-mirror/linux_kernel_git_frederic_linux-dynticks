@@ -235,6 +235,7 @@ static void put_cpu_map_entry(struct bpf_cpu_map_entry *rcpu)
 
 static int cpu_map_kthread_run(void *data)
 {
+	unsigned int bh;
 	struct bpf_cpu_map_entry *rcpu = data;
 
 	set_current_state(TASK_INTERRUPTIBLE);
@@ -263,7 +264,7 @@ static int cpu_map_kthread_run(void *data)
 		}
 
 		/* Process packets in rcpu->queue */
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		/*
 		 * The bpf_cpu_map_entry is single consumer, with this
 		 * kthread CPU pinned. Lockless access to ptr_ring
@@ -291,7 +292,7 @@ static int cpu_map_kthread_run(void *data)
 		/* Feedback loop via tracepoint */
 		trace_xdp_cpumap_kthread(rcpu->map_id, processed, drops, sched);
 
-		local_bh_enable(); /* resched point, may call do_softirq() */
+		local_bh_enable(bh); /* resched point, may call do_softirq() */
 	}
 	__set_current_state(TASK_RUNNING);
 

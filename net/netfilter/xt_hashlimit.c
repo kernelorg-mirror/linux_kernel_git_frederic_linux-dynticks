@@ -737,6 +737,7 @@ hashlimit_mt_common(const struct sk_buff *skb, struct xt_action_param *par,
 		    struct xt_hashlimit_htable *hinfo,
 		    const struct hashlimit_cfg3 *cfg, int revision)
 {
+	unsigned int bh;
 	unsigned long now = jiffies;
 	struct dsthash_ent *dh;
 	struct dsthash_dst dst;
@@ -746,12 +747,12 @@ hashlimit_mt_common(const struct sk_buff *skb, struct xt_action_param *par,
 	if (hashlimit_init_dst(hinfo, &dst, skb, par->thoff) < 0)
 		goto hotdrop;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	dh = dsthash_find(hinfo, &dst);
 	if (dh == NULL) {
 		dh = dsthash_alloc_init(hinfo, &dst, &race);
 		if (dh == NULL) {
-			local_bh_enable();
+			local_bh_enable(bh);
 			goto hotdrop;
 		} else if (race) {
 			/* Already got an entry, update expiration timeout */
@@ -774,7 +775,7 @@ hashlimit_mt_common(const struct sk_buff *skb, struct xt_action_param *par,
 		if (!dh->rateinfo.prev_window &&
 		    (dh->rateinfo.current_rate <= dh->rateinfo.burst)) {
 			spin_unlock(&dh->lock);
-			local_bh_enable();
+			local_bh_enable(bh);
 			return !(cfg->mode & XT_HASHLIMIT_INVERT);
 		} else {
 			goto overlimit;
@@ -790,13 +791,13 @@ hashlimit_mt_common(const struct sk_buff *skb, struct xt_action_param *par,
 		/* below the limit */
 		dh->rateinfo.credit -= cost;
 		spin_unlock(&dh->lock);
-		local_bh_enable();
+		local_bh_enable(bh);
 		return !(cfg->mode & XT_HASHLIMIT_INVERT);
 	}
 
 overlimit:
 	spin_unlock(&dh->lock);
-	local_bh_enable();
+	local_bh_enable(bh);
 	/* default match is underlimit - so over the limit, we need to invert */
 	return cfg->mode & XT_HASHLIMIT_INVERT;
 

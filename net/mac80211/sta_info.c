@@ -269,6 +269,7 @@ static int sta_info_hash_add(struct ieee80211_local *local,
 
 static void sta_deliver_ps_frames(struct work_struct *wk)
 {
+	unsigned int bh;
 	struct sta_info *sta;
 
 	sta = container_of(wk, struct sta_info, drv_deliver_wk);
@@ -276,14 +277,14 @@ static void sta_deliver_ps_frames(struct work_struct *wk)
 	if (sta->dead)
 		return;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (!test_sta_flag(sta, WLAN_STA_PS_STA))
 		ieee80211_sta_ps_deliver_wakeup(sta);
 	else if (test_and_clear_sta_flag(sta, WLAN_STA_PSPOLL))
 		ieee80211_sta_ps_deliver_poll_response(sta);
 	else if (test_and_clear_sta_flag(sta, WLAN_STA_UAPSD))
 		ieee80211_sta_ps_deliver_uapsd(sta);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static int sta_prepare_rate_control(struct ieee80211_local *local,

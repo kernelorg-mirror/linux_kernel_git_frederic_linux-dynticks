@@ -2838,7 +2838,7 @@ void lock_sock_nested(struct sock *sk, int subclass)
 	 * The sk_lock has mutex_lock() semantics here:
 	 */
 	mutex_acquire(&sk->sk_lock.dep_map, subclass, 0, _RET_IP_);
-	local_bh_enable();
+	local_bh_enable(0);
 }
 EXPORT_SYMBOL(lock_sock_nested);
 
@@ -2892,7 +2892,7 @@ bool lock_sock_fast(struct sock *sk, unsigned int *bh)
 	 * The sk_lock has mutex_lock() semantics here:
 	 */
 	mutex_acquire(&sk->sk_lock.dep_map, 0, 0, _RET_IP_);
-	local_bh_enable();
+	local_bh_enable(0);
 	return true;
 }
 EXPORT_SYMBOL(lock_sock_fast);

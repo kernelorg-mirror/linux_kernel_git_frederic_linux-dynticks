@@ -1425,7 +1425,8 @@ static void __ppp_xmit_process(struct ppp *ppp, struct sk_buff *skb)
 
 static void ppp_xmit_process(struct ppp *ppp, struct sk_buff *skb)
 {
-	local_bh_disable();
+	unsigned int bh;
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	if (unlikely(*this_cpu_ptr(ppp->xmit_recursion)))
 		goto err;
@@ -1434,12 +1435,12 @@ static void ppp_xmit_process(struct ppp *ppp, struct sk_buff *skb)
 	__ppp_xmit_process(ppp, skb);
 	(*this_cpu_ptr(ppp->xmit_recursion))--;
 
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return;
 
 err:
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	kfree_skb(skb);
 

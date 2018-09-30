@@ -329,6 +329,7 @@ static int xsk_init_queue(u32 entries, struct xsk_queue **queue,
 
 static int xsk_release(struct socket *sock)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 	struct xdp_sock *xs = xdp_sk(sk);
 	struct net *net;
@@ -338,9 +339,9 @@ static int xsk_release(struct socket *sock)
 
 	net = sock_net(sk);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	sock_prot_inuse_add(net, sk->sk_prot, -1);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (xs->dev) {
 		/* Wait for driver to stop using the xdp socket. */
@@ -718,6 +719,7 @@ static void xsk_destruct(struct sock *sk)
 static int xsk_create(struct net *net, struct socket *sock, int protocol,
 		      int kern)
 {
+	unsigned int bh;
 	struct sock *sk;
 	struct xdp_sock *xs;
 
@@ -748,9 +750,9 @@ static int xsk_create(struct net *net, struct socket *sock, int protocol,
 	mutex_init(&xs->mutex);
 	spin_lock_init(&xs->tx_completion_lock);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	sock_prot_inuse_add(net, &xsk_proto, 1);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return 0;
 }

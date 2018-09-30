@@ -2071,11 +2071,12 @@ ringdb:
  */
 int t4_mgmt_tx(struct adapter *adap, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int ret;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ret = ctrl_xmit(&adap->sge.ctrlq[0], skb);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return ret;
 }
 
@@ -2385,11 +2386,12 @@ static inline int uld_send(struct adapter *adap, struct sk_buff *skb,
  */
 int t4_ofld_send(struct adapter *adap, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int ret;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ret = uld_send(adap, skb, CXGB4_TX_OFLD);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return ret;
 }
 
@@ -2482,6 +2484,7 @@ static int ofld_xmit_direct(struct sge_uld_txq *q, const void *src,
 int cxgb4_immdata_send(struct net_device *dev, unsigned int idx,
 		       const void *src, unsigned int len)
 {
+	unsigned int bh;
 	struct sge_uld_txq_info *txq_info;
 	struct sge_uld_txq *txq;
 	struct adapter *adap;
@@ -2489,17 +2492,17 @@ int cxgb4_immdata_send(struct net_device *dev, unsigned int idx,
 
 	adap = netdev2adap(dev);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	txq_info = adap->sge.uld_txq_info[CXGB4_TX_OFLD];
 	if (unlikely(!txq_info)) {
 		WARN_ON(true);
-		local_bh_enable();
+		local_bh_enable(bh);
 		return NET_XMIT_DROP;
 	}
 	txq = &txq_info->uldtxq[idx];
 
 	ret = ofld_xmit_direct(txq, src, len);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return net_xmit_eval(ret);
 }
 EXPORT_SYMBOL(cxgb4_immdata_send);
@@ -2515,11 +2518,12 @@ EXPORT_SYMBOL(cxgb4_immdata_send);
  */
 static int t4_crypto_send(struct adapter *adap, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int ret;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ret = uld_send(adap, skb, CXGB4_TX_CRYPTO);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return ret;
 }
 

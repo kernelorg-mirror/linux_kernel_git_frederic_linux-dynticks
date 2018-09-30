@@ -112,6 +112,7 @@ void ip_vs_init_hash_table(struct list_head *table, int rows)
 static inline void
 ip_vs_in_stats(struct ip_vs_conn *cp, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ip_vs_dest *dest = cp->dest;
 	struct netns_ipvs *ipvs = cp->ipvs;
 
@@ -119,7 +120,7 @@ ip_vs_in_stats(struct ip_vs_conn *cp, struct sk_buff *skb)
 		struct ip_vs_cpu_stats *s;
 		struct ip_vs_service *svc;
 
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 		s = this_cpu_ptr(dest->stats.cpustats);
 		u64_stats_update_begin(&s->syncp);
@@ -140,7 +141,7 @@ ip_vs_in_stats(struct ip_vs_conn *cp, struct sk_buff *skb)
 		s->cnt.inbytes += skb->len;
 		u64_stats_update_end(&s->syncp);
 
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 }
 
@@ -148,6 +149,7 @@ ip_vs_in_stats(struct ip_vs_conn *cp, struct sk_buff *skb)
 static inline void
 ip_vs_out_stats(struct ip_vs_conn *cp, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ip_vs_dest *dest = cp->dest;
 	struct netns_ipvs *ipvs = cp->ipvs;
 
@@ -155,7 +157,7 @@ ip_vs_out_stats(struct ip_vs_conn *cp, struct sk_buff *skb)
 		struct ip_vs_cpu_stats *s;
 		struct ip_vs_service *svc;
 
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 		s = this_cpu_ptr(dest->stats.cpustats);
 		u64_stats_update_begin(&s->syncp);
@@ -176,7 +178,7 @@ ip_vs_out_stats(struct ip_vs_conn *cp, struct sk_buff *skb)
 		s->cnt.outbytes += skb->len;
 		u64_stats_update_end(&s->syncp);
 
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 }
 
@@ -184,10 +186,11 @@ ip_vs_out_stats(struct ip_vs_conn *cp, struct sk_buff *skb)
 static inline void
 ip_vs_conn_stats(struct ip_vs_conn *cp, struct ip_vs_service *svc)
 {
+	unsigned int bh;
 	struct netns_ipvs *ipvs = svc->ipvs;
 	struct ip_vs_cpu_stats *s;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	s = this_cpu_ptr(cp->dest->stats.cpustats);
 	u64_stats_update_begin(&s->syncp);
@@ -204,7 +207,7 @@ ip_vs_conn_stats(struct ip_vs_conn *cp, struct ip_vs_service *svc)
 	s->cnt.conns++;
 	u64_stats_update_end(&s->syncp);
 
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 
@@ -701,11 +704,12 @@ static inline enum ip_defrag_users ip_vs_defrag_user(unsigned int hooknum)
 static inline int ip_vs_gather_frags(struct netns_ipvs *ipvs,
 				     struct sk_buff *skb, u_int32_t user)
 {
+	unsigned int bh;
 	int err;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	err = ip_defrag(ipvs->net, skb, user);
-	local_bh_enable();
+	local_bh_enable(bh);
 	if (!err)
 		ip_send_check(ip_hdr(skb));
 

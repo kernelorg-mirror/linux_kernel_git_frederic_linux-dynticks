@@ -923,12 +923,13 @@ irq_thread_check_affinity(struct irq_desc *desc, struct irqaction *action) { }
 static irqreturn_t
 irq_forced_thread_fn(struct irq_desc *desc, struct irqaction *action)
 {
+	unsigned int bh;
 	irqreturn_t ret;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ret = action->thread_fn(action->irq, action->dev_id);
 	irq_finalize_oneshot(desc, action);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return ret;
 }
 

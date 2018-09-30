@@ -738,6 +738,7 @@ static int hwsim_fops_ps_read(void *dat, u64 *val)
 
 static int hwsim_fops_ps_write(void *dat, u64 val)
 {
+	unsigned int bh;
 	struct mac80211_hwsim_data *data = dat;
 	enum ps_mode old_ps;
 
@@ -748,17 +749,17 @@ static int hwsim_fops_ps_write(void *dat, u64 val)
 	if (val == PS_MANUAL_POLL) {
 		if (data->ps != PS_ENABLED)
 			return -EINVAL;
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		ieee80211_iterate_active_interfaces_atomic(
 			data->hw, IEEE80211_IFACE_ITER_NORMAL,
 			hwsim_send_ps_poll, data);
-		local_bh_enable();
+		local_bh_enable(bh);
 		return 0;
 	}
 	old_ps = data->ps;
 	data->ps = val;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (old_ps == PS_DISABLED && val != PS_DISABLED) {
 		ieee80211_iterate_active_interfaces_atomic(
 			data->hw, IEEE80211_IFACE_ITER_NORMAL,
@@ -768,7 +769,7 @@ static int hwsim_fops_ps_write(void *dat, u64 val)
 			data->hw, IEEE80211_IFACE_ITER_NORMAL,
 			hwsim_send_nullfunc_no_ps, data);
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return 0;
 }
@@ -2033,6 +2034,7 @@ static void mac80211_hwsim_flush(struct ieee80211_hw *hw,
 
 static void hw_scan_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct mac80211_hwsim_data *hwsim =
 		container_of(work, struct mac80211_hwsim_data, hw_scan.work);
 	struct cfg80211_scan_request *req = hwsim->hw_scan_request;
@@ -2083,10 +2085,10 @@ static void hw_scan_work(struct work_struct *work)
 			if (req->ie_len)
 				skb_put_data(probe, req->ie, req->ie_len);
 
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			mac80211_hwsim_tx_frame(hwsim->hw, probe,
 						hwsim->tmp_chan);
-			local_bh_enable();
+			local_bh_enable(bh);
 		}
 	}
 	ieee80211_queue_delayed_work(hwsim->hw, &hwsim->hw_scan,

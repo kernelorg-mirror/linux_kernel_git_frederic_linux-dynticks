@@ -967,6 +967,7 @@ void ipoib_ib_dev_down(struct net_device *dev)
 
 void ipoib_drain_cq(struct net_device *dev)
 {
+	unsigned int bh;
 	struct ipoib_dev_priv *priv = ipoib_priv(dev);
 	int i, n;
 
@@ -975,7 +976,7 @@ void ipoib_drain_cq(struct net_device *dev)
 	 * called from the BH-disabled NAPI poll context, so disable
 	 * BHs here too.
 	 */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	do {
 		n = ib_poll_cq(priv->recv_cq, IPOIB_NUM_WC, priv->ibwc);
@@ -1002,7 +1003,7 @@ void ipoib_drain_cq(struct net_device *dev)
 	while (poll_tx(priv))
 		; /* nothing */
 
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /*

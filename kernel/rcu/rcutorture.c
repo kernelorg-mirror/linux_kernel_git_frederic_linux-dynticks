@@ -1201,6 +1201,7 @@ static void rcu_torture_timer_cb(struct rcu_head *rhp)
 static void rcutorture_one_extend(int *readstate, int newstate,
 				  struct torture_random_state *trsp)
 {
+	unsigned int bh;
 	int idxnew = -1;
 	int idxold = *readstate;
 	int statesnew = ~*readstate & newstate;
@@ -1211,7 +1212,7 @@ static void rcutorture_one_extend(int *readstate, int newstate,
 
 	/* First, put new protection in place to avoid critical-section gap. */
 	if (statesnew & RCUTORTURE_RDR_BH)
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (statesnew & RCUTORTURE_RDR_IRQ)
 		local_irq_disable();
 	if (statesnew & RCUTORTURE_RDR_PREEMPT)
@@ -1223,7 +1224,7 @@ static void rcutorture_one_extend(int *readstate, int newstate,
 	if (statesold & RCUTORTURE_RDR_IRQ)
 		local_irq_enable();
 	if (statesold & RCUTORTURE_RDR_BH)
-		local_bh_enable();
+		local_bh_enable(bh);
 	if (statesold & RCUTORTURE_RDR_PREEMPT)
 		preempt_enable();
 	if (statesold & RCUTORTURE_RDR_RCU)

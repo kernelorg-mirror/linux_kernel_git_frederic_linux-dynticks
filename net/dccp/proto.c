@@ -999,6 +999,7 @@ static void dccp_terminate_connection(struct sock *sk)
 
 void dccp_close(struct sock *sk, long timeout)
 {
+	unsigned int bh;
 	struct dccp_sock *dp = dccp_sk(sk);
 	struct sk_buff *skb;
 	u32 data_was_unread = 0;
@@ -1073,7 +1074,7 @@ adjudge_to_death:
 	 * Now socket is owned by kernel and we acquire BH lock
 	 * to finish close. No need to check for user refs.
 	 */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	bh_lock_sock(sk);
 	WARN_ON(sock_owned_by_user(sk));
 
@@ -1090,7 +1091,7 @@ adjudge_to_death:
 
 out:
 	bh_unlock_sock(sk);
-	local_bh_enable();
+	local_bh_enable(bh);
 	sock_put(sk);
 }
 

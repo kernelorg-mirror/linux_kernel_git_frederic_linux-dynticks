@@ -32,10 +32,11 @@ static inline void nft_counter_do_eval(struct nft_counter_percpu_priv *priv,
 				       struct nft_regs *regs,
 				       const struct nft_pktinfo *pkt)
 {
+	unsigned int bh;
 	struct nft_counter *this_cpu;
 	seqcount_t *myseq;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	this_cpu = this_cpu_ptr(priv->counter);
 	myseq = this_cpu_ptr(&nft_counter_seq);
 
@@ -45,7 +46,7 @@ static inline void nft_counter_do_eval(struct nft_counter_percpu_priv *priv,
 	this_cpu->packets++;
 
 	write_seqcount_end(myseq);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static inline void nft_counter_obj_eval(struct nft_object *obj,
@@ -107,13 +108,14 @@ static void nft_counter_obj_destroy(const struct nft_ctx *ctx,
 static void nft_counter_reset(struct nft_counter_percpu_priv __percpu *priv,
 			      struct nft_counter *total)
 {
+	unsigned int bh;
 	struct nft_counter *this_cpu;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	this_cpu = this_cpu_ptr(priv->counter);
 	this_cpu->packets -= total->packets;
 	this_cpu->bytes -= total->bytes;
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static void nft_counter_fetch(struct nft_counter_percpu_priv *priv,

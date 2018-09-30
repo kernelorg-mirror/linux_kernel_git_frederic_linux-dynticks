@@ -421,6 +421,7 @@ static int icmp6_iif(const struct sk_buff *skb)
 static void icmp6_send(struct sk_buff *skb, u8 type, u8 code, __u32 info,
 		       const struct in6_addr *force_saddr)
 {
+	unsigned int bh;
 	struct net *net = dev_net(skb->dev);
 	struct inet6_dev *idev = NULL;
 	struct ipv6hdr *hdr = ipv6_hdr(skb);
@@ -502,7 +503,7 @@ static void icmp6_send(struct sk_buff *skb, u8 type, u8 code, __u32 info,
 	}
 
 	/* Needed by both icmp_global_allow and icmpv6_xmit_lock */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	/* Check global sysctl_icmp_msgs_per_sec ratelimit */
 	if (!(skb->dev->flags&IFF_LOOPBACK) && !icmpv6_global_allow(type))
@@ -586,7 +587,7 @@ out_dst_release:
 out:
 	icmpv6_xmit_unlock(sk);
 out_bh_enable:
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /* Slightly more convenient version of icmp6_send.
@@ -665,6 +666,7 @@ EXPORT_SYMBOL(ip6_err_gen_icmpv6_unreach);
 
 static void icmpv6_echo_reply(struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct net *net = dev_net(skb->dev);
 	struct sock *sk;
 	struct inet6_dev *idev;
@@ -699,7 +701,7 @@ static void icmpv6_echo_reply(struct sk_buff *skb)
 	fl6.flowi6_uid = sock_net_uid(net, NULL);
 	security_skb_classify_flow(skb, flowi6_to_flowi(&fl6));
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	sk = icmpv6_xmit_lock(net);
 	if (!sk)
 		goto out_bh_enable;
@@ -741,7 +743,7 @@ static void icmpv6_echo_reply(struct sk_buff *skb)
 out:
 	icmpv6_xmit_unlock(sk);
 out_bh_enable:
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 void icmpv6_notify(struct sk_buff *skb, u8 type, u8 code, __be32 info)

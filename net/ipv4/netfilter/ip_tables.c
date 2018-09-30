@@ -229,6 +229,7 @@ ipt_do_table(struct sk_buff *skb,
 	     const struct nf_hook_state *state,
 	     struct xt_table *table)
 {
+	unsigned int bh;
 	unsigned int hook = state->hook;
 	static const char nulldevname[IFNAMSIZ] __attribute__((aligned(sizeof(long))));
 	const struct iphdr *ip;
@@ -259,7 +260,7 @@ ipt_do_table(struct sk_buff *skb,
 	acpar.state   = state;
 
 	WARN_ON(!(table->valid_hooks & (1 << hook)));
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	addend = xt_write_recseq_begin();
 	private = READ_ONCE(table->private); /* Address dependency. */
 	cpu        = smp_processor_id();
@@ -358,7 +359,7 @@ ipt_do_table(struct sk_buff *skb,
 	} while (!acpar.hotdrop);
 
 	xt_write_recseq_end(addend);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (acpar.hotdrop)
 		return NF_DROP;
@@ -1158,6 +1159,7 @@ static int
 do_add_counters(struct net *net, const void __user *user,
 		unsigned int len, int compat)
 {
+	unsigned int bh;
 	unsigned int i;
 	struct xt_counters_info tmp;
 	struct xt_counters *paddc;
@@ -1177,7 +1179,7 @@ do_add_counters(struct net *net, const void __user *user,
 		goto free;
 	}
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	private = t->private;
 	if (private->number != tmp.num_counters) {
 		ret = -EINVAL;
@@ -1195,7 +1197,7 @@ do_add_counters(struct net *net, const void __user *user,
 	}
 	xt_write_recseq_end(addend);
  unlock_up_free:
-	local_bh_enable();
+	local_bh_enable(bh);
 	xt_table_unlock(t);
 	module_put(t->me);
  free:

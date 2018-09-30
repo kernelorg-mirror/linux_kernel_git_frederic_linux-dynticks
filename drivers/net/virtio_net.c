@@ -1224,15 +1224,16 @@ static void skb_recv_done(struct virtqueue *rvq)
 
 static void virtnet_napi_enable(struct virtqueue *vq, struct napi_struct *napi)
 {
+	unsigned int bh;
 	napi_enable(napi);
 
 	/* If all buffers were filled by other side before we napi_enabled, we
 	 * won't get another interrupt, so process any outstanding packets now.
 	 * Call local_bh_enable after to trigger softIRQ processing.
 	 */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	virtqueue_napi_schedule(napi, vq);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static void virtnet_napi_tx_enable(struct virtnet_info *vi,

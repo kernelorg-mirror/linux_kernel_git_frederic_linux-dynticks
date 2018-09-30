@@ -167,6 +167,7 @@ failed:
 int seg6_hmac_compute(struct seg6_hmac_info *hinfo, struct ipv6_sr_hdr *hdr,
 		      struct in6_addr *saddr, u8 *output)
 {
+	unsigned int bh;
 	__be32 hmackeyid = cpu_to_be32(hinfo->hmackeyid);
 	u8 tmp_out[SEG6_HMAC_MAX_DIGESTSIZE];
 	int plen, i, dgsize, wrsize;
@@ -193,7 +194,7 @@ int seg6_hmac_compute(struct seg6_hmac_info *hinfo, struct ipv6_sr_hdr *hdr,
 	 * 5. All segments in the segments list (n * 128 bits)
 	 */
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ring = this_cpu_ptr(hmac_ring);
 	off = ring;
 
@@ -219,7 +220,7 @@ int seg6_hmac_compute(struct seg6_hmac_info *hinfo, struct ipv6_sr_hdr *hdr,
 
 	dgsize = __do_hmac(hinfo, ring, plen, tmp_out,
 			   SEG6_HMAC_MAX_DIGESTSIZE);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (dgsize < 0)
 		return dgsize;

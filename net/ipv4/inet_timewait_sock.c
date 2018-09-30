@@ -255,6 +255,7 @@ EXPORT_SYMBOL_GPL(__inet_twsk_schedule);
 
 void inet_twsk_purge(struct inet_hashinfo *hashinfo, int family)
 {
+	unsigned int bh;
 	struct inet_timewait_sock *tw;
 	struct sock *sk;
 	struct hlist_nulls_node *node;
@@ -284,9 +285,9 @@ restart:
 			}
 
 			rcu_read_unlock();
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			inet_twsk_deschedule_put(tw);
-			local_bh_enable();
+			local_bh_enable(bh);
 			goto restart_rcu;
 		}
 		/* If the nulls value we got at the end of this lookup is

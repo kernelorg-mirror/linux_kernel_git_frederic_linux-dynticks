@@ -5661,6 +5661,7 @@ next_spqe:
 
 static void bnx2x_sp_task(struct work_struct *work)
 {
+	unsigned int bh;
 	struct bnx2x *bp = container_of(work, struct bnx2x, sp_task.work);
 
 	DP(BNX2X_MSG_SP, "sp task invoked\n");
@@ -5691,9 +5692,9 @@ static void bnx2x_sp_task(struct work_struct *work)
 				/* Prevent local bottom-halves from running as
 				 * we are going to change the local NAPI list.
 				 */
-				local_bh_disable();
+				bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 				napi_schedule(&bnx2x_fcoe(bp, napi));
-				local_bh_enable();
+				local_bh_enable(bh);
 			}
 
 			/* Handle EQ completions */

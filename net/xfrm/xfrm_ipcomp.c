@@ -137,6 +137,7 @@ EXPORT_SYMBOL_GPL(ipcomp_input);
 
 static int ipcomp_compress(struct xfrm_state *x, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ipcomp_data *ipcd = x->data;
 	const int plen = skb->len;
 	int dlen = IPCOMP_SCRATCH_SIZE;
@@ -145,7 +146,7 @@ static int ipcomp_compress(struct xfrm_state *x, struct sk_buff *skb)
 	u8 *scratch;
 	int err;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	scratch = *this_cpu_ptr(ipcomp_scratches);
 	tfm = *this_cpu_ptr(ipcd->tfms);
 	err = crypto_comp_compress(tfm, start, plen, scratch, &dlen);
@@ -158,13 +159,13 @@ static int ipcomp_compress(struct xfrm_state *x, struct sk_buff *skb)
 	}
 
 	memcpy(start + sizeof(struct ip_comp_hdr), scratch, dlen);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	pskb_trim(skb, dlen + sizeof(struct ip_comp_hdr));
 	return 0;
 
 out:
-	local_bh_enable();
+	local_bh_enable(bh);
 	return err;
 }
 

@@ -752,9 +752,10 @@ static unsigned int cs_hsi_get_state(struct cs_hsi_iface *hi)
 
 static int cs_hsi_command(struct cs_hsi_iface *hi, u32 cmd)
 {
+	unsigned int bh;
 	int ret = 0;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	switch (cmd & TARGET_MASK) {
 	case TARGET_REMOTE:
 		ret = cs_hsi_write_on_control(hi, cmd);
@@ -769,7 +770,7 @@ static int cs_hsi_command(struct cs_hsi_iface *hi, u32 cmd)
 		ret = -EINVAL;
 		break;
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return ret;
 }
@@ -937,6 +938,7 @@ static void cs_hsi_data_disable(struct cs_hsi_iface *hi, int old_state)
 static int cs_hsi_buf_config(struct cs_hsi_iface *hi,
 					struct cs_buffer_config *buf_cfg)
 {
+	unsigned int bh;
 	int r = 0;
 	unsigned int old_state = hi->iface_state;
 
@@ -981,9 +983,9 @@ static int cs_hsi_buf_config(struct cs_hsi_iface *hi,
 			pm_qos_add_request(&hi->pm_qos_req,
 				PM_QOS_CPU_DMA_LATENCY,
 				CS_QOS_LATENCY_FOR_DATA_USEC);
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			cs_hsi_read_on_data(hi);
-			local_bh_enable();
+			local_bh_enable(bh);
 		} else if (old_state == CS_STATE_CONFIGURED) {
 			pm_qos_remove_request(&hi->pm_qos_req);
 		}
@@ -998,6 +1000,7 @@ error:
 static int cs_hsi_start(struct cs_hsi_iface **hi, struct hsi_client *cl,
 			unsigned long mmap_base, unsigned long mmap_size)
 {
+	unsigned int bh;
 	int err = 0;
 	struct cs_hsi_iface *hsi_if = kzalloc(sizeof(*hsi_if), GFP_KERNEL);
 
@@ -1045,9 +1048,9 @@ static int cs_hsi_start(struct cs_hsi_iface **hi, struct hsi_client *cl,
 	}
 
 	hsi_if->iface_state = CS_STATE_OPENED;
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	cs_hsi_read_on_control(hsi_if);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	dev_dbg(&cl->device, "cs_hsi_start...done\n");
 

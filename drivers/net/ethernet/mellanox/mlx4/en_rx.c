@@ -395,6 +395,7 @@ err_buffers:
  */
 void mlx4_en_recover_from_oom(struct mlx4_en_priv *priv)
 {
+	unsigned int bh;
 	int ring;
 
 	if (!priv->port_up)
@@ -402,9 +403,9 @@ void mlx4_en_recover_from_oom(struct mlx4_en_priv *priv)
 
 	for (ring = 0; ring < priv->rx_ring_num; ring++) {
 		if (mlx4_en_is_ring_empty(priv->rx_ring[ring])) {
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			napi_reschedule(&priv->rx_cq[ring]->napi);
-			local_bh_enable();
+			local_bh_enable(bh);
 		}
 	}
 }

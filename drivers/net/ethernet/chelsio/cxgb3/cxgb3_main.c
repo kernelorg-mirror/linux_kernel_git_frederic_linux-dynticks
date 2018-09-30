@@ -893,11 +893,12 @@ static const struct attribute_group offload_attr_group = {
  */
 static inline int offload_tx(struct t3cdev *tdev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int ret;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ret = t3_offload_tx(tdev, skb);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return ret;
 }
 

@@ -297,7 +297,7 @@ struct nf_log_buf *nf_log_buf_open(unsigned int *bh)
 	struct nf_log_buf *m = kmalloc(sizeof(*m), GFP_ATOMIC);
 
 	if (unlikely(!m)) {
-		local_bh_disable();
+		*bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		do {
 			m = xchg(&emergency_ptr, NULL);
 		} while (!m);
@@ -316,7 +316,7 @@ void nf_log_buf_close(struct nf_log_buf *m, unsigned int bh)
 		kfree(m);
 	else {
 		emergency_ptr = m;
-		local_bh_enable();
+		local_bh_enable(bh);
 	}
 }
 EXPORT_SYMBOL_GPL(nf_log_buf_close);

@@ -1855,6 +1855,7 @@ static void migrate_hrtimer_list(struct hrtimer_clock_base *old_base,
 
 int hrtimers_dead_cpu(unsigned int scpu)
 {
+	unsigned int bh;
 	struct hrtimer_cpu_base *old_base, *new_base;
 	int i;
 
@@ -1866,7 +1867,7 @@ int hrtimers_dead_cpu(unsigned int scpu)
 	 * not wakeup ksoftirqd (and acquire the pi-lock) while
 	 * holding the cpu_base lock
 	 */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	local_irq_disable();
 	old_base = &per_cpu(hrtimer_bases, scpu);
 	new_base = this_cpu_ptr(&hrtimer_bases);
@@ -1894,7 +1895,7 @@ int hrtimers_dead_cpu(unsigned int scpu)
 	/* Check, if we got expired work to do */
 	__hrtimer_peek_ahead_timers();
 	local_irq_enable();
-	local_bh_enable();
+	local_bh_enable(bh);
 	return 0;
 }
 

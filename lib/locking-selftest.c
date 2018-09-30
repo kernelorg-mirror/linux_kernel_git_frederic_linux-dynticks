@@ -191,11 +191,11 @@ static void init_shared_classes(void)
 	__irq_exit();				\
 	local_irq_enable();
 
-#define SOFTIRQ_DISABLE		local_bh_disable
-#define SOFTIRQ_ENABLE		local_bh_enable
+#define SOFTIRQ_DISABLE		local_bh_disable_all
+#define SOFTIRQ_ENABLE		local_bh_enable_all
 
 #define SOFTIRQ_ENTER()				\
-		local_bh_disable();		\
+		local_bh_disable_all();		\
 		local_irq_disable();		\
 		lockdep_softirq_enter();	\
 		WARN_ON(!in_softirq());
@@ -203,7 +203,7 @@ static void init_shared_classes(void)
 #define SOFTIRQ_EXIT()				\
 		lockdep_softirq_exit();		\
 		local_irq_enable();		\
-		local_bh_enable();
+		local_bh_enable_all();
 
 /*
  * Shortcuts for lock/unlock API variants, to keep

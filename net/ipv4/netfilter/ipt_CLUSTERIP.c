@@ -103,9 +103,10 @@ clusterip_config_put(struct clusterip_config *c)
 static inline void
 clusterip_config_entry_put(struct net *net, struct clusterip_config *c)
 {
+	unsigned int bh;
 	struct clusterip_net *cn = net_generic(net, clusterip_net_id);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	if (refcount_dec_and_lock(&c->entries, &cn->lock)) {
 		/* In case anyone still accesses the file, the open/close
 		 * functions are also incrementing the refcount on their own,
@@ -116,13 +117,13 @@ clusterip_config_entry_put(struct net *net, struct clusterip_config *c)
 #endif
 		list_del_rcu(&c->list);
 		spin_unlock(&cn->lock);
-		local_bh_enable();
+		local_bh_enable(bh);
 
 		unregister_netdevice_notifier(&c->notifier);
 
 		return;
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static struct clusterip_config *

@@ -548,11 +548,12 @@ struct sock *llc_lookup_established(struct llc_sap *sap,
 				    struct llc_addr *daddr,
 				    struct llc_addr *laddr)
 {
+	unsigned int bh;
 	struct sock *sk;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	sk = __llc_lookup_established(sap, daddr, laddr);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return sk;
 }
 

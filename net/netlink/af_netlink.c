@@ -666,6 +666,7 @@ static int __netlink_create(struct net *net, struct socket *sock,
 static int netlink_create(struct net *net, struct socket *sock, int protocol,
 			  int kern)
 {
+	unsigned int bh;
 	struct module *module = NULL;
 	struct mutex *cb_mutex;
 	struct netlink_sock *nlk;
@@ -707,9 +708,9 @@ static int netlink_create(struct net *net, struct socket *sock, int protocol,
 	if (err < 0)
 		goto out_module;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	sock_prot_inuse_add(net, &netlink_proto, 1);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	nlk = nlk_sk(sock->sk);
 	nlk->module = module;
@@ -745,6 +746,7 @@ static void deferred_put_nlk_sk(struct rcu_head *head)
 
 static int netlink_release(struct socket *sock)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 	struct netlink_sock *nlk;
 
@@ -809,9 +811,9 @@ static int netlink_release(struct socket *sock)
 		netlink_table_ungrab();
 	}
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	sock_prot_inuse_add(sock_net(sk), &netlink_proto, -1);
-	local_bh_enable();
+	local_bh_enable(bh);
 	call_rcu(&nlk->rcu, deferred_put_nlk_sk);
 	return 0;
 }

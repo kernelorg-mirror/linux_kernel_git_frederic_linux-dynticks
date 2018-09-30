@@ -132,6 +132,7 @@ void rcu_check_callbacks(int user)
  */
 static void __rcu_process_callbacks(struct rcu_ctrlblk *rcp)
 {
+	unsigned int bh;
 	struct rcu_head *next, *list;
 	unsigned long flags;
 
@@ -155,9 +156,9 @@ static void __rcu_process_callbacks(struct rcu_ctrlblk *rcp)
 		next = list->next;
 		prefetch(next);
 		debug_rcu_head_unqueue(list);
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		__rcu_reclaim("", list);
-		local_bh_enable();
+		local_bh_enable(bh);
 		list = next;
 	}
 }

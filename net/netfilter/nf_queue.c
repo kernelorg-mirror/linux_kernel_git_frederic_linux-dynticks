@@ -271,6 +271,7 @@ static struct nf_hook_entries *nf_hook_entries_head(const struct net *net, u8 pf
 /* Caller must hold rcu read-side lock */
 void nf_reinject(struct nf_queue_entry *entry, unsigned int verdict)
 {
+	unsigned int bh;
 	const struct nf_hook_entry *hook_entry;
 	const struct nf_hook_entries *hooks;
 	struct sk_buff *skb = entry->skb;
@@ -313,9 +314,9 @@ next_hook:
 	switch (verdict & NF_VERDICT_MASK) {
 	case NF_ACCEPT:
 	case NF_STOP:
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		entry->state.okfn(entry->state.net, entry->state.sk, skb);
-		local_bh_enable();
+		local_bh_enable(bh);
 		break;
 	case NF_QUEUE:
 		err = nf_queue(skb, &entry->state, hooks, i, verdict);

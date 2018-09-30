@@ -33,25 +33,27 @@ struct mpls_dev {
 
 #define MPLS_INC_STATS_LEN(mdev, len, pkts_field, bytes_field)		\
 	do {								\
+		unsigned int bh;					\
 		__typeof__(*(mdev)->stats) *ptr =			\
 			raw_cpu_ptr((mdev)->stats);			\
-		local_bh_disable();					\
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);				\
 		u64_stats_update_begin(&ptr->syncp);			\
 		ptr->stats.pkts_field++;				\
 		ptr->stats.bytes_field += (len);			\
 		u64_stats_update_end(&ptr->syncp);			\
-		local_bh_enable();					\
+		local_bh_enable(bh);					\
 	} while (0)
 
 #define MPLS_INC_STATS(mdev, field)					\
 	do {								\
+		unsigned int bh;					\
 		__typeof__(*(mdev)->stats) *ptr =			\
 			raw_cpu_ptr((mdev)->stats);			\
-		local_bh_disable();					\
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);				\
 		u64_stats_update_begin(&ptr->syncp);			\
 		ptr->stats.field++;					\
 		u64_stats_update_end(&ptr->syncp);			\
-		local_bh_enable();					\
+		local_bh_enable(bh);					\
 	} while (0)
 
 #else

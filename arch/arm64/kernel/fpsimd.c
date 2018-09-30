@@ -90,7 +90,7 @@
  * To prevent this from racing with the manipulation of the task's FPSIMD state
  * from task context and thereby corrupting the state, it is necessary to
  * protect any manipulation of a task's fpsimd_state or TIF_FOREIGN_FPSTATE
- * flag with local_bh_disable() unless softirqs are already masked.
+ * flag with local_bh_disable(SOFTIRQ_ALL_MASK) unless softirqs are already masked.
  *
  * For a certain task, the sequence may look something like this:
  * - the task gets scheduled in; if both the task's fpsimd_cpu field
@@ -510,6 +510,7 @@ void sve_sync_from_fpsimd_zeropad(struct task_struct *task)
 int sve_set_vector_length(struct task_struct *task,
 			  unsigned long vl, unsigned long flags)
 {
+	unsigned int bh;
 	if (flags & ~(unsigned long)(PR_SVE_VL_INHERIT |
 				     PR_SVE_SET_VL_ONEXEC))
 		return -EINVAL;
@@ -547,7 +548,7 @@ int sve_set_vector_length(struct task_struct *task,
 	 * non-SVE thread.
 	 */
 	if (task == current) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 		fpsimd_save();
 		set_thread_flag(TIF_FOREIGN_FPSTATE);
@@ -558,7 +559,7 @@ int sve_set_vector_length(struct task_struct *task,
 		sve_to_fpsimd(task);
 
 	if (task == current)
-		local_bh_enable();
+		local_bh_enable(bh);
 
 	/*
 	 * Force reallocation of task SVE state to the correct size
@@ -805,6 +806,7 @@ void fpsimd_release_task(struct task_struct *dead_task)
  */
 asmlinkage void do_sve_acc(unsigned int esr, struct pt_regs *regs)
 {
+	unsigned int bh;
 	/* Even if we chose not to use SVE, the hardware could still trap: */
 	if (unlikely(!system_supports_sve()) || WARN_ON(is_compat_task())) {
 		force_signal_inject(SIGILL, ILL_ILLOPC, regs->pc);
@@ -813,7 +815,7 @@ asmlinkage void do_sve_acc(unsigned int esr, struct pt_regs *regs)
 
 	sve_alloc(current);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	fpsimd_save();
 	fpsimd_to_sve(current);
@@ -825,7 +827,7 @@ asmlinkage void do_sve_acc(unsigned int esr, struct pt_regs *regs)
 	if (test_and_set_thread_flag(TIF_SVE))
 		WARN_ON(1); /* SVE access shouldn't have trapped */
 
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /*
@@ -891,12 +893,13 @@ void fpsimd_thread_switch(struct task_struct *next)
 
 void fpsimd_flush_thread(void)
 {
+	unsigned int bh;
 	int vl, supported_vl;
 
 	if (!system_supports_fpsimd())
 		return;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	memset(&current->thread.uw.fpsimd_state, 0,
 	       sizeof(current->thread.uw.fpsimd_state));
@@ -939,7 +942,7 @@ void fpsimd_flush_thread(void)
 
 	set_thread_flag(TIF_FOREIGN_FPSTATE);
 
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /*
@@ -948,12 +951,13 @@ void fpsimd_flush_thread(void)
  */
 void fpsimd_preserve_current_state(void)
 {
+	unsigned int bh;
 	if (!system_supports_fpsimd())
 		return;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	fpsimd_save();
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /*
@@ -1008,17 +1012,18 @@ void fpsimd_bind_state_to_cpu(struct user_fpsimd_state *st)
  */
 void fpsimd_restore_current_state(void)
 {
+	unsigned int bh;
 	if (!system_supports_fpsimd())
 		return;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	if (test_and_clear_thread_flag(TIF_FOREIGN_FPSTATE)) {
 		task_fpsimd_load();
 		fpsimd_bind_task_to_cpu();
 	}
 
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /*
@@ -1028,10 +1033,11 @@ void fpsimd_restore_current_state(void)
  */
 void fpsimd_update_current_state(struct user_fpsimd_state const *state)
 {
+	unsigned int bh;
 	if (!system_supports_fpsimd())
 		return;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	current->thread.uw.fpsimd_state = *state;
 	if (system_supports_sve() && test_thread_flag(TIF_SVE))
@@ -1042,7 +1048,7 @@ void fpsimd_update_current_state(struct user_fpsimd_state const *state)
 
 	clear_thread_flag(TIF_FOREIGN_FPSTATE);
 
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /*
@@ -1083,12 +1089,13 @@ EXPORT_PER_CPU_SYMBOL(kernel_neon_busy);
  */
 void kernel_neon_begin(void)
 {
+	unsigned int bh;
 	if (WARN_ON(!system_supports_fpsimd()))
 		return;
 
 	BUG_ON(!may_use_simd());
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	__this_cpu_write(kernel_neon_busy, true);
 
@@ -1100,7 +1107,7 @@ void kernel_neon_begin(void)
 
 	preempt_disable();
 
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 EXPORT_SYMBOL(kernel_neon_begin);
 

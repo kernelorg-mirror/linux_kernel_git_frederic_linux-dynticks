@@ -526,6 +526,7 @@ out:
 
 static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	struct ovs_header *ovs_header = info->userhdr;
 	struct net *net = sock_net(skb->sk);
 	struct nlattr **a = info->attrs;
@@ -598,9 +599,9 @@ static int ovs_packet_cmd_execute(struct sk_buff *skb, struct genl_info *info)
 	OVS_CB(packet)->input_vport = input_vport;
 	sf_acts = rcu_dereference(flow->sf_acts);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	err = ovs_execute_actions(dp, packet, sf_acts, &flow->key);
-	local_bh_enable();
+	local_bh_enable(bh);
 	rcu_read_unlock();
 
 	ovs_flow_free(flow, false);

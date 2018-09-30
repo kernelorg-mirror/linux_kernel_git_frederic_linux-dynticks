@@ -298,6 +298,7 @@ static int make_close_transition(struct sock *sk)
 
 void chtls_close(struct sock *sk, long timeout)
 {
+	unsigned int bh;
 	int data_lost, prev_state;
 	struct chtls_sock *csk;
 
@@ -333,7 +334,7 @@ unlock:
 
 	release_sock(sk);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	bh_lock_sock(sk);
 
 	if (prev_state != TCP_CLOSE && sk->sk_state == TCP_CLOSE)
@@ -353,7 +354,7 @@ unlock:
 
 out:
 	bh_unlock_sock(sk);
-	local_bh_enable();
+	local_bh_enable(bh);
 	sock_put(sk);
 }
 
@@ -470,6 +471,7 @@ static void reset_listen_child(struct sock *child)
 
 static void chtls_disconnect_acceptq(struct sock *listen_sk)
 {
+	unsigned int bh;
 	struct request_sock **pprev;
 
 	pprev = ACCEPT_QUEUE(listen_sk);
@@ -483,12 +485,12 @@ static void chtls_disconnect_acceptq(struct sock *listen_sk)
 			sk_acceptq_removed(listen_sk);
 			reqsk_put(req);
 			sock_hold(child);
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			bh_lock_sock(child);
 			release_tcp_port(child);
 			reset_listen_child(child);
 			bh_unlock_sock(child);
-			local_bh_enable();
+			local_bh_enable(bh);
 			sock_put(child);
 		} else {
 			pprev = &req->dl_next;
@@ -577,6 +579,7 @@ static void cleanup_syn_rcv_conn(struct sock *child, struct sock *parent)
 
 static void chtls_reset_synq(struct listen_ctx *listen_ctx)
 {
+	unsigned int bh;
 	struct sock *listen_sk = listen_ctx->lsk;
 
 	while (!skb_queue_empty(&listen_ctx->synq)) {
@@ -587,12 +590,12 @@ static void chtls_reset_synq(struct listen_ctx *listen_ctx)
 
 		cleanup_syn_rcv_conn(child, listen_sk);
 		sock_hold(child);
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		bh_lock_sock(child);
 		release_tcp_port(child);
 		reset_listen_child(child);
 		bh_unlock_sock(child);
-		local_bh_enable();
+		local_bh_enable(bh);
 		sock_put(child);
 	}
 }
@@ -993,9 +996,10 @@ static void chtls_pass_accept_rpl(struct sk_buff *skb,
 static void inet_inherit_port(struct inet_hashinfo *hash_info,
 			      struct sock *lsk, struct sock *newsk)
 {
-	local_bh_disable();
+	unsigned int bh;
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	__inet_inherit_port(lsk, newsk);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static int chtls_backlog_rcv(struct sock *sk, struct sk_buff *skb)
@@ -1329,9 +1333,10 @@ static DECLARE_WORK(reap_task, process_reap_list);
 
 static void add_to_reap_list(struct sock *sk)
 {
+	unsigned int bh;
 	struct chtls_sock *csk = sk->sk_user_data;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	bh_lock_sock(sk);
 	release_tcp_port(sk); /* release the port immediately */
 
@@ -1342,7 +1347,7 @@ static void add_to_reap_list(struct sock *sk)
 		schedule_work(&reap_task);
 	spin_unlock(&reap_list_lock);
 	bh_unlock_sock(sk);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static void add_pass_open_to_parent(struct sock *child, struct sock *lsk,

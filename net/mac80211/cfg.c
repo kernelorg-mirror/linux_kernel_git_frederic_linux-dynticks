@@ -3413,6 +3413,7 @@ static int ieee80211_set_rekey_data(struct wiphy *wiphy,
 static int ieee80211_probe_client(struct wiphy *wiphy, struct net_device *dev,
 				  const u8 *peer, u64 *cookie)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_qos_hdr *nullfunc;
@@ -3490,9 +3491,9 @@ static int ieee80211_probe_client(struct wiphy *wiphy, struct net_device *dev,
 		goto unlock;
 	}
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	ieee80211_xmit(sdata, sta, skb, 0);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	ret = 0;
 unlock:

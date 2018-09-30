@@ -34,6 +34,7 @@ EXPORT_SYMBOL_GPL(dccp_death_row);
 
 void dccp_time_wait(struct sock *sk, int state, int timeo)
 {
+	unsigned int bh;
 	struct inet_timewait_sock *tw;
 
 	tw = inet_twsk_alloc(sk, &dccp_death_row, state);
@@ -60,13 +61,13 @@ void dccp_time_wait(struct sock *sk, int state, int timeo)
 		 * in following section, otherwise timer handler could run before
 		 * we complete the initialization.
 		 */
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		inet_twsk_schedule(tw, timeo);
 		/* Linkage updates.
 		 * Note that access to tw after this point is illegal.
 		 */
 		inet_twsk_hashdance(tw, sk, &dccp_hashinfo);
-		local_bh_enable();
+		local_bh_enable(bh);
 	} else {
 		/* Sorry, if we're out of memory, just CLOSE this
 		 * socket up.  We've got bigger problems than

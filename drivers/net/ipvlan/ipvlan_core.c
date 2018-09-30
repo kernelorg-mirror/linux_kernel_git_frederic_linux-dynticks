@@ -229,6 +229,7 @@ unsigned int ipvlan_mac_hash(const unsigned char *addr)
 
 void ipvlan_process_multicast(struct work_struct *work)
 {
+	unsigned int bh;
 	struct ipvl_port *port = container_of(work, struct ipvl_port, wq);
 	struct ethhdr *ethh;
 	struct ipvl_dev *ipvlan;
@@ -270,7 +271,7 @@ void ipvlan_process_multicast(struct work_struct *work)
 			ret = NET_RX_DROP;
 			len = skb->len + ETH_HLEN;
 			nskb = skb_clone(skb, GFP_ATOMIC);
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			if (nskb) {
 				consumed = true;
 				nskb->pkt_type = pkt_type;
@@ -281,7 +282,7 @@ void ipvlan_process_multicast(struct work_struct *work)
 					ret = netif_rx(nskb);
 			}
 			ipvlan_count_rx(ipvlan, len, ret == NET_RX_SUCCESS, true);
-			local_bh_enable();
+			local_bh_enable(bh);
 		}
 		rcu_read_unlock();
 

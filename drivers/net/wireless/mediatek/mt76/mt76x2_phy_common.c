@@ -303,12 +303,13 @@ EXPORT_SYMBOL_GPL(mt76x2_phy_set_band);
 
 int mt76x2_phy_get_min_avg_rssi(struct mt76x2_dev *dev)
 {
+	unsigned int bh;
 	struct mt76x2_sta *sta;
 	struct mt76_wcid *wcid;
 	int i, j, min_rssi = 0;
 	s8 cur_rssi;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rcu_read_lock();
 
 	for (i = 0; i < ARRAY_SIZE(dev->wcid_mask); i++) {
@@ -339,7 +340,7 @@ int mt76x2_phy_get_min_avg_rssi(struct mt76x2_dev *dev)
 	}
 
 	rcu_read_unlock();
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (!min_rssi)
 		return -75;

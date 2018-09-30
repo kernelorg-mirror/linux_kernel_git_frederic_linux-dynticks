@@ -74,6 +74,7 @@ static void __udelay_enabled(unsigned long long usecs)
 void __udelay(unsigned long long usecs)
 {
 	unsigned long flags;
+	unsigned int bh;
 
 	preempt_disable();
 	local_irq_save(flags);
@@ -89,9 +90,9 @@ void __udelay(unsigned long long usecs)
 		goto out;
 	}
 	if (raw_irqs_disabled_flags(flags)) {
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		__udelay_disabled(usecs);
-		local_bh_enable_no_softirq();
+		local_bh_enable_no_softirq(bh);
 		goto out;
 	}
 	__udelay_enabled(usecs);

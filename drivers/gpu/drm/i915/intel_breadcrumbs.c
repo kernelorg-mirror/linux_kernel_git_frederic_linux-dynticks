@@ -615,6 +615,7 @@ static void signaler_set_rtpriority(void)
 
 static int intel_breadcrumbs_signaler(void *arg)
 {
+	unsigned int bh;
 	struct intel_engine_cs *engine = arg;
 	struct intel_breadcrumbs *b = &engine->breadcrumbs;
 	struct i915_request *rq, *n;
@@ -669,13 +670,13 @@ static int intel_breadcrumbs_signaler(void *arg)
 		spin_unlock_irq(&b->rb_lock);
 
 		if (!list_empty(&list)) {
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			list_for_each_entry_safe(rq, n, &list, signaling.link) {
 				dma_fence_signal(&rq->fence);
 				GEM_BUG_ON(!i915_request_completed(rq));
 				i915_request_put(rq);
 			}
-			local_bh_enable(); /* kick start the tasklets */
+			local_bh_enable(bh); /* kick start the tasklets */
 
 			/*
 			 * If the engine is saturated we may be continually

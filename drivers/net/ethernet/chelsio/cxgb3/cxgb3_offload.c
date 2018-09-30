@@ -1042,11 +1042,12 @@ static int process_rx(struct t3cdev *dev, struct sk_buff **skbs, int n)
  */
 int cxgb3_ofld_send(struct t3cdev *dev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int r;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	r = dev->send(dev, skb);
-	local_bh_enable();
+	local_bh_enable(bh);
 	return r;
 }
 

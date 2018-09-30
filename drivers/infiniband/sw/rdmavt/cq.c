@@ -137,6 +137,7 @@ EXPORT_SYMBOL(rvt_cq_enter);
 
 static void send_complete(struct work_struct *work)
 {
+	unsigned int bh;
 	struct rvt_cq *cq = container_of(work, struct rvt_cq, comptask);
 
 	/*
@@ -155,9 +156,9 @@ static void send_complete(struct work_struct *work)
 		 * See the implementation for ipoib_cm_handle_tx_wc(),
 		 * netif_tx_lock_bh() and netif_tx_lock().
 		 */
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		cq->ibcq.comp_handler(&cq->ibcq, cq->ibcq.cq_context);
-		local_bh_enable();
+		local_bh_enable(bh);
 
 		if (cq->triggered == triggered)
 			return;

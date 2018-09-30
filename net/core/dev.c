@@ -3845,6 +3845,7 @@ EXPORT_SYMBOL(dev_queue_xmit_accel);
 
 int dev_direct_xmit(struct sk_buff *skb, u16 queue_id)
 {
+	unsigned int bh;
 	struct net_device *dev = skb->dev;
 	struct sk_buff *orig_skb = skb;
 	struct netdev_queue *txq;
@@ -3862,14 +3863,14 @@ int dev_direct_xmit(struct sk_buff *skb, u16 queue_id)
 	skb_set_queue_mapping(skb, queue_id);
 	txq = skb_get_tx_queue(dev, skb);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	HARD_TX_LOCK(dev, txq, smp_processor_id());
 	if (!netif_xmit_frozen_or_drv_stopped(txq))
 		ret = netdev_start_xmit(skb, dev, txq, false);
 	HARD_TX_UNLOCK(dev, txq);
 
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	if (!dev_xmit_complete(ret))
 		kfree_skb(skb);
@@ -5206,10 +5207,11 @@ DEFINE_PER_CPU(struct work_struct, flush_works);
 /* Network device is going away, flush any packets still pending */
 static void flush_backlog(struct work_struct *work)
 {
+	unsigned int bh;
 	struct sk_buff *skb, *tmp;
 	struct softnet_data *sd;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	sd = this_cpu_ptr(&softnet_data);
 
 	local_irq_disable();
@@ -5231,7 +5233,7 @@ static void flush_backlog(struct work_struct *work)
 			input_queue_head_incr(sd);
 		}
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static void flush_all_backlogs(void)
@@ -5975,6 +5977,7 @@ static struct napi_struct *napi_by_id(unsigned int napi_id)
 
 static void busy_poll_stop(struct napi_struct *napi, void *have_poll_lock)
 {
+	unsigned int bh;
 	int rc;
 
 	/* Busy polling means there is a high chance device driver hard irq
@@ -5989,7 +5992,7 @@ static void busy_poll_stop(struct napi_struct *napi, void *have_poll_lock)
 	clear_bit(NAPI_STATE_MISSED, &napi->state);
 	clear_bit(NAPI_STATE_IN_BUSY_POLL, &napi->state);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 
 	/* All we really want here is to re-enable device interrupts.
 	 * Ideally, a new ndo_busy_poll_stop() could avoid another round.
@@ -5999,13 +6002,14 @@ static void busy_poll_stop(struct napi_struct *napi, void *have_poll_lock)
 	netpoll_poll_unlock(have_poll_lock);
 	if (rc == BUSY_POLL_BUDGET)
 		__napi_schedule(napi);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 void napi_busy_loop(unsigned int napi_id,
 		    bool (*loop_end)(void *, unsigned long),
 		    void *loop_end_arg)
 {
+	unsigned int bh;
 	unsigned long start_time = loop_end ? busy_loop_current_time() : 0;
 	int (*napi_poll)(struct napi_struct *napi, int budget);
 	void *have_poll_lock = NULL;
@@ -6024,7 +6028,7 @@ restart:
 	for (;;) {
 		int work = 0;
 
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		if (!napi_poll) {
 			unsigned long val = READ_ONCE(napi->state);
 
@@ -6047,7 +6051,7 @@ count:
 		if (work > 0)
 			__NET_ADD_STATS(dev_net(napi->dev),
 					LINUX_MIB_BUSYPOLLRXPACKETS, work);
-		local_bh_enable();
+		local_bh_enable(bh);
 
 		if (!loop_end || loop_end(loop_end_arg, start_time))
 			break;

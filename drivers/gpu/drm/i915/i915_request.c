@@ -1043,6 +1043,7 @@ void i915_request_skip(struct i915_request *rq, int error)
  */
 void i915_request_add(struct i915_request *request)
 {
+	unsigned int bh;
 	struct intel_engine_cs *engine = request->engine;
 	struct i915_timeline *timeline = request->timeline;
 	struct intel_ring *ring = request->ring;
@@ -1124,13 +1125,13 @@ void i915_request_add(struct i915_request *request)
 	 * decide whether to preempt the entire chain so that it is ready to
 	 * run at the earliest possible convenience.
 	 */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	rcu_read_lock(); /* RCU serialisation for set-wedged protection */
 	if (engine->schedule)
 		engine->schedule(request, &request->gem_context->sched);
 	rcu_read_unlock();
 	i915_sw_fence_commit(&request->submit);
-	local_bh_enable(); /* Kick the execlists tasklet if just scheduled */
+	local_bh_enable(bh); /* Kick the execlists tasklet if just scheduled */
 
 	/*
 	 * In typical scenarios, we do not expect the previous request on

@@ -97,6 +97,7 @@ DEFINE_STATIC_KEY_FALSE(nft_counters_enabled);
 static noinline void nft_update_chain_stats(const struct nft_chain *chain,
 					    const struct nft_pktinfo *pkt)
 {
+	unsigned int bh;
 	struct nft_base_chain *base_chain;
 	struct nft_stats *stats;
 
@@ -104,7 +105,7 @@ static noinline void nft_update_chain_stats(const struct nft_chain *chain,
 	if (!base_chain->stats)
 		return;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	stats = this_cpu_ptr(rcu_dereference(base_chain->stats));
 	if (stats) {
 		u64_stats_update_begin(&stats->syncp);
@@ -112,7 +113,7 @@ static noinline void nft_update_chain_stats(const struct nft_chain *chain,
 		stats->bytes += pkt->skb->len;
 		u64_stats_update_end(&stats->syncp);
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 struct nft_jumpstack {

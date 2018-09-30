@@ -936,6 +936,7 @@ ieee80211_tdls_prep_mgmt_packet(struct wiphy *wiphy, struct net_device *dev,
 				size_t extra_ies_len, u8 oper_class,
 				struct cfg80211_chan_def *chandef)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 	struct sk_buff *skb = NULL;
 	struct sta_info *sta;
@@ -1054,9 +1055,9 @@ ieee80211_tdls_prep_mgmt_packet(struct wiphy *wiphy, struct net_device *dev,
 	}
 
 	/* disable bottom halves when entering the Tx path */
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	__ieee80211_subif_start_xmit(skb, dev, flags);
-	local_bh_enable();
+	local_bh_enable(bh);
 
 	return ret;
 

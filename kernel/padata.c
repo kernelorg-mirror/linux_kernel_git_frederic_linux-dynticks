@@ -64,10 +64,11 @@ static int padata_cpu_hash(struct parallel_data *pd)
 
 static void padata_parallel_worker(struct work_struct *parallel_work)
 {
+	unsigned int bh;
 	struct padata_parallel_queue *pqueue;
 	LIST_HEAD(local_list);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	pqueue = container_of(parallel_work,
 			      struct padata_parallel_queue, work);
 
@@ -86,7 +87,7 @@ static void padata_parallel_worker(struct work_struct *parallel_work)
 		padata->parallel(padata);
 	}
 
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /**
@@ -280,14 +281,15 @@ static void padata_reorder(struct parallel_data *pd)
 
 static void invoke_padata_reorder(struct work_struct *work)
 {
+	unsigned int bh;
 	struct padata_parallel_queue *pqueue;
 	struct parallel_data *pd;
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	pqueue = container_of(work, struct padata_parallel_queue, reorder_work);
 	pd = pqueue->pd;
 	padata_reorder(pd);
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 static void padata_reorder_timer(struct timer_list *t)
@@ -327,11 +329,12 @@ static void padata_reorder_timer(struct timer_list *t)
 
 static void padata_serial_worker(struct work_struct *serial_work)
 {
+	unsigned int bh;
 	struct padata_serial_queue *squeue;
 	struct parallel_data *pd;
 	LIST_HEAD(local_list);
 
-	local_bh_disable();
+	bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 	squeue = container_of(serial_work, struct padata_serial_queue, work);
 	pd = squeue->pd;
 
@@ -350,7 +353,7 @@ static void padata_serial_worker(struct work_struct *serial_work)
 		padata->serial(padata);
 		atomic_dec(&pd->refcnt);
 	}
-	local_bh_enable();
+	local_bh_enable(bh);
 }
 
 /**

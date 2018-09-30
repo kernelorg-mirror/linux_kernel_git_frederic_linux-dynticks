@@ -1279,8 +1279,10 @@ static void rcu_cpu_kthread(unsigned int cpu)
 	int spincnt;
 
 	for (spincnt = 0; spincnt < 10; spincnt++) {
+		unsigned int bh;
+
 		trace_rcu_utilization(TPS("Start CPU kthread@rcu_wait"));
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		*statusp = RCU_KTHREAD_RUNNING;
 		this_cpu_inc(rcu_cpu_kthread_loops);
 		local_irq_disable();
@@ -1289,7 +1291,7 @@ static void rcu_cpu_kthread(unsigned int cpu)
 		local_irq_enable();
 		if (work)
 			rcu_kthread_do_work();
-		local_bh_enable();
+		local_bh_enable(bh);
 		if (*workp == 0) {
 			trace_rcu_utilization(TPS("End CPU kthread@rcu_wait"));
 			*statusp = RCU_KTHREAD_WAITING;
@@ -2320,6 +2322,8 @@ static int rcu_nocb_kthread(void *arg)
 				      atomic_long_read(&rdp->nocb_q_count), -1);
 		c = cl = 0;
 		while (list) {
+			unsigned int bh;
+
 			next = list->next;
 			/* Wait for enqueuing to complete, if needed. */
 			while (next == NULL && &list->next != tail) {
@@ -2331,11 +2335,11 @@ static int rcu_nocb_kthread(void *arg)
 				next = list->next;
 			}
 			debug_rcu_head_unqueue(list);
-			local_bh_disable();
+			bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 			if (__rcu_reclaim(rdp->rsp->name, list))
 				cl++;
 			c++;
-			local_bh_enable();
+			local_bh_enable(bh);
 			cond_resched_tasks_rcu_qs();
 			list = next;
 		}

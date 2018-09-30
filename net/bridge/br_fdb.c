@@ -847,6 +847,7 @@ static int __br_fdb_add(struct ndmsg *ndm, struct net_bridge *br,
 			struct net_bridge_port *p, const unsigned char *addr,
 			u16 nlh_flags, u16 vid)
 {
+	unsigned int bh;
 	int err = 0;
 
 	if (ndm->ndm_flags & NTF_USE) {
@@ -855,11 +856,11 @@ static int __br_fdb_add(struct ndmsg *ndm, struct net_bridge *br,
 				br->dev->name);
 			return -EINVAL;
 		}
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		rcu_read_lock();
 		br_fdb_update(br, p, addr, vid, true);
 		rcu_read_unlock();
-		local_bh_enable();
+		local_bh_enable(bh);
 	} else if (ndm->ndm_flags & NTF_EXT_LEARNED) {
 		err = br_fdb_external_learn_add(br, p, addr, vid, true);
 	} else {

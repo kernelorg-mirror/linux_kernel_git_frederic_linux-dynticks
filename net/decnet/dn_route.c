@@ -1640,6 +1640,7 @@ const struct nla_policy rtm_dn_policy[RTA_MAX + 1] = {
 static int dn_cache_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 			     struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct net *net = sock_net(in_skb->sk);
 	struct rtmsg *rtm = nlmsg_data(nlh);
 	struct dn_route *rt = NULL;
@@ -1686,9 +1687,9 @@ static int dn_cache_getroute(struct sk_buff *in_skb, struct nlmsghdr *nlh,
 		skb->dev = dev;
 		cb->src = fld.saddr;
 		cb->dst = fld.daddr;
-		local_bh_disable();
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		err = dn_route_input(skb);
-		local_bh_enable();
+		local_bh_enable(bh);
 		memset(cb, 0, sizeof(struct dn_skb_cb));
 		rt = (struct dn_route *)skb_dst(skb);
 		if (!err && -rt->dst.error)
