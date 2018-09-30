@@ -490,10 +490,11 @@ static void dev_watchdog_up(struct net_device *dev)
 
 static void dev_watchdog_down(struct net_device *dev)
 {
-	netif_tx_lock_bh(dev);
+	unsigned int bh;
+	bh = netif_tx_lock_bh(dev);
 	if (del_timer(&dev->watchdog_timer))
 		dev_put(dev);
-	netif_tx_unlock_bh(dev);
+	netif_tx_unlock_bh(dev, bh);
 }
 
 /**

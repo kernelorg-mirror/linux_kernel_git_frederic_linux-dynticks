@@ -412,6 +412,7 @@ static void ef4_iterate_state(struct ef4_nic *efx)
 
 static int ef4_begin_loopback(struct ef4_tx_queue *tx_queue)
 {
+	unsigned int bh;
 	struct ef4_nic *efx = tx_queue->efx;
 	struct ef4_loopback_state *state = efx->loopback_selftest;
 	struct ef4_loopback_payload *payload;
@@ -439,9 +440,9 @@ static int ef4_begin_loopback(struct ef4_tx_queue *tx_queue)
 		 * interrupt handler. */
 		smp_wmb();
 
-		netif_tx_lock_bh(efx->net_dev);
+		bh = netif_tx_lock_bh(efx->net_dev);
 		rc = ef4_enqueue_skb(tx_queue, skb);
-		netif_tx_unlock_bh(efx->net_dev);
+		netif_tx_unlock_bh(efx->net_dev, bh);
 
 		if (rc != NETDEV_TX_OK) {
 			netif_err(efx, drv, efx->net_dev,
@@ -469,13 +470,14 @@ static int ef4_poll_loopback(struct ef4_nic *efx)
 static int ef4_end_loopback(struct ef4_tx_queue *tx_queue,
 			    struct ef4_loopback_self_tests *lb_tests)
 {
+	unsigned int bh;
 	struct ef4_nic *efx = tx_queue->efx;
 	struct ef4_loopback_state *state = efx->loopback_selftest;
 	struct sk_buff *skb;
 	int tx_done = 0, rx_good, rx_bad;
 	int i, rc = 0;
 
-	netif_tx_lock_bh(efx->net_dev);
+	bh = netif_tx_lock_bh(efx->net_dev);
 
 	/* Count the number of tx completions, and decrement the refcnt. Any
 	 * skbs not already completed will be free'd when the queue is flushed */
@@ -486,7 +488,7 @@ static int ef4_end_loopback(struct ef4_tx_queue *tx_queue,
 		dev_kfree_skb(skb);
 	}
 
-	netif_tx_unlock_bh(efx->net_dev);
+	netif_tx_unlock_bh(efx->net_dev, bh);
 
 	/* Check TX completion and received packet counts */
 	rx_good = atomic_read(&state->rx_good);

@@ -709,12 +709,13 @@ static void push_pseudo_header(struct sk_buff *skb, const char *daddr)
 
 void ipoib_flush_paths(struct net_device *dev)
 {
+	unsigned int bh;
 	struct ipoib_dev_priv *priv = ipoib_priv(dev);
 	struct ipoib_path *path, *tp;
 	LIST_HEAD(remove_list);
 	unsigned long flags;
 
-	netif_tx_lock_bh(dev);
+	bh = netif_tx_lock_bh(dev);
 	spin_lock_irqsave(&priv->lock, flags);
 
 	list_splice_init(&priv->path_list, &remove_list);
@@ -726,15 +727,15 @@ void ipoib_flush_paths(struct net_device *dev)
 		if (path->query)
 			ib_sa_cancel_query(path->query_id, path->query);
 		spin_unlock_irqrestore(&priv->lock, flags);
-		netif_tx_unlock_bh(dev);
+		netif_tx_unlock_bh(dev, bh);
 		wait_for_completion(&path->done);
 		path_free(dev, path);
-		netif_tx_lock_bh(dev);
+		bh = netif_tx_lock_bh(dev);
 		spin_lock_irqsave(&priv->lock, flags);
 	}
 
 	spin_unlock_irqrestore(&priv->lock, flags);
-	netif_tx_unlock_bh(dev);
+	netif_tx_unlock_bh(dev, bh);
 }
 
 static void path_rec_completion(int status,

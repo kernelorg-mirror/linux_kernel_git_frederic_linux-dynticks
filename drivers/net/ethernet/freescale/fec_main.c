@@ -1149,6 +1149,7 @@ fec_timeout(struct net_device *ndev)
 
 static void fec_enet_timeout_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct fec_enet_private *fep =
 		container_of(work, struct fec_enet_private, tx_timeout_work);
 	struct net_device *ndev = fep->netdev;
@@ -1156,10 +1157,10 @@ static void fec_enet_timeout_work(struct work_struct *work)
 	rtnl_lock();
 	if (netif_device_present(ndev) || netif_running(ndev)) {
 		napi_disable(&fep->napi);
-		netif_tx_lock_bh(ndev);
+		bh = netif_tx_lock_bh(ndev);
 		fec_restart(ndev);
 		netif_wake_queue(ndev);
-		netif_tx_unlock_bh(ndev);
+		netif_tx_unlock_bh(ndev, bh);
 		napi_enable(&fep->napi);
 	}
 	rtnl_unlock();
@@ -1708,6 +1709,7 @@ static void fec_get_mac(struct net_device *ndev)
  */
 static void fec_enet_adjust_link(struct net_device *ndev)
 {
+	unsigned int bh;
 	struct fec_enet_private *fep = netdev_priv(ndev);
 	struct phy_device *phy_dev = ndev->phydev;
 	int status_change = 0;
@@ -1744,18 +1746,18 @@ static void fec_enet_adjust_link(struct net_device *ndev)
 		/* if any of the above changed restart the FEC */
 		if (status_change) {
 			napi_disable(&fep->napi);
-			netif_tx_lock_bh(ndev);
+			bh = netif_tx_lock_bh(ndev);
 			fec_restart(ndev);
 			netif_wake_queue(ndev);
-			netif_tx_unlock_bh(ndev);
+			netif_tx_unlock_bh(ndev, bh);
 			napi_enable(&fep->napi);
 		}
 	} else {
 		if (fep->link) {
 			napi_disable(&fep->napi);
-			netif_tx_lock_bh(ndev);
+			bh = netif_tx_lock_bh(ndev);
 			fec_stop(ndev);
-			netif_tx_unlock_bh(ndev);
+			netif_tx_unlock_bh(ndev, bh);
 			napi_enable(&fep->napi);
 			fep->link = phy_dev->link;
 			status_change = 1;
@@ -2213,6 +2215,7 @@ static void fec_enet_get_pauseparam(struct net_device *ndev,
 static int fec_enet_set_pauseparam(struct net_device *ndev,
 				   struct ethtool_pauseparam *pause)
 {
+	unsigned int bh;
 	struct fec_enet_private *fep = netdev_priv(ndev);
 
 	if (!ndev->phydev)
@@ -2245,10 +2248,10 @@ static int fec_enet_set_pauseparam(struct net_device *ndev,
 	}
 	if (netif_running(ndev)) {
 		napi_disable(&fep->napi);
-		netif_tx_lock_bh(ndev);
+		bh = netif_tx_lock_bh(ndev);
 		fec_restart(ndev);
 		netif_wake_queue(ndev);
-		netif_tx_unlock_bh(ndev);
+		netif_tx_unlock_bh(ndev, bh);
 		napi_enable(&fep->napi);
 	}
 
@@ -3072,17 +3075,18 @@ static inline void fec_enet_set_netdev_features(struct net_device *netdev,
 static int fec_set_features(struct net_device *netdev,
 	netdev_features_t features)
 {
+	unsigned int bh;
 	struct fec_enet_private *fep = netdev_priv(netdev);
 	netdev_features_t changed = features ^ netdev->features;
 
 	if (netif_running(netdev) && changed & NETIF_F_RXCSUM) {
 		napi_disable(&fep->napi);
-		netif_tx_lock_bh(netdev);
+		bh = netif_tx_lock_bh(netdev);
 		fec_stop(netdev);
 		fec_enet_set_netdev_features(netdev, features);
 		fec_restart(netdev);
 		netif_tx_wake_all_queues(netdev);
-		netif_tx_unlock_bh(netdev);
+		netif_tx_unlock_bh(netdev, bh);
 		napi_enable(&fep->napi);
 	} else {
 		fec_enet_set_netdev_features(netdev, features);
@@ -3609,6 +3613,7 @@ fec_drv_remove(struct platform_device *pdev)
 
 static int __maybe_unused fec_suspend(struct device *dev)
 {
+	unsigned int bh;
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct fec_enet_private *fep = netdev_priv(ndev);
 
@@ -3618,9 +3623,9 @@ static int __maybe_unused fec_suspend(struct device *dev)
 			fep->wol_flag |= FEC_WOL_FLAG_SLEEP_ON;
 		phy_stop(ndev->phydev);
 		napi_disable(&fep->napi);
-		netif_tx_lock_bh(ndev);
+		bh = netif_tx_lock_bh(ndev);
 		netif_device_detach(ndev);
-		netif_tx_unlock_bh(ndev);
+		netif_tx_unlock_bh(ndev, bh);
 		fec_stop(ndev);
 		fec_enet_clk_enable(ndev, false);
 		if (!(fep->wol_flag & FEC_WOL_FLAG_ENABLE))
@@ -3642,6 +3647,7 @@ static int __maybe_unused fec_suspend(struct device *dev)
 
 static int __maybe_unused fec_resume(struct device *dev)
 {
+	unsigned int bh;
 	struct net_device *ndev = dev_get_drvdata(dev);
 	struct fec_enet_private *fep = netdev_priv(ndev);
 	struct fec_platform_data *pdata = fep->pdev->dev.platform_data;
@@ -3672,9 +3678,9 @@ static int __maybe_unused fec_resume(struct device *dev)
 			pinctrl_pm_select_default_state(&fep->pdev->dev);
 		}
 		fec_restart(ndev);
-		netif_tx_lock_bh(ndev);
+		bh = netif_tx_lock_bh(ndev);
 		netif_device_attach(ndev);
-		netif_tx_unlock_bh(ndev);
+		netif_tx_unlock_bh(ndev, bh);
 		napi_enable(&fep->napi);
 		phy_start(ndev->phydev);
 	}

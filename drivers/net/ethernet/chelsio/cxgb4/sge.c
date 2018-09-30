@@ -3829,6 +3829,7 @@ void t4_free_ofld_rxqs(struct adapter *adap, int n, struct sge_ofld_rxq *q)
  */
 void t4_free_sge_resources(struct adapter *adap)
 {
+	unsigned int bh;
 	int i;
 	struct sge_eth_rxq *eq;
 	struct sge_eth_txq *etq;
@@ -3855,9 +3856,9 @@ void t4_free_sge_resources(struct adapter *adap)
 		if (etq->q.desc) {
 			t4_eth_eq_free(adap, adap->mbox, adap->pf, 0,
 				       etq->q.cntxt_id);
-			__netif_tx_lock_bh(etq->txq);
+			bh = __netif_tx_lock_bh(etq->txq);
 			free_tx_desc(adap, &etq->q, etq->q.in_use, true);
-			__netif_tx_unlock_bh(etq->txq);
+			__netif_tx_unlock_bh(etq->txq, bh);
 			kfree(etq->q.sdesc);
 			free_txq(adap, &etq->q);
 		}

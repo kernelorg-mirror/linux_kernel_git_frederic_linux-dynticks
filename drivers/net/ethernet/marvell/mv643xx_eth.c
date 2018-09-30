@@ -1071,11 +1071,12 @@ out:
 
 static int txq_reclaim(struct tx_queue *txq, int budget, int force)
 {
+	unsigned int bh;
 	struct mv643xx_eth_private *mp = txq_to_mp(txq);
 	struct netdev_queue *nq = netdev_get_tx_queue(mp->dev, txq->index);
 	int reclaimed;
 
-	__netif_tx_lock_bh(nq);
+	bh = __netif_tx_lock_bh(nq);
 
 	reclaimed = 0;
 	while (reclaimed < budget && txq->tx_desc_count > 0) {
@@ -1131,7 +1132,7 @@ static int txq_reclaim(struct tx_queue *txq, int budget, int force)
 
 	}
 
-	__netif_tx_unlock_bh(nq);
+	__netif_tx_unlock_bh(nq, bh);
 
 	if (reclaimed < budget)
 		mp->work_tx &= ~(1 << txq->index);

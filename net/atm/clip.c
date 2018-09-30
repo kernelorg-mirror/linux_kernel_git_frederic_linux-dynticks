@@ -84,6 +84,7 @@ static void link_vcc(struct clip_vcc *clip_vcc, struct atmarp_entry *entry)
 
 static void unlink_clip_vcc(struct clip_vcc *clip_vcc)
 {
+	unsigned int bh;
 	struct atmarp_entry *entry = clip_vcc->entry;
 	struct clip_vcc **walk;
 
@@ -91,7 +92,7 @@ static void unlink_clip_vcc(struct clip_vcc *clip_vcc)
 		pr_crit("!clip_vcc->entry (clip_vcc %p)\n", clip_vcc);
 		return;
 	}
-	netif_tx_lock_bh(entry->neigh->dev);	/* block clip_start_xmit() */
+	bh = netif_tx_lock_bh(entry->neigh->dev);	/* block clip_start_xmit() */
 	entry->neigh->used = jiffies;
 	for (walk = &entry->vccs; *walk; walk = &(*walk)->next)
 		if (*walk == clip_vcc) {
@@ -113,7 +114,7 @@ static void unlink_clip_vcc(struct clip_vcc *clip_vcc)
 		}
 	pr_crit("ATMARP: failed (entry %p, vcc 0x%p)\n", entry, clip_vcc);
 out:
-	netif_tx_unlock_bh(entry->neigh->dev);
+	netif_tx_unlock_bh(entry->neigh->dev, bh);
 }
 
 /* The neighbour entry n->lock is held. */

@@ -629,6 +629,7 @@ static void nb8800_mac_config(struct net_device *dev)
 
 static void nb8800_pause_config(struct net_device *dev)
 {
+	unsigned int bh;
 	struct nb8800_priv *priv = netdev_priv(dev);
 	struct phy_device *phydev = dev->phydev;
 	u32 rxcr;
@@ -649,11 +650,11 @@ static void nb8800_pause_config(struct net_device *dev)
 
 	if (netif_running(dev)) {
 		napi_disable(&priv->napi);
-		netif_tx_lock_bh(dev);
+		bh = netif_tx_lock_bh(dev);
 		nb8800_dma_stop(dev);
 		nb8800_modl(priv, NB8800_RXC_CR, RCR_FL, priv->pause_tx);
 		nb8800_start_rx(dev);
-		netif_tx_unlock_bh(dev);
+		netif_tx_unlock_bh(dev, bh);
 		napi_enable(&priv->napi);
 	} else {
 		nb8800_modl(priv, NB8800_RXC_CR, RCR_FL, priv->pause_tx);

@@ -272,6 +272,7 @@ qcaspi_tx_frame(struct qcaspi *qca, struct sk_buff *skb)
 static int
 qcaspi_transmit(struct qcaspi *qca)
 {
+	unsigned int bh;
 	struct net_device_stats *n_stats = &qca->net_dev->stats;
 	u16 available = 0;
 	u32 pkt_len;
@@ -306,7 +307,7 @@ qcaspi_transmit(struct qcaspi *qca)
 		/* XXX After inconsistent lock states netif_tx_lock()
 		 * has been replaced by netif_tx_lock_bh() and so on.
 		 */
-		netif_tx_lock_bh(qca->net_dev);
+		bh = netif_tx_lock_bh(qca->net_dev);
 		dev_kfree_skb(qca->txr.skb[qca->txr.head]);
 		qca->txr.skb[qca->txr.head] = NULL;
 		qca->txr.size -= pkt_len;
@@ -316,7 +317,7 @@ qcaspi_transmit(struct qcaspi *qca)
 		qca->txr.head = new_head;
 		if (netif_queue_stopped(qca->net_dev))
 			netif_wake_queue(qca->net_dev);
-		netif_tx_unlock_bh(qca->net_dev);
+		netif_tx_unlock_bh(qca->net_dev, bh);
 	}
 
 	return 0;
@@ -450,12 +451,13 @@ qcaspi_tx_ring_has_space(struct tx_ring *txr)
 static void
 qcaspi_flush_tx_ring(struct qcaspi *qca)
 {
+	unsigned int bh;
 	int i;
 
 	/* XXX After inconsistent lock states netif_tx_lock()
 	 * has been replaced by netif_tx_lock_bh() and so on.
 	 */
-	netif_tx_lock_bh(qca->net_dev);
+	bh = netif_tx_lock_bh(qca->net_dev);
 	for (i = 0; i < TX_RING_MAX_LEN; i++) {
 		if (qca->txr.skb[i]) {
 			dev_kfree_skb(qca->txr.skb[i]);
@@ -466,7 +468,7 @@ qcaspi_flush_tx_ring(struct qcaspi *qca)
 	qca->txr.tail = 0;
 	qca->txr.head = 0;
 	qca->txr.size = 0;
-	netif_tx_unlock_bh(qca->net_dev);
+	netif_tx_unlock_bh(qca->net_dev, bh);
 }
 
 static void

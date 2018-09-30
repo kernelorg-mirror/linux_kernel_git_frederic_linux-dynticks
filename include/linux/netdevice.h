@@ -3794,10 +3794,14 @@ static inline void __netif_tx_release(struct netdev_queue *txq)
 	__release(&txq->_xmit_lock);
 }
 
-static inline void __netif_tx_lock_bh(struct netdev_queue *txq)
+static inline unsigned int __netif_tx_lock_bh(struct netdev_queue *txq)
 {
+	unsigned int bh = 0;
+
 	spin_lock_bh(&txq->_xmit_lock);
 	txq->xmit_lock_owner = smp_processor_id();
+
+	return bh;
 }
 
 static inline bool __netif_tx_trylock(struct netdev_queue *txq)
@@ -3814,7 +3818,8 @@ static inline void __netif_tx_unlock(struct netdev_queue *txq)
 	spin_unlock(&txq->_xmit_lock);
 }
 
-static inline void __netif_tx_unlock_bh(struct netdev_queue *txq)
+static inline void __netif_tx_unlock_bh(struct netdev_queue *txq,
+					unsigned int bh)
 {
 	txq->xmit_lock_owner = -1;
 	spin_unlock_bh(&txq->_xmit_lock);
@@ -3863,10 +3868,14 @@ static inline void netif_tx_lock(struct net_device *dev)
 	}
 }
 
-static inline void netif_tx_lock_bh(struct net_device *dev)
+static inline unsigned int netif_tx_lock_bh(struct net_device *dev)
 {
+	unsigned int bh = 0;
+
 	local_bh_disable();
 	netif_tx_lock(dev);
+
+	return bh;
 }
 
 static inline void netif_tx_unlock(struct net_device *dev)
@@ -3886,7 +3895,8 @@ static inline void netif_tx_unlock(struct net_device *dev)
 	spin_unlock(&dev->tx_global_lock);
 }
 
-static inline void netif_tx_unlock_bh(struct net_device *dev)
+static inline void netif_tx_unlock_bh(struct net_device *dev,
+				      unsigned int bh)
 {
 	netif_tx_unlock(dev);
 	local_bh_enable();

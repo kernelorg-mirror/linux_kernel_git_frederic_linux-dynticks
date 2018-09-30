@@ -566,6 +566,7 @@ static int
 netxen_send_cmd_descs(struct netxen_adapter *adapter,
 		struct cmd_desc_type0 *cmd_desc_arr, int nr_desc)
 {
+	unsigned int bh;
 	u32 i, producer;
 	struct netxen_cmd_buffer *pbuf;
 	struct nx_host_tx_ring *tx_ring;
@@ -576,7 +577,7 @@ netxen_send_cmd_descs(struct netxen_adapter *adapter,
 		return -EIO;
 
 	tx_ring = adapter->tx_ring;
-	__netif_tx_lock_bh(tx_ring->txq);
+	bh = __netif_tx_lock_bh(tx_ring->txq);
 
 	producer = tx_ring->producer;
 
@@ -587,7 +588,7 @@ netxen_send_cmd_descs(struct netxen_adapter *adapter,
 			if (netxen_tx_avail(tx_ring) > TX_STOP_THRESH)
 				netif_tx_wake_queue(tx_ring->txq);
 		} else {
-			__netif_tx_unlock_bh(tx_ring->txq);
+			__netif_tx_unlock_bh(tx_ring->txq, bh);
 			return -EBUSY;
 		}
 	}
@@ -609,7 +610,7 @@ netxen_send_cmd_descs(struct netxen_adapter *adapter,
 
 	netxen_nic_update_cmd_producer(adapter, tx_ring);
 
-	__netif_tx_unlock_bh(tx_ring->txq);
+	__netif_tx_unlock_bh(tx_ring->txq, bh);
 
 	return 0;
 }

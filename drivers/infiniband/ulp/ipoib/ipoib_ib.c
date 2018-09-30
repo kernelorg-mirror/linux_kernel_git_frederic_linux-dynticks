@@ -667,12 +667,13 @@ int ipoib_send(struct net_device *dev, struct sk_buff *skb,
 
 static void __ipoib_reap_ah(struct net_device *dev)
 {
+	unsigned int bh;
 	struct ipoib_dev_priv *priv = ipoib_priv(dev);
 	struct ipoib_ah *ah, *tah;
 	LIST_HEAD(remove_list);
 	unsigned long flags;
 
-	netif_tx_lock_bh(dev);
+	bh = netif_tx_lock_bh(dev);
 	spin_lock_irqsave(&priv->lock, flags);
 
 	list_for_each_entry_safe(ah, tah, &priv->dead_ahs, list)
@@ -683,7 +684,7 @@ static void __ipoib_reap_ah(struct net_device *dev)
 		}
 
 	spin_unlock_irqrestore(&priv->lock, flags);
-	netif_tx_unlock_bh(dev);
+	netif_tx_unlock_bh(dev, bh);
 }
 
 void ipoib_reap_ah(struct work_struct *work)

@@ -1349,9 +1349,10 @@ static void mlx5e_activate_txqsq(struct mlx5e_txqsq *sq)
 
 static inline void netif_tx_disable_queue(struct netdev_queue *txq)
 {
-	__netif_tx_lock_bh(txq);
+	unsigned int bh;
+	bh = __netif_tx_lock_bh(txq);
 	netif_tx_stop_queue(txq);
-	__netif_tx_unlock_bh(txq);
+	__netif_tx_unlock_bh(txq, bh);
 }
 
 static void mlx5e_deactivate_txqsq(struct mlx5e_txqsq *sq)

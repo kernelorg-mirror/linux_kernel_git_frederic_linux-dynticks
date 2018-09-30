@@ -382,6 +382,7 @@ static int
 qlcnic_send_cmd_descs(struct qlcnic_adapter *adapter,
 		struct cmd_desc_type0 *cmd_desc_arr, int nr_desc)
 {
+	unsigned int bh;
 	u32 i, producer;
 	struct qlcnic_cmd_buffer *pbuf;
 	struct cmd_desc_type0 *cmd_desc;
@@ -393,7 +394,7 @@ qlcnic_send_cmd_descs(struct qlcnic_adapter *adapter,
 		return -EIO;
 
 	tx_ring = &adapter->tx_ring[0];
-	__netif_tx_lock_bh(tx_ring->txq);
+	bh = __netif_tx_lock_bh(tx_ring->txq);
 
 	producer = tx_ring->producer;
 
@@ -405,7 +406,7 @@ qlcnic_send_cmd_descs(struct qlcnic_adapter *adapter,
 				netif_tx_wake_queue(tx_ring->txq);
 		} else {
 			adapter->stats.xmit_off++;
-			__netif_tx_unlock_bh(tx_ring->txq);
+			__netif_tx_unlock_bh(tx_ring->txq, bh);
 			return -EBUSY;
 		}
 	}
@@ -429,7 +430,7 @@ qlcnic_send_cmd_descs(struct qlcnic_adapter *adapter,
 
 	qlcnic_update_cmd_producer(tx_ring);
 
-	__netif_tx_unlock_bh(tx_ring->txq);
+	__netif_tx_unlock_bh(tx_ring->txq, bh);
 
 	return 0;
 }

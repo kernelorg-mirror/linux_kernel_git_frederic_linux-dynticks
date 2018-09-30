@@ -1878,6 +1878,7 @@ cq_err:
 
 void mlx4_en_stop_port(struct net_device *dev, int detach)
 {
+	unsigned int bh;
 	struct mlx4_en_priv *priv = netdev_priv(dev);
 	struct mlx4_en_dev *mdev = priv->mdev;
 	struct mlx4_en_mc_list *mclist, *tmp;
@@ -1894,11 +1895,11 @@ void mlx4_en_stop_port(struct net_device *dev, int detach)
 	mlx4_CLOSE_PORT(mdev->dev, priv->port);
 
 	/* Synchronize with tx routine */
-	netif_tx_lock_bh(dev);
+	bh = netif_tx_lock_bh(dev);
 	if (detach)
 		netif_device_detach(dev);
 	netif_tx_stop_all_queues(dev);
-	netif_tx_unlock_bh(dev);
+	netif_tx_unlock_bh(dev, bh);
 
 	netif_tx_disable(dev);
 

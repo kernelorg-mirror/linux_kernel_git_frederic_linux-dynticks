@@ -296,11 +296,12 @@ static void emac_rx_disable(struct emac_instance *dev)
 
 static inline void emac_netif_stop(struct emac_instance *dev)
 {
-	netif_tx_lock_bh(dev->ndev);
+	unsigned int bh;
+	bh = netif_tx_lock_bh(dev->ndev);
 	netif_addr_lock(dev->ndev);
 	dev->no_mcast = 1;
 	netif_addr_unlock(dev->ndev);
-	netif_tx_unlock_bh(dev->ndev);
+	netif_tx_unlock_bh(dev->ndev, bh);
 	netif_trans_update(dev->ndev);	/* prevent tx timeout */
 	mal_poll_disable(dev->mal, &dev->commac);
 	netif_tx_disable(dev->ndev);
@@ -308,13 +309,14 @@ static inline void emac_netif_stop(struct emac_instance *dev)
 
 static inline void emac_netif_start(struct emac_instance *dev)
 {
-	netif_tx_lock_bh(dev->ndev);
+	unsigned int bh;
+	bh = netif_tx_lock_bh(dev->ndev);
 	netif_addr_lock(dev->ndev);
 	dev->no_mcast = 0;
 	if (dev->mcast_pending && netif_running(dev->ndev))
 		__emac_set_multicast_list(dev);
 	netif_addr_unlock(dev->ndev);
-	netif_tx_unlock_bh(dev->ndev);
+	netif_tx_unlock_bh(dev->ndev, bh);
 
 	netif_wake_queue(dev->ndev);
 
@@ -1607,6 +1609,7 @@ static void emac_parse_tx_error(struct emac_instance *dev, u16 ctrl)
 
 static void emac_poll_tx(void *param)
 {
+	unsigned int bh;
 	struct emac_instance *dev = param;
 	u32 bad_mask;
 
@@ -1617,7 +1620,7 @@ static void emac_poll_tx(void *param)
 	else
 		bad_mask = EMAC_IS_BAD_TX;
 
-	netif_tx_lock_bh(dev->ndev);
+	bh = netif_tx_lock_bh(dev->ndev);
 	if (dev->tx_cnt) {
 		u16 ctrl;
 		int slot = dev->ack_slot, n = 0;
@@ -1648,7 +1651,7 @@ static void emac_poll_tx(void *param)
 			DBG2(dev, "tx %d pkts" NL, n);
 		}
 	}
-	netif_tx_unlock_bh(dev->ndev);
+	netif_tx_unlock_bh(dev->ndev, bh);
 }
 
 static inline void emac_recycle_rx_skb(struct emac_instance *dev, int slot,

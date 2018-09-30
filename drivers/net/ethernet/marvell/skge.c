@@ -2653,6 +2653,7 @@ static void skge_rx_stop(struct skge_hw *hw, int port)
 
 static int skge_down(struct net_device *dev)
 {
+	unsigned int bh;
 	struct skge_port *skge = netdev_priv(dev);
 	struct skge_hw *hw = skge->hw;
 	int port = skge->port;
@@ -2718,9 +2719,9 @@ static int skge_down(struct net_device *dev)
 
 	skge_led(skge, LED_MODE_OFF);
 
-	netif_tx_lock_bh(dev);
+	bh = netif_tx_lock_bh(dev);
 	skge_tx_clean(dev);
-	netif_tx_unlock_bh(dev);
+	netif_tx_unlock_bh(dev, bh);
 
 	skge_rx_clean(skge);
 

@@ -111,6 +111,7 @@ static void __ipoib_mcast_schedule_join_thread(struct ipoib_dev_priv *priv,
 
 static void ipoib_mcast_free(struct ipoib_mcast *mcast)
 {
+	unsigned int bh;
 	struct net_device *dev = mcast->dev;
 	int tx_dropped = 0;
 
@@ -128,9 +129,9 @@ static void ipoib_mcast_free(struct ipoib_mcast *mcast)
 		dev_kfree_skb_any(skb_dequeue(&mcast->pkt_queue));
 	}
 
-	netif_tx_lock_bh(dev);
+	bh = netif_tx_lock_bh(dev);
 	dev->stats.tx_dropped += tx_dropped;
-	netif_tx_unlock_bh(dev);
+	netif_tx_unlock_bh(dev, bh);
 
 	kfree(mcast);
 }
@@ -211,6 +212,7 @@ static int __ipoib_mcast_add(struct net_device *dev, struct ipoib_mcast *mcast)
 static int ipoib_mcast_join_finish(struct ipoib_mcast *mcast,
 				   struct ib_sa_mcmember_rec *mcmember)
 {
+	unsigned int bh;
 	struct net_device *dev = mcast->dev;
 	struct ipoib_dev_priv *priv = ipoib_priv(dev);
 	struct rdma_netdev *rn = netdev_priv(dev);
@@ -304,11 +306,11 @@ static int ipoib_mcast_join_finish(struct ipoib_mcast *mcast,
 			mcast->mcmember.sl);
 
 	/* actually send any queued packets */
-	netif_tx_lock_bh(dev);
+	bh = netif_tx_lock_bh(dev);
 	while (!skb_queue_empty(&mcast->pkt_queue)) {
 		struct sk_buff *skb = skb_dequeue(&mcast->pkt_queue);
 
-		netif_tx_unlock_bh(dev);
+		netif_tx_unlock_bh(dev, bh);
 
 		skb->dev = dev;
 
@@ -316,9 +318,9 @@ static int ipoib_mcast_join_finish(struct ipoib_mcast *mcast,
 		if (ret)
 			ipoib_warn(priv, "%s:dev_queue_xmit failed to re-queue packet, ret:%d\n",
 				   __func__, ret);
-		netif_tx_lock_bh(dev);
+		bh = netif_tx_lock_bh(dev);
 	}
-	netif_tx_unlock_bh(dev);
+	netif_tx_unlock_bh(dev, bh);
 
 	return 0;
 }
@@ -367,6 +369,7 @@ void ipoib_mcast_carrier_on_task(struct work_struct *work)
 static int ipoib_mcast_join_complete(int status,
 				     struct ib_sa_multicast *multicast)
 {
+	unsigned int bh;
 	struct ipoib_mcast *mcast = multicast->context;
 	struct net_device *dev = mcast->dev;
 	struct ipoib_dev_priv *priv = ipoib_priv(dev);
@@ -435,12 +438,12 @@ static int ipoib_mcast_join_complete(int status,
 			 * is why the join thread ignores this group.
 			 */
 			mcast->backoff = 1;
-			netif_tx_lock_bh(dev);
+			bh = netif_tx_lock_bh(dev);
 			while (!skb_queue_empty(&mcast->pkt_queue)) {
 				++dev->stats.tx_dropped;
 				dev_kfree_skb_any(skb_dequeue(&mcast->pkt_queue));
 			}
-			netif_tx_unlock_bh(dev);
+			netif_tx_unlock_bh(dev, bh);
 		} else {
 			spin_lock_irq(&priv->lock);
 			/* Requeue this join task with a backoff delay */

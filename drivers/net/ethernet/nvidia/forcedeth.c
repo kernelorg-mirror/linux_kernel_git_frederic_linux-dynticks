@@ -3028,6 +3028,7 @@ static void set_bufsize(struct net_device *dev)
  */
 static int nv_change_mtu(struct net_device *dev, int new_mtu)
 {
+	unsigned int bh;
 	struct fe_priv *np = netdev_priv(dev);
 	int old_mtu;
 
@@ -3049,7 +3050,7 @@ static int nv_change_mtu(struct net_device *dev, int new_mtu)
 		 */
 		nv_disable_irq(dev);
 		nv_napi_disable(dev);
-		netif_tx_lock_bh(dev);
+		bh = netif_tx_lock_bh(dev);
 		netif_addr_lock(dev);
 		spin_lock(&np->lock);
 		/* stop engines */
@@ -3076,7 +3077,7 @@ static int nv_change_mtu(struct net_device *dev, int new_mtu)
 		nv_start_rxtx(dev);
 		spin_unlock(&np->lock);
 		netif_addr_unlock(dev);
-		netif_tx_unlock_bh(dev);
+		netif_tx_unlock_bh(dev, bh);
 		nv_napi_enable(dev);
 		nv_enable_irq(dev);
 	}
@@ -3102,6 +3103,7 @@ static void nv_copy_mac_to_hw(struct net_device *dev)
  */
 static int nv_set_mac_address(struct net_device *dev, void *addr)
 {
+	unsigned int bh;
 	struct fe_priv *np = netdev_priv(dev);
 	struct sockaddr *macaddr = (struct sockaddr *)addr;
 
@@ -3112,7 +3114,7 @@ static int nv_set_mac_address(struct net_device *dev, void *addr)
 	memcpy(dev->dev_addr, macaddr->sa_data, ETH_ALEN);
 
 	if (netif_running(dev)) {
-		netif_tx_lock_bh(dev);
+		bh = netif_tx_lock_bh(dev);
 		netif_addr_lock(dev);
 		spin_lock_irq(&np->lock);
 
@@ -3126,7 +3128,7 @@ static int nv_set_mac_address(struct net_device *dev, void *addr)
 		nv_start_rx(dev);
 		spin_unlock_irq(&np->lock);
 		netif_addr_unlock(dev);
-		netif_tx_unlock_bh(dev);
+		netif_tx_unlock_bh(dev, bh);
 	} else {
 		nv_copy_mac_to_hw(dev);
 	}
@@ -4088,6 +4090,7 @@ static void nv_free_irq(struct net_device *dev)
 
 static void nv_do_nic_poll(struct timer_list *t)
 {
+	unsigned int bh;
 	struct fe_priv *np = from_timer(np, t, nic_poll);
 	struct net_device *dev = np->dev;
 	u8 __iomem *base = get_hwbase(dev);
@@ -4129,7 +4132,7 @@ static void nv_do_nic_poll(struct timer_list *t)
 		np->recover_error = 0;
 		netdev_info(dev, "MAC in recoverable error state\n");
 		if (netif_running(dev)) {
-			netif_tx_lock_bh(dev);
+			bh = netif_tx_lock_bh(dev);
 			netif_addr_lock(dev);
 			spin_lock(&np->lock);
 			/* stop engines */
@@ -4163,7 +4166,7 @@ static void nv_do_nic_poll(struct timer_list *t)
 			nv_start_rxtx(dev);
 			spin_unlock(&np->lock);
 			netif_addr_unlock(dev);
-			netif_tx_unlock_bh(dev);
+			netif_tx_unlock_bh(dev, bh);
 		}
 	}
 
@@ -4346,6 +4349,7 @@ static int nv_get_link_ksettings(struct net_device *dev,
 static int nv_set_link_ksettings(struct net_device *dev,
 				 const struct ethtool_link_ksettings *cmd)
 {
+	unsigned int bh;
 	struct fe_priv *np = netdev_priv(dev);
 	u32 speed = cmd->base.speed;
 	u32 advertising;
@@ -4389,7 +4393,7 @@ static int nv_set_link_ksettings(struct net_device *dev,
 		unsigned long flags;
 
 		nv_disable_irq(dev);
-		netif_tx_lock_bh(dev);
+		bh = netif_tx_lock_bh(dev);
 		netif_addr_lock(dev);
 		/* with plain spinlock lockdep complains */
 		spin_lock_irqsave(&np->lock, flags);
@@ -4405,7 +4409,7 @@ static int nv_set_link_ksettings(struct net_device *dev,
 		nv_stop_rxtx(dev);
 		spin_unlock_irqrestore(&np->lock, flags);
 		netif_addr_unlock(dev);
-		netif_tx_unlock_bh(dev);
+		netif_tx_unlock_bh(dev, bh);
 	}
 
 	if (cmd->base.autoneg == AUTONEG_ENABLE) {
@@ -4540,6 +4544,7 @@ static void nv_get_regs(struct net_device *dev, struct ethtool_regs *regs, void 
 
 static int nv_nway_reset(struct net_device *dev)
 {
+	unsigned int bh;
 	struct fe_priv *np = netdev_priv(dev);
 	int ret;
 
@@ -4549,14 +4554,14 @@ static int nv_nway_reset(struct net_device *dev)
 		netif_carrier_off(dev);
 		if (netif_running(dev)) {
 			nv_disable_irq(dev);
-			netif_tx_lock_bh(dev);
+			bh = netif_tx_lock_bh(dev);
 			netif_addr_lock(dev);
 			spin_lock(&np->lock);
 			/* stop engines */
 			nv_stop_rxtx(dev);
 			spin_unlock(&np->lock);
 			netif_addr_unlock(dev);
-			netif_tx_unlock_bh(dev);
+			netif_tx_unlock_bh(dev, bh);
 			netdev_info(dev, "link down\n");
 		}
 
@@ -4598,6 +4603,7 @@ static void nv_get_ringparam(struct net_device *dev, struct ethtool_ringparam* r
 
 static int nv_set_ringparam(struct net_device *dev, struct ethtool_ringparam* ring)
 {
+	unsigned int bh;
 	struct fe_priv *np = netdev_priv(dev);
 	u8 __iomem *base = get_hwbase(dev);
 	u8 *rxtx_ring, *rx_skbuff, *tx_skbuff;
@@ -4660,7 +4666,7 @@ static int nv_set_ringparam(struct net_device *dev, struct ethtool_ringparam* ri
 	if (netif_running(dev)) {
 		nv_disable_irq(dev);
 		nv_napi_disable(dev);
-		netif_tx_lock_bh(dev);
+		bh = netif_tx_lock_bh(dev);
 		netif_addr_lock(dev);
 		spin_lock(&np->lock);
 		/* stop engines */
@@ -4711,7 +4717,7 @@ static int nv_set_ringparam(struct net_device *dev, struct ethtool_ringparam* ri
 		nv_start_rxtx(dev);
 		spin_unlock(&np->lock);
 		netif_addr_unlock(dev);
-		netif_tx_unlock_bh(dev);
+		netif_tx_unlock_bh(dev, bh);
 		nv_napi_enable(dev);
 		nv_enable_irq(dev);
 	}
@@ -4731,6 +4737,7 @@ static void nv_get_pauseparam(struct net_device *dev, struct ethtool_pauseparam*
 
 static int nv_set_pauseparam(struct net_device *dev, struct ethtool_pauseparam* pause)
 {
+	unsigned int bh;
 	struct fe_priv *np = netdev_priv(dev);
 	int adv, bmcr;
 
@@ -4747,14 +4754,14 @@ static int nv_set_pauseparam(struct net_device *dev, struct ethtool_pauseparam* 
 	netif_carrier_off(dev);
 	if (netif_running(dev)) {
 		nv_disable_irq(dev);
-		netif_tx_lock_bh(dev);
+		bh = netif_tx_lock_bh(dev);
 		netif_addr_lock(dev);
 		spin_lock(&np->lock);
 		/* stop engines */
 		nv_stop_rxtx(dev);
 		spin_unlock(&np->lock);
 		netif_addr_unlock(dev);
-		netif_tx_unlock_bh(dev);
+		netif_tx_unlock_bh(dev, bh);
 	}
 
 	np->pause_flags &= ~(NV_PAUSEFRAME_RX_REQ|NV_PAUSEFRAME_TX_REQ);
@@ -5190,6 +5197,7 @@ static int nv_loopback_test(struct net_device *dev)
 
 static void nv_self_test(struct net_device *dev, struct ethtool_test *test, u64 *buffer)
 {
+	unsigned int bh;
 	struct fe_priv *np = netdev_priv(dev);
 	u8 __iomem *base = get_hwbase(dev);
 	int result, count;
@@ -5206,7 +5214,7 @@ static void nv_self_test(struct net_device *dev, struct ethtool_test *test, u64 
 		if (netif_running(dev)) {
 			netif_stop_queue(dev);
 			nv_napi_disable(dev);
-			netif_tx_lock_bh(dev);
+			bh = netif_tx_lock_bh(dev);
 			netif_addr_lock(dev);
 			spin_lock_irq(&np->lock);
 			nv_disable_hw_interrupts(dev, np->irqmask);
@@ -5221,7 +5229,7 @@ static void nv_self_test(struct net_device *dev, struct ethtool_test *test, u64 
 			nv_drain_rxtx(dev);
 			spin_unlock_irq(&np->lock);
 			netif_addr_unlock(dev);
-			netif_tx_unlock_bh(dev);
+			netif_tx_unlock_bh(dev, bh);
 		}
 
 		if (!nv_register_test(dev)) {

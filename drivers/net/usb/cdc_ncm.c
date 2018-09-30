@@ -296,6 +296,7 @@ static ssize_t ndp_to_end_show(struct device *d, struct device_attribute *attr, 
 
 static ssize_t ndp_to_end_store(struct device *d,  struct device_attribute *attr, const char *buf, size_t len)
 {
+	unsigned int bh;
 	struct usbnet *dev = netdev_priv(to_net_dev(d));
 	struct cdc_ncm_ctx *ctx = (struct cdc_ncm_ctx *)dev->data[0];
 	bool enable;
@@ -314,7 +315,7 @@ static ssize_t ndp_to_end_store(struct device *d,  struct device_attribute *attr
 	}
 
 	/* flush pending data before changing flag */
-	netif_tx_lock_bh(dev->net);
+	bh = netif_tx_lock_bh(dev->net);
 	usbnet_start_xmit(NULL, dev->net);
 	spin_lock_bh(&ctx->mtx);
 	if (enable)
@@ -322,7 +323,7 @@ static ssize_t ndp_to_end_store(struct device *d,  struct device_attribute *attr
 	else
 		ctx->drvflags &= ~CDC_NCM_FLAG_NDP_TO_END;
 	spin_unlock_bh(&ctx->mtx);
-	netif_tx_unlock_bh(dev->net);
+	netif_tx_unlock_bh(dev->net, bh);
 
 	return len;
 }
@@ -375,6 +376,7 @@ static const struct attribute_group cdc_ncm_sysfs_attr_group = {
 /* handle rx_max and tx_max changes */
 static void cdc_ncm_update_rxtx_max(struct usbnet *dev, u32 new_rx, u32 new_tx)
 {
+	unsigned int bh;
 	struct cdc_ncm_ctx *ctx = (struct cdc_ncm_ctx *)dev->data[0];
 	u8 iface_no = ctx->control->cur_altsetting->desc.bInterfaceNumber;
 	u32 val;
@@ -421,7 +423,7 @@ static void cdc_ncm_update_rxtx_max(struct usbnet *dev, u32 new_rx, u32 new_tx)
 
 	/* we might need to flush any pending tx buffers if running */
 	if (netif_running(dev->net) && val > ctx->tx_max) {
-		netif_tx_lock_bh(dev->net);
+		bh = netif_tx_lock_bh(dev->net);
 		usbnet_start_xmit(NULL, dev->net);
 		/* make sure tx_curr_skb is reallocated if it was empty */
 		if (ctx->tx_curr_skb) {
@@ -429,7 +431,7 @@ static void cdc_ncm_update_rxtx_max(struct usbnet *dev, u32 new_rx, u32 new_tx)
 			ctx->tx_curr_skb = NULL;
 		}
 		ctx->tx_max = val;
-		netif_tx_unlock_bh(dev->net);
+		netif_tx_unlock_bh(dev->net, bh);
 	} else {
 		ctx->tx_max = val;
 	}
@@ -1359,6 +1361,7 @@ static enum hrtimer_restart cdc_ncm_tx_timer_cb(struct hrtimer *timer)
 
 static void cdc_ncm_txpath_bh(unsigned long param)
 {
+	unsigned int bh;
 	struct usbnet *dev = (struct usbnet *)param;
 	struct cdc_ncm_ctx *ctx = (struct cdc_ncm_ctx *)dev->data[0];
 
@@ -1370,9 +1373,9 @@ static void cdc_ncm_txpath_bh(unsigned long param)
 	} else if (dev->net != NULL) {
 		ctx->tx_reason_timeout++;	/* count reason for transmitting */
 		spin_unlock_bh(&ctx->mtx);
-		netif_tx_lock_bh(dev->net);
+		bh = netif_tx_lock_bh(dev->net);
 		usbnet_start_xmit(NULL, dev->net);
-		netif_tx_unlock_bh(dev->net);
+		netif_tx_unlock_bh(dev->net, bh);
 	} else {
 		spin_unlock_bh(&ctx->mtx);
 	}
