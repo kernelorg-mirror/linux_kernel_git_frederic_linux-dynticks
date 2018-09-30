@@ -188,7 +188,7 @@ union  ia64_rr {
  * state comes earlier:
  */
 struct cpuinfo_ia64 {
-	unsigned int softirq_pending;
+	unsigned int softirq_data;
 	unsigned long itm_delta;	/* # of clock cycles between clock ticks */
 	unsigned long itm_next;		/* interval timer mask value to use for next clock tick */
 	unsigned long nsec_per_cyc;	/* (1000000000<<IA64_NSEC_PER_CYC_SHIFT)/itc_freq */
