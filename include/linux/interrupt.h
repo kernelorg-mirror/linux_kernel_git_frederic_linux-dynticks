@@ -468,18 +468,62 @@ enum
 #define SOFTIRQ_STOP_IDLE_MASK (~(1 << RCU_SOFTIRQ))
 #define SOFTIRQ_ALL_MASK (BIT(NR_SOFTIRQS) - 1)
 
-#ifndef local_softirq_pending
+#define SOFTIRQ_ENABLED_SHIFT 16
+#define SOFTIRQ_PENDING_MASK (BIT(SOFTIRQ_ENABLED_SHIFT) - 1)
+
+
+#ifndef local_softirq_data
 
 #ifndef local_softirq_data_ref
 #define local_softirq_data_ref irq_stat.__softirq_data
 #endif
 
-#define local_softirq_pending()	(__this_cpu_read(local_softirq_data_ref))
-#define softirq_pending_nand(x)	(__this_cpu_and(local_softirq_data_ref, ~(x)))
-#define softirq_pending_or(x)	(__this_cpu_or(local_softirq_data_ref, (x)))
+static inline unsigned int local_softirq_data(void)
+{
+	return __this_cpu_read(local_softirq_data_ref);
+}
 
+static inline unsigned int local_softirq_enabled(void)
+{
+	return local_softirq_data() >> SOFTIRQ_ENABLED_SHIFT;
+}
+
+static inline unsigned int local_softirq_pending(void)
+{
+	return local_softirq_data() & SOFTIRQ_PENDING_MASK;
+}
+
+static inline void softirq_enabled_nand(unsigned int enabled)
+{
+	enabled <<= SOFTIRQ_ENABLED_SHIFT;
+	__this_cpu_and(local_softirq_data_ref, ~enabled);
+}
+
+static inline void softirq_enabled_or(unsigned int enabled)
+{
+	enabled <<= SOFTIRQ_ENABLED_SHIFT;
+	__this_cpu_or(local_softirq_data_ref, enabled);
+}
+
+static inline void softirq_enabled_set(unsigned int enabled)
+{
+	unsigned int data;
+
+	data = enabled << SOFTIRQ_ENABLED_SHIFT;
+	data |= local_softirq_pending();
+	__this_cpu_write(local_softirq_data_ref, data);
+}
+
+static inline void softirq_pending_nand(unsigned int pending)
+{
+	__this_cpu_and(local_softirq_data_ref, ~pending);
+}
+
+static inline void softirq_pending_or(unsigned int pending)
+{
+	__this_cpu_or(local_softirq_data_ref, pending);
+}
 #endif /* local_softirq_pending */
-
 
 /* map softirq index to softirq name. update 'softirq_to_name' in
  * kernel/softirq.c when adding a new softirq.
