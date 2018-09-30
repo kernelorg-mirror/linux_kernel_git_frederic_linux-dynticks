@@ -127,7 +127,7 @@ struct lowcore {
 
 	/* SMP info area */
 	__u32	cpu_nr;				/* 0x0398 */
-	__u32	softirq_pending;		/* 0x039c */
+	__u32	softirq_data;			/* 0x039c */
 	__u32	preempt_count;			/* 0x03a0 */
 	__u32	spinlock_lockval;		/* 0x03a4 */
 	__u32	spinlock_index;			/* 0x03a8 */

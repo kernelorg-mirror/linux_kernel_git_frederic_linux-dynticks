@@ -9,7 +9,7 @@
 #define NR_IPI	7
 
 typedef struct {
-	unsigned int __softirq_pending;
+	unsigned int __softirq_data;
 #ifdef CONFIG_SMP
 	unsigned int ipi_irqs[NR_IPI];
 #endif
