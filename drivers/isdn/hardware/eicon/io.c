@@ -202,6 +202,7 @@ dump_trap_frame(PISDN_ADAPTER IoAdapter, byte __iomem *exceptionFrame)
    -------------------------------------------------------------------------- */
 void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 {
+	unsigned int bh;
 	byte i;
 	diva_os_spin_lock_magic_t irql;
 /*
@@ -222,7 +223,7 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 				pI->descriptor_number = -1;
 				return;
 			}
-			diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql, "dma_op");
+			bh = diva_enter_spin_lock(&IoAdapter->data_spin_lock, &irql, "dma_op");
 			if (pI->operation == IDI_SYNC_REQ_DMA_DESCRIPTOR_ALLOC) {
 				pI->descriptor_number = diva_alloc_dma_map_entry(\
 					(struct _diva_dma_map_entry *)IoAdapter->dma_map);
@@ -249,7 +250,7 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 				pI->descriptor_number = -1;
 				pI->operation         = -1;
 			}
-			diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "dma_op");
+			diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "dma_op", bh);
 		} return;
 #endif
 		case IDI_SYNC_REQ_XDI_GET_LOGICAL_ADAPTER_NUMBER: {
@@ -373,7 +374,8 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 			DBG_FTL(("xdi: uninitialized Adapter used - ignore request"))
 				return;
 		}
-	diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req");
+	bh = diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql,
+				     "data_req");
 /*
  * assign an entity
  */
@@ -383,7 +385,8 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 		{
 			DBG_FTL(("xdi: all Ids in use (max=%d) --> Req ignored",
 				 IoAdapter->e_max))
-				diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req");
+				diva_os_leave_spin_lock(&IoAdapter->data_spin_lock,
+							&irql, "data_req", bh);
 			return;
 		}
 /*
@@ -416,7 +419,8 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
 					(*(IoAdapter->os_trap_nfy_Fnc))(IoAdapter, IoAdapter->ANum);
 				}
 			}
-		diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req");
+		diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql,
+					"data_req", bh);
 		return;
 	}
 /*
@@ -444,12 +448,14 @@ void request(PISDN_ADAPTER IoAdapter, ENTITY *e)
  * queue the DPC to process the request
  */
 	diva_os_schedule_soft_isr(&IoAdapter->req_soft_isr);
-	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req");
+	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req",
+				bh);
 }
 /* ---------------------------------------------------------------------
    Main DPC routine
    --------------------------------------------------------------------- */
 void DIDpcRoutine(struct _diva_os_soft_isr *psoft_isr, void *Context) {
+	unsigned int bh;
 	PISDN_ADAPTER IoAdapter = (PISDN_ADAPTER)Context;
 	ADAPTER *a = &IoAdapter->a;
 	diva_os_atomic_t *pin_dpc = &IoAdapter->in_dpc;
@@ -469,9 +475,8 @@ void DIDpcRoutine(struct _diva_os_soft_isr *psoft_isr, void *Context) {
 		if (IoAdapter->pcm_pending) {
 			struct pc_maint *pcm;
 			diva_os_spin_lock_magic_t OldIrql;
-			diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
-						&OldIrql,
-						"data_dpc");
+			bh = diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
+						     &OldIrql, "data_dpc");
 			pcm = (struct pc_maint *)IoAdapter->pcm_data;
 			switch (IoAdapter->pcm_pending) {
 			case 1: /* ask card for XLOG */
@@ -489,8 +494,7 @@ void DIDpcRoutine(struct _diva_os_soft_isr *psoft_isr, void *Context) {
 				break;
 			}
 			diva_os_leave_spin_lock(&IoAdapter->data_spin_lock,
-						&OldIrql,
-						"data_dpc");
+						&OldIrql, "data_dpc", bh);
 		}
 		/* ---------------------------------------------------------------- */
 	}
@@ -501,6 +505,7 @@ void DIDpcRoutine(struct _diva_os_soft_isr *psoft_isr, void *Context) {
 static void
 pcm_req(PISDN_ADAPTER IoAdapter, ENTITY *e)
 {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t OldIrql;
 	int              i, rc;
 	ADAPTER         *a = &IoAdapter->a;
@@ -511,45 +516,43 @@ pcm_req(PISDN_ADAPTER IoAdapter, ENTITY *e)
  */
 	if (IoAdapter->Properties.Card == CARD_MAE)
 	{
-		diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
-					&OldIrql,
-					"data_pcm_1");
+		bh = diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
+					     &OldIrql, "data_pcm_1");
 		IoAdapter->pcm_data = (void *)pcm;
 		IoAdapter->pcm_pending = 1;
 		diva_os_schedule_soft_isr(&IoAdapter->req_soft_isr);
-		diva_os_leave_spin_lock(&IoAdapter->data_spin_lock,
-					&OldIrql,
-					"data_pcm_1");
+		diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &OldIrql,
+					"data_pcm_1", bh);
 		for (rc = 0, i = (IoAdapter->trapped ? 3000 : 250); !rc && (i > 0); --i)
 		{
 			diva_os_sleep(1);
 			if (IoAdapter->pcm_pending == 3) {
-				diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
+				bh = diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
 							&OldIrql,
 							"data_pcm_3");
 				IoAdapter->pcm_pending = 0;
 				IoAdapter->pcm_data    = NULL;
 				diva_os_leave_spin_lock(&IoAdapter->data_spin_lock,
 							&OldIrql,
-							"data_pcm_3");
+							"data_pcm_3", bh);
 				return;
 			}
-			diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
+			bh = diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
 						&OldIrql,
 						"data_pcm_2");
 			diva_os_schedule_soft_isr(&IoAdapter->req_soft_isr);
 			diva_os_leave_spin_lock(&IoAdapter->data_spin_lock,
 						&OldIrql,
-						"data_pcm_2");
+						"data_pcm_2", bh);
 		}
-		diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
+		bh = diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
 					&OldIrql,
 					"data_pcm_4");
 		IoAdapter->pcm_pending = 0;
 		IoAdapter->pcm_data    = NULL;
 		diva_os_leave_spin_lock(&IoAdapter->data_spin_lock,
 					&OldIrql,
-					"data_pcm_4");
+					"data_pcm_4", bh);
 		goto Trapped;
 	}
 /*
@@ -755,48 +758,55 @@ void io_inc(ADAPTER *a, void *adr)
 /*------------------------------------------------------------------*/
 void free_entity(ADAPTER *a, byte e_no)
 {
+	unsigned int bh;
 	PISDN_ADAPTER IoAdapter;
 	diva_os_spin_lock_magic_t irql;
 	IoAdapter = (PISDN_ADAPTER) a->io;
-	diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_free");
+	bh = diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql,
+				     "data_free");
 	IoAdapter->e_tbl[e_no].e = NULL;
 	IoAdapter->e_count--;
-	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_free");
+	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql,
+				"data_free", bh);
 }
 void assign_queue(ADAPTER *a, byte e_no, word ref)
 {
+	unsigned int bh;
 	PISDN_ADAPTER IoAdapter;
 	diva_os_spin_lock_magic_t irql;
 	IoAdapter = (PISDN_ADAPTER) a->io;
-	diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_assign");
+	bh = diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql,
+				     "data_assign");
 	IoAdapter->e_tbl[e_no].assign_ref = ref;
 	IoAdapter->e_tbl[e_no].next = (byte)IoAdapter->assign;
 	IoAdapter->assign = e_no;
-	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_assign");
+	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql,
+				"data_assign", bh);
 }
 byte get_assign(ADAPTER *a, word ref)
 {
+	unsigned int bh;
 	PISDN_ADAPTER IoAdapter;
 	diva_os_spin_lock_magic_t irql;
 	byte e_no;
 	IoAdapter = (PISDN_ADAPTER) a->io;
-	diva_os_enter_spin_lock(&IoAdapter->data_spin_lock,
-				&irql,
-				"data_assign_get");
+	bh = diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql,
+				     "data_assign_get");
 	for (e_no = (byte)IoAdapter->assign;
 	    e_no && IoAdapter->e_tbl[e_no].assign_ref != ref;
 	    e_no = IoAdapter->e_tbl[e_no].next);
-	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock,
-				&irql,
-				"data_assign_get");
+	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql,
+				"data_assign_get", bh);
 	return e_no;
 }
 void req_queue(ADAPTER *a, byte e_no)
 {
+	unsigned int bh;
 	PISDN_ADAPTER IoAdapter;
 	diva_os_spin_lock_magic_t irql;
 	IoAdapter = (PISDN_ADAPTER) a->io;
-	diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req_q");
+	bh = diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql,
+				     "data_req_q");
 	IoAdapter->e_tbl[e_no].next = 0;
 	if (IoAdapter->head) {
 		IoAdapter->e_tbl[IoAdapter->tail].next = e_no;
@@ -806,7 +816,8 @@ void req_queue(ADAPTER *a, byte e_no)
 		IoAdapter->head = e_no;
 		IoAdapter->tail = e_no;
 	}
-	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req_q");
+	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql,
+				"data_req_q", bh);
 }
 byte look_req(ADAPTER *a)
 {
@@ -816,13 +827,16 @@ byte look_req(ADAPTER *a)
 }
 void next_req(ADAPTER *a)
 {
+	unsigned int bh;
 	PISDN_ADAPTER IoAdapter;
 	diva_os_spin_lock_magic_t irql;
 	IoAdapter = (PISDN_ADAPTER) a->io;
-	diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req_next");
+	bh = diva_os_enter_spin_lock(&IoAdapter->data_spin_lock, &irql,
+				     "data_req_next");
 	IoAdapter->head = IoAdapter->e_tbl[IoAdapter->head].next;
 	if (!IoAdapter->head) IoAdapter->tail = 0;
-	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql, "data_req_next");
+	diva_os_leave_spin_lock(&IoAdapter->data_spin_lock, &irql,
+				"data_req_next", bh);
 }
 /*------------------------------------------------------------------*/
 /* memory map functions                                             */

@@ -60,20 +60,21 @@ static diva_os_spin_lock_t ll_lock;
  */
 static udiva_card *find_card_in_list(DESCRIPTOR *d)
 {
+	unsigned int bh;
 	udiva_card *card;
 	struct list_head *tmp;
 	diva_os_spin_lock_magic_t old_irql;
 
-	diva_os_enter_spin_lock(&ll_lock, &old_irql, "find card");
+	bh = diva_os_enter_spin_lock(&ll_lock, &old_irql, "find card");
 	list_for_each(tmp, &cards) {
 		card = list_entry(tmp, udiva_card, list);
 		if (card->d.request == d->request) {
 			diva_os_leave_spin_lock(&ll_lock, &old_irql,
-						"find card");
+						"find card", bh);
 			return (card);
 		}
 	}
-	diva_os_leave_spin_lock(&ll_lock, &old_irql, "find card");
+	diva_os_leave_spin_lock(&ll_lock, &old_irql, "find card", bh);
 	return ((udiva_card *) NULL);
 }
 
@@ -82,6 +83,7 @@ static udiva_card *find_card_in_list(DESCRIPTOR *d)
  */
 static void um_new_card(DESCRIPTOR *d)
 {
+	unsigned int bh;
 	int adapter_nr = 0;
 	udiva_card *card = NULL;
 	IDI_SYNC_REQ sync_req;
@@ -100,9 +102,9 @@ static void um_new_card(DESCRIPTOR *d)
 		sync_req.xdi_logical_adapter_number.info.logical_adapter_number;
 	card->Id = adapter_nr;
 	if (!(diva_user_mode_idi_create_adapter(d, adapter_nr))) {
-		diva_os_enter_spin_lock(&ll_lock, &old_irql, "add card");
+		bh = diva_os_enter_spin_lock(&ll_lock, &old_irql, "add card");
 		list_add_tail(&card->list, &cards);
-		diva_os_leave_spin_lock(&ll_lock, &old_irql, "add card");
+		diva_os_leave_spin_lock(&ll_lock, &old_irql, "add card", bh);
 	} else {
 		DBG_ERR(("could not create user mode idi card %d",
 			 adapter_nr));
@@ -115,6 +117,7 @@ static void um_new_card(DESCRIPTOR *d)
  */
 static void um_remove_card(DESCRIPTOR *d)
 {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t old_irql;
 	udiva_card *card = NULL;
 
@@ -123,9 +126,9 @@ static void um_remove_card(DESCRIPTOR *d)
 		return;
 	}
 	diva_user_mode_idi_remove_adapter(card->Id);
-	diva_os_enter_spin_lock(&ll_lock, &old_irql, "remove card");
+	bh = diva_os_enter_spin_lock(&ll_lock, &old_irql, "remove card");
 	list_del(&card->list);
-	diva_os_leave_spin_lock(&ll_lock, &old_irql, "remove card");
+	diva_os_leave_spin_lock(&ll_lock, &old_irql, "remove card", bh);
 	DBG_LOG(("idi proc entry removed for card %d", card->Id));
 	diva_os_free(0, card);
 }
@@ -135,11 +138,12 @@ static void um_remove_card(DESCRIPTOR *d)
  */
 static void __exit remove_all_idi_proc(void)
 {
+	unsigned int bh;
 	udiva_card *card;
 	diva_os_spin_lock_magic_t old_irql;
 
 rescan:
-	diva_os_enter_spin_lock(&ll_lock, &old_irql, "remove all");
+	bh = diva_os_enter_spin_lock(&ll_lock, &old_irql, "remove all");
 	if (!list_empty(&cards)) {
 		card = list_entry(cards.next, udiva_card, list);
 		list_del(&card->list);
@@ -148,7 +152,7 @@ rescan:
 		diva_os_free(0, card);
 		goto rescan;
 	}
-	diva_os_leave_spin_lock(&ll_lock, &old_irql, "remove all");
+	diva_os_leave_spin_lock(&ll_lock, &old_irql, "remove all", bh);
 }
 
 /*

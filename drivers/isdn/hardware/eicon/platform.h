@@ -235,12 +235,13 @@ typedef long diva_os_spin_lock_magic_t;
 typedef spinlock_t diva_os_spin_lock_t;
 static __inline__ int diva_os_initialize_spin_lock(spinlock_t *lock, void *unused) { \
 	spin_lock_init(lock); return (0); }
-static __inline__ void diva_os_enter_spin_lock(diva_os_spin_lock_t *a, \
-					       diva_os_spin_lock_magic_t *old_irql, \
-					       void *dbg) { spin_lock_bh(a); }
+static __inline__ unsigned int diva_os_enter_spin_lock(diva_os_spin_lock_t *a, \
+						       diva_os_spin_lock_magic_t *old_irql, \
+						       void *dbg) { spin_lock_bh(a); }
 static __inline__ void diva_os_leave_spin_lock(diva_os_spin_lock_t *a, \
 					       diva_os_spin_lock_magic_t *old_irql, \
-					       void *dbg) { spin_unlock_bh(a); }
+					       void *dbg,
+					       unsigned int bh) { spin_unlock_bh(a); }
 
 #define diva_os_destroy_spin_lock(a, b) do { } while (0)
 

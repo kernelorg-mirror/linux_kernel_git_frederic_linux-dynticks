@@ -137,6 +137,7 @@ int maint_read_write(void __user *buf, int count)
 {
 	byte data[128];
 	dword cmd, id, mask;
+	unsigned int bh;
 	int ret = 0;
 
 	if (count < (3 * sizeof(dword)))
@@ -218,17 +219,17 @@ int maint_read_write(void __user *buf, int count)
 
 		for (;;) {
 			if (!(pmsg =
-			      diva_maint_get_message(&size, &old_irql))) {
+			      diva_maint_get_message(&size, &old_irql, &bh))) {
 				break;
 			}
 			if (size > mask) {
-				diva_maint_ack_message(0, &old_irql);
+				diva_maint_ack_message(0, &old_irql, bh);
 				ret = -EINVAL;
 				break;
 			}
 			ret = size;
 			memcpy(pbuf, pmsg, size);
-			diva_maint_ack_message(1, &old_irql);
+			diva_maint_ack_message(1, &old_irql, bh);
 			if ((count < size) ||
 			    diva_os_copy_to_user(NULL, buf, (void *) pbuf, size))
 				ret = -EFAULT;
@@ -255,11 +256,11 @@ int maint_read_write(void __user *buf, int count)
 
 		for (;;) {
 			if (!(pmsg =
-			      diva_maint_get_message(&size, &old_irql))) {
+			      diva_maint_get_message(&size, &old_irql, &bh))) {
 				break;
 			}
 			if ((size + 8) > mask) {
-				diva_maint_ack_message(0, &old_irql);
+				diva_maint_ack_message(0, &old_irql, bh);
 				break;
 			}
 			/*
@@ -273,7 +274,7 @@ int maint_read_write(void __user *buf, int count)
 			  Write message
 			*/
 			memcpy(&pbuf[written], pmsg, size);
-			diva_maint_ack_message(1, &old_irql);
+			diva_maint_ack_message(1, &old_irql, bh);
 			written += size;
 			mask -= (size + 4);
 		}

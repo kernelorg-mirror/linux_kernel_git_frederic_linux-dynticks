@@ -307,19 +307,20 @@ dword diva_dbg_q_length(void) {
   entry.
 */
 diva_dbg_entry_head_t *diva_maint_get_message(word *size,
-					      diva_os_spin_lock_magic_t *old_irql) {
+					      diva_os_spin_lock_magic_t *old_irql,
+					      unsigned int *bh) {
 	diva_dbg_entry_head_t *pmsg = NULL;
 
-	diva_os_enter_spin_lock(&dbg_q_lock, old_irql, "read");
+	*bh = diva_os_enter_spin_lock(&dbg_q_lock, old_irql, "read");
 	if (dbg_q_busy) {
-		diva_os_leave_spin_lock(&dbg_q_lock, old_irql, "read_busy");
+		diva_os_leave_spin_lock(&dbg_q_lock, old_irql, "read_busy", *bh);
 		return NULL;
 	}
 	dbg_q_busy = 1;
 
 	if (!(pmsg = (diva_dbg_entry_head_t *)queuePeekMsg(dbg_queue, size))) {
 		dbg_q_busy = 0;
-		diva_os_leave_spin_lock(&dbg_q_lock, old_irql, "read_empty");
+		diva_os_leave_spin_lock(&dbg_q_lock, old_irql, "read_empty", *bh);
 	}
 
 	return (pmsg);
@@ -330,7 +331,8 @@ diva_dbg_entry_head_t *diva_maint_get_message(word *size,
   acknowledge last message and unlock queue
 */
 void diva_maint_ack_message(int do_release,
-			    diva_os_spin_lock_magic_t *old_irql) {
+			    diva_os_spin_lock_magic_t *old_irql,
+			    unsigned int bh) {
 	if (!dbg_q_busy) {
 		return;
 	}
@@ -338,7 +340,7 @@ void diva_maint_ack_message(int do_release,
 		queueFreeMsg(dbg_queue);
 	}
 	dbg_q_busy = 0;
-	diva_os_leave_spin_lock(&dbg_q_lock, old_irql, "read_ack");
+	diva_os_leave_spin_lock(&dbg_q_lock, old_irql, "read_ack", bh);
 }
 
 
@@ -369,6 +371,7 @@ void diva_maint_prtComp(char *format, ...) {
 }
 
 static void DI_register(void *arg) {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t old_irql;
 	dword sec, usec;
 	pDbgHandle	hDbg;
@@ -386,14 +389,15 @@ static void DI_register(void *arg) {
 		return;
 	}
 
-	diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "register");
+	bh = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "register");
 
 	for (id = 1; id < ARRAY_SIZE(clients); id++) {
 		if (clients[id].hDbg == hDbg) {
 			/*
 			  driver already registered
 			*/
-			diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register");
+			diva_os_leave_spin_lock(&dbg_q_lock, &old_irql,
+						"register", bh);
 			return;
 		}
 		if (clients[id].hDbg) { /* slot is busy */
@@ -476,7 +480,7 @@ static void DI_register(void *arg) {
 		}
 	}
 
-	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register");
+	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register", bh);
 }
 
 static void DI_deregister(pDbgHandle hDbg) {
@@ -485,11 +489,12 @@ static void DI_deregister(pDbgHandle hDbg) {
 	int i;
 	word size;
 	byte *pmem = NULL;
+	unsigned int bh, bh2;
 
 	diva_os_get_time(&sec, &usec);
 
-	diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1, "read");
-	diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "read");
+	bh = diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1, "read");
+	bh2 = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "read");
 
 	for (i = 1; i < ARRAY_SIZE(clients); i++) {
 		if (clients[i].hDbg == hDbg) {
@@ -551,8 +556,8 @@ static void DI_deregister(pDbgHandle hDbg) {
 		}
 	}
 
-	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "read_ack");
-	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "read_ack");
+	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "read_ack", bh2);
+	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "read_ack", bh);
 
 	if (pmem) {
 		diva_os_free(0, pmem);
@@ -571,6 +576,7 @@ static void DI_format(int do_lock,
 		      int type,
 		      char *format,
 		      va_list ap) {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t old_irql;
 	dword sec, usec;
 	diva_dbg_entry_head_t *pmsg = NULL;
@@ -595,7 +601,7 @@ static void DI_format(int do_lock,
 	diva_os_get_time(&sec, &usec);
 
 	if (do_lock) {
-		diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "format");
+		bh = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "format");
 	}
 
 	switch (type) {
@@ -720,7 +726,7 @@ static void DI_format(int do_lock,
 	}
 
 	if (do_lock) {
-		diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "format");
+		diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "format", bh);
 	}
 }
 
@@ -728,6 +734,7 @@ static void DI_format(int do_lock,
   Write driver ID and driver revision to callers buffer
 */
 int diva_get_driver_info(dword id, byte *data, int data_length) {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t old_irql;
 	byte *p = data;
 	int to_copy;
@@ -737,7 +744,7 @@ int diva_get_driver_info(dword id, byte *data, int data_length) {
 		return (-1);
 	}
 
-	diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "driver info");
+	bh = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "driver info");
 
 	if (clients[id].hDbg) {
 		*p++ = 1;
@@ -774,19 +781,20 @@ int diva_get_driver_info(dword id, byte *data, int data_length) {
 	}
 	*p++ = 0;
 
-	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "driver info");
+	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "driver info", bh);
 
 	return (p - data);
 }
 
 int diva_get_driver_dbg_mask(dword id, byte *data) {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t old_irql;
 	int ret = -1;
 
 	if (!data || !id || (id >= ARRAY_SIZE(clients))) {
 		return (-1);
 	}
-	diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "driver info");
+	bh = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "driver info");
 
 	if (clients[id].hDbg) {
 		ret = 4;
@@ -796,12 +804,13 @@ int diva_get_driver_dbg_mask(dword id, byte *data) {
 		*data++ = (byte)(clients[id].hDbg->dbgMask >> 24);
 	}
 
-	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "driver info");
+	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "driver info", bh);
 
 	return (ret);
 }
 
 int diva_set_driver_dbg_mask(dword id, dword mask) {
+	unsigned int bh, bh2;
 	diva_os_spin_lock_magic_t old_irql, old_irql1;
 	int ret = -1;
 
@@ -810,8 +819,9 @@ int diva_set_driver_dbg_mask(dword id, dword mask) {
 		return (-1);
 	}
 
-	diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1, "dbg mask");
-	diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "dbg mask");
+	bh = diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1,
+				     "dbg mask");
+	bh2 = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "dbg mask");
 
 	if (clients[id].hDbg) {
 		dword old_mask = clients[id].hDbg->dbgMask;
@@ -823,14 +833,14 @@ int diva_set_driver_dbg_mask(dword id, dword mask) {
 	}
 
 
-	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "dbg mask");
+	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "dbg mask", bh2);
 
 	if (clients[id].request_pending) {
 		clients[id].request_pending = 0;
 		(*(clients[id].request))((ENTITY *)(*(clients[id].pIdiLib->DivaSTraceGetHandle))(clients[id].pIdiLib->hLib));
 	}
 
-	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "dbg mask");
+	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "dbg mask", bh);
 
 	return (ret);
 }
@@ -856,6 +866,7 @@ static int diva_get_idi_adapter_info(IDI_CALL request, dword *serial, dword *log
   Register XDI adapter as MAINT compatible driver
 */
 void diva_mnt_add_xdi_adapter(const DESCRIPTOR *d) {
+	unsigned int bh, bh2;
 	diva_os_spin_lock_magic_t old_irql, old_irql1;
 	dword sec, usec, logical, serial, org_mask;
 	int id, free_id = -1;
@@ -881,13 +892,15 @@ void diva_mnt_add_xdi_adapter(const DESCRIPTOR *d) {
 	}
 	memset(pmem, 0x00, DivaSTraceGetMemotyRequirement(d->channels));
 
-	diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1, "register");
-	diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "register");
+	bh = diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1,
+				     "register");
+	bh2 = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "register");
 
 	for (id = 1; id < ARRAY_SIZE(clients); id++) {
 		if (clients[id].hDbg && (clients[id].request == d->request)) {
-			diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register");
-			diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "register");
+			diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register", bh2);
+			diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1,
+						"register", bh);
 			diva_os_free(0, pmem);
 			return;
 		}
@@ -908,8 +921,9 @@ void diva_mnt_add_xdi_adapter(const DESCRIPTOR *d) {
 	}
 
 	if (free_id < 0) {
-		diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register");
-		diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "register");
+		diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register", bh2);
+		diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1,
+					"register", bh);
 		diva_os_free(0, pmem);
 		return;
 	}
@@ -967,8 +981,9 @@ void diva_mnt_add_xdi_adapter(const DESCRIPTOR *d) {
 		clients[id].request = NULL;
 		clients[id].request_pending = 0;
 		clients[id].hDbg    = NULL;
-		diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register");
-		diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "register");
+		diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register", bh2);
+		diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1,
+					"register", bh);
 		diva_os_free(0, pmem);
 		return;
 	}
@@ -1006,14 +1021,14 @@ void diva_mnt_add_xdi_adapter(const DESCRIPTOR *d) {
 	org_mask = clients[id].Dbg.dbgMask;
 	clients[id].Dbg.dbgMask = 0;
 
-	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register");
+	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "register", bh2);
 
 	if (clients[id].request_pending) {
 		clients[id].request_pending = 0;
 		(*(clients[id].request))((ENTITY *)(*(clients[id].pIdiLib->DivaSTraceGetHandle))(clients[id].pIdiLib->hLib));
 	}
 
-	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "register");
+	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "register", bh);
 
 	diva_set_driver_dbg_mask(id, org_mask);
 }
@@ -1027,11 +1042,12 @@ void diva_mnt_remove_xdi_adapter(const DESCRIPTOR *d) {
 	int i;
 	word size;
 	byte *pmem = NULL;
+	unsigned int bh, bh2;
 
 	diva_os_get_time(&sec, &usec);
 
-	diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1, "read");
-	diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "read");
+	bh = diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1, "read");
+	bh2 = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "read");
 
 	for (i = 1; i < ARRAY_SIZE(clients); i++) {
 		if (clients[i].hDbg && (clients[i].request == d->request)) {
@@ -1094,8 +1110,8 @@ void diva_mnt_remove_xdi_adapter(const DESCRIPTOR *d) {
 		}
 	}
 
-	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "read_ack");
-	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "read_ack");
+	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "read_ack", bh2);
+	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "read_ack", bh);
 
 	if (pmem) {
 		diva_os_free(0, pmem);
@@ -1355,13 +1371,14 @@ static void single_p(byte *P, word *PLength, byte Id) {
 }
 
 static void diva_maint_xdi_cb(ENTITY *e) {
+	unsigned int bh, bh2;
 	diva_strace_context_t *pLib = DIVAS_CONTAINING_RECORD(e, diva_strace_context_t, e);
 	diva_maint_client_t *pC;
 	diva_os_spin_lock_magic_t old_irql, old_irql1;
 
 
-	diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1, "xdi_cb");
-	diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "xdi_cb");
+	bh = diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1, "xdi_cb");
+	bh2 = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "xdi_cb");
 
 	pC = (diva_maint_client_t *)pLib->hAdapter;
 
@@ -1378,7 +1395,7 @@ static void diva_maint_xdi_cb(ENTITY *e) {
 		}
 	}
 
-	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "xdi_cb");
+	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "xdi_cb", bh2);
 
 
 	if (pC->request_pending) {
@@ -1386,7 +1403,7 @@ static void diva_maint_xdi_cb(ENTITY *e) {
 		(*(pC->request))(e);
 	}
 
-	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "xdi_cb");
+	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "xdi_cb", bh);
 }
 
 
@@ -1916,6 +1933,7 @@ void diva_mnt_internal_dprintf(dword drv_id, dword type, char *fmt, ...) {
   Shutdown all adapters before driver removal
 */
 int diva_mnt_shutdown_xdi_adapters(void) {
+	unsigned int bh, bh2;
 	diva_os_spin_lock_magic_t old_irql, old_irql1;
 	int i, fret = 0;
 	byte *pmem;
@@ -1924,8 +1942,9 @@ int diva_mnt_shutdown_xdi_adapters(void) {
 	for (i = 1; i < ARRAY_SIZE(clients); i++) {
 		pmem = NULL;
 
-		diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1, "unload");
-		diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "unload");
+		bh = diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1,
+					     "unload");
+		bh2 = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "unload");
 
 		if (clients[i].hDbg && clients[i].pIdiLib && clients[i].request) {
 			if ((*(clients[i].pIdiLib->DivaSTraceLibraryStop))(clients[i].pIdiLib) == 1) {
@@ -1955,7 +1974,7 @@ int diva_mnt_shutdown_xdi_adapters(void) {
 			}
 		}
 
-		diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "unload");
+		diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "unload", bh2);
 		if (clients[i].hDbg && clients[i].pIdiLib && clients[i].request && clients[i].request_pending) {
 			clients[i].request_pending = 0;
 			(*(clients[i].request))((ENTITY *)(*(clients[i].pIdiLib->DivaSTraceGetHandle))(clients[i].pIdiLib->hLib));
@@ -1964,7 +1983,8 @@ int diva_mnt_shutdown_xdi_adapters(void) {
 				clients[i].dma_handle = -1;
 			}
 		}
-		diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "unload");
+		diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1,
+					"unload", bh);
 
 		if (pmem) {
 			diva_os_free(0, pmem);
@@ -1979,11 +1999,13 @@ int diva_mnt_shutdown_xdi_adapters(void) {
   Affects B- and Audio Tap trace mask at run time
 */
 int diva_set_trace_filter(int filter_length, const char *filter) {
+	unsigned int bh, bh2;
 	diva_os_spin_lock_magic_t old_irql, old_irql1;
 	int i, ch, on, client_b_on, client_atap_on;
 
-	diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1, "dbg mask");
-	diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "write_filter");
+	bh = diva_os_enter_spin_lock(&dbg_adapter_lock, &old_irql1,
+				     "dbg mask");
+	bh2 = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "write_filter");
 
 	if (filter_length <= DIVA_MAX_SELECTIVE_FILTER_LENGTH) {
 		memcpy(&TraceFilter[0], filter, filter_length);
@@ -2015,29 +2037,30 @@ int diva_set_trace_filter(int filter_length, const char *filter) {
 
 	for (i = 1; i < ARRAY_SIZE(clients); i++) {
 		if (clients[i].hDbg && clients[i].pIdiLib && clients[i].request && clients[i].request_pending) {
-			diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "write_filter");
+			diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "write_filter", bh2);
 			clients[i].request_pending = 0;
 			(*(clients[i].request))((ENTITY *)(*(clients[i].pIdiLib->DivaSTraceGetHandle))(clients[i].pIdiLib->hLib));
-			diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "write_filter");
+			bh2 = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "write_filter");
 		}
 	}
 
-	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "write_filter");
-	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "dbg mask");
+	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "write_filter", bh2);
+	diva_os_leave_spin_lock(&dbg_adapter_lock, &old_irql1, "dbg mask", bh);
 
 	return (filter_length);
 }
 
 int diva_get_trace_filter(int max_length, char *filter) {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t old_irql;
 	int len;
 
-	diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "read_filter");
+	bh = diva_os_enter_spin_lock(&dbg_q_lock, &old_irql, "read_filter");
 	len = strlen(&TraceFilter[0]) + 1;
 	if (max_length >= len) {
 		memcpy(filter, &TraceFilter[0], len);
 	}
-	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "read_filter");
+	diva_os_leave_spin_lock(&dbg_q_lock, &old_irql, "read_filter", bh);
 
 	return (len);
 }

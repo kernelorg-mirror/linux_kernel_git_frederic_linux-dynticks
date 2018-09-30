@@ -106,6 +106,7 @@ void diva_didd_load_time_finit(void) {
    return -1 adapter array overflow
    -------------------------------------------------------------------------- */
 static int diva_didd_add_descriptor(DESCRIPTOR *d) {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t      irql;
 	int i;
 	if (d->type == IDI_DIMAINT) {
@@ -123,16 +124,17 @@ static int diva_didd_add_descriptor(DESCRIPTOR *d) {
 		return (NEW_MAX_DESCRIPTORS);
 	}
 	for (i = 0; i < NEW_MAX_DESCRIPTORS; i++) {
-		diva_os_enter_spin_lock(&didd_spin, &irql, "didd_add");
+		bh = diva_os_enter_spin_lock(&didd_spin, &irql, "didd_add");
 		if (HandleTable[i].type == 0) {
 			memcpy(&HandleTable[i], d, sizeof(*d));
 			Adapters++;
-			diva_os_leave_spin_lock(&didd_spin, &irql, "didd_add");
+			diva_os_leave_spin_lock(&didd_spin, &irql, "didd_add",
+						bh);
 			diva_notify_adapter_change(d, 0); /* we have new adapter */
 			DBG_TRC(("Add adapter[%d], request=%08x", (i + 1), d->request))
 				return (i + 1);
 		}
-		diva_os_leave_spin_lock(&didd_spin, &irql, "didd_add");
+		diva_os_leave_spin_lock(&didd_spin, &irql, "didd_add", bh);
 	}
 	DBG_ERR(("Can't add adapter, out of resources"))
 		return (-1);
@@ -143,6 +145,7 @@ static int diva_didd_add_descriptor(DESCRIPTOR *d) {
    return 0 on success
    -------------------------------------------------------------------------- */
 static int diva_didd_remove_descriptor(IDI_CALL request) {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t      irql;
 	int i;
 	if (request == MAdapter.request) {
@@ -155,10 +158,12 @@ static int diva_didd_remove_descriptor(IDI_CALL request) {
 	for (i = 0; (Adapters && (i < NEW_MAX_DESCRIPTORS)); i++) {
 		if (HandleTable[i].request == request) {
 			diva_notify_adapter_change(&HandleTable[i], 1); /* About to remove */
-			diva_os_enter_spin_lock(&didd_spin, &irql, "didd_rm");
+			bh = diva_os_enter_spin_lock(&didd_spin, &irql,
+						     "didd_rm");
 			memset(&HandleTable[i], 0x00, sizeof(HandleTable[0]));
 			Adapters--;
-			diva_os_leave_spin_lock(&didd_spin, &irql, "didd_rm");
+			diva_os_leave_spin_lock(&didd_spin, &irql, "didd_rm",
+						bh);
 			DBG_TRC(("Remove adapter[%d], request=%08x", (i + 1), request))
 				return (0);
 		}
@@ -171,13 +176,14 @@ static int diva_didd_remove_descriptor(IDI_CALL request) {
    return 1 if not enough space to save all available adapters
    -------------------------------------------------------------------------- */
 static int diva_didd_read_adapter_array(DESCRIPTOR *buffer, int length) {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t      irql;
 	int src, dst;
 	memset(buffer, 0x00, length);
 	length /= sizeof(DESCRIPTOR);
 	DBG_TRC(("DIDD_Read, space = %d, Adapters = %d", length, Adapters + 2))
 
-		diva_os_enter_spin_lock(&didd_spin, &irql, "didd_read");
+		bh = diva_os_enter_spin_lock(&didd_spin, &irql, "didd_read");
 	for (src = 0, dst = 0;
 	     (Adapters && (src < NEW_MAX_DESCRIPTORS) && (dst < length));
 	     src++) {
@@ -186,7 +192,7 @@ static int diva_didd_read_adapter_array(DESCRIPTOR *buffer, int length) {
 			dst++;
 		}
 	}
-	diva_os_leave_spin_lock(&didd_spin, &irql, "didd_read");
+	diva_os_leave_spin_lock(&didd_spin, &irql, "didd_read", bh);
 	if (dst < length) {
 		memcpy(&buffer[dst], &MAdapter, sizeof(DESCRIPTOR));
 		dst++;
@@ -268,19 +274,22 @@ static void IDI_CALL_LINK_T diva_dadapter_request(	\
 static dword diva_register_adapter_callback(		\
 	didd_adapter_change_callback_t callback,
 	void IDI_CALL_ENTITY_T *context) {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t irql;
 	dword i;
 
 	for (i = 0; i < DIVA_DIDD_MAX_NOTIFICATIONS; i++) {
-		diva_os_enter_spin_lock(&didd_spin, &irql, "didd_nfy_add");
+		bh = diva_os_enter_spin_lock(&didd_spin, &irql,
+				             "didd_nfy_add");
 		if (!NotificationTable[i].callback) {
 			NotificationTable[i].callback = callback;
 			NotificationTable[i].context = context;
-			diva_os_leave_spin_lock(&didd_spin, &irql, "didd_nfy_add");
+			diva_os_leave_spin_lock(&didd_spin, &irql,
+						"didd_nfy_add", bh);
 			DBG_TRC(("Register adapter notification[%d]=%08x", i + 1, callback))
 				return (i + 1);
 		}
-		diva_os_leave_spin_lock(&didd_spin, &irql, "didd_nfy_add");
+		diva_os_leave_spin_lock(&didd_spin, &irql, "didd_nfy_add", bh);
 	}
 	DBG_ERR(("Can't register adapter notification, overflow"))
 		return (0);
@@ -289,12 +298,13 @@ static dword diva_register_adapter_callback(		\
    IDI client does register his notification function
    -------------------------------------------------------------------------- */
 static void diva_remove_adapter_callback(dword handle) {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t irql;
 	if (handle && ((--handle) < DIVA_DIDD_MAX_NOTIFICATIONS)) {
-		diva_os_enter_spin_lock(&didd_spin, &irql, "didd_nfy_rm");
+		bh = diva_os_enter_spin_lock(&didd_spin, &irql, "didd_nfy_rm");
 		NotificationTable[handle].callback = NULL;
 		NotificationTable[handle].context  = NULL;
-		diva_os_leave_spin_lock(&didd_spin, &irql, "didd_nfy_rm");
+		diva_os_leave_spin_lock(&didd_spin, &irql, "didd_nfy_rm", bh);
 		DBG_TRC(("Remove adapter notification[%d]", (int)(handle + 1)))
 			return;
 	}
@@ -307,17 +317,18 @@ static void diva_remove_adapter_callback(dword handle) {
    Step 2: Read Adapter Array
    -------------------------------------------------------------------------- */
 static void diva_notify_adapter_change(DESCRIPTOR *d, int removal) {
+	unsigned int bh;
 	int i, do_notify;
 	didd_adapter_change_notification_t nfy;
 	diva_os_spin_lock_magic_t irql;
 	for (i = 0; i < DIVA_DIDD_MAX_NOTIFICATIONS; i++) {
 		do_notify = 0;
-		diva_os_enter_spin_lock(&didd_spin, &irql, "didd_nfy");
+		bh = diva_os_enter_spin_lock(&didd_spin, &irql, "didd_nfy");
 		if (NotificationTable[i].callback) {
 			memcpy(&nfy, &NotificationTable[i], sizeof(nfy));
 			do_notify = 1;
 		}
-		diva_os_leave_spin_lock(&didd_spin, &irql, "didd_nfy");
+		diva_os_leave_spin_lock(&didd_spin, &irql, "didd_nfy", bh);
 		if (do_notify) {
 			(*(nfy.callback))(nfy.context, d, removal);
 		}

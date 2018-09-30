@@ -390,6 +390,7 @@ static void clean_adapter(int id, struct list_head *free_mem_q)
  */
 static void divacapi_remove_card(DESCRIPTOR *d)
 {
+	unsigned int bh;
 	diva_card *card = NULL;
 	diva_os_spin_lock_magic_t old_irql;
 	LIST_HEAD(free_mem_q);
@@ -401,7 +402,7 @@ static void divacapi_remove_card(DESCRIPTOR *d)
 	 * Ensures that there is no call from sendf to CAPI in
 	 * the time CAPI controller is about to be removed.
 	 */
-	diva_os_enter_spin_lock(&api_lock, &old_irql, "remove card");
+	bh = diva_os_enter_spin_lock(&api_lock, &old_irql, "remove card");
 	list_for_each(tmp, &cards) {
 		card = list_entry(tmp, diva_card, list);
 		if (card->d.request == d->request) {
@@ -410,7 +411,7 @@ static void divacapi_remove_card(DESCRIPTOR *d)
 			break;
 		}
 	}
-	diva_os_leave_spin_lock(&api_lock, &old_irql, "remove card");
+	diva_os_leave_spin_lock(&api_lock, &old_irql, "remove card", bh);
 
 	if (card) {
 		/*
@@ -423,7 +424,7 @@ static void divacapi_remove_card(DESCRIPTOR *d)
 		 * Now get API lock (to ensure stable state of LI tables)
 		 * and update the adapter map/LI table.
 		 */
-		diva_os_enter_spin_lock(&api_lock, &old_irql, "remove card");
+		bh = diva_os_enter_spin_lock(&api_lock, &old_irql, "remove card");
 
 		clean_adapter(card->Id - 1, &free_mem_q);
 		DBG_TRC(("DelAdapterMap (%d) -> (%d)",
@@ -431,7 +432,7 @@ static void divacapi_remove_card(DESCRIPTOR *d)
 			ControllerMap[card->Id] = 0;
 		DBG_TRC(("adapter remove, max_adapter=%d",
 			 max_adapter));
-		diva_os_leave_spin_lock(&api_lock, &old_irql, "remove card");
+		diva_os_leave_spin_lock(&api_lock, &old_irql, "remove card", bh);
 
 		/* After releasing the lock, we can free the memory */
 		diva_os_free(0, card);
@@ -449,13 +450,14 @@ static void divacapi_remove_card(DESCRIPTOR *d)
  */
 static void divacapi_remove_cards(void)
 {
+	unsigned int bh;
 	DESCRIPTOR d;
 	struct list_head *tmp;
 	diva_card *card;
 	diva_os_spin_lock_magic_t old_irql;
 
 rescan:
-	diva_os_enter_spin_lock(&api_lock, &old_irql, "remove cards");
+	bh = diva_os_enter_spin_lock(&api_lock, &old_irql, "remove cards");
 	list_for_each(tmp, &cards) {
 		card = list_entry(tmp, diva_card, list);
 		diva_os_leave_spin_lock(&api_lock, &old_irql, "remove cards");
@@ -463,7 +465,7 @@ rescan:
 		divacapi_remove_card(&d);
 		goto rescan;
 	}
-	diva_os_leave_spin_lock(&api_lock, &old_irql, "remove cards");
+	diva_os_leave_spin_lock(&api_lock, &old_irql, "remove cards", bh);
 }
 
 /*
@@ -471,13 +473,15 @@ rescan:
  */
 static void sync_callback(ENTITY *e)
 {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t old_irql;
 
 	DBG_TRC(("cb:Id=%x,Rc=%x,Ind=%x", e->Id, e->Rc, e->Ind))
 
-		diva_os_enter_spin_lock(&api_lock, &old_irql, "sync_callback");
+		bh = diva_os_enter_spin_lock(&api_lock, &old_irql,
+					     "sync_callback");
 	callback(e);
-	diva_os_leave_spin_lock(&api_lock, &old_irql, "sync_callback");
+	diva_os_leave_spin_lock(&api_lock, &old_irql, "sync_callback", bh);
 }
 
 /*
@@ -485,6 +489,7 @@ static void sync_callback(ENTITY *e)
  */
 static int diva_add_card(DESCRIPTOR *d)
 {
+	unsigned int bh;
 	int k = 0, i = 0;
 	diva_os_spin_lock_magic_t old_irql;
 	diva_card *card = NULL;
@@ -521,9 +526,9 @@ static int diva_add_card(DESCRIPTOR *d)
 		return (0);
 	}
 
-	diva_os_enter_spin_lock(&api_lock, &old_irql, "find id");
+	bh = diva_os_enter_spin_lock(&api_lock, &old_irql, "find id");
 	card->Id = find_free_id();
-	diva_os_leave_spin_lock(&api_lock, &old_irql, "find id");
+	diva_os_leave_spin_lock(&api_lock, &old_irql, "find id", bh);
 
 	strlcpy(ctrl->manu, M_COMPANY, sizeof(ctrl->manu));
 	ctrl->version.majorversion = 2;
@@ -630,7 +635,7 @@ static int diva_add_card(DESCRIPTOR *d)
 	}
 
 	/* Prevent access to line interconnect table in process update */
-	diva_os_enter_spin_lock(&api_lock, &old_irql, "add card");
+	bh = diva_os_enter_spin_lock(&api_lock, &old_irql, "add card");
 
 	j = 0;
 	for (i = 0; i < k; i++) {
@@ -686,7 +691,7 @@ static int diva_add_card(DESCRIPTOR *d)
 	list_add(&(card->list), &cards);
 	AutomaticLaw(a);
 
-	diva_os_leave_spin_lock(&api_lock, &old_irql, "add card");
+	diva_os_leave_spin_lock(&api_lock, &old_irql, "add card", bh);
 
 	if (mem_to_free) {
 		diva_os_free(0, mem_to_free);
@@ -733,6 +738,7 @@ static void diva_register_appl(struct capi_ctr *ctrl, __u16 appl,
 	diva_os_spin_lock_magic_t old_irql;
 	unsigned int mem_len;
 	int nconn = rp->level3cnt;
+	unsigned int bh;
 
 
 	if (diva_os_in_irq()) {
@@ -809,7 +815,7 @@ static void diva_register_appl(struct capi_ctr *ctrl, __u16 appl,
 	}
 
 	/* initialize application data */
-	diva_os_enter_spin_lock(&api_lock, &old_irql, "register_appl");
+	bh = diva_os_enter_spin_lock(&api_lock, &old_irql, "register_appl");
 
 	this = &application[appl - 1];
 	memset(this, 0, sizeof(APPL));
@@ -838,7 +844,7 @@ static void diva_register_appl(struct capi_ctr *ctrl, __u16 appl,
 	}
 
 	CapiRegister(this->Id);
-	diva_os_leave_spin_lock(&api_lock, &old_irql, "register_appl");
+	diva_os_leave_spin_lock(&api_lock, &old_irql, "register_appl", bh);
 
 }
 
@@ -847,6 +853,7 @@ static void diva_register_appl(struct capi_ctr *ctrl, __u16 appl,
  */
 static void diva_release_appl(struct capi_ctr *ctrl, __u16 appl)
 {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t old_irql;
 	APPL *this = &application[appl - 1];
 	void *mem_to_free = NULL;
@@ -858,14 +865,14 @@ static void diva_release_appl(struct capi_ctr *ctrl, __u16 appl)
 				return;
 		}
 
-	diva_os_enter_spin_lock(&api_lock, &old_irql, "release_appl");
+	bh = diva_os_enter_spin_lock(&api_lock, &old_irql, "release_appl");
 	if (this->Id) {
 		CapiRelease(this->Id);
 		mem_to_free = this->DataNCCI;
 		this->DataNCCI = NULL;
 		this->Id = 0;
 	}
-	diva_os_leave_spin_lock(&api_lock, &old_irql, "release_appl");
+	diva_os_leave_spin_lock(&api_lock, &old_irql, "release_appl", bh);
 
 	if (mem_to_free)
 		diva_os_free(0, mem_to_free);
@@ -888,6 +895,7 @@ static u16 diva_send_message(struct capi_ctr *ctrl,
 	word clength = GET_WORD(&msg->header.length);
 	word command = GET_WORD(&msg->header.command);
 	u16 retval = CAPI_NOERROR;
+	unsigned int bh;
 
 	if (diva_os_in_irq()) {
 		DBG_ERR(("CAPI_SEND_MSG - in irq context !"))
@@ -900,10 +908,10 @@ static u16 diva_send_message(struct capi_ctr *ctrl,
 				return CAPI_REGOSRESOURCEERR;
 		}
 
-	diva_os_enter_spin_lock(&api_lock, &old_irql, "send message");
+	bh = diva_os_enter_spin_lock(&api_lock, &old_irql, "send message");
 
 	if (!this->Id) {
-		diva_os_leave_spin_lock(&api_lock, &old_irql, "send message");
+		diva_os_leave_spin_lock(&api_lock, &old_irql, "send message", bh);
 		return CAPI_ILLAPPNR;
 	}
 
@@ -997,7 +1005,7 @@ static u16 diva_send_message(struct capi_ctr *ctrl,
 	}
 
 write_end:
-	diva_os_leave_spin_lock(&api_lock, &old_irql, "send message");
+	diva_os_leave_spin_lock(&api_lock, &old_irql, "send message", bh);
 	if (retval == CAPI_NOERROR)
 		diva_os_free_message_buffer(dmb);
 	return retval;
@@ -1163,13 +1171,16 @@ static void remove_main_structs(void)
  */
 static void do_api_remove_start(void)
 {
+	unsigned int bh;
 	diva_os_spin_lock_magic_t old_irql;
 	int ret = 1, count = 100;
 
 	do {
-		diva_os_enter_spin_lock(&api_lock, &old_irql, "api remove start");
+		bh = diva_os_enter_spin_lock(&api_lock, &old_irql,
+					     "api remove start");
 		ret = api_remove_start();
-		diva_os_leave_spin_lock(&api_lock, &old_irql, "api remove start");
+		diva_os_leave_spin_lock(&api_lock, &old_irql,
+					"api remove start", bh);
 
 		diva_os_sleep(10);
 	} while (ret && count--);
