@@ -17,7 +17,7 @@
 #endif
 
 typedef struct {
-	unsigned int __softirq_pending;
+	unsigned int __softirq_data;
 	unsigned int kernel_stack_usage;
 	unsigned int irq_stack_usage;
 #ifdef CONFIG_SMP

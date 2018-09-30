@@ -6,7 +6,7 @@
 #include <linux/irq.h>
 
 typedef struct {
-	unsigned int __softirq_pending;
+	unsigned int __softirq_data;
 	unsigned int __nmi_count;		/* arch dependent */
 } ____cacheline_aligned irq_cpustat_t;
 

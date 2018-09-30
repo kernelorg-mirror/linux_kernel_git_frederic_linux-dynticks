@@ -11,8 +11,8 @@
 
 #define __ARCH_IRQ_STAT
 
-#define local_softirq_pending_ref \
-	__cpu_data.__softirq_pending
+#define local_softirq_data_ref \
+	__cpu_data.__softirq_data
 
 void ack_bad_irq(unsigned int irq);
 

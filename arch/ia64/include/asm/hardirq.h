@@ -13,7 +13,7 @@
 
 #define __ARCH_IRQ_STAT	1
 
-#define local_softirq_pending_ref	ia64_cpu_info.softirq_pending
+#define local_softirq_data_ref	ia64_cpu_info.softirq_data
 
 #include <linux/threads.h>
 #include <linux/irq.h>

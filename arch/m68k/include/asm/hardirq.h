@@ -15,7 +15,7 @@ static inline void ack_bad_irq(unsigned int irq)
 
 /* entry.S is sensitive to the offsets of these fields */
 typedef struct {
-	unsigned int __softirq_pending;
+	unsigned int __softirq_data;
 } ____cacheline_aligned irq_cpustat_t;
 
 #include <linux/irq_cpustat.h>	/* Standard mappings for irq_cpustat_t above */
