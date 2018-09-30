@@ -139,6 +139,7 @@ int chtls_init_kmap(struct chtls_dev *cdev, struct cxgb4_lld_info *lldi)
 
 static int get_new_keyid(struct chtls_sock *csk, u32 optname)
 {
+	unsigned int bh;
 	struct net_device *dev = csk->egress_dev;
 	struct chtls_dev *cdev = csk->cdev;
 	struct chtls_hws *hws;
@@ -148,7 +149,7 @@ static int get_new_keyid(struct chtls_sock *csk, u32 optname)
 	adap = netdev2adap(dev);
 	hws = &csk->tlshws;
 
-	spin_lock_bh(&cdev->kmap.lock);
+	bh = spin_lock_bh(&cdev->kmap.lock, SOFTIRQ_ALL_MASK);
 	keyid = find_first_zero_bit(cdev->kmap.addr, cdev->kmap.size);
 	if (keyid < cdev->kmap.size) {
 		__set_bit(keyid, cdev->kmap.addr);
@@ -160,12 +161,13 @@ static int get_new_keyid(struct chtls_sock *csk, u32 optname)
 	} else {
 		keyid = -1;
 	}
-	spin_unlock_bh(&cdev->kmap.lock);
+	spin_unlock_bh(&cdev->kmap.lock, bh);
 	return keyid;
 }
 
 void free_tls_keyid(struct sock *sk)
 {
+	unsigned int bh;
 	struct chtls_sock *csk = rcu_dereference_sk_user_data(sk);
 	struct net_device *dev = csk->egress_dev;
 	struct chtls_dev *cdev = csk->cdev;
@@ -178,7 +180,7 @@ void free_tls_keyid(struct sock *sk)
 	adap = netdev2adap(dev);
 	hws = &csk->tlshws;
 
-	spin_lock_bh(&cdev->kmap.lock);
+	bh = spin_lock_bh(&cdev->kmap.lock, SOFTIRQ_ALL_MASK);
 	if (hws->rxkey >= 0) {
 		__clear_bit(hws->rxkey, cdev->kmap.addr);
 		atomic_dec(&adap->chcr_stats.tls_key);
@@ -189,7 +191,7 @@ void free_tls_keyid(struct sock *sk)
 		atomic_dec(&adap->chcr_stats.tls_key);
 		hws->txkey = -1;
 	}
-	spin_unlock_bh(&cdev->kmap.lock);
+	spin_unlock_bh(&cdev->kmap.lock, bh);
 }
 
 unsigned int keyid_to_addr(int start_addr, int keyid)

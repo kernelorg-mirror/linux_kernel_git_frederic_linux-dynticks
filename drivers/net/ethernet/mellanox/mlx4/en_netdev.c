@@ -351,6 +351,7 @@ static int
 mlx4_en_filter_rfs(struct net_device *net_dev, const struct sk_buff *skb,
 		   u16 rxq_index, u32 flow_id)
 {
+	unsigned int bh;
 	struct mlx4_en_priv *priv = netdev_priv(net_dev);
 	struct mlx4_en_filter *filter;
 	const struct iphdr *ip;
@@ -380,7 +381,7 @@ mlx4_en_filter_rfs(struct net_device *net_dev, const struct sk_buff *skb,
 	src_port = ports[0];
 	dst_port = ports[1];
 
-	spin_lock_bh(&priv->filters_lock);
+	bh = spin_lock_bh(&priv->filters_lock, SOFTIRQ_ALL_MASK);
 	filter = mlx4_en_filter_find(priv, src_ip, dst_ip, ip_proto,
 				     src_port, dst_port);
 	if (filter) {
@@ -403,22 +404,23 @@ mlx4_en_filter_rfs(struct net_device *net_dev, const struct sk_buff *skb,
 out:
 	ret = filter->id;
 err:
-	spin_unlock_bh(&priv->filters_lock);
+	spin_unlock_bh(&priv->filters_lock, bh);
 
 	return ret;
 }
 
 void mlx4_en_cleanup_filters(struct mlx4_en_priv *priv)
 {
+	unsigned int bh;
 	struct mlx4_en_filter *filter, *tmp;
 	LIST_HEAD(del_list);
 
-	spin_lock_bh(&priv->filters_lock);
+	bh = spin_lock_bh(&priv->filters_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(filter, tmp, &priv->filters, next) {
 		list_move(&filter->next, &del_list);
 		hlist_del(&filter->filter_chain);
 	}
-	spin_unlock_bh(&priv->filters_lock);
+	spin_unlock_bh(&priv->filters_lock, bh);
 
 	list_for_each_entry_safe(filter, tmp, &del_list, next) {
 		cancel_work_sync(&filter->work);
@@ -428,11 +430,12 @@ void mlx4_en_cleanup_filters(struct mlx4_en_priv *priv)
 
 static void mlx4_en_filter_rfs_expire(struct mlx4_en_priv *priv)
 {
+	unsigned int bh;
 	struct mlx4_en_filter *filter = NULL, *tmp, *last_filter = NULL;
 	LIST_HEAD(del_list);
 	int i = 0;
 
-	spin_lock_bh(&priv->filters_lock);
+	bh = spin_lock_bh(&priv->filters_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(filter, tmp, &priv->filters, next) {
 		if (i > MLX4_EN_FILTER_EXPIRY_QUOTA)
 			break;
@@ -453,7 +456,7 @@ static void mlx4_en_filter_rfs_expire(struct mlx4_en_priv *priv)
 	if (last_filter && (&last_filter->next != priv->filters.next))
 		list_move(&priv->filters, &last_filter->next);
 
-	spin_unlock_bh(&priv->filters_lock);
+	spin_unlock_bh(&priv->filters_lock, bh);
 
 	list_for_each_entry_safe(filter, tmp, &del_list, next)
 		mlx4_en_filter_free(filter);
@@ -1397,12 +1400,13 @@ static void mlx4_en_tx_timeout(struct net_device *dev)
 static void
 mlx4_en_get_stats64(struct net_device *dev, struct rtnl_link_stats64 *stats)
 {
+	unsigned int bh;
 	struct mlx4_en_priv *priv = netdev_priv(dev);
 
-	spin_lock_bh(&priv->stats_lock);
+	bh = spin_lock_bh(&priv->stats_lock, SOFTIRQ_ALL_MASK);
 	mlx4_en_fold_software_stats(dev);
 	netdev_stats_to_stats64(stats, &dev->stats);
-	spin_unlock_bh(&priv->stats_lock);
+	spin_unlock_bh(&priv->stats_lock, bh);
 }
 
 static void mlx4_en_set_default_moderation(struct mlx4_en_priv *priv)
@@ -1880,6 +1884,7 @@ cq_err:
 void mlx4_en_stop_port(struct net_device *dev, int detach)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct mlx4_en_priv *priv = netdev_priv(dev);
 	struct mlx4_en_dev *mdev = priv->mdev;
 	struct mlx4_en_mc_list *mclist, *tmp;
@@ -1904,11 +1909,11 @@ void mlx4_en_stop_port(struct net_device *dev, int detach)
 
 	netif_tx_disable(dev);
 
-	spin_lock_bh(&priv->stats_lock);
+	bh = spin_lock_bh(&priv->stats_lock, SOFTIRQ_ALL_MASK);
 	mlx4_en_fold_software_stats(dev);
 	/* Set port as not active */
 	priv->port_up = false;
-	spin_unlock_bh(&priv->stats_lock);
+	spin_unlock_bh(&priv->stats_lock, bh);
 
 	priv->counter_index = MLX4_SINK_COUNTER_INDEX(mdev->dev);
 

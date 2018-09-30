@@ -930,6 +930,7 @@ static ssize_t iwl_dbgfs_frame_stats_read(struct iwl_mvm *mvm,
 					  loff_t *ppos,
 					  struct iwl_mvm_frame_stats *stats)
 {
+	unsigned int bh;
 	char *buff, *pos, *endpos;
 	int idx, i;
 	int ret;
@@ -939,7 +940,7 @@ static ssize_t iwl_dbgfs_frame_stats_read(struct iwl_mvm *mvm,
 	if (!buff)
 		return -ENOMEM;
 
-	spin_lock_bh(&mvm->drv_stats_lock);
+	bh = spin_lock_bh(&mvm->drv_stats_lock, SOFTIRQ_ALL_MASK);
 
 	pos = buff;
 	endpos = pos + bufsz;
@@ -982,7 +983,7 @@ static ssize_t iwl_dbgfs_frame_stats_read(struct iwl_mvm *mvm,
 		pos += rs_pretty_print_rate(pos, endpos - pos,
 					    stats->last_rates[idx]);
 	}
-	spin_unlock_bh(&mvm->drv_stats_lock);
+	spin_unlock_bh(&mvm->drv_stats_lock, bh);
 
 	ret = simple_read_from_buffer(user_buf, count, ppos, buff, pos - buff);
 	kfree(buff);

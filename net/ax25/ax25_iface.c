@@ -85,24 +85,27 @@ EXPORT_SYMBOL(ax25_protocol_release);
 
 void ax25_linkfail_register(struct ax25_linkfail *lf)
 {
-	spin_lock_bh(&linkfail_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&linkfail_lock, SOFTIRQ_ALL_MASK);
 	hlist_add_head(&lf->lf_node, &ax25_linkfail_list);
-	spin_unlock_bh(&linkfail_lock);
+	spin_unlock_bh(&linkfail_lock, bh);
 }
 
 EXPORT_SYMBOL(ax25_linkfail_register);
 
 void ax25_linkfail_release(struct ax25_linkfail *lf)
 {
-	spin_lock_bh(&linkfail_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&linkfail_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_init(&lf->lf_node);
-	spin_unlock_bh(&linkfail_lock);
+	spin_unlock_bh(&linkfail_lock, bh);
 }
 
 EXPORT_SYMBOL(ax25_linkfail_release);
 
 int ax25_listen_register(ax25_address *callsign, struct net_device *dev)
 {
+	unsigned int bh;
 	struct listen_struct *listen;
 
 	if (ax25_listen_mine(callsign, dev))
@@ -114,10 +117,10 @@ int ax25_listen_register(ax25_address *callsign, struct net_device *dev)
 	listen->callsign = *callsign;
 	listen->dev      = dev;
 
-	spin_lock_bh(&listen_lock);
+	bh = spin_lock_bh(&listen_lock, SOFTIRQ_ALL_MASK);
 	listen->next = listen_list;
 	listen_list  = listen;
-	spin_unlock_bh(&listen_lock);
+	spin_unlock_bh(&listen_lock, bh);
 
 	return 0;
 }
@@ -126,18 +129,19 @@ EXPORT_SYMBOL(ax25_listen_register);
 
 void ax25_listen_release(ax25_address *callsign, struct net_device *dev)
 {
+	unsigned int bh;
 	struct listen_struct *s, *listen;
 
-	spin_lock_bh(&listen_lock);
+	bh = spin_lock_bh(&listen_lock, SOFTIRQ_ALL_MASK);
 	listen = listen_list;
 	if (listen == NULL) {
-		spin_unlock_bh(&listen_lock);
+		spin_unlock_bh(&listen_lock, bh);
 		return;
 	}
 
 	if (ax25cmp(&listen->callsign, callsign) == 0 && listen->dev == dev) {
 		listen_list = listen->next;
-		spin_unlock_bh(&listen_lock);
+		spin_unlock_bh(&listen_lock, bh);
 		kfree(listen);
 		return;
 	}
@@ -146,14 +150,14 @@ void ax25_listen_release(ax25_address *callsign, struct net_device *dev)
 		if (ax25cmp(&listen->next->callsign, callsign) == 0 && listen->next->dev == dev) {
 			s = listen->next;
 			listen->next = listen->next->next;
-			spin_unlock_bh(&listen_lock);
+			spin_unlock_bh(&listen_lock, bh);
 			kfree(s);
 			return;
 		}
 
 		listen = listen->next;
 	}
-	spin_unlock_bh(&listen_lock);
+	spin_unlock_bh(&listen_lock, bh);
 }
 
 EXPORT_SYMBOL(ax25_listen_release);
@@ -176,28 +180,30 @@ int (*ax25_protocol_function(unsigned int pid))(struct sk_buff *, ax25_cb *)
 
 int ax25_listen_mine(ax25_address *callsign, struct net_device *dev)
 {
+	unsigned int bh;
 	struct listen_struct *listen;
 
-	spin_lock_bh(&listen_lock);
+	bh = spin_lock_bh(&listen_lock, SOFTIRQ_ALL_MASK);
 	for (listen = listen_list; listen != NULL; listen = listen->next)
 		if (ax25cmp(&listen->callsign, callsign) == 0 &&
 		    (listen->dev == dev || listen->dev == NULL)) {
-			spin_unlock_bh(&listen_lock);
+			spin_unlock_bh(&listen_lock, bh);
 			return 1;
 	}
-	spin_unlock_bh(&listen_lock);
+	spin_unlock_bh(&listen_lock, bh);
 
 	return 0;
 }
 
 void ax25_link_failed(ax25_cb *ax25, int reason)
 {
+	unsigned int bh;
 	struct ax25_linkfail *lf;
 
-	spin_lock_bh(&linkfail_lock);
+	bh = spin_lock_bh(&linkfail_lock, SOFTIRQ_ALL_MASK);
 	hlist_for_each_entry(lf, &ax25_linkfail_list, lf_node)
 		lf->func(ax25, reason);
-	spin_unlock_bh(&linkfail_lock);
+	spin_unlock_bh(&linkfail_lock, bh);
 }
 
 int ax25_protocol_is_registered(unsigned int pid)

@@ -310,6 +310,7 @@ __ip_vs_get_out_rt(struct netns_ipvs *ipvs, int skb_af, struct sk_buff *skb,
 		   __be32 daddr, int rt_mode, __be32 *ret_saddr,
 		   struct ip_vs_iphdr *ipvsh)
 {
+	unsigned int bh;
 	struct net *net = ipvs->net;
 	struct ip_vs_dest_dst *dest_dst;
 	struct rtable *rt;			/* Route to the other host */
@@ -322,22 +323,22 @@ __ip_vs_get_out_rt(struct netns_ipvs *ipvs, int skb_af, struct sk_buff *skb,
 			rt = (struct rtable *) dest_dst->dst_cache;
 		else {
 			dest_dst = ip_vs_dest_dst_alloc();
-			spin_lock_bh(&dest->dst_lock);
+			bh = spin_lock_bh(&dest->dst_lock, SOFTIRQ_ALL_MASK);
 			if (!dest_dst) {
 				__ip_vs_dst_set(dest, NULL, NULL, 0);
-				spin_unlock_bh(&dest->dst_lock);
+				spin_unlock_bh(&dest->dst_lock, bh);
 				goto err_unreach;
 			}
 			rt = do_output_route4(net, dest->addr.ip, rt_mode,
 					      &dest_dst->dst_saddr.ip);
 			if (!rt) {
 				__ip_vs_dst_set(dest, NULL, NULL, 0);
-				spin_unlock_bh(&dest->dst_lock);
+				spin_unlock_bh(&dest->dst_lock, bh);
 				ip_vs_dest_dst_free(dest_dst);
 				goto err_unreach;
 			}
 			__ip_vs_dst_set(dest, dest_dst, &rt->dst, 0);
-			spin_unlock_bh(&dest->dst_lock);
+			spin_unlock_bh(&dest->dst_lock, bh);
 			IP_VS_DBG(10, "new dst %pI4, src %pI4, refcnt=%d\n",
 				  &dest->addr.ip, &dest_dst->dst_saddr.ip,
 				  atomic_read(&rt->dst.__refcnt));
@@ -460,6 +461,7 @@ __ip_vs_get_out_rt_v6(struct netns_ipvs *ipvs, int skb_af, struct sk_buff *skb,
 		      struct in6_addr *daddr, struct in6_addr *ret_saddr,
 		      struct ip_vs_iphdr *ipvsh, int do_xfrm, int rt_mode)
 {
+	unsigned int bh;
 	struct net *net = ipvs->net;
 	struct ip_vs_dest_dst *dest_dst;
 	struct rt6_info *rt;			/* Route to the other host */
@@ -475,10 +477,10 @@ __ip_vs_get_out_rt_v6(struct netns_ipvs *ipvs, int skb_af, struct sk_buff *skb,
 			u32 cookie;
 
 			dest_dst = ip_vs_dest_dst_alloc();
-			spin_lock_bh(&dest->dst_lock);
+			bh = spin_lock_bh(&dest->dst_lock, SOFTIRQ_ALL_MASK);
 			if (!dest_dst) {
 				__ip_vs_dst_set(dest, NULL, NULL, 0);
-				spin_unlock_bh(&dest->dst_lock);
+				spin_unlock_bh(&dest->dst_lock, bh);
 				goto err_unreach;
 			}
 			dst = __ip_vs_route_output_v6(net, &dest->addr.in6,
@@ -486,14 +488,14 @@ __ip_vs_get_out_rt_v6(struct netns_ipvs *ipvs, int skb_af, struct sk_buff *skb,
 						      do_xfrm, rt_mode);
 			if (!dst) {
 				__ip_vs_dst_set(dest, NULL, NULL, 0);
-				spin_unlock_bh(&dest->dst_lock);
+				spin_unlock_bh(&dest->dst_lock, bh);
 				ip_vs_dest_dst_free(dest_dst);
 				goto err_unreach;
 			}
 			rt = (struct rt6_info *) dst;
 			cookie = rt6_get_cookie(rt);
 			__ip_vs_dst_set(dest, dest_dst, &rt->dst, cookie);
-			spin_unlock_bh(&dest->dst_lock);
+			spin_unlock_bh(&dest->dst_lock, bh);
 			IP_VS_DBG(10, "new dst %pI6, src %pI6, refcnt=%d\n",
 				  &dest->addr.in6, &dest_dst->dst_saddr.in6,
 				  atomic_read(&rt->dst.__refcnt));

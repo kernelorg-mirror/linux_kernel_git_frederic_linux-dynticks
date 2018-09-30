@@ -676,9 +676,10 @@ i40evf_vlan_filter *i40evf_find_vlan(struct i40evf_adapter *adapter, u16 vlan)
 static struct
 i40evf_vlan_filter *i40evf_add_vlan(struct i40evf_adapter *adapter, u16 vlan)
 {
+	unsigned int bh;
 	struct i40evf_vlan_filter *f = NULL;
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	f = i40evf_find_vlan(adapter, vlan);
 	if (!f) {
@@ -695,7 +696,7 @@ i40evf_vlan_filter *i40evf_add_vlan(struct i40evf_adapter *adapter, u16 vlan)
 	}
 
 clearout:
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 	return f;
 }
 
@@ -706,9 +707,10 @@ clearout:
  **/
 static void i40evf_del_vlan(struct i40evf_adapter *adapter, u16 vlan)
 {
+	unsigned int bh;
 	struct i40evf_vlan_filter *f;
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	f = i40evf_find_vlan(adapter, vlan);
 	if (f) {
@@ -716,7 +718,7 @@ static void i40evf_del_vlan(struct i40evf_adapter *adapter, u16 vlan)
 		adapter->aq_required |= I40EVF_FLAG_AQ_DEL_VLAN_FILTER;
 	}
 
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 }
 
 /**
@@ -822,6 +824,7 @@ i40evf_mac_filter *i40evf_add_filter(struct i40evf_adapter *adapter,
  **/
 static int i40evf_set_mac(struct net_device *netdev, void *p)
 {
+	unsigned int bh;
 	struct i40evf_adapter *adapter = netdev_priv(netdev);
 	struct i40e_hw *hw = &adapter->hw;
 	struct i40evf_mac_filter *f;
@@ -836,7 +839,7 @@ static int i40evf_set_mac(struct net_device *netdev, void *p)
 	if (adapter->flags & I40EVF_FLAG_ADDR_SET_BY_PF)
 		return -EPERM;
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	f = i40evf_find_filter(adapter, hw->mac.addr);
 	if (f) {
@@ -846,7 +849,7 @@ static int i40evf_set_mac(struct net_device *netdev, void *p)
 
 	f = i40evf_add_filter(adapter, addr->sa_data);
 
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 
 	if (f) {
 		ether_addr_copy(hw->mac.addr, addr->sa_data);
@@ -909,12 +912,13 @@ static int i40evf_addr_unsync(struct net_device *netdev, const u8 *addr)
  **/
 static void i40evf_set_rx_mode(struct net_device *netdev)
 {
+	unsigned int bh;
 	struct i40evf_adapter *adapter = netdev_priv(netdev);
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 	__dev_uc_sync(netdev, i40evf_addr_sync, i40evf_addr_unsync);
 	__dev_mc_sync(netdev, i40evf_addr_sync, i40evf_addr_unsync);
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 
 	if (netdev->flags & IFF_PROMISC &&
 	    !(adapter->flags & I40EVF_FLAG_PROMISC_ON))
@@ -1015,6 +1019,7 @@ static void i40evf_up_complete(struct i40evf_adapter *adapter)
  **/
 void i40evf_down(struct i40evf_adapter *adapter)
 {
+	unsigned int bh;
 	struct net_device *netdev = adapter->netdev;
 	struct i40evf_vlan_filter *vlf;
 	struct i40evf_mac_filter *f;
@@ -1029,7 +1034,7 @@ void i40evf_down(struct i40evf_adapter *adapter)
 	i40evf_napi_disable_all(adapter);
 	i40evf_irq_disable(adapter);
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	/* clear the sync flag on all filters */
 	__dev_uc_unsync(adapter->netdev, NULL);
@@ -1045,10 +1050,10 @@ void i40evf_down(struct i40evf_adapter *adapter)
 		vlf->remove = true;
 	}
 
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 
 	/* remove all cloud filters */
-	spin_lock_bh(&adapter->cloud_filter_list_lock);
+	spin_lock_bh(&adapter->cloud_filter_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(cf, &adapter->cloud_filter_list, list) {
 		cf->del = true;
 	}
@@ -1773,6 +1778,7 @@ restart_watchdog:
 
 static void i40evf_disable_vf(struct i40evf_adapter *adapter)
 {
+	unsigned int bh;
 	struct i40evf_mac_filter *f, *ftmp;
 	struct i40evf_vlan_filter *fv, *fvtmp;
 	struct i40evf_cloud_filter *cf, *cftmp;
@@ -1795,7 +1801,7 @@ static void i40evf_disable_vf(struct i40evf_adapter *adapter)
 		i40evf_free_all_rx_resources(adapter);
 	}
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	/* Delete all of the filters */
 	list_for_each_entry_safe(f, ftmp, &adapter->mac_filter_list, list) {
@@ -1808,9 +1814,9 @@ static void i40evf_disable_vf(struct i40evf_adapter *adapter)
 		kfree(fv);
 	}
 
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 
-	spin_lock_bh(&adapter->cloud_filter_list_lock);
+	spin_lock_bh(&adapter->cloud_filter_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(cf, cftmp, &adapter->cloud_filter_list, list) {
 		list_del(&cf->list);
 		kfree(cf);
@@ -1844,6 +1850,7 @@ static void i40evf_disable_vf(struct i40evf_adapter *adapter)
  **/
 static void i40evf_reset_task(struct work_struct *work)
 {
+	unsigned int bh;
 	struct i40evf_adapter *adapter = container_of(work,
 						      struct i40evf_adapter,
 						      reset_task);
@@ -1964,7 +1971,7 @@ continue_reset:
 	adapter->aq_required |= I40EVF_FLAG_AQ_GET_CONFIG;
 	adapter->aq_required |= I40EVF_FLAG_AQ_MAP_VECTORS;
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	/* re-add all MAC filters */
 	list_for_each_entry(f, &adapter->mac_filter_list, list) {
@@ -1975,10 +1982,10 @@ continue_reset:
 		vlf->add = true;
 	}
 
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 
 	/* check if TCs are running and re-add all cloud filters */
-	spin_lock_bh(&adapter->cloud_filter_list_lock);
+	spin_lock_bh(&adapter->cloud_filter_list_lock, SOFTIRQ_ALL_MASK);
 	if ((vfres->vf_cap_flags & VIRTCHNL_VF_OFFLOAD_ADQ) &&
 	    adapter->num_tc) {
 		list_for_each_entry(cf, &adapter->cloud_filter_list, list) {
@@ -2345,16 +2352,17 @@ static int i40evf_validate_ch_config(struct i40evf_adapter *adapter,
  **/
 static void i40evf_del_all_cloud_filters(struct i40evf_adapter *adapter)
 {
+	unsigned int bh;
 	struct i40evf_cloud_filter *cf, *cftmp;
 
-	spin_lock_bh(&adapter->cloud_filter_list_lock);
+	bh = spin_lock_bh(&adapter->cloud_filter_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(cf, cftmp, &adapter->cloud_filter_list,
 				 list) {
 		list_del(&cf->list);
 		kfree(cf);
 		adapter->num_cloud_filters--;
 	}
-	spin_unlock_bh(&adapter->cloud_filter_list_lock);
+	spin_unlock_bh(&adapter->cloud_filter_list_lock, bh);
 }
 
 /**
@@ -2770,6 +2778,7 @@ static int i40evf_handle_tclass(struct i40evf_adapter *adapter, u32 tc,
 static int i40evf_configure_clsflower(struct i40evf_adapter *adapter,
 				      struct tc_cls_flower_offload *cls_flower)
 {
+	unsigned int bh;
 	int tc = tc_classid_to_hwtc(adapter->netdev, cls_flower->classid);
 	struct i40evf_cloud_filter *filter = NULL;
 	int err = -EINVAL, count = 50;
@@ -2805,12 +2814,12 @@ static int i40evf_configure_clsflower(struct i40evf_adapter *adapter,
 		goto err;
 
 	/* add filter to the list */
-	spin_lock_bh(&adapter->cloud_filter_list_lock);
+	bh = spin_lock_bh(&adapter->cloud_filter_list_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&filter->list, &adapter->cloud_filter_list);
 	adapter->num_cloud_filters++;
 	filter->add = true;
 	adapter->aq_required |= I40EVF_FLAG_AQ_ADD_CLOUD_FILTER;
-	spin_unlock_bh(&adapter->cloud_filter_list_lock);
+	spin_unlock_bh(&adapter->cloud_filter_list_lock, bh);
 err:
 	if (err)
 		kfree(filter);
@@ -2849,10 +2858,11 @@ static struct i40evf_cloud_filter *i40evf_find_cf(struct i40evf_adapter *adapter
 static int i40evf_delete_clsflower(struct i40evf_adapter *adapter,
 				   struct tc_cls_flower_offload *cls_flower)
 {
+	unsigned int bh;
 	struct i40evf_cloud_filter *filter = NULL;
 	int err = 0;
 
-	spin_lock_bh(&adapter->cloud_filter_list_lock);
+	bh = spin_lock_bh(&adapter->cloud_filter_list_lock, SOFTIRQ_ALL_MASK);
 	filter = i40evf_find_cf(adapter, &cls_flower->cookie);
 	if (filter) {
 		filter->del = true;
@@ -2860,7 +2870,7 @@ static int i40evf_delete_clsflower(struct i40evf_adapter *adapter,
 	} else {
 		err = -EINVAL;
 	}
-	spin_unlock_bh(&adapter->cloud_filter_list_lock);
+	spin_unlock_bh(&adapter->cloud_filter_list_lock, bh);
 
 	return err;
 }
@@ -2974,6 +2984,7 @@ static int i40evf_setup_tc(struct net_device *netdev, enum tc_setup_type type,
  **/
 static int i40evf_open(struct net_device *netdev)
 {
+	unsigned int bh;
 	struct i40evf_adapter *adapter = netdev_priv(netdev);
 	int err;
 
@@ -3006,11 +3017,11 @@ static int i40evf_open(struct net_device *netdev)
 	if (err)
 		goto err_req_irq;
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	i40evf_add_filter(adapter, adapter->hw.mac.addr);
 
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 
 	i40evf_configure(adapter);
 
@@ -3863,6 +3874,7 @@ static int i40evf_resume(struct pci_dev *pdev)
  **/
 static void i40evf_remove(struct pci_dev *pdev)
 {
+	unsigned int bh;
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct i40evf_adapter *adapter = netdev_priv(netdev);
 	struct i40evf_vlan_filter *vlf, *vlftmp;
@@ -3922,7 +3934,7 @@ static void i40evf_remove(struct pci_dev *pdev)
 	i40evf_free_all_rx_resources(adapter);
 	i40evf_free_queues(adapter);
 	kfree(adapter->vf_res);
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 	/* If we got removed before an up/down sequence, we've got a filter
 	 * hanging out there that we need to get rid of.
 	 */
@@ -3936,9 +3948,9 @@ static void i40evf_remove(struct pci_dev *pdev)
 		kfree(vlf);
 	}
 
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 
-	spin_lock_bh(&adapter->cloud_filter_list_lock);
+	spin_lock_bh(&adapter->cloud_filter_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(cf, cftmp, &adapter->cloud_filter_list, list) {
 		list_del(&cf->list);
 		kfree(cf);

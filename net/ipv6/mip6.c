@@ -149,6 +149,7 @@ static int mip6_destopt_input(struct xfrm_state *x, struct sk_buff *skb)
  */
 static int mip6_destopt_output(struct xfrm_state *x, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ipv6hdr *iph;
 	struct ipv6_destopt_hdr *dstopt;
 	struct ipv6_destopt_hao *hao;
@@ -174,9 +175,9 @@ static int mip6_destopt_output(struct xfrm_state *x, struct sk_buff *skb)
 	len = ((char *)hao - (char *)dstopt) + sizeof(*hao);
 
 	memcpy(&hao->addr, &iph->saddr, sizeof(hao->addr));
-	spin_lock_bh(&x->lock);
+	bh = spin_lock_bh(&x->lock, SOFTIRQ_ALL_MASK);
 	memcpy(&iph->saddr, x->coaddr, sizeof(iph->saddr));
-	spin_unlock_bh(&x->lock);
+	spin_unlock_bh(&x->lock, bh);
 
 	WARN_ON(len != x->props.header_len);
 	dstopt->hdrlen = (x->props.header_len >> 3) - 1;
@@ -188,9 +189,10 @@ static inline int mip6_report_rl_allow(ktime_t stamp,
 				       const struct in6_addr *dst,
 				       const struct in6_addr *src, int iif)
 {
+	unsigned int bh;
 	int allow = 0;
 
-	spin_lock_bh(&mip6_report_rl.lock);
+	bh = spin_lock_bh(&mip6_report_rl.lock, SOFTIRQ_ALL_MASK);
 	if (mip6_report_rl.stamp != stamp ||
 	    mip6_report_rl.iif != iif ||
 	    !ipv6_addr_equal(&mip6_report_rl.src, src) ||
@@ -201,7 +203,7 @@ static inline int mip6_report_rl_allow(ktime_t stamp,
 		mip6_report_rl.dst = *dst;
 		allow = 1;
 	}
-	spin_unlock_bh(&mip6_report_rl.lock);
+	spin_unlock_bh(&mip6_report_rl.lock, bh);
 	return allow;
 }
 
@@ -368,6 +370,7 @@ static int mip6_rthdr_input(struct xfrm_state *x, struct sk_buff *skb)
  */
 static int mip6_rthdr_output(struct xfrm_state *x, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ipv6hdr *iph;
 	struct rt2_hdr *rt2;
 	u8 nexthdr;
@@ -388,9 +391,9 @@ static int mip6_rthdr_output(struct xfrm_state *x, struct sk_buff *skb)
 	WARN_ON(rt2->rt_hdr.hdrlen != 2);
 
 	memcpy(&rt2->addr, &iph->daddr, sizeof(rt2->addr));
-	spin_lock_bh(&x->lock);
+	bh = spin_lock_bh(&x->lock, SOFTIRQ_ALL_MASK);
 	memcpy(&iph->daddr, x->coaddr, sizeof(iph->daddr));
-	spin_unlock_bh(&x->lock);
+	spin_unlock_bh(&x->lock, bh);
 
 	return 0;
 }

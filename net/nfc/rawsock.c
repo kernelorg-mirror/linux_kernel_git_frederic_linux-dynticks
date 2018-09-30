@@ -47,12 +47,13 @@ static void nfc_sock_unlink(struct nfc_sock_list *l, struct sock *sk)
 
 static void rawsock_write_queue_purge(struct sock *sk)
 {
+	unsigned int bh;
 	pr_debug("sk=%p\n", sk);
 
-	spin_lock_bh(&sk->sk_write_queue.lock);
+	bh = spin_lock_bh(&sk->sk_write_queue.lock, SOFTIRQ_ALL_MASK);
 	__skb_queue_purge(&sk->sk_write_queue);
 	nfc_rawsock(sk)->tx_work_scheduled = false;
-	spin_unlock_bh(&sk->sk_write_queue.lock);
+	spin_unlock_bh(&sk->sk_write_queue.lock, bh);
 }
 
 static void rawsock_report_error(struct sock *sk, int err)
@@ -150,6 +151,7 @@ static int rawsock_add_header(struct sk_buff *skb)
 static void rawsock_data_exchange_complete(void *context, struct sk_buff *skb,
 					   int err)
 {
+	unsigned int bh;
 	struct sock *sk = (struct sock *) context;
 
 	BUG_ON(in_irq());
@@ -167,12 +169,12 @@ static void rawsock_data_exchange_complete(void *context, struct sk_buff *skb,
 	if (err)
 		goto error_skb;
 
-	spin_lock_bh(&sk->sk_write_queue.lock);
+	bh = spin_lock_bh(&sk->sk_write_queue.lock, SOFTIRQ_ALL_MASK);
 	if (!skb_queue_empty(&sk->sk_write_queue))
 		schedule_work(&nfc_rawsock(sk)->tx_work);
 	else
 		nfc_rawsock(sk)->tx_work_scheduled = false;
-	spin_unlock_bh(&sk->sk_write_queue.lock);
+	spin_unlock_bh(&sk->sk_write_queue.lock, bh);
 
 	sock_put(sk);
 	return;
@@ -213,6 +215,7 @@ static void rawsock_tx_work(struct work_struct *work)
 
 static int rawsock_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 	struct nfc_dev *dev = nfc_rawsock(sk)->dev;
 	struct sk_buff *skb;
@@ -236,13 +239,13 @@ static int rawsock_sendmsg(struct socket *sock, struct msghdr *msg, size_t len)
 		return rc;
 	}
 
-	spin_lock_bh(&sk->sk_write_queue.lock);
+	bh = spin_lock_bh(&sk->sk_write_queue.lock, SOFTIRQ_ALL_MASK);
 	__skb_queue_tail(&sk->sk_write_queue, skb);
 	if (!nfc_rawsock(sk)->tx_work_scheduled) {
 		schedule_work(&nfc_rawsock(sk)->tx_work);
 		nfc_rawsock(sk)->tx_work_scheduled = true;
 	}
-	spin_unlock_bh(&sk->sk_write_queue.lock);
+	spin_unlock_bh(&sk->sk_write_queue.lock, bh);
 
 	return len;
 }

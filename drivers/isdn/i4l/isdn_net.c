@@ -963,6 +963,7 @@ isdn_net_log_skb(struct sk_buff *skb, isdn_net_local *lp)
  */
 void isdn_net_write_super(isdn_net_local *lp, struct sk_buff *skb)
 {
+	unsigned int bh;
 	if (in_irq()) {
 		// we can't grab the lock from irq context,
 		// so we just queue the packet
@@ -971,13 +972,13 @@ void isdn_net_write_super(isdn_net_local *lp, struct sk_buff *skb)
 		return;
 	}
 
-	spin_lock_bh(&lp->xmit_lock);
+	bh = spin_lock_bh(&lp->xmit_lock, SOFTIRQ_ALL_MASK);
 	if (!isdn_net_lp_busy(lp)) {
 		isdn_net_writebuf_skb(lp, skb);
 	} else {
 		skb_queue_tail(&lp->super_tx_queue, skb);
 	}
-	spin_unlock_bh(&lp->xmit_lock);
+	spin_unlock_bh(&lp->xmit_lock, bh);
 }
 
 /*
@@ -985,17 +986,18 @@ void isdn_net_write_super(isdn_net_local *lp, struct sk_buff *skb)
  */
 static void isdn_net_softint(struct work_struct *work)
 {
+	unsigned int bh;
 	isdn_net_local *lp = container_of(work, isdn_net_local, tqueue);
 	struct sk_buff *skb;
 
-	spin_lock_bh(&lp->xmit_lock);
+	bh = spin_lock_bh(&lp->xmit_lock, SOFTIRQ_ALL_MASK);
 	while (!isdn_net_lp_busy(lp)) {
 		skb = skb_dequeue(&lp->super_tx_queue);
 		if (!skb)
 			break;
 		isdn_net_writebuf_skb(lp, skb);
 	}
-	spin_unlock_bh(&lp->xmit_lock);
+	spin_unlock_bh(&lp->xmit_lock, bh);
 }
 
 /*
@@ -1050,6 +1052,7 @@ error:
 static int
 isdn_net_xmit(struct net_device *ndev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	isdn_net_dev *nd;
 	isdn_net_local *slp;
 	isdn_net_local *lp = netdev_priv(ndev);
@@ -1079,7 +1082,7 @@ isdn_net_xmit(struct net_device *ndev, struct sk_buff *skb)
 	/* Reset hangup-timeout */
 	lp->huptimer = 0; // FIXME?
 	isdn_net_writebuf_skb(lp, skb);
-	spin_unlock_bh(&lp->xmit_lock);
+	spin_unlock_bh(&lp->xmit_lock, bh);
 
 	/* the following stuff is here for backwards compatibility.
 	 * in future, start-up and hangup of slaves (based on current load)

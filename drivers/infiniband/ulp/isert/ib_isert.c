@@ -500,19 +500,20 @@ isert_set_nego_params(struct isert_conn *isert_conn,
 static int
 isert_connect_request(struct rdma_cm_id *cma_id, struct rdma_cm_event *event)
 {
+	unsigned int bh;
 	struct isert_np *isert_np = cma_id->context;
 	struct iscsi_np *np = isert_np->np;
 	struct isert_conn *isert_conn;
 	struct isert_device *device;
 	int ret = 0;
 
-	spin_lock_bh(&np->np_thread_lock);
+	bh = spin_lock_bh(&np->np_thread_lock, SOFTIRQ_ALL_MASK);
 	if (!np->enabled) {
-		spin_unlock_bh(&np->np_thread_lock);
+		spin_unlock_bh(&np->np_thread_lock, bh);
 		isert_dbg("iscsi_np is not enabled, reject connect request\n");
 		return rdma_reject(cma_id, NULL, 0);
 	}
-	spin_unlock_bh(&np->np_thread_lock);
+	spin_unlock_bh(&np->np_thread_lock, bh);
 
 	isert_dbg("cma_id: %p, portal: %p\n",
 		 cma_id, cma_id->context);
@@ -1130,6 +1131,7 @@ isert_handle_scsi_cmd(struct isert_conn *isert_conn,
 		      struct isert_cmd *isert_cmd, struct iscsi_cmd *cmd,
 		      struct iser_rx_desc *rx_desc, unsigned char *buf)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = isert_conn->conn;
 	struct iscsi_scsi_req *hdr = (struct iscsi_scsi_req *)buf;
 	int imm_data, imm_data_len, unsol_data, sg_nents, rc;
@@ -1176,10 +1178,10 @@ isert_handle_scsi_cmd(struct isert_conn *isert_conn,
 	cmd->write_data_done += imm_data_len;
 
 	if (cmd->write_data_done == cmd->se_cmd.data_length) {
-		spin_lock_bh(&cmd->istate_lock);
+		bh = spin_lock_bh(&cmd->istate_lock, SOFTIRQ_ALL_MASK);
 		cmd->cmd_flags |= ICF_GOT_LAST_DATAOUT;
 		cmd->i_state = ISTATE_RECEIVED_LAST_DATAOUT;
-		spin_unlock_bh(&cmd->istate_lock);
+		spin_unlock_bh(&cmd->istate_lock, bh);
 	}
 
 sequence_cmd:
@@ -1515,6 +1517,7 @@ isert_rdma_rw_ctx_destroy(struct isert_cmd *cmd, struct isert_conn *conn)
 static void
 isert_put_cmd(struct isert_cmd *isert_cmd, bool comp_err)
 {
+	unsigned int bh;
 	struct iscsi_cmd *cmd = isert_cmd->iscsi_cmd;
 	struct isert_conn *isert_conn = isert_cmd->conn;
 	struct iscsi_conn *conn = isert_conn->conn;
@@ -1524,10 +1527,10 @@ isert_put_cmd(struct isert_cmd *isert_cmd, bool comp_err)
 
 	switch (cmd->iscsi_opcode) {
 	case ISCSI_OP_SCSI_CMD:
-		spin_lock_bh(&conn->cmd_lock);
+		bh = spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&cmd->i_conn_node))
 			list_del_init(&cmd->i_conn_node);
-		spin_unlock_bh(&conn->cmd_lock);
+		spin_unlock_bh(&conn->cmd_lock, bh);
 
 		if (cmd->data_direction == DMA_TO_DEVICE) {
 			iscsit_stop_dataout_timer(cmd);
@@ -1549,10 +1552,10 @@ isert_put_cmd(struct isert_cmd *isert_cmd, bool comp_err)
 		transport_generic_free_cmd(&cmd->se_cmd, 0);
 		break;
 	case ISCSI_OP_SCSI_TMFUNC:
-		spin_lock_bh(&conn->cmd_lock);
+		bh = spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&cmd->i_conn_node))
 			list_del_init(&cmd->i_conn_node);
-		spin_unlock_bh(&conn->cmd_lock);
+		spin_unlock_bh(&conn->cmd_lock, bh);
 
 		transport_generic_free_cmd(&cmd->se_cmd, 0);
 		break;
@@ -1564,10 +1567,10 @@ isert_put_cmd(struct isert_cmd *isert_cmd, bool comp_err)
 		if (hdr->flags & ISCSI_FLAG_TEXT_CONTINUE)
 			break;
 
-		spin_lock_bh(&conn->cmd_lock);
+		bh = spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&cmd->i_conn_node))
 			list_del_init(&cmd->i_conn_node);
-		spin_unlock_bh(&conn->cmd_lock);
+		spin_unlock_bh(&conn->cmd_lock, bh);
 
 		/*
 		 * Handle special case for REJECT when iscsi_add_reject*() has
@@ -1702,6 +1705,7 @@ isert_rdma_write_done(struct ib_cq *cq, struct ib_wc *wc)
 static void
 isert_rdma_read_done(struct ib_cq *cq, struct ib_wc *wc)
 {
+	unsigned int bh;
 	struct isert_conn *isert_conn = wc->qp->qp_context;
 	struct isert_device *device = isert_conn->device;
 	struct iser_tx_desc *desc = cqe_to_tx_desc(wc->wr_cqe);
@@ -1728,10 +1732,10 @@ isert_rdma_read_done(struct ib_cq *cq, struct ib_wc *wc)
 	cmd->write_data_done = 0;
 
 	isert_dbg("Cmd: %p RDMA_READ comp calling execute_cmd\n", isert_cmd);
-	spin_lock_bh(&cmd->istate_lock);
+	bh = spin_lock_bh(&cmd->istate_lock, SOFTIRQ_ALL_MASK);
 	cmd->cmd_flags |= ICF_GOT_LAST_DATAOUT;
 	cmd->i_state = ISTATE_RECEIVED_LAST_DATAOUT;
-	spin_unlock_bh(&cmd->istate_lock);
+	spin_unlock_bh(&cmd->istate_lock, bh);
 
 	/*
 	 * transport_generic_request_failure() will drop the extra
@@ -1899,13 +1903,14 @@ isert_put_response(struct iscsi_conn *conn, struct iscsi_cmd *cmd)
 static void
 isert_aborted_task(struct iscsi_conn *conn, struct iscsi_cmd *cmd)
 {
+	unsigned int bh;
 	struct isert_cmd *isert_cmd = iscsit_priv_cmd(cmd);
 	struct isert_conn *isert_conn = conn->context;
 
-	spin_lock_bh(&conn->cmd_lock);
+	bh = spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&cmd->i_conn_node))
 		list_del_init(&cmd->i_conn_node);
-	spin_unlock_bh(&conn->cmd_lock);
+	spin_unlock_bh(&conn->cmd_lock, bh);
 
 	if (cmd->data_direction == DMA_TO_DEVICE)
 		iscsit_stop_dataout_timer(cmd);
@@ -2243,14 +2248,15 @@ isert_get_dataout(struct iscsi_conn *conn, struct iscsi_cmd *cmd, bool recovery)
 static int
 isert_immediate_queue(struct iscsi_conn *conn, struct iscsi_cmd *cmd, int state)
 {
+	unsigned int bh;
 	struct isert_cmd *isert_cmd = iscsit_priv_cmd(cmd);
 	int ret = 0;
 
 	switch (state) {
 	case ISTATE_REMOVE:
-		spin_lock_bh(&conn->cmd_lock);
+		bh = spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 		list_del_init(&cmd->i_conn_node);
-		spin_unlock_bh(&conn->cmd_lock);
+		spin_unlock_bh(&conn->cmd_lock, bh);
 		isert_put_cmd(isert_cmd, true);
 		break;
 	case ISTATE_SEND_NOPIN_WANT_RESPONSE:
@@ -2467,6 +2473,7 @@ isert_set_conn_info(struct iscsi_np *np, struct iscsi_conn *conn,
 static int
 isert_accept_np(struct iscsi_np *np, struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct isert_np *isert_np = np->np_context;
 	struct isert_conn *isert_conn;
 	int ret;
@@ -2476,9 +2483,9 @@ accept_wait:
 	if (ret)
 		return -ENODEV;
 
-	spin_lock_bh(&np->np_thread_lock);
+	bh = spin_lock_bh(&np->np_thread_lock, SOFTIRQ_ALL_MASK);
 	if (np->np_thread_state >= ISCSI_NP_THREAD_RESET) {
-		spin_unlock_bh(&np->np_thread_lock);
+		spin_unlock_bh(&np->np_thread_lock, bh);
 		isert_dbg("np_thread_state %d\n",
 			 np->np_thread_state);
 		/**
@@ -2487,7 +2494,7 @@ accept_wait:
 		 **/
 		return -ENODEV;
 	}
-	spin_unlock_bh(&np->np_thread_lock);
+	spin_unlock_bh(&np->np_thread_lock, bh);
 
 	mutex_lock(&isert_np->mutex);
 	if (list_empty(&isert_np->pending)) {
@@ -2607,17 +2614,18 @@ isert_wait4cmds(struct iscsi_conn *conn)
 static void
 isert_put_unsol_pending_cmds(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct iscsi_cmd *cmd, *tmp;
 	static LIST_HEAD(drop_cmd_list);
 
-	spin_lock_bh(&conn->cmd_lock);
+	bh = spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(cmd, tmp, &conn->conn_cmd_list, i_conn_node) {
 		if ((cmd->cmd_flags & ICF_NON_IMMEDIATE_UNSOLICITED_DATA) &&
 		    (cmd->write_data_done < conn->sess->sess_ops->FirstBurstLength) &&
 		    (cmd->write_data_done < cmd->se_cmd.data_length))
 			list_move_tail(&cmd->i_conn_node, &drop_cmd_list);
 	}
-	spin_unlock_bh(&conn->cmd_lock);
+	spin_unlock_bh(&conn->cmd_lock, bh);
 
 	list_for_each_entry_safe(cmd, tmp, &drop_cmd_list, i_conn_node) {
 		list_del_init(&cmd->i_conn_node);

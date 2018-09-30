@@ -690,10 +690,11 @@ static int skge_set_coalesce(struct net_device *dev,
 enum led_mode { LED_MODE_OFF, LED_MODE_ON, LED_MODE_TST };
 static void skge_led(struct skge_port *skge, enum led_mode mode)
 {
+	unsigned int bh;
 	struct skge_hw *hw = skge->hw;
 	int port = skge->port;
 
-	spin_lock_bh(&hw->phy_lock);
+	bh = spin_lock_bh(&hw->phy_lock, SOFTIRQ_ALL_MASK);
 	if (is_genesis(hw)) {
 		switch (mode) {
 		case LED_MODE_OFF:
@@ -764,7 +765,7 @@ static void skge_led(struct skge_port *skge, enum led_mode mode)
 				     PHY_M_LED_MO_RX(MO_LED_ON));
 		}
 	}
-	spin_unlock_bh(&hw->phy_lock);
+	spin_unlock_bh(&hw->phy_lock, bh);
 }
 
 /* blink LED's for finding board */
@@ -2422,6 +2423,7 @@ static void yukon_phy_intr(struct skge_port *skge)
 
 static void skge_phy_reset(struct skge_port *skge)
 {
+	unsigned int bh;
 	struct skge_hw *hw = skge->hw;
 	int port = skge->port;
 	struct net_device *dev = hw->dev[port];
@@ -2429,7 +2431,7 @@ static void skge_phy_reset(struct skge_port *skge)
 	netif_stop_queue(skge->netdev);
 	netif_carrier_off(skge->netdev);
 
-	spin_lock_bh(&hw->phy_lock);
+	bh = spin_lock_bh(&hw->phy_lock, SOFTIRQ_ALL_MASK);
 	if (is_genesis(hw)) {
 		genesis_reset(hw, port);
 		genesis_mac_init(hw, port);
@@ -2437,7 +2439,7 @@ static void skge_phy_reset(struct skge_port *skge)
 		yukon_reset(hw, port);
 		yukon_init(hw, port);
 	}
-	spin_unlock_bh(&hw->phy_lock);
+	spin_unlock_bh(&hw->phy_lock, bh);
 
 	skge_set_multicast(dev);
 }
@@ -2445,6 +2447,7 @@ static void skge_phy_reset(struct skge_port *skge)
 /* Basic MII support */
 static int skge_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
+	unsigned int bh;
 	struct mii_ioctl_data *data = if_mii(ifr);
 	struct skge_port *skge = netdev_priv(dev);
 	struct skge_hw *hw = skge->hw;
@@ -2460,26 +2463,26 @@ static int skge_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		/* fallthru */
 	case SIOCGMIIREG: {
 		u16 val = 0;
-		spin_lock_bh(&hw->phy_lock);
+		bh = spin_lock_bh(&hw->phy_lock, SOFTIRQ_ALL_MASK);
 
 		if (is_genesis(hw))
 			err = __xm_phy_read(hw, skge->port, data->reg_num & 0x1f, &val);
 		else
 			err = __gm_phy_read(hw, skge->port, data->reg_num & 0x1f, &val);
-		spin_unlock_bh(&hw->phy_lock);
+		spin_unlock_bh(&hw->phy_lock, bh);
 		data->val_out = val;
 		break;
 	}
 
 	case SIOCSMIIREG:
-		spin_lock_bh(&hw->phy_lock);
+		bh = spin_lock_bh(&hw->phy_lock, SOFTIRQ_ALL_MASK);
 		if (is_genesis(hw))
 			err = xm_phy_write(hw, skge->port, data->reg_num & 0x1f,
 				   data->val_in);
 		else
 			err = gm_phy_write(hw, skge->port, data->reg_num & 0x1f,
 				   data->val_in);
-		spin_unlock_bh(&hw->phy_lock);
+		spin_unlock_bh(&hw->phy_lock, bh);
 		break;
 	}
 	return err;
@@ -2535,6 +2538,7 @@ static void skge_qset(struct skge_port *skge, u16 q,
 
 static int skge_up(struct net_device *dev)
 {
+	unsigned int bh;
 	struct skge_port *skge = netdev_priv(dev);
 	struct skge_hw *hw = skge->hw;
 	int port = skge->port;
@@ -2595,12 +2599,12 @@ static int skge_up(struct net_device *dev)
 
 	/* Initialize MAC */
 	netif_carrier_off(dev);
-	spin_lock_bh(&hw->phy_lock);
+	bh = spin_lock_bh(&hw->phy_lock, SOFTIRQ_ALL_MASK);
 	if (is_genesis(hw))
 		genesis_mac_init(hw, port);
 	else
 		yukon_mac_init(hw, port);
-	spin_unlock_bh(&hw->phy_lock);
+	spin_unlock_bh(&hw->phy_lock, bh);
 
 	/* Configure RAMbuffers - equally between ports and tx/rx */
 	chunk = (hw->ram_size  - hw->ram_offset) / (hw->ports * 2);
@@ -3461,6 +3465,7 @@ static void skge_netpoll(struct net_device *dev)
 
 static int skge_set_mac_address(struct net_device *dev, void *p)
 {
+	unsigned int bh;
 	struct skge_port *skge = netdev_priv(dev);
 	struct skge_hw *hw = skge->hw;
 	unsigned port = skge->port;
@@ -3477,7 +3482,7 @@ static int skge_set_mac_address(struct net_device *dev, void *p)
 		memcpy_toio(hw->regs + B2_MAC_2 + port*8, dev->dev_addr, ETH_ALEN);
 	} else {
 		/* disable Rx */
-		spin_lock_bh(&hw->phy_lock);
+		bh = spin_lock_bh(&hw->phy_lock, SOFTIRQ_ALL_MASK);
 		ctrl = gma_read16(hw, port, GM_GP_CTRL);
 		gma_write16(hw, port, GM_GP_CTRL, ctrl & ~GM_GPCR_RX_ENA);
 
@@ -3492,7 +3497,7 @@ static int skge_set_mac_address(struct net_device *dev, void *p)
 		}
 
 		gma_write16(hw, port, GM_GP_CTRL, ctrl);
-		spin_unlock_bh(&hw->phy_lock);
+		spin_unlock_bh(&hw->phy_lock, bh);
 	}
 
 	return 0;

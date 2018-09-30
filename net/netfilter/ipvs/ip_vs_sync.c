@@ -305,9 +305,10 @@ static void hton_seq(struct ip_vs_seq *ho, struct ip_vs_seq *no)
 static inline struct ip_vs_sync_buff *
 sb_dequeue(struct netns_ipvs *ipvs, struct ipvs_master_sync_state *ms)
 {
+	unsigned int bh;
 	struct ip_vs_sync_buff *sb;
 
-	spin_lock_bh(&ipvs->sync_lock);
+	bh = spin_lock_bh(&ipvs->sync_lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&ms->sync_queue)) {
 		sb = NULL;
 		__set_current_state(TASK_INTERRUPTIBLE);
@@ -319,7 +320,7 @@ sb_dequeue(struct netns_ipvs *ipvs, struct ipvs_master_sync_state *ms)
 		if (!ms->sync_queue_len)
 			ms->sync_queue_delay = 0;
 	}
-	spin_unlock_bh(&ipvs->sync_lock);
+	spin_unlock_bh(&ipvs->sync_lock, bh);
 
 	return sb;
 }
@@ -389,16 +390,17 @@ static inline struct ip_vs_sync_buff *
 get_curr_sync_buff(struct netns_ipvs *ipvs, struct ipvs_master_sync_state *ms,
 		   unsigned long time)
 {
+	unsigned int bh;
 	struct ip_vs_sync_buff *sb;
 
-	spin_lock_bh(&ipvs->sync_buff_lock);
+	bh = spin_lock_bh(&ipvs->sync_buff_lock, SOFTIRQ_ALL_MASK);
 	sb = ms->sync_buff;
 	if (sb && time_after_eq(jiffies - sb->firstuse, time)) {
 		ms->sync_buff = NULL;
 		__set_current_state(TASK_RUNNING);
 	} else
 		sb = NULL;
-	spin_unlock_bh(&ipvs->sync_buff_lock);
+	spin_unlock_bh(&ipvs->sync_buff_lock, bh);
 	return sb;
 }
 
@@ -539,6 +541,7 @@ set:
 static void ip_vs_sync_conn_v0(struct netns_ipvs *ipvs, struct ip_vs_conn *cp,
 			       int pkts)
 {
+	unsigned int bh;
 	struct ip_vs_sync_mesg_v0 *m;
 	struct ip_vs_sync_conn_v0 *s;
 	struct ip_vs_sync_buff *buff;
@@ -555,9 +558,9 @@ static void ip_vs_sync_conn_v0(struct netns_ipvs *ipvs, struct ip_vs_conn *cp,
 	if (!ip_vs_sync_conn_needed(ipvs, cp, pkts))
 		return;
 
-	spin_lock_bh(&ipvs->sync_buff_lock);
+	bh = spin_lock_bh(&ipvs->sync_buff_lock, SOFTIRQ_ALL_MASK);
 	if (!(ipvs->sync_state & IP_VS_STATE_MASTER)) {
-		spin_unlock_bh(&ipvs->sync_buff_lock);
+		spin_unlock_bh(&ipvs->sync_buff_lock, bh);
 		return;
 	}
 
@@ -578,7 +581,7 @@ static void ip_vs_sync_conn_v0(struct netns_ipvs *ipvs, struct ip_vs_conn *cp,
 	if (!buff) {
 		buff = ip_vs_sync_buff_create_v0(ipvs, len);
 		if (!buff) {
-			spin_unlock_bh(&ipvs->sync_buff_lock);
+			spin_unlock_bh(&ipvs->sync_buff_lock, bh);
 			pr_err("ip_vs_sync_buff_create failed.\n");
 			return;
 		}
@@ -608,7 +611,7 @@ static void ip_vs_sync_conn_v0(struct netns_ipvs *ipvs, struct ip_vs_conn *cp,
 	m->nr_conns++;
 	m->size = htons(ntohs(m->size) + len);
 	buff->head += len;
-	spin_unlock_bh(&ipvs->sync_buff_lock);
+	spin_unlock_bh(&ipvs->sync_buff_lock, bh);
 
 	/* synchronize its controller if it has */
 	cp = cp->control;
@@ -628,6 +631,7 @@ static void ip_vs_sync_conn_v0(struct netns_ipvs *ipvs, struct ip_vs_conn *cp,
  */
 void ip_vs_sync_conn(struct netns_ipvs *ipvs, struct ip_vs_conn *cp, int pkts)
 {
+	unsigned int bh;
 	struct ip_vs_sync_mesg *m;
 	union ip_vs_sync_conn *s;
 	struct ip_vs_sync_buff *buff;
@@ -658,9 +662,9 @@ sloop:
 		pe_name_len = strnlen(cp->pe->name, IP_VS_PENAME_MAXLEN);
 	}
 
-	spin_lock_bh(&ipvs->sync_buff_lock);
+	bh = spin_lock_bh(&ipvs->sync_buff_lock, SOFTIRQ_ALL_MASK);
 	if (!(ipvs->sync_state & IP_VS_STATE_MASTER)) {
-		spin_unlock_bh(&ipvs->sync_buff_lock);
+		spin_unlock_bh(&ipvs->sync_buff_lock, bh);
 		return;
 	}
 
@@ -700,7 +704,7 @@ sloop:
 	if (!buff) {
 		buff = ip_vs_sync_buff_create(ipvs, len);
 		if (!buff) {
-			spin_unlock_bh(&ipvs->sync_buff_lock);
+			spin_unlock_bh(&ipvs->sync_buff_lock, bh);
 			pr_err("ip_vs_sync_buff_create failed.\n");
 			return;
 		}
@@ -767,7 +771,7 @@ sloop:
 		}
 	}
 
-	spin_unlock_bh(&ipvs->sync_buff_lock);
+	spin_unlock_bh(&ipvs->sync_buff_lock, bh);
 
 control:
 	/* synchronize its controller if it has */
@@ -845,6 +849,7 @@ static void ip_vs_proc_conn(struct netns_ipvs *ipvs, struct ip_vs_conn_param *pa
 			    unsigned long timeout, __u32 fwmark,
 			    struct ip_vs_sync_conn_options *opt)
 {
+	unsigned int bh;
 	struct ip_vs_dest *dest;
 	struct ip_vs_conn *cp;
 
@@ -875,7 +880,7 @@ static void ip_vs_proc_conn(struct netns_ipvs *ipvs, struct ip_vs_conn_param *pa
 		kfree(param->pe_data);
 
 		dest = cp->dest;
-		spin_lock_bh(&cp->lock);
+		bh = spin_lock_bh(&cp->lock, SOFTIRQ_ALL_MASK);
 		if ((cp->flags ^ flags) & IP_VS_CONN_F_INACTIVE &&
 		    !(flags & IP_VS_CONN_F_TEMPLATE) && dest) {
 			if (flags & IP_VS_CONN_F_INACTIVE) {
@@ -889,7 +894,7 @@ static void ip_vs_proc_conn(struct netns_ipvs *ipvs, struct ip_vs_conn_param *pa
 		flags &= IP_VS_CONN_F_BACKUP_UPD_MASK;
 		flags |= cp->flags & ~IP_VS_CONN_F_BACKUP_UPD_MASK;
 		cp->flags = flags;
-		spin_unlock_bh(&cp->lock);
+		spin_unlock_bh(&cp->lock, bh);
 		if (!dest)
 			ip_vs_try_bind_dest(cp);
 	} else {
@@ -1628,18 +1633,19 @@ ip_vs_receive(struct socket *sock, char *buffer, const size_t buflen)
 /* Wakeup the master thread for sending */
 static void master_wakeup_work_handler(struct work_struct *work)
 {
+	unsigned int bh;
 	struct ipvs_master_sync_state *ms =
 		container_of(work, struct ipvs_master_sync_state,
 			     master_wakeup_work.work);
 	struct netns_ipvs *ipvs = ms->ipvs;
 
-	spin_lock_bh(&ipvs->sync_lock);
+	bh = spin_lock_bh(&ipvs->sync_lock, SOFTIRQ_ALL_MASK);
 	if (ms->sync_queue_len &&
 	    ms->sync_queue_delay < IPVS_SYNC_WAKEUP_RATE) {
 		ms->sync_queue_delay = IPVS_SYNC_WAKEUP_RATE;
 		wake_up_process(ms->master_thread);
 	}
-	spin_unlock_bh(&ipvs->sync_lock);
+	spin_unlock_bh(&ipvs->sync_lock, bh);
 }
 
 /* Get next buffer to send */
@@ -1752,6 +1758,7 @@ static int sync_thread_backup(void *data)
 int start_sync_thread(struct netns_ipvs *ipvs, struct ipvs_sync_daemon_cfg *c,
 		      int state)
 {
+	unsigned int bh;
 	struct ip_vs_sync_thread_data *tinfo = NULL;
 	struct task_struct **array = NULL, *task;
 	struct net_device *dev;
@@ -1896,9 +1903,9 @@ int start_sync_thread(struct netns_ipvs *ipvs, struct ipvs_sync_daemon_cfg *c,
 
 	if (state == IP_VS_STATE_BACKUP)
 		ipvs->backup_threads = array;
-	spin_lock_bh(&ipvs->sync_buff_lock);
+	bh = spin_lock_bh(&ipvs->sync_buff_lock, SOFTIRQ_ALL_MASK);
 	ipvs->sync_state |= state;
-	spin_unlock_bh(&ipvs->sync_buff_lock);
+	spin_unlock_bh(&ipvs->sync_buff_lock, bh);
 
 	mutex_unlock(&ipvs->sync_mutex);
 	rtnl_unlock();
@@ -1944,6 +1951,7 @@ out_early:
 
 int stop_sync_thread(struct netns_ipvs *ipvs, int state)
 {
+	unsigned int bh;
 	struct task_struct **array;
 	int id;
 	int retc = -EINVAL;
@@ -1960,11 +1968,11 @@ int stop_sync_thread(struct netns_ipvs *ipvs, int state)
 		 * progress of stopping the master sync daemon.
 		 */
 
-		spin_lock_bh(&ipvs->sync_buff_lock);
+		bh = spin_lock_bh(&ipvs->sync_buff_lock, SOFTIRQ_ALL_MASK);
 		spin_lock(&ipvs->sync_lock);
 		ipvs->sync_state &= ~IP_VS_STATE_MASTER;
 		spin_unlock(&ipvs->sync_lock);
-		spin_unlock_bh(&ipvs->sync_buff_lock);
+		spin_unlock_bh(&ipvs->sync_buff_lock, bh);
 
 		retc = 0;
 		for (id = ipvs->threads_mask; id >= 0; id--) {

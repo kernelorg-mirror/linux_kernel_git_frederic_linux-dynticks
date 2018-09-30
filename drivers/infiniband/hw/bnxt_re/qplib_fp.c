@@ -151,6 +151,7 @@ void bnxt_qplib_clean_qp(struct bnxt_qplib_qp *qp)
 
 static void bnxt_qpn_cqn_sched_task(struct work_struct *work)
 {
+	unsigned int bh;
 	struct bnxt_qplib_nq_work *nq_work =
 			container_of(work, struct bnxt_qplib_nq_work, work);
 
@@ -158,14 +159,14 @@ static void bnxt_qpn_cqn_sched_task(struct work_struct *work)
 	struct bnxt_qplib_nq *nq = nq_work->nq;
 
 	if (cq && nq) {
-		spin_lock_bh(&cq->compl_lock);
+		bh = spin_lock_bh(&cq->compl_lock, SOFTIRQ_ALL_MASK);
 		if (atomic_read(&cq->arm_state) && nq->cqn_handler) {
 			dev_dbg(&nq->pdev->dev,
 				"%s:Trigger cq  = %p event nq = %p\n",
 				__func__, cq, nq);
 			nq->cqn_handler(nq, cq);
 		}
-		spin_unlock_bh(&cq->compl_lock);
+		spin_unlock_bh(&cq->compl_lock, bh);
 	}
 	kfree(nq_work);
 }
@@ -234,6 +235,7 @@ fail:
 
 static void bnxt_qplib_service_nq(unsigned long data)
 {
+	unsigned int bh;
 	struct bnxt_qplib_nq *nq = (struct bnxt_qplib_nq *)data;
 	struct bnxt_qplib_hwq *hwq = &nq->hwq;
 	struct nq_base *nqe, **nq_ptr;
@@ -271,7 +273,7 @@ static void bnxt_qplib_service_nq(unsigned long data)
 						     << 32;
 			cq = (struct bnxt_qplib_cq *)(unsigned long)q_handle;
 			bnxt_qplib_arm_cq_enable(cq);
-			spin_lock_bh(&cq->compl_lock);
+			bh = spin_lock_bh(&cq->compl_lock, SOFTIRQ_ALL_MASK);
 			atomic_set(&cq->arm_state, 0);
 			if (!nq->cqn_handler(nq, (cq)))
 				num_cqne_processed++;
@@ -279,7 +281,7 @@ static void bnxt_qplib_service_nq(unsigned long data)
 				dev_warn(&nq->pdev->dev,
 					 "QPLIB: cqn - type 0x%x not handled",
 					 type);
-			spin_unlock_bh(&cq->compl_lock);
+			spin_unlock_bh(&cq->compl_lock, bh);
 			break;
 		}
 		case NQ_BASE_TYPE_SRQ_EVENT:

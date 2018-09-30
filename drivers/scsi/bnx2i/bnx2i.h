@@ -133,7 +133,7 @@
 #ifdef CONFIG_32BIT
 #define GET_STATS_64(__hba, dst, field)				\
 	do {							\
-		spin_lock_bh(&__hba->stat_lock);		\
+		spin_lock_bh(&__hba->stat_lock, SOFTIRQ_ALL_MASK);		\
 		dst->field##_lo = __hba->stats.field##_lo;	\
 		dst->field##_hi = __hba->stats.field##_hi;	\
 		spin_unlock_bh(&__hba->stat_lock);		\

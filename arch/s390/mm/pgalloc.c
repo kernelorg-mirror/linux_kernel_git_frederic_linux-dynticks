@@ -79,6 +79,7 @@ static void __crst_table_upgrade(void *arg)
 
 int crst_table_upgrade(struct mm_struct *mm, unsigned long end)
 {
+	unsigned int bh;
 	unsigned long *table, *pgd;
 	int rc, notify;
 
@@ -92,7 +93,7 @@ int crst_table_upgrade(struct mm_struct *mm, unsigned long end)
 			rc = -ENOMEM;
 			break;
 		}
-		spin_lock_bh(&mm->page_table_lock);
+		bh = spin_lock_bh(&mm->page_table_lock, SOFTIRQ_ALL_MASK);
 		pgd = (unsigned long *) mm->pgd;
 		if (mm->context.asce_limit == _REGION2_SIZE) {
 			crst_table_init(table, _REGION2_ENTRY_EMPTY);
@@ -110,7 +111,7 @@ int crst_table_upgrade(struct mm_struct *mm, unsigned long end)
 				_ASCE_USER_BITS | _ASCE_TYPE_REGION1;
 		}
 		notify = 1;
-		spin_unlock_bh(&mm->page_table_lock);
+		spin_unlock_bh(&mm->page_table_lock, bh);
 	}
 	if (notify)
 		on_each_cpu(__crst_table_upgrade, mm, 0);
@@ -179,6 +180,7 @@ void page_table_free_pgste(struct page *page)
  */
 unsigned long *page_table_alloc(struct mm_struct *mm)
 {
+	unsigned int bh;
 	unsigned long *table;
 	struct page *page;
 	unsigned int mask, bit;
@@ -186,7 +188,7 @@ unsigned long *page_table_alloc(struct mm_struct *mm)
 	/* Try to get a fragment of a 4K page as a 2K page table */
 	if (!mm_alloc_pgste(mm)) {
 		table = NULL;
-		spin_lock_bh(&mm->context.lock);
+		bh = spin_lock_bh(&mm->context.lock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&mm->context.pgtable_list)) {
 			page = list_first_entry(&mm->context.pgtable_list,
 						struct page, lru);
@@ -202,7 +204,7 @@ unsigned long *page_table_alloc(struct mm_struct *mm)
 				list_del(&page->lru);
 			}
 		}
-		spin_unlock_bh(&mm->context.lock);
+		spin_unlock_bh(&mm->context.lock, bh);
 		if (table)
 			return table;
 	}
@@ -226,15 +228,16 @@ unsigned long *page_table_alloc(struct mm_struct *mm)
 		/* Return the first 2K fragment of the page */
 		atomic_xor_bits(&page->_refcount, 1 << 24);
 		memset64((u64 *)table, _PAGE_INVALID, 2 * PTRS_PER_PTE);
-		spin_lock_bh(&mm->context.lock);
+		bh = spin_lock_bh(&mm->context.lock, SOFTIRQ_ALL_MASK);
 		list_add(&page->lru, &mm->context.pgtable_list);
-		spin_unlock_bh(&mm->context.lock);
+		spin_unlock_bh(&mm->context.lock, bh);
 	}
 	return table;
 }
 
 void page_table_free(struct mm_struct *mm, unsigned long *table)
 {
+	unsigned int bh;
 	struct page *page;
 	unsigned int bit, mask;
 
@@ -242,14 +245,14 @@ void page_table_free(struct mm_struct *mm, unsigned long *table)
 	if (!mm_alloc_pgste(mm)) {
 		/* Free 2K page table fragment of a 4K page */
 		bit = (__pa(table) & ~PAGE_MASK)/(PTRS_PER_PTE*sizeof(pte_t));
-		spin_lock_bh(&mm->context.lock);
+		bh = spin_lock_bh(&mm->context.lock, SOFTIRQ_ALL_MASK);
 		mask = atomic_xor_bits(&page->_refcount, 1U << (bit + 24));
 		mask >>= 24;
 		if (mask & 3)
 			list_add(&page->lru, &mm->context.pgtable_list);
 		else
 			list_del(&page->lru);
-		spin_unlock_bh(&mm->context.lock);
+		spin_unlock_bh(&mm->context.lock, bh);
 		if (mask != 0)
 			return;
 	} else {
@@ -263,6 +266,7 @@ void page_table_free(struct mm_struct *mm, unsigned long *table)
 void page_table_free_rcu(struct mmu_gather *tlb, unsigned long *table,
 			 unsigned long vmaddr)
 {
+	unsigned int bh;
 	struct mm_struct *mm;
 	struct page *page;
 	unsigned int bit, mask;
@@ -276,14 +280,14 @@ void page_table_free_rcu(struct mmu_gather *tlb, unsigned long *table,
 		return;
 	}
 	bit = (__pa(table) & ~PAGE_MASK) / (PTRS_PER_PTE*sizeof(pte_t));
-	spin_lock_bh(&mm->context.lock);
+	bh = spin_lock_bh(&mm->context.lock, SOFTIRQ_ALL_MASK);
 	mask = atomic_xor_bits(&page->_refcount, 0x11U << (bit + 24));
 	mask >>= 24;
 	if (mask & 3)
 		list_add_tail(&page->lru, &mm->context.pgtable_list);
 	else
 		list_del(&page->lru);
-	spin_unlock_bh(&mm->context.lock);
+	spin_unlock_bh(&mm->context.lock, bh);
 	table = (unsigned long *) (__pa(table) | (1U << bit));
 	tlb_remove_table(tlb, table);
 }

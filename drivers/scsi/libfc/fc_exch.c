@@ -376,9 +376,10 @@ static inline void fc_exch_timer_set_locked(struct fc_exch *ep,
  */
 static void fc_exch_timer_set(struct fc_exch *ep, unsigned int timer_msec)
 {
-	spin_lock_bh(&ep->ex_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	fc_exch_timer_set_locked(ep, timer_msec);
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 }
 
 /**
@@ -445,11 +446,12 @@ static inline void fc_exch_ptr_set(struct fc_exch_pool *pool, u16 index,
  */
 static void fc_exch_delete(struct fc_exch *ep)
 {
+	unsigned int bh;
 	struct fc_exch_pool *pool;
 	u16 index;
 
 	pool = ep->pool;
-	spin_lock_bh(&pool->lock);
+	bh = spin_lock_bh(&pool->lock, SOFTIRQ_ALL_MASK);
 	WARN_ON(pool->total_exches <= 0);
 	pool->total_exches--;
 
@@ -467,7 +469,7 @@ static void fc_exch_delete(struct fc_exch *ep)
 		fc_exch_ptr_set(pool, index, &fc_quarantine_exch);
 	}
 	list_del(&ep->ex_list);
-	spin_unlock_bh(&pool->lock);
+	spin_unlock_bh(&pool->lock, bh);
 	fc_exch_release(ep);	/* drop hold for exch in mp */
 }
 
@@ -535,12 +537,13 @@ out:
  */
 int fc_seq_send(struct fc_lport *lport, struct fc_seq *sp, struct fc_frame *fp)
 {
+	unsigned int bh;
 	struct fc_exch *ep;
 	int error;
 	ep = fc_seq_exch(sp);
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	error = fc_seq_send_locked(lport, sp, fp);
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 	return error;
 }
 EXPORT_SYMBOL(fc_seq_send);
@@ -587,11 +590,12 @@ static struct fc_seq *fc_seq_start_next_locked(struct fc_seq *sp)
  */
 struct fc_seq *fc_seq_start_next(struct fc_seq *sp)
 {
+	unsigned int bh;
 	struct fc_exch *ep = fc_seq_exch(sp);
 
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	sp = fc_seq_start_next_locked(sp);
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 
 	return sp;
 }
@@ -606,22 +610,23 @@ void fc_seq_set_resp(struct fc_seq *sp,
 		     void (*resp)(struct fc_seq *, struct fc_frame *, void *),
 		     void *arg)
 {
+	unsigned int bh;
 	struct fc_exch *ep = fc_seq_exch(sp);
 	DEFINE_WAIT(wait);
 
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	while (ep->resp_active && ep->resp_task != current) {
 		prepare_to_wait(&ep->resp_wq, &wait, TASK_UNINTERRUPTIBLE);
 		spin_unlock_bh(&ep->ex_lock);
 
 		schedule();
 
-		spin_lock_bh(&ep->ex_lock);
+		spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	}
 	finish_wait(&ep->resp_wq, &wait);
 	ep->resp = resp;
 	ep->arg = arg;
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 }
 EXPORT_SYMBOL(fc_seq_set_resp);
 
@@ -702,13 +707,14 @@ static int fc_exch_abort_locked(struct fc_exch *ep,
  */
 int fc_seq_exch_abort(const struct fc_seq *req_sp, unsigned int timer_msec)
 {
+	unsigned int bh;
 	struct fc_exch *ep;
 	int error;
 
 	ep = fc_seq_exch(req_sp);
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	error = fc_exch_abort_locked(ep, timer_msec);
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 	return error;
 }
 
@@ -722,7 +728,7 @@ int fc_seq_exch_abort(const struct fc_seq *req_sp, unsigned int timer_msec)
  * two variables changes if ep->resp_active > 0.
  *
  * If an fc_seq_set_resp() call is busy modifying ep->resp and ep->arg when
- * this function is invoked, the first spin_lock_bh() call in this function
+ * this function is invoked, the first spin_lock_bh(, SOFTIRQ_ALL_MASK) call in this function
  * will wait until fc_seq_set_resp() has finished modifying these variables.
  *
  * Since fc_exch_done() invokes fc_seq_set_resp() it is guaranteed that that
@@ -741,7 +747,7 @@ static bool fc_invoke_resp(struct fc_exch *ep, struct fc_seq *sp,
 	void *arg;
 	bool res = false;
 
-	spin_lock_bh(&ep->ex_lock);
+	spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	ep->resp_active++;
 	if (ep->resp_task != current)
 		ep->resp_task = !ep->resp_task ? current : NULL;
@@ -754,7 +760,7 @@ static bool fc_invoke_resp(struct fc_exch *ep, struct fc_seq *sp,
 		res = true;
 	}
 
-	spin_lock_bh(&ep->ex_lock);
+	spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	if (--ep->resp_active == 0)
 		ep->resp_task = NULL;
 	spin_unlock_bh(&ep->ex_lock);
@@ -771,6 +777,7 @@ static bool fc_invoke_resp(struct fc_exch *ep, struct fc_seq *sp,
  */
 static void fc_exch_timeout(struct work_struct *work)
 {
+	unsigned int bh;
 	struct fc_exch *ep = container_of(work, struct fc_exch,
 					  timeout_work.work);
 	struct fc_seq *sp = &ep->seq;
@@ -779,21 +786,21 @@ static void fc_exch_timeout(struct work_struct *work)
 
 	FC_EXCH_DBG(ep, "Exchange timed out state %x\n", ep->state);
 
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	if (ep->state & (FC_EX_RST_CLEANUP | FC_EX_DONE))
 		goto unlock;
 
 	e_stat = ep->esb_stat;
 	if (e_stat & ESB_ST_COMPLETE) {
 		ep->esb_stat = e_stat & ~ESB_ST_REC_QUAL;
-		spin_unlock_bh(&ep->ex_lock);
+		spin_unlock_bh(&ep->ex_lock, bh);
 		if (e_stat & ESB_ST_REC_QUAL)
 			fc_exch_rrq(ep);
 		goto done;
 	} else {
 		if (e_stat & ESB_ST_ABNORMAL)
 			rc = fc_exch_done_locked(ep);
-		spin_unlock_bh(&ep->ex_lock);
+		spin_unlock_bh(&ep->ex_lock, bh);
 		if (!rc)
 			fc_exch_delete(ep);
 		fc_invoke_resp(ep, sp, ERR_PTR(-FC_EX_TIMEOUT));
@@ -802,7 +809,7 @@ static void fc_exch_timeout(struct work_struct *work)
 		goto done;
 	}
 unlock:
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 done:
 	/*
 	 * This release matches the hold taken when the timer was set.
@@ -820,6 +827,7 @@ done:
 static struct fc_exch *fc_exch_em_alloc(struct fc_lport *lport,
 					struct fc_exch_mgr *mp)
 {
+	unsigned int bh;
 	struct fc_exch *ep;
 	unsigned int cpu;
 	u16 index;
@@ -835,7 +843,7 @@ static struct fc_exch *fc_exch_em_alloc(struct fc_lport *lport,
 
 	cpu = get_cpu();
 	pool = per_cpu_ptr(mp->pool, cpu);
-	spin_lock_bh(&pool->lock);
+	bh = spin_lock_bh(&pool->lock, SOFTIRQ_ALL_MASK);
 	put_cpu();
 
 	/* peek cache of free slot */
@@ -870,13 +878,13 @@ hit:
 	 * from releasing exch	while fc_exch_alloc() caller is
 	 * still working on exch.
 	 */
-	spin_lock_bh(&ep->ex_lock);
+	spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 
 	fc_exch_ptr_set(pool, index, ep);
 	list_add_tail(&ep->ex_list, &pool->ex_list);
 	fc_seq_alloc(ep, ep->seq_id++);
 	pool->total_exches++;
-	spin_unlock_bh(&pool->lock);
+	spin_unlock_bh(&pool->lock, bh);
 
 	/*
 	 *  update exchange
@@ -894,7 +902,7 @@ hit:
 out:
 	return ep;
 err:
-	spin_unlock_bh(&pool->lock);
+	spin_unlock_bh(&pool->lock, bh);
 	atomic_inc(&mp->stats.no_free_exch_xid);
 	mempool_free(ep, mp->ep_pool);
 	return NULL;
@@ -934,6 +942,7 @@ static struct fc_exch *fc_exch_alloc(struct fc_lport *lport,
  */
 static struct fc_exch *fc_exch_find(struct fc_exch_mgr *mp, u16 xid)
 {
+	unsigned int bh;
 	struct fc_lport *lport = mp->lport;
 	struct fc_exch_pool *pool;
 	struct fc_exch *ep = NULL;
@@ -950,7 +959,7 @@ static struct fc_exch *fc_exch_find(struct fc_exch_mgr *mp, u16 xid)
 
 	if ((xid >= mp->min_xid) && (xid <= mp->max_xid)) {
 		pool = per_cpu_ptr(mp->pool, cpu);
-		spin_lock_bh(&pool->lock);
+		bh = spin_lock_bh(&pool->lock, SOFTIRQ_ALL_MASK);
 		ep = fc_exch_ptr_get(pool, (xid - mp->min_xid) >> fc_cpu_order);
 		if (ep == &fc_quarantine_exch) {
 			FC_LPORT_DBG(lport, "xid %x quarantined\n", xid);
@@ -960,7 +969,7 @@ static struct fc_exch *fc_exch_find(struct fc_exch_mgr *mp, u16 xid)
 			WARN_ON(ep->xid != xid);
 			fc_exch_hold(ep);
 		}
-		spin_unlock_bh(&pool->lock);
+		spin_unlock_bh(&pool->lock, bh);
 	}
 	return ep;
 }
@@ -975,12 +984,13 @@ static struct fc_exch *fc_exch_find(struct fc_exch_mgr *mp, u16 xid)
  */
 void fc_exch_done(struct fc_seq *sp)
 {
+	unsigned int bh;
 	struct fc_exch *ep = fc_seq_exch(sp);
 	int rc;
 
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	rc = fc_exch_done_locked(ep);
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 
 	fc_seq_set_resp(sp, NULL, ep->arg);
 	if (!rc)
@@ -1048,6 +1058,7 @@ static enum fc_pf_rjt_reason fc_seq_lookup_recip(struct fc_lport *lport,
 						 struct fc_exch_mgr *mp,
 						 struct fc_frame *fp)
 {
+	unsigned int bh;
 	struct fc_frame_header *fh = fc_frame_header_get(fp);
 	struct fc_exch *ep = NULL;
 	struct fc_seq *sp = NULL;
@@ -1112,7 +1123,7 @@ static enum fc_pf_rjt_reason fc_seq_lookup_recip(struct fc_lport *lport,
 		}
 	}
 
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	/*
 	 * At this point, we have the exchange held.
 	 * Find or create the sequence.
@@ -1143,7 +1154,7 @@ static enum fc_pf_rjt_reason fc_seq_lookup_recip(struct fc_lport *lport,
 				sp->ssb_stat |= SSB_ST_RESP;
 				sp->id = fh->fh_seq_id;
 			} else {
-				spin_unlock_bh(&ep->ex_lock);
+				spin_unlock_bh(&ep->ex_lock, bh);
 
 				/* sequence/exch should exist */
 				reject = FC_RJT_SEQ_ID;
@@ -1155,7 +1166,7 @@ static enum fc_pf_rjt_reason fc_seq_lookup_recip(struct fc_lport *lport,
 
 	if (f_ctl & FC_FC_SEQ_INIT)
 		ep->esb_stat |= ESB_ST_SEQ_INIT;
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 
 	fr_seq(fp) = sp;
 out:
@@ -1419,6 +1430,7 @@ static void fc_exch_send_ba_rjt(struct fc_frame *rx_fp,
  */
 static void fc_exch_recv_abts(struct fc_exch *ep, struct fc_frame *rx_fp)
 {
+	unsigned int bh;
 	struct fc_frame *fp;
 	struct fc_ba_acc *ap;
 	struct fc_frame_header *fh;
@@ -1434,9 +1446,9 @@ static void fc_exch_recv_abts(struct fc_exch *ep, struct fc_frame *rx_fp)
 		goto free;
 	}
 
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	if (ep->esb_stat & ESB_ST_COMPLETE) {
-		spin_unlock_bh(&ep->ex_lock);
+		spin_unlock_bh(&ep->ex_lock, bh);
 		FC_EXCH_DBG(ep, "exch: ABTS rejected, exchange complete\n");
 		fc_frame_free(fp);
 		goto reject;
@@ -1460,7 +1472,7 @@ static void fc_exch_recv_abts(struct fc_exch *ep, struct fc_frame *rx_fp)
 	sp = fc_seq_start_next_locked(sp);
 	fc_seq_send_last(sp, fp, FC_RCTL_BA_ACC, FC_TYPE_BLS);
 	ep->esb_stat |= ESB_ST_ABNORMAL;
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 
 free:
 	fc_frame_free(rx_fp);
@@ -1579,6 +1591,7 @@ static void fc_exch_recv_req(struct fc_lport *lport, struct fc_exch_mgr *mp,
  */
 static void fc_exch_recv_seq_resp(struct fc_exch_mgr *mp, struct fc_frame *fp)
 {
+	unsigned int bh;
 	struct fc_frame_header *fh = fc_frame_header_get(fp);
 	struct fc_seq *sp;
 	struct fc_exch *ep;
@@ -1616,10 +1629,10 @@ static void fc_exch_recv_seq_resp(struct fc_exch_mgr *mp, struct fc_frame *fp)
 	f_ctl = ntoh24(fh->fh_f_ctl);
 	fr_seq(fp) = sp;
 
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	if (f_ctl & FC_FC_SEQ_INIT)
 		ep->esb_stat |= ESB_ST_SEQ_INIT;
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 
 	if (fc_sof_needs_ack(sof))
 		fc_seq_send_ack(sp, fp);
@@ -1627,7 +1640,7 @@ static void fc_exch_recv_seq_resp(struct fc_exch_mgr *mp, struct fc_frame *fp)
 	if (fh->fh_type != FC_TYPE_FCP && fr_eof(fp) == FC_EOF_T &&
 	    (f_ctl & (FC_FC_LAST_SEQ | FC_FC_END_SEQ)) ==
 	    (FC_FC_LAST_SEQ | FC_FC_END_SEQ)) {
-		spin_lock_bh(&ep->ex_lock);
+		spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 		rc = fc_exch_done_locked(ep);
 		WARN_ON(fc_seq_exch(sp) != ep);
 		spin_unlock_bh(&ep->ex_lock);
@@ -1689,6 +1702,7 @@ static void fc_exch_recv_resp(struct fc_exch_mgr *mp, struct fc_frame *fp)
  */
 static void fc_exch_abts_resp(struct fc_exch *ep, struct fc_frame *fp)
 {
+	unsigned int bh;
 	struct fc_frame_header *fh;
 	struct fc_ba_acc *ap;
 	struct fc_seq *sp;
@@ -1705,7 +1719,7 @@ static void fc_exch_abts_resp(struct fc_exch *ep, struct fc_frame *fp)
 		fc_exch_release(ep);	/* release from pending timer hold */
 	}
 
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	switch (fh->fh_r_ctl) {
 	case FC_RCTL_BA_ACC:
 		ap = fc_frame_payload_get(fp, sizeof(*ap));
@@ -1743,7 +1757,7 @@ static void fc_exch_abts_resp(struct fc_exch *ep, struct fc_frame *fp)
 	if (ep->fh_type != FC_TYPE_FCP &&
 	    ntoh24(fh->fh_f_ctl) & FC_FC_LAST_SEQ)
 		rc = fc_exch_done_locked(ep);
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 
 	fc_exch_hold(ep);
 	if (!rc)
@@ -1765,6 +1779,7 @@ static void fc_exch_abts_resp(struct fc_exch *ep, struct fc_frame *fp)
  */
 static void fc_exch_recv_bls(struct fc_exch_mgr *mp, struct fc_frame *fp)
 {
+	unsigned int bh;
 	struct fc_frame_header *fh;
 	struct fc_exch *ep;
 	u32 f_ctl;
@@ -1776,9 +1791,9 @@ static void fc_exch_recv_bls(struct fc_exch_mgr *mp, struct fc_frame *fp)
 	ep = fc_exch_find(mp, (f_ctl & FC_FC_EX_CTX) ?
 			  ntohs(fh->fh_ox_id) : ntohs(fh->fh_rx_id));
 	if (ep && (f_ctl & FC_FC_SEQ_INIT)) {
-		spin_lock_bh(&ep->ex_lock);
+		bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 		ep->esb_stat |= ESB_ST_SEQ_INIT;
-		spin_unlock_bh(&ep->ex_lock);
+		spin_unlock_bh(&ep->ex_lock, bh);
 	}
 	if (f_ctl & FC_FC_SEQ_CTX) {
 		/*
@@ -1892,10 +1907,11 @@ static void fc_seq_ls_rjt(struct fc_frame *rx_fp, enum fc_els_rjt_reason reason,
  */
 static void fc_exch_reset(struct fc_exch *ep)
 {
+	unsigned int bh;
 	struct fc_seq *sp;
 	int rc = 1;
 
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	ep->state |= FC_EX_RST_CLEANUP;
 	fc_exch_timer_cancel(ep);
 	if (ep->esb_stat & ESB_ST_REC_QUAL)
@@ -1903,7 +1919,7 @@ static void fc_exch_reset(struct fc_exch *ep)
 	ep->esb_stat &= ~ESB_ST_REC_QUAL;
 	sp = &ep->seq;
 	rc = fc_exch_done_locked(ep);
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 
 	fc_exch_hold(ep);
 
@@ -1931,10 +1947,11 @@ static void fc_exch_pool_reset(struct fc_lport *lport,
 			       struct fc_exch_pool *pool,
 			       u32 sid, u32 did)
 {
+	unsigned int bh;
 	struct fc_exch *ep;
 	struct fc_exch *next;
 
-	spin_lock_bh(&pool->lock);
+	bh = spin_lock_bh(&pool->lock, SOFTIRQ_ALL_MASK);
 restart:
 	list_for_each_entry_safe(ep, next, &pool->ex_list, ex_list) {
 		if ((lport == ep->lp) &&
@@ -1946,7 +1963,7 @@ restart:
 			fc_exch_reset(ep);
 
 			fc_exch_release(ep);
-			spin_lock_bh(&pool->lock);
+			spin_lock_bh(&pool->lock, SOFTIRQ_ALL_MASK);
 
 			/*
 			 * must restart loop incase while lock
@@ -1958,7 +1975,7 @@ restart:
 	pool->next_index = 0;
 	pool->left = FC_XID_UNKNOWN;
 	pool->right = FC_XID_UNKNOWN;
-	spin_unlock_bh(&pool->lock);
+	spin_unlock_bh(&pool->lock, bh);
 }
 
 /**
@@ -2238,6 +2255,7 @@ EXPORT_SYMBOL(fc_exch_seq_send);
  */
 static void fc_exch_rrq(struct fc_exch *ep)
 {
+	unsigned int bh;
 	struct fc_lport *lport;
 	struct fc_els_rrq *rrq;
 	struct fc_frame *fp;
@@ -2270,16 +2288,16 @@ static void fc_exch_rrq(struct fc_exch *ep)
 
 retry:
 	FC_EXCH_DBG(ep, "exch: RRQ send failed\n");
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	if (ep->state & (FC_EX_RST_CLEANUP | FC_EX_DONE)) {
-		spin_unlock_bh(&ep->ex_lock);
+		spin_unlock_bh(&ep->ex_lock, bh);
 		/* drop hold for rec qual */
 		fc_exch_release(ep);
 		return;
 	}
 	ep->esb_stat |= ESB_ST_REC_QUAL;
 	fc_exch_timer_set_locked(ep, ep->r_a_tov);
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 }
 
 /**
@@ -2288,6 +2306,7 @@ retry:
  */
 static void fc_exch_els_rrq(struct fc_frame *fp)
 {
+	unsigned int bh;
 	struct fc_lport *lport;
 	struct fc_exch *ep = NULL;	/* request or subject exchange */
 	struct fc_els_rrq *rp;
@@ -2311,7 +2330,7 @@ static void fc_exch_els_rrq(struct fc_frame *fp)
 	explan = ELS_EXPL_OXID_RXID;
 	if (!ep)
 		goto reject;
-	spin_lock_bh(&ep->ex_lock);
+	bh = spin_lock_bh(&ep->ex_lock, SOFTIRQ_ALL_MASK);
 	FC_EXCH_DBG(ep, "RRQ request from %x: xid %x rxid %x oxid %x\n",
 		    sid, xid, ntohs(rp->rrq_rx_id), ntohs(rp->rrq_ox_id));
 	if (ep->oxid != ntohs(rp->rrq_ox_id))
@@ -2333,7 +2352,7 @@ static void fc_exch_els_rrq(struct fc_frame *fp)
 	if (ep->esb_stat & ESB_ST_COMPLETE)
 		fc_exch_timer_cancel(ep);
 
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 
 	/*
 	 * Send LS_ACC.
@@ -2342,7 +2361,7 @@ static void fc_exch_els_rrq(struct fc_frame *fp)
 	goto out;
 
 unlock_reject:
-	spin_unlock_bh(&ep->ex_lock);
+	spin_unlock_bh(&ep->ex_lock, bh);
 reject:
 	fc_seq_ls_rjt(fp, ELS_RJT_LOGIC, explan);
 out:

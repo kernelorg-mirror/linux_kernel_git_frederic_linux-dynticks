@@ -75,13 +75,14 @@ static bool is_mem_full(struct ar9170 *ar)
 
 static void carl9170_tx_accounting(struct ar9170 *ar, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int queue, i;
 	bool mem_full;
 
 	atomic_inc(&ar->tx_total_queued);
 
 	queue = skb_get_queue_mapping(skb);
-	spin_lock_bh(&ar->tx_stats_lock);
+	bh = spin_lock_bh(&ar->tx_stats_lock, SOFTIRQ_ALL_MASK);
 
 	/*
 	 * The driver has to accept the frame, regardless if the queue is
@@ -100,7 +101,7 @@ static void carl9170_tx_accounting(struct ar9170 *ar, struct sk_buff *skb)
 		}
 	}
 
-	spin_unlock_bh(&ar->tx_stats_lock);
+	spin_unlock_bh(&ar->tx_stats_lock, bh);
 }
 
 /* needs rcu_read_lock */
@@ -155,11 +156,12 @@ out_rcu:
 
 static void carl9170_tx_accounting_free(struct ar9170 *ar, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int queue;
 
 	queue = skb_get_queue_mapping(skb);
 
-	spin_lock_bh(&ar->tx_stats_lock);
+	bh = spin_lock_bh(&ar->tx_stats_lock, SOFTIRQ_ALL_MASK);
 
 	ar->tx_stats[queue].len--;
 
@@ -181,7 +183,7 @@ static void carl9170_tx_accounting_free(struct ar9170 *ar, struct sk_buff *skb)
 		}
 	}
 
-	spin_unlock_bh(&ar->tx_stats_lock);
+	spin_unlock_bh(&ar->tx_stats_lock, bh);
 
 	if (atomic_dec_and_test(&ar->tx_total_queued))
 		complete(&ar->tx_flush);
@@ -189,6 +191,7 @@ static void carl9170_tx_accounting_free(struct ar9170 *ar, struct sk_buff *skb)
 
 static int carl9170_alloc_dev_space(struct ar9170 *ar, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct _carl9170_tx_superframe *super = (void *) skb->data;
 	unsigned int chunks;
 	int cookie = -1;
@@ -201,9 +204,9 @@ static int carl9170_alloc_dev_space(struct ar9170 *ar, struct sk_buff *skb)
 		return -ENOSPC;
 	}
 
-	spin_lock_bh(&ar->mem_lock);
+	bh = spin_lock_bh(&ar->mem_lock, SOFTIRQ_ALL_MASK);
 	cookie = bitmap_find_free_region(ar->mem_bitmap, ar->fw.mem_blocks, 0);
-	spin_unlock_bh(&ar->mem_lock);
+	spin_unlock_bh(&ar->mem_lock, bh);
 
 	if (unlikely(cookie < 0)) {
 		atomic_add(chunks, &ar->mem_free_blocks);
@@ -225,6 +228,7 @@ static int carl9170_alloc_dev_space(struct ar9170 *ar, struct sk_buff *skb)
 
 static void carl9170_release_dev_space(struct ar9170 *ar, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct _carl9170_tx_superframe *super = (void *) skb->data;
 	int cookie;
 
@@ -253,9 +257,9 @@ static void carl9170_release_dev_space(struct ar9170 *ar, struct sk_buff *skb)
 	atomic_add(DIV_ROUND_UP(skb->len, ar->fw.mem_block_size),
 		   &ar->mem_free_blocks);
 
-	spin_lock_bh(&ar->mem_lock);
+	bh = spin_lock_bh(&ar->mem_lock, SOFTIRQ_ALL_MASK);
 	bitmap_release_region(ar->mem_bitmap, cookie - 1, 0);
-	spin_unlock_bh(&ar->mem_lock);
+	spin_unlock_bh(&ar->mem_lock, bh);
 }
 
 /* Called from any context */
@@ -378,6 +382,7 @@ static void carl9170_tx_shift_bm(struct ar9170 *ar,
 static void carl9170_tx_status_process_ampdu(struct ar9170 *ar,
 	struct sk_buff *skb, struct ieee80211_tx_info *txinfo)
 {
+	unsigned int bh;
 	struct _carl9170_tx_superframe *super = (void *) skb->data;
 	struct ieee80211_hdr *hdr = (void *) super->frame_data;
 	struct ieee80211_sta *sta;
@@ -401,7 +406,7 @@ static void carl9170_tx_status_process_ampdu(struct ar9170 *ar,
 	if (!tid_info)
 		goto out_rcu;
 
-	spin_lock_bh(&tid_info->lock);
+	bh = spin_lock_bh(&tid_info->lock, SOFTIRQ_ALL_MASK);
 	if (likely(tid_info->state >= CARL9170_TID_STATE_IDLE))
 		carl9170_tx_shift_bm(ar, tid_info, get_seq_h(hdr));
 
@@ -428,7 +433,7 @@ static void carl9170_tx_status_process_ampdu(struct ar9170 *ar,
 
 		sta_info->stats[tid].clear = true;
 	}
-	spin_unlock_bh(&tid_info->lock);
+	spin_unlock_bh(&tid_info->lock, bh);
 
 out_rcu:
 	rcu_read_unlock();
@@ -437,6 +442,7 @@ out_rcu:
 static void carl9170_tx_bar_status(struct ar9170 *ar, struct sk_buff *skb,
 	struct ieee80211_tx_info *tx_info)
 {
+	unsigned int bh;
 	struct _carl9170_tx_superframe *super = (void *) skb->data;
 	struct ieee80211_bar *bar = (void *) super->frame_data;
 
@@ -457,9 +463,9 @@ static void carl9170_tx_bar_status(struct ar9170 *ar, struct sk_buff *skb,
 		rcu_read_lock();
 		list_for_each_entry_rcu(entry, &ar->bar_list[queue], list) {
 			if (entry->skb == skb) {
-				spin_lock_bh(&ar->bar_list_lock[queue]);
+				bh = spin_lock_bh(&ar->bar_list_lock[queue], SOFTIRQ_ALL_MASK);
 				list_del_rcu(&entry->list);
-				spin_unlock_bh(&ar->bar_list_lock[queue]);
+				spin_unlock_bh(&ar->bar_list_lock[queue], bh);
 				kfree_rcu(entry, head);
 				goto out;
 			}
@@ -513,9 +519,10 @@ void carl9170_tx_callback(struct ar9170 *ar, struct sk_buff *skb)
 static struct sk_buff *carl9170_get_queued_skb(struct ar9170 *ar, u8 cookie,
 					       struct sk_buff_head *queue)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	skb_queue_walk(queue, skb) {
 		struct _carl9170_tx_superframe *txc = (void *) skb->data;
 
@@ -523,12 +530,12 @@ static struct sk_buff *carl9170_get_queued_skb(struct ar9170 *ar, u8 cookie,
 			continue;
 
 		__skb_unlink(skb, queue);
-		spin_unlock_bh(&queue->lock);
+		spin_unlock_bh(&queue->lock, bh);
 
 		carl9170_release_dev_space(ar, skb);
 		return skb;
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 
 	return NULL;
 }
@@ -557,6 +564,7 @@ static void carl9170_tx_fill_rateinfo(struct ar9170 *ar, unsigned int rix,
 
 static void carl9170_check_queue_stop_timeout(struct ar9170 *ar)
 {
+	unsigned int bh;
 	int i;
 	struct sk_buff *skb;
 	struct ieee80211_tx_info *txinfo;
@@ -564,7 +572,7 @@ static void carl9170_check_queue_stop_timeout(struct ar9170 *ar)
 	bool restart = false;
 
 	for (i = 0; i < ar->hw->queues; i++) {
-		spin_lock_bh(&ar->tx_status[i].lock);
+		bh = spin_lock_bh(&ar->tx_status[i].lock, SOFTIRQ_ALL_MASK);
 
 		skb = skb_peek(&ar->tx_status[i]);
 
@@ -579,7 +587,7 @@ static void carl9170_check_queue_stop_timeout(struct ar9170 *ar)
 			restart = true;
 
 next:
-		spin_unlock_bh(&ar->tx_status[i].lock);
+		spin_unlock_bh(&ar->tx_status[i].lock, bh);
 	}
 
 	if (restart) {
@@ -602,6 +610,7 @@ next:
 
 static void carl9170_tx_ampdu_timeout(struct ar9170 *ar)
 {
+	unsigned int bh;
 	struct carl9170_sta_tid *iter;
 	struct sk_buff *skb;
 	struct ieee80211_tx_info *txinfo;
@@ -613,7 +622,7 @@ static void carl9170_tx_ampdu_timeout(struct ar9170 *ar)
 		if (iter->state < CARL9170_TID_STATE_IDLE)
 			continue;
 
-		spin_lock_bh(&iter->lock);
+		bh = spin_lock_bh(&iter->lock, SOFTIRQ_ALL_MASK);
 		skb = skb_peek(&iter->queue);
 		if (!skb)
 			goto unlock;
@@ -630,7 +639,7 @@ static void carl9170_tx_ampdu_timeout(struct ar9170 *ar)
 
 		ieee80211_stop_tx_ba_session(sta, iter->tid);
 unlock:
-		spin_unlock_bh(&iter->lock);
+		spin_unlock_bh(&iter->lock, bh);
 
 	}
 	rcu_read_unlock();
@@ -1123,6 +1132,7 @@ static void carl9170_set_ampdu_params(struct ar9170 *ar, struct sk_buff *skb)
 
 static void carl9170_tx_ampdu(struct ar9170 *ar)
 {
+	unsigned int bh;
 	struct sk_buff_head agg;
 	struct carl9170_sta_tid *tid_info;
 	struct sk_buff *skb, *first;
@@ -1157,7 +1167,7 @@ retry:
 
 		queue = TID_TO_WME_AC(tid_info->tid);
 
-		spin_lock_bh(&tid_info->lock);
+		bh = spin_lock_bh(&tid_info->lock, SOFTIRQ_ALL_MASK);
 		if (tid_info->state != CARL9170_TID_STATE_XMIT)
 			goto processed;
 
@@ -1213,7 +1223,7 @@ retry:
 		done_ampdus++;
 
 processed:
-		spin_unlock_bh(&tid_info->lock);
+		spin_unlock_bh(&tid_info->lock, bh);
 
 		if (skb_queue_empty(&agg))
 			continue;
@@ -1224,7 +1234,7 @@ processed:
 		/* set aggregation push bit */
 		carl9170_set_immba(ar, skb_peek_tail(&agg));
 
-		spin_lock_bh(&ar->tx_pending[queue].lock);
+		spin_lock_bh(&ar->tx_pending[queue].lock, SOFTIRQ_ALL_MASK);
 		skb_queue_splice_tail_init(&agg, &ar->tx_pending[queue]);
 		spin_unlock_bh(&ar->tx_pending[queue].lock);
 		ar->tx_schedule = true;
@@ -1239,13 +1249,14 @@ processed:
 static struct sk_buff *carl9170_tx_pick_skb(struct ar9170 *ar,
 					    struct sk_buff_head *queue)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	struct ieee80211_tx_info *info;
 	struct carl9170_tx_info *arinfo;
 
 	BUILD_BUG_ON(sizeof(*arinfo) > sizeof(info->rate_driver_data));
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	skb = skb_peek(queue);
 	if (unlikely(!skb))
 		goto err_unlock;
@@ -1254,7 +1265,7 @@ static struct sk_buff *carl9170_tx_pick_skb(struct ar9170 *ar,
 		goto err_unlock;
 
 	__skb_unlink(skb, queue);
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 
 	info = IEEE80211_SKB_CB(skb);
 	arinfo = (void *) info->rate_driver_data;
@@ -1263,7 +1274,7 @@ static struct sk_buff *carl9170_tx_pick_skb(struct ar9170 *ar,
 	return skb;
 
 err_unlock:
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 	return NULL;
 }
 
@@ -1315,6 +1326,7 @@ out_rcu:
 
 static void carl9170_bar_check(struct ar9170 *ar, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct _carl9170_tx_superframe *super = (void *) skb->data;
 	struct ieee80211_bar *bar = (void *) super->frame_data;
 
@@ -1326,9 +1338,9 @@ static void carl9170_bar_check(struct ar9170 *ar, struct sk_buff *skb)
 		entry = kmalloc(sizeof(*entry), GFP_ATOMIC);
 		if (!WARN_ON_ONCE(!entry)) {
 			entry->skb = skb;
-			spin_lock_bh(&ar->bar_list_lock[queue]);
+			bh = spin_lock_bh(&ar->bar_list_lock[queue], SOFTIRQ_ALL_MASK);
 			list_add_tail_rcu(&entry->list, &ar->bar_list[queue]);
-			spin_unlock_bh(&ar->bar_list_lock[queue]);
+			spin_unlock_bh(&ar->bar_list_lock[queue], bh);
 		}
 	}
 }
@@ -1392,6 +1404,7 @@ static bool carl9170_tx_ampdu_queue(struct ar9170 *ar,
 	struct ieee80211_sta *sta, struct sk_buff *skb,
 	struct ieee80211_tx_info *txinfo)
 {
+	unsigned int bh;
 	struct carl9170_sta_info *sta_info;
 	struct carl9170_sta_tid *agg;
 	struct sk_buff *iter;
@@ -1408,7 +1421,7 @@ static bool carl9170_tx_ampdu_queue(struct ar9170 *ar,
 	if (!agg)
 		goto err_unlock_rcu;
 
-	spin_lock_bh(&agg->lock);
+	bh = spin_lock_bh(&agg->lock, SOFTIRQ_ALL_MASK);
 	if (unlikely(agg->state < CARL9170_TID_STATE_IDLE))
 		goto err_unlock;
 
@@ -1448,13 +1461,13 @@ queued:
 		}
 	}
 
-	spin_unlock_bh(&agg->lock);
+	spin_unlock_bh(&agg->lock, bh);
 	rcu_read_unlock();
 
 	return run;
 
 err_unlock:
-	spin_unlock_bh(&agg->lock);
+	spin_unlock_bh(&agg->lock, bh);
 
 err_unlock_rcu:
 	rcu_read_unlock();
@@ -1607,6 +1620,7 @@ static bool carl9170_tx_beacon_physet(struct ar9170 *ar, struct sk_buff *skb,
 
 int carl9170_update_beacon(struct ar9170 *ar, const bool submit)
 {
+	unsigned int bh;
 	struct sk_buff *skb = NULL;
 	struct carl9170_vif_info *cvif;
 	__le32 *data, *old = NULL;
@@ -1627,7 +1641,7 @@ int carl9170_update_beacon(struct ar9170 *ar, const bool submit)
 		goto err_free;
 	}
 
-	spin_lock_bh(&ar->beacon_lock);
+	bh = spin_lock_bh(&ar->beacon_lock, SOFTIRQ_ALL_MASK);
 	data = (__le32 *)skb->data;
 	if (cvif->beacon)
 		old = (__le32 *)cvif->beacon->data;
@@ -1685,7 +1699,7 @@ int carl9170_update_beacon(struct ar9170 *ar, const bool submit)
 	err = carl9170_async_regwrite_result();
 	if (!err)
 		cvif->beacon = skb;
-	spin_unlock_bh(&ar->beacon_lock);
+	spin_unlock_bh(&ar->beacon_lock, bh);
 	if (err)
 		goto err_free;
 
@@ -1702,7 +1716,7 @@ out_unlock:
 	return 0;
 
 err_unlock:
-	spin_unlock_bh(&ar->beacon_lock);
+	spin_unlock_bh(&ar->beacon_lock, bh);
 
 err_free:
 	rcu_read_unlock();

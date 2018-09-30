@@ -2099,7 +2099,7 @@ static void *established_get_first(struct seq_file *seq)
 		if (empty_bucket(st))
 			continue;
 
-		spin_lock_bh(lock);
+		st->bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 		sk_nulls_for_each(sk, node, &tcp_hashinfo.ehash[st->bucket].chain) {
 			if (sk->sk_family != afinfo->family ||
 			    !net_eq(sock_net(sk), net)) {
@@ -2108,7 +2108,7 @@ static void *established_get_first(struct seq_file *seq)
 			rc = sk;
 			goto out;
 		}
-		spin_unlock_bh(lock);
+		spin_unlock_bh(lock, st->bh);
 	}
 out:
 	return rc;
@@ -2133,7 +2133,7 @@ static void *established_get_next(struct seq_file *seq, void *cur)
 			return sk;
 	}
 
-	spin_unlock_bh(inet_ehash_lockp(&tcp_hashinfo, st->bucket));
+	spin_unlock_bh(inet_ehash_lockp(&tcp_hashinfo, st->bucket), st->bh);
 	++st->bucket;
 	return established_get_first(seq);
 }
@@ -2267,7 +2267,7 @@ void tcp_seq_stop(struct seq_file *seq, void *v)
 		break;
 	case TCP_SEQ_STATE_ESTABLISHED:
 		if (v)
-			spin_unlock_bh(inet_ehash_lockp(&tcp_hashinfo, st->bucket));
+			spin_unlock_bh(inet_ehash_lockp(&tcp_hashinfo, st->bucket), st->bh);
 		break;
 	}
 }

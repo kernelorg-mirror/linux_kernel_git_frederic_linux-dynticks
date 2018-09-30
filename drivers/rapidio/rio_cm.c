@@ -256,48 +256,52 @@ static struct channel_dev riocm_cdev;
 
 static int riocm_cmp(struct rio_channel *ch, enum rio_cm_state cmp)
 {
+	unsigned int bh;
 	int ret;
 
-	spin_lock_bh(&ch->lock);
+	bh = spin_lock_bh(&ch->lock, SOFTIRQ_ALL_MASK);
 	ret = (ch->state == cmp);
-	spin_unlock_bh(&ch->lock);
+	spin_unlock_bh(&ch->lock, bh);
 	return ret;
 }
 
 static int riocm_cmp_exch(struct rio_channel *ch,
 			   enum rio_cm_state cmp, enum rio_cm_state exch)
 {
+	unsigned int bh;
 	int ret;
 
-	spin_lock_bh(&ch->lock);
+	bh = spin_lock_bh(&ch->lock, SOFTIRQ_ALL_MASK);
 	ret = (ch->state == cmp);
 	if (ret)
 		ch->state = exch;
-	spin_unlock_bh(&ch->lock);
+	spin_unlock_bh(&ch->lock, bh);
 	return ret;
 }
 
 static enum rio_cm_state riocm_exch(struct rio_channel *ch,
 				    enum rio_cm_state exch)
 {
+	unsigned int bh;
 	enum rio_cm_state old;
 
-	spin_lock_bh(&ch->lock);
+	bh = spin_lock_bh(&ch->lock, SOFTIRQ_ALL_MASK);
 	old = ch->state;
 	ch->state = exch;
-	spin_unlock_bh(&ch->lock);
+	spin_unlock_bh(&ch->lock, bh);
 	return old;
 }
 
 static struct rio_channel *riocm_get_channel(u16 nr)
 {
+	unsigned int bh;
 	struct rio_channel *ch;
 
-	spin_lock_bh(&idr_lock);
+	bh = spin_lock_bh(&idr_lock, SOFTIRQ_ALL_MASK);
 	ch = idr_find(&ch_idr, nr);
 	if (ch)
 		kref_get(&ch->ref);
-	spin_unlock_bh(&idr_lock);
+	spin_unlock_bh(&idr_lock, bh);
 	return ch;
 }
 
@@ -384,6 +388,7 @@ static void riocm_rx_free(struct cm_dev *cm)
  */
 static int riocm_req_handler(struct cm_dev *cm, void *req_data)
 {
+	unsigned int bh;
 	struct rio_channel *ch;
 	struct conn_req *req;
 	struct rio_ch_chan_hdr *hh = req_data;
@@ -412,9 +417,9 @@ static int riocm_req_handler(struct cm_dev *cm, void *req_data)
 	req->chan = ntohs(hh->src_ch);
 	req->cmdev = cm;
 
-	spin_lock_bh(&ch->lock);
+	bh = spin_lock_bh(&ch->lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&req->node, &ch->accept_queue);
-	spin_unlock_bh(&ch->lock);
+	spin_unlock_bh(&ch->lock, bh);
 	complete(&ch->comp);
 	riocm_put_channel(ch);
 
@@ -463,20 +468,21 @@ static int riocm_resp_handler(void *resp_data)
  */
 static int riocm_close_handler(void *data)
 {
+	unsigned int bh;
 	struct rio_channel *ch;
 	struct rio_ch_chan_hdr *hh = data;
 	int ret;
 
 	riocm_debug(RX_CMD, "for ch=%d", ntohs(hh->dst_ch));
 
-	spin_lock_bh(&idr_lock);
+	bh = spin_lock_bh(&idr_lock, SOFTIRQ_ALL_MASK);
 	ch = idr_find(&ch_idr, ntohs(hh->dst_ch));
 	if (!ch) {
-		spin_unlock_bh(&idr_lock);
+		spin_unlock_bh(&idr_lock, bh);
 		return -ENODEV;
 	}
 	idr_remove(&ch_idr, ch->id);
-	spin_unlock_bh(&idr_lock);
+	spin_unlock_bh(&idr_lock, bh);
 
 	riocm_exch(ch, RIO_CM_DISCONNECT);
 
@@ -839,9 +845,10 @@ err_out:
 
 static int riocm_ch_free_rxbuf(struct rio_channel *ch, void *buf)
 {
+	unsigned int bh;
 	int i, ret = -EINVAL;
 
-	spin_lock_bh(&ch->lock);
+	bh = spin_lock_bh(&ch->lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < RIOCM_RX_RING_SIZE; i++) {
 		if (ch->rx_ring.inuse[i] == buf) {
@@ -852,7 +859,7 @@ static int riocm_ch_free_rxbuf(struct rio_channel *ch, void *buf)
 		}
 	}
 
-	spin_unlock_bh(&ch->lock);
+	spin_unlock_bh(&ch->lock, bh);
 
 	if (!ret)
 		kfree(buf);
@@ -874,6 +881,7 @@ static int riocm_ch_free_rxbuf(struct rio_channel *ch, void *buf)
  */
 static int riocm_ch_receive(struct rio_channel *ch, void **buf, long timeout)
 {
+	unsigned int bh;
 	void *rxmsg = NULL;
 	int i, ret = 0;
 	long wret;
@@ -905,7 +913,7 @@ static int riocm_ch_receive(struct rio_channel *ch, void **buf, long timeout)
 	if (ret)
 		goto out;
 
-	spin_lock_bh(&ch->lock);
+	bh = spin_lock_bh(&ch->lock, SOFTIRQ_ALL_MASK);
 
 	rxmsg = ch->rx_ring.buf[ch->rx_ring.tail];
 	ch->rx_ring.buf[ch->rx_ring.tail] = NULL;
@@ -929,7 +937,7 @@ static int riocm_ch_receive(struct rio_channel *ch, void **buf, long timeout)
 		rxmsg = NULL;
 	}
 
-	spin_unlock_bh(&ch->lock);
+	spin_unlock_bh(&ch->lock, bh);
 out:
 	*buf = rxmsg;
 	return ret;
@@ -1080,6 +1088,7 @@ static int riocm_send_ack(struct rio_channel *ch)
 static struct rio_channel *riocm_ch_accept(u16 ch_id, u16 *new_ch_id,
 					   long timeout)
 {
+	unsigned int bh;
 	struct rio_channel *ch;
 	struct rio_channel *new_ch;
 	struct conn_req *req;
@@ -1117,7 +1126,7 @@ static struct rio_channel *riocm_ch_accept(u16 ch_id, u16 *new_ch_id,
 		}
 	}
 
-	spin_lock_bh(&ch->lock);
+	bh = spin_lock_bh(&ch->lock, SOFTIRQ_ALL_MASK);
 
 	if (ch->state != RIO_CM_LISTEN) {
 		err = -ECANCELED;
@@ -1127,7 +1136,7 @@ static struct rio_channel *riocm_ch_accept(u16 ch_id, u16 *new_ch_id,
 		err = -EIO;
 	}
 
-	spin_unlock_bh(&ch->lock);
+	spin_unlock_bh(&ch->lock, bh);
 
 	if (err) {
 		riocm_debug(WAIT, "on %d returns %d", ch->id, err);
@@ -1144,7 +1153,7 @@ static struct rio_channel *riocm_ch_accept(u16 ch_id, u16 *new_ch_id,
 		goto err_put;
 	}
 
-	spin_lock_bh(&ch->lock);
+	spin_lock_bh(&ch->lock, SOFTIRQ_ALL_MASK);
 
 	req = list_first_entry(&ch->accept_queue, struct conn_req, node);
 	list_del(&req->node);
@@ -1187,7 +1196,7 @@ static struct rio_channel *riocm_ch_accept(u16 ch_id, u16 *new_ch_id,
 	return new_ch;
 
 err_put_new_ch:
-	spin_lock_bh(&idr_lock);
+	spin_lock_bh(&idr_lock, SOFTIRQ_ALL_MASK);
 	idr_remove(&ch_idr, new_ch->id);
 	spin_unlock_bh(&idr_lock);
 	riocm_put_channel(new_ch);
@@ -1234,6 +1243,7 @@ static int riocm_ch_listen(u16 ch_id)
  */
 static int riocm_ch_bind(u16 ch_id, u8 mport_id, void *context)
 {
+	unsigned int bh;
 	struct rio_channel *ch = NULL;
 	struct cm_dev *cm;
 	int rc = -ENODEV;
@@ -1259,9 +1269,9 @@ static int riocm_ch_bind(u16 ch_id, u8 mport_id, void *context)
 		goto exit;
 	}
 
-	spin_lock_bh(&ch->lock);
+	bh = spin_lock_bh(&ch->lock, SOFTIRQ_ALL_MASK);
 	if (ch->state != RIO_CM_IDLE) {
-		spin_unlock_bh(&ch->lock);
+		spin_unlock_bh(&ch->lock, bh);
 		rc = -EINVAL;
 		goto err_put;
 	}
@@ -1270,7 +1280,7 @@ static int riocm_ch_bind(u16 ch_id, u8 mport_id, void *context)
 	ch->loc_destid = cm->mport->host_deviceid;
 	ch->context = context;
 	ch->state = RIO_CM_CHAN_BOUND;
-	spin_unlock_bh(&ch->lock);
+	spin_unlock_bh(&ch->lock, bh);
 err_put:
 	riocm_put_channel(ch);
 exit:
@@ -1287,6 +1297,7 @@ exit:
  */
 static struct rio_channel *riocm_ch_alloc(u16 ch_num)
 {
+	unsigned int bh;
 	int id;
 	int start, end;
 	struct rio_channel *ch;
@@ -1306,9 +1317,9 @@ static struct rio_channel *riocm_ch_alloc(u16 ch_num)
 	}
 
 	idr_preload(GFP_KERNEL);
-	spin_lock_bh(&idr_lock);
+	bh = spin_lock_bh(&idr_lock, SOFTIRQ_ALL_MASK);
 	id = idr_alloc_cyclic(&ch_idr, ch, start, end, GFP_NOWAIT);
-	spin_unlock_bh(&idr_lock);
+	spin_unlock_bh(&idr_lock, bh);
 	idr_preload_end();
 
 	if (id < 0) {
@@ -1500,6 +1511,7 @@ static int riocm_cdev_open(struct inode *inode, struct file *filp)
  */
 static int riocm_cdev_release(struct inode *inode, struct file *filp)
 {
+	unsigned int bh;
 	struct rio_channel *ch, *_c;
 	unsigned int i;
 	LIST_HEAD(list);
@@ -1508,7 +1520,7 @@ static int riocm_cdev_release(struct inode *inode, struct file *filp)
 		    current->comm, task_pid_nr(current), filp);
 
 	/* Check if there are channels associated with this file descriptor */
-	spin_lock_bh(&idr_lock);
+	bh = spin_lock_bh(&idr_lock, SOFTIRQ_ALL_MASK);
 	idr_for_each_entry(&ch_idr, ch, i) {
 		if (ch && ch->filp == filp) {
 			riocm_debug(EXIT, "ch_%d not released by %s(%d)",
@@ -1518,7 +1530,7 @@ static int riocm_cdev_release(struct inode *inode, struct file *filp)
 			list_add(&ch->ch_node, &list);
 		}
 	}
-	spin_unlock_bh(&idr_lock);
+	spin_unlock_bh(&idr_lock, bh);
 
 	if (!list_empty(&list)) {
 		list_for_each_entry_safe(ch, _c, &list, ch_node) {
@@ -1688,6 +1700,7 @@ static int cm_chan_create(struct file *filp, void __user *arg)
  */
 static int cm_chan_close(struct file *filp, void __user *arg)
 {
+	unsigned int bh;
 	u16 __user *p = arg;
 	u16 ch_num;
 	struct rio_channel *ch;
@@ -1698,18 +1711,18 @@ static int cm_chan_close(struct file *filp, void __user *arg)
 	riocm_debug(CHOP, "ch_%d by %s(%d)",
 		    ch_num, current->comm, task_pid_nr(current));
 
-	spin_lock_bh(&idr_lock);
+	bh = spin_lock_bh(&idr_lock, SOFTIRQ_ALL_MASK);
 	ch = idr_find(&ch_idr, ch_num);
 	if (!ch) {
-		spin_unlock_bh(&idr_lock);
+		spin_unlock_bh(&idr_lock, bh);
 		return 0;
 	}
 	if (ch->filp != filp) {
-		spin_unlock_bh(&idr_lock);
+		spin_unlock_bh(&idr_lock, bh);
 		return -EINVAL;
 	}
 	idr_remove(&ch_idr, ch->id);
-	spin_unlock_bh(&idr_lock);
+	spin_unlock_bh(&idr_lock, bh);
 
 	return riocm_ch_close(ch);
 }
@@ -1994,6 +2007,7 @@ found:
  */
 static void riocm_remove_dev(struct device *dev, struct subsys_interface *sif)
 {
+	unsigned int bh;
 	struct rio_dev *rdev = to_rio_dev(dev);
 	struct cm_dev *cm;
 	struct cm_peer *peer;
@@ -2044,7 +2058,7 @@ static void riocm_remove_dev(struct device *dev, struct subsys_interface *sif)
 	 * Release channels associated with this peer
 	 */
 
-	spin_lock_bh(&idr_lock);
+	bh = spin_lock_bh(&idr_lock, SOFTIRQ_ALL_MASK);
 	idr_for_each_entry(&ch_idr, ch, i) {
 		if (ch && ch->rdev == rdev) {
 			if (atomic_read(&rdev->state) != RIO_DEVICE_SHUTDOWN)
@@ -2053,7 +2067,7 @@ static void riocm_remove_dev(struct device *dev, struct subsys_interface *sif)
 			list_add(&ch->ch_node, &list);
 		}
 	}
-	spin_unlock_bh(&idr_lock);
+	spin_unlock_bh(&idr_lock, bh);
 
 	if (!list_empty(&list)) {
 		list_for_each_entry_safe(ch, _c, &list, ch_node) {
@@ -2175,6 +2189,7 @@ static int riocm_add_mport(struct device *dev,
 static void riocm_remove_mport(struct device *dev,
 			       struct class_interface *class_intf)
 {
+	unsigned int bh;
 	struct rio_mport *mport = to_rio_mport(dev);
 	struct cm_dev *cm;
 	struct cm_peer *peer, *temp;
@@ -2202,7 +2217,7 @@ static void riocm_remove_mport(struct device *dev,
 	destroy_workqueue(cm->rx_wq);
 
 	/* Release channels bound to this mport */
-	spin_lock_bh(&idr_lock);
+	bh = spin_lock_bh(&idr_lock, SOFTIRQ_ALL_MASK);
 	idr_for_each_entry(&ch_idr, ch, i) {
 		if (ch->cmdev == cm) {
 			riocm_debug(RDEV, "%s drop ch_%d",
@@ -2211,7 +2226,7 @@ static void riocm_remove_mport(struct device *dev,
 			list_add(&ch->ch_node, &list);
 		}
 	}
-	spin_unlock_bh(&idr_lock);
+	spin_unlock_bh(&idr_lock, bh);
 
 	if (!list_empty(&list)) {
 		list_for_each_entry_safe(ch, _c, &list, ch_node) {
@@ -2240,6 +2255,7 @@ static void riocm_remove_mport(struct device *dev,
 static int rio_cm_shutdown(struct notifier_block *nb, unsigned long code,
 	void *unused)
 {
+	unsigned int bh;
 	struct rio_channel *ch;
 	unsigned int i;
 	LIST_HEAD(list);
@@ -2253,7 +2269,7 @@ static int rio_cm_shutdown(struct notifier_block *nb, unsigned long code,
 	 * notification because function riocm_send_close() should
 	 * be called outside of spinlock protected code.
 	 */
-	spin_lock_bh(&idr_lock);
+	bh = spin_lock_bh(&idr_lock, SOFTIRQ_ALL_MASK);
 	idr_for_each_entry(&ch_idr, ch, i) {
 		if (ch->state == RIO_CM_CONNECTED) {
 			riocm_debug(EXIT, "close ch %d", ch->id);
@@ -2261,7 +2277,7 @@ static int rio_cm_shutdown(struct notifier_block *nb, unsigned long code,
 			list_add(&ch->ch_node, &list);
 		}
 	}
-	spin_unlock_bh(&idr_lock);
+	spin_unlock_bh(&idr_lock, bh);
 
 	list_for_each_entry(ch, &list, ch_node)
 		riocm_send_close(ch);

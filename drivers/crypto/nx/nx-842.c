@@ -259,6 +259,7 @@ int nx842_crypto_compress(struct crypto_tfm *tfm,
 			  const u8 *src, unsigned int slen,
 			  u8 *dst, unsigned int *dlen)
 {
+	unsigned int bh;
 	struct nx842_crypto_ctx *ctx = crypto_tfm_ctx(tfm);
 	struct nx842_crypto_header *hdr = &ctx->header;
 	struct nx842_crypto_param p;
@@ -282,7 +283,7 @@ int nx842_crypto_compress(struct crypto_tfm *tfm,
 		       DIV_ROUND_UP(p.iremain, c.maximum));
 	hdrsize = NX842_CRYPTO_HEADER_SIZE(groups);
 
-	spin_lock_bh(&ctx->lock);
+	bh = spin_lock_bh(&ctx->lock, SOFTIRQ_ALL_MASK);
 
 	/* skip adding header if the buffers meet all constraints */
 	add_header = (p.iremain % c.multiple	||
@@ -336,7 +337,7 @@ int nx842_crypto_compress(struct crypto_tfm *tfm,
 	pr_debug("compress total slen %x dlen %x\n", slen, *dlen);
 
 unlock:
-	spin_unlock_bh(&ctx->lock);
+	spin_unlock_bh(&ctx->lock, bh);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(nx842_crypto_compress);
@@ -443,6 +444,7 @@ int nx842_crypto_decompress(struct crypto_tfm *tfm,
 			    const u8 *src, unsigned int slen,
 			    u8 *dst, unsigned int *dlen)
 {
+	unsigned int bh;
 	struct nx842_crypto_ctx *ctx = crypto_tfm_ctx(tfm);
 	struct nx842_crypto_header *hdr;
 	struct nx842_crypto_param p;
@@ -462,7 +464,7 @@ int nx842_crypto_decompress(struct crypto_tfm *tfm,
 
 	hdr = (struct nx842_crypto_header *)src;
 
-	spin_lock_bh(&ctx->lock);
+	bh = spin_lock_bh(&ctx->lock, SOFTIRQ_ALL_MASK);
 
 	/* If it doesn't start with our header magic number, assume it's a raw
 	 * 842 compressed buffer and pass it directly to the hardware driver
@@ -520,7 +522,7 @@ success:
 	ret = 0;
 
 unlock:
-	spin_unlock_bh(&ctx->lock);
+	spin_unlock_bh(&ctx->lock, bh);
 
 	return ret;
 }

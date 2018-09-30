@@ -204,15 +204,16 @@ void tipc_named_node_up(struct net *net, u32 dnode)
  */
 static void tipc_publ_purge(struct net *net, struct publication *publ, u32 addr)
 {
+	unsigned int bh;
 	struct tipc_net *tn = tipc_net(net);
 	struct publication *p;
 
-	spin_lock_bh(&tn->nametbl_lock);
+	bh = spin_lock_bh(&tn->nametbl_lock, SOFTIRQ_ALL_MASK);
 	p = tipc_nametbl_remove_publ(net, publ->type, publ->lower, publ->upper,
 				     publ->node, publ->key);
 	if (p)
 		tipc_node_unsubscribe(net, &p->binding_node, addr);
-	spin_unlock_bh(&tn->nametbl_lock);
+	spin_unlock_bh(&tn->nametbl_lock, bh);
 
 	if (p != publ) {
 		pr_err("Unable to remove publication from failed node\n"
@@ -229,17 +230,18 @@ static void tipc_publ_purge(struct net *net, struct publication *publ, u32 addr)
  */
 static void tipc_dist_queue_purge(struct net *net, u32 addr)
 {
+	unsigned int bh;
 	struct tipc_net *tn = net_generic(net, tipc_net_id);
 	struct distr_queue_item *e, *tmp;
 
-	spin_lock_bh(&tn->nametbl_lock);
+	bh = spin_lock_bh(&tn->nametbl_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(e, tmp, &tn->dist_queue, next) {
 		if (e->node != addr)
 			continue;
 		list_del(&e->next);
 		kfree(e);
 	}
-	spin_unlock_bh(&tn->nametbl_lock);
+	spin_unlock_bh(&tn->nametbl_lock, bh);
 }
 
 void tipc_publ_notify(struct net *net, struct list_head *nsub_list, u32 addr)
@@ -297,6 +299,7 @@ static bool tipc_update_nametbl(struct net *net, struct distr_item *i,
  */
 void tipc_named_rcv(struct net *net, struct sk_buff_head *inputq)
 {
+	unsigned int bh;
 	struct tipc_net *tn = net_generic(net, tipc_net_id);
 	struct tipc_msg *msg;
 	struct distr_item *item;
@@ -305,7 +308,7 @@ void tipc_named_rcv(struct net *net, struct sk_buff_head *inputq)
 	struct sk_buff *skb;
 	int mtype;
 
-	spin_lock_bh(&tn->nametbl_lock);
+	bh = spin_lock_bh(&tn->nametbl_lock, SOFTIRQ_ALL_MASK);
 	for (skb = skb_dequeue(inputq); skb; skb = skb_dequeue(inputq)) {
 		skb_linearize(skb);
 		msg = buf_msg(skb);
@@ -319,7 +322,7 @@ void tipc_named_rcv(struct net *net, struct sk_buff_head *inputq)
 		}
 		kfree_skb(skb);
 	}
-	spin_unlock_bh(&tn->nametbl_lock);
+	spin_unlock_bh(&tn->nametbl_lock, bh);
 }
 
 /**
@@ -331,17 +334,18 @@ void tipc_named_rcv(struct net *net, struct sk_buff_head *inputq)
  */
 void tipc_named_reinit(struct net *net)
 {
+	unsigned int bh;
 	struct name_table *nt = tipc_name_table(net);
 	struct tipc_net *tn = tipc_net(net);
 	struct publication *publ;
 	u32 self = tipc_own_addr(net);
 
-	spin_lock_bh(&tn->nametbl_lock);
+	bh = spin_lock_bh(&tn->nametbl_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_rcu(publ, &nt->node_scope, binding_node)
 		publ->node = self;
 	list_for_each_entry_rcu(publ, &nt->cluster_scope, binding_node)
 		publ->node = self;
 
-	spin_unlock_bh(&tn->nametbl_lock);
+	spin_unlock_bh(&tn->nametbl_lock, bh);
 }

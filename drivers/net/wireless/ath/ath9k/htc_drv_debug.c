@@ -289,17 +289,18 @@ static const struct file_operations fops_skb_rx = {
 static ssize_t read_file_slot(struct file *file, char __user *user_buf,
 			      size_t count, loff_t *ppos)
 {
+	unsigned int bh;
 	struct ath9k_htc_priv *priv = file->private_data;
 	char buf[512];
 	unsigned int len;
 
-	spin_lock_bh(&priv->tx.tx_lock);
+	bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	len = scnprintf(buf, sizeof(buf),
 			"TX slot bitmap : %*pb\n"
 			"Used slots     : %d\n",
 			MAX_TX_BUF_NUM, priv->tx.tx_slot,
 			bitmap_weight(priv->tx.tx_slot, MAX_TX_BUF_NUM));
-	spin_unlock_bh(&priv->tx.tx_lock);
+	spin_unlock_bh(&priv->tx.tx_lock, bh);
 	return simple_read_from_buffer(user_buf, count, ppos, buf, len);
 }
 
@@ -313,6 +314,7 @@ static const struct file_operations fops_slot = {
 static ssize_t read_file_queue(struct file *file, char __user *user_buf,
 			       size_t count, loff_t *ppos)
 {
+	unsigned int bh;
 	struct ath9k_htc_priv *priv = file->private_data;
 	char buf[512];
 	unsigned int len = 0;
@@ -338,10 +340,10 @@ static ssize_t read_file_queue(struct file *file, char __user *user_buf,
 	len += scnprintf(buf + len, sizeof(buf) - len, "%20s : %10u\n",
 			 "Failed queue", skb_queue_len(&priv->tx.tx_failed));
 
-	spin_lock_bh(&priv->tx.tx_lock);
+	bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	len += scnprintf(buf + len, sizeof(buf) - len, "%20s : %10u\n",
 			 "Queued count", priv->tx.queued_cnt);
-	spin_unlock_bh(&priv->tx.tx_lock);
+	spin_unlock_bh(&priv->tx.tx_lock, bh);
 
 	if (len > sizeof(buf))
 		len = sizeof(buf);

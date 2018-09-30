@@ -96,7 +96,7 @@ __ip_vs_conntbl_lock_array[CT_LOCKARRAY_SIZE] __cacheline_aligned;
 
 static inline void ct_write_lock_bh(unsigned int key)
 {
-	spin_lock_bh(&__ip_vs_conntbl_lock_array[key&CT_LOCKARRAY_MASK].l);
+	spin_lock_bh(&__ip_vs_conntbl_lock_array[key&CT_LOCKARRAY_MASK].l, SOFTIRQ_ALL_MASK);
 }
 
 static inline void ct_write_unlock_bh(unsigned int key)
@@ -483,14 +483,15 @@ void ip_vs_conn_put(struct ip_vs_conn *cp)
  */
 void ip_vs_conn_fill_cport(struct ip_vs_conn *cp, __be16 cport)
 {
+	unsigned int bh;
 	if (ip_vs_conn_unhash(cp)) {
-		spin_lock_bh(&cp->lock);
+		bh = spin_lock_bh(&cp->lock, SOFTIRQ_ALL_MASK);
 		if (cp->flags & IP_VS_CONN_F_NO_CPORT) {
 			atomic_dec(&ip_vs_conn_no_cport_cnt);
 			cp->flags &= ~IP_VS_CONN_F_NO_CPORT;
 			cp->cport = cport;
 		}
-		spin_unlock_bh(&cp->lock);
+		spin_unlock_bh(&cp->lock, bh);
 
 		/* hash on new dport */
 		ip_vs_conn_hash(cp);
@@ -643,6 +644,7 @@ ip_vs_bind_dest(struct ip_vs_conn *cp, struct ip_vs_dest *dest)
  */
 void ip_vs_try_bind_dest(struct ip_vs_conn *cp)
 {
+	unsigned int bh;
 	struct ip_vs_dest *dest;
 
 	rcu_read_lock();
@@ -658,9 +660,9 @@ void ip_vs_try_bind_dest(struct ip_vs_conn *cp)
 	if (dest) {
 		struct ip_vs_proto_data *pd;
 
-		spin_lock_bh(&cp->lock);
+		bh = spin_lock_bh(&cp->lock, SOFTIRQ_ALL_MASK);
 		if (cp->dest) {
-			spin_unlock_bh(&cp->lock);
+			spin_unlock_bh(&cp->lock, bh);
 			rcu_read_unlock();
 			return;
 		}
@@ -671,7 +673,7 @@ void ip_vs_try_bind_dest(struct ip_vs_conn *cp)
 			ip_vs_unbind_app(cp);
 
 		ip_vs_bind_dest(cp, dest);
-		spin_unlock_bh(&cp->lock);
+		spin_unlock_bh(&cp->lock, bh);
 
 		/* Update its packet transmitter */
 		cp->packet_xmit = NULL;

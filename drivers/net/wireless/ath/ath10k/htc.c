@@ -80,6 +80,7 @@ EXPORT_SYMBOL(ath10k_htc_notify_tx_completion);
 static void ath10k_htc_prepare_tx_skb(struct ath10k_htc_ep *ep,
 				      struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ath10k_htc_hdr *hdr;
 
 	hdr = (struct ath10k_htc_hdr *)skb->data;
@@ -89,15 +90,16 @@ static void ath10k_htc_prepare_tx_skb(struct ath10k_htc_ep *ep,
 	hdr->flags = 0;
 	hdr->flags |= ATH10K_HTC_FLAG_NEED_CREDIT_UPDATE;
 
-	spin_lock_bh(&ep->htc->tx_lock);
+	bh = spin_lock_bh(&ep->htc->tx_lock, SOFTIRQ_ALL_MASK);
 	hdr->seq_no = ep->seq_no++;
-	spin_unlock_bh(&ep->htc->tx_lock);
+	spin_unlock_bh(&ep->htc->tx_lock, bh);
 }
 
 int ath10k_htc_send(struct ath10k_htc *htc,
 		    enum ath10k_htc_ep_id eid,
 		    struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ath10k *ar = htc->ar;
 	struct ath10k_htc_ep *ep = &htc->endpoint[eid];
 	struct ath10k_skb_cb *skb_cb = ATH10K_SKB_CB(skb);
@@ -118,12 +120,12 @@ int ath10k_htc_send(struct ath10k_htc *htc,
 
 	if (ep->tx_credit_flow_enabled) {
 		credits = DIV_ROUND_UP(skb->len, htc->target_credit_size);
-		spin_lock_bh(&htc->tx_lock);
+		bh = spin_lock_bh(&htc->tx_lock, SOFTIRQ_ALL_MASK);
 		if (ep->tx_credits < credits) {
 			ath10k_dbg(ar, ATH10K_DBG_HTC,
 				   "htc insufficient credits ep %d required %d available %d\n",
 				   eid, credits, ep->tx_credits);
-			spin_unlock_bh(&htc->tx_lock);
+			spin_unlock_bh(&htc->tx_lock, bh);
 			ret = -EAGAIN;
 			goto err_pull;
 		}
@@ -131,7 +133,7 @@ int ath10k_htc_send(struct ath10k_htc *htc,
 		ath10k_dbg(ar, ATH10K_DBG_HTC,
 			   "htc ep %d consumed %d credits (total %d)\n",
 			   eid, credits, ep->tx_credits);
-		spin_unlock_bh(&htc->tx_lock);
+		spin_unlock_bh(&htc->tx_lock, bh);
 	}
 
 	ath10k_htc_prepare_tx_skb(ep, skb);
@@ -160,12 +162,12 @@ err_unmap:
 	dma_unmap_single(dev, skb_cb->paddr, skb->len, DMA_TO_DEVICE);
 err_credits:
 	if (ep->tx_credit_flow_enabled) {
-		spin_lock_bh(&htc->tx_lock);
+		bh = spin_lock_bh(&htc->tx_lock, SOFTIRQ_ALL_MASK);
 		ep->tx_credits += credits;
 		ath10k_dbg(ar, ATH10K_DBG_HTC,
 			   "htc ep %d reverted %d credits back (total %d)\n",
 			   eid, credits, ep->tx_credits);
-		spin_unlock_bh(&htc->tx_lock);
+		spin_unlock_bh(&htc->tx_lock, bh);
 
 		if (ep->ep_ops.ep_tx_credits)
 			ep->ep_ops.ep_tx_credits(htc->ar);
@@ -202,6 +204,7 @@ ath10k_htc_process_credit_report(struct ath10k_htc *htc,
 				 int len,
 				 enum ath10k_htc_ep_id eid)
 {
+	unsigned int bh;
 	struct ath10k *ar = htc->ar;
 	struct ath10k_htc_ep *ep;
 	int i, n_reports;
@@ -211,7 +214,7 @@ ath10k_htc_process_credit_report(struct ath10k_htc *htc,
 
 	n_reports = len / sizeof(*report);
 
-	spin_lock_bh(&htc->tx_lock);
+	bh = spin_lock_bh(&htc->tx_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < n_reports; i++, report++) {
 		if (report->eid >= ATH10K_HTC_EP_COUNT)
 			break;
@@ -225,10 +228,10 @@ ath10k_htc_process_credit_report(struct ath10k_htc *htc,
 		if (ep->ep_ops.ep_tx_credits) {
 			spin_unlock_bh(&htc->tx_lock);
 			ep->ep_ops.ep_tx_credits(htc->ar);
-			spin_lock_bh(&htc->tx_lock);
+			spin_lock_bh(&htc->tx_lock, SOFTIRQ_ALL_MASK);
 		}
 	}
-	spin_unlock_bh(&htc->tx_lock);
+	spin_unlock_bh(&htc->tx_lock, bh);
 }
 
 static int

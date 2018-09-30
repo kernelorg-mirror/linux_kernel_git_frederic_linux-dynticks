@@ -130,12 +130,13 @@ void netxen_release_rx_buffers(struct netxen_adapter *adapter)
 
 void netxen_release_tx_buffers(struct netxen_adapter *adapter)
 {
+	unsigned int bh;
 	struct netxen_cmd_buffer *cmd_buf;
 	struct netxen_skb_frag *buffrag;
 	int i, j;
 	struct nx_host_tx_ring *tx_ring = adapter->tx_ring;
 
-	spin_lock_bh(&adapter->tx_clean_lock);
+	bh = spin_lock_bh(&adapter->tx_clean_lock, SOFTIRQ_ALL_MASK);
 	cmd_buf = tx_ring->cmd_buf_arr;
 	for (i = 0; i < tx_ring->num_desc; i++) {
 		buffrag = cmd_buf->frag_array;
@@ -159,7 +160,7 @@ void netxen_release_tx_buffers(struct netxen_adapter *adapter)
 		}
 		cmd_buf++;
 	}
-	spin_unlock_bh(&adapter->tx_clean_lock);
+	spin_unlock_bh(&adapter->tx_clean_lock, bh);
 }
 
 void netxen_free_sw_resources(struct netxen_adapter *adapter)

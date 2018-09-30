@@ -84,6 +84,7 @@ static struct qpn_to_netdev *mlx5i_find_qpn_to_netdev_node(struct hlist_head *bu
 
 int mlx5i_pkey_add_qpn(struct net_device *netdev, u32 qpn)
 {
+	unsigned int bh;
 	struct mlx5i_priv *ipriv = netdev_priv(netdev);
 	struct mlx5i_pkey_qpn_ht *ht = ipriv->qpn_htbl;
 	u8 key = hash_32(qpn, MLX5I_MAX_LOG_PKEY_SUP);
@@ -95,15 +96,16 @@ int mlx5i_pkey_add_qpn(struct net_device *netdev, u32 qpn)
 
 	new_node->netdev = netdev;
 	new_node->underlay_qpn = qpn;
-	spin_lock_bh(&ht->ht_lock);
+	bh = spin_lock_bh(&ht->ht_lock, SOFTIRQ_ALL_MASK);
 	hlist_add_head(&new_node->hlist, &ht->buckets[key]);
-	spin_unlock_bh(&ht->ht_lock);
+	spin_unlock_bh(&ht->ht_lock, bh);
 
 	return 0;
 }
 
 int mlx5i_pkey_del_qpn(struct net_device *netdev, u32 qpn)
 {
+	unsigned int bh;
 	struct mlx5e_priv *epriv = mlx5i_epriv(netdev);
 	struct mlx5i_priv *ipriv = epriv->ppriv;
 	struct mlx5i_pkey_qpn_ht *ht = ipriv->qpn_htbl;
@@ -115,9 +117,9 @@ int mlx5i_pkey_del_qpn(struct net_device *netdev, u32 qpn)
 		return -EINVAL;
 	}
 
-	spin_lock_bh(&ht->ht_lock);
+	bh = spin_lock_bh(&ht->ht_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_init(&node->hlist);
-	spin_unlock_bh(&ht->ht_lock);
+	spin_unlock_bh(&ht->ht_lock, bh);
 	kfree(node);
 
 	return 0;

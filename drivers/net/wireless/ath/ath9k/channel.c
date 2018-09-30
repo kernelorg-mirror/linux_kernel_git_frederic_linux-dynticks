@@ -130,14 +130,15 @@ void ath_chanctx_init(struct ath_softc *sc)
 void ath_chanctx_set_channel(struct ath_softc *sc, struct ath_chanctx *ctx,
 			     struct cfg80211_chan_def *chandef)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	bool cur_chan;
 
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 	if (chandef)
 		memcpy(&ctx->chandef, chandef, sizeof(*chandef));
 	cur_chan = sc->cur_chan == ctx;
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 
 	if (!cur_chan) {
 		ath_dbg(common, CHAN_CTX,
@@ -156,11 +157,12 @@ void ath_chanctx_set_channel(struct ath_softc *sc, struct ath_chanctx *ctx,
 
 struct ath_chanctx* ath_is_go_chanctx_present(struct ath_softc *sc)
 {
+	unsigned int bh;
 	struct ath_chanctx *ctx;
 	struct ath_vif *avp;
 	struct ieee80211_vif *vif;
 
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 
 	ath_for_each_chanctx(sc, ctx) {
 		if (!ctx->active)
@@ -170,13 +172,13 @@ struct ath_chanctx* ath_is_go_chanctx_present(struct ath_softc *sc)
 			vif = avp->vif;
 
 			if (ieee80211_vif_type_p2p(vif) == NL80211_IFTYPE_P2P_GO) {
-				spin_unlock_bh(&sc->chan_lock);
+				spin_unlock_bh(&sc->chan_lock, bh);
 				return ctx;
 			}
 		}
 	}
 
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 	return NULL;
 }
 
@@ -246,6 +248,7 @@ static u32 chanctx_event_delta(struct ath_softc *sc)
 
 void ath_chanctx_check_active(struct ath_softc *sc, struct ath_chanctx *ctx)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	struct ath_chanctx *ictx;
 	struct ath_vif *avp;
@@ -256,7 +259,7 @@ void ath_chanctx_check_active(struct ath_softc *sc, struct ath_chanctx *ctx)
 		return;
 
 	if (ctx == &sc->offchannel.chan) {
-		spin_lock_bh(&sc->chan_lock);
+		bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 
 		if (likely(sc->sched.channel_switch_time))
 			ctx->flush_timeout =
@@ -265,7 +268,7 @@ void ath_chanctx_check_active(struct ath_softc *sc, struct ath_chanctx *ctx)
 			ctx->flush_timeout =
 				msecs_to_jiffies(10);
 
-		spin_unlock_bh(&sc->chan_lock);
+		spin_unlock_bh(&sc->chan_lock, bh);
 
 		/*
 		 * There is no need to iterate over the
@@ -299,23 +302,23 @@ void ath_chanctx_check_active(struct ath_softc *sc, struct ath_chanctx *ctx)
 		n_active++;
 	}
 
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 
 	if (n_active <= 1) {
 		ictx->flush_timeout = HZ / 5;
 		clear_bit(ATH_OP_MULTI_CHANNEL, &common->op_flags);
-		spin_unlock_bh(&sc->chan_lock);
+		spin_unlock_bh(&sc->chan_lock, bh);
 		return;
 	}
 
 	ictx->flush_timeout = usecs_to_jiffies(sc->sched.channel_switch_time);
 
 	if (test_and_set_bit(ATH_OP_MULTI_CHANNEL, &common->op_flags)) {
-		spin_unlock_bh(&sc->chan_lock);
+		spin_unlock_bh(&sc->chan_lock, bh);
 		return;
 	}
 
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 
 	if (ath9k_is_chanctx_enabled()) {
 		ath_chanctx_event(sc, NULL,
@@ -494,6 +497,7 @@ static void ath_chanctx_set_oneshot_noa(struct ath_softc *sc,
 void ath_chanctx_event(struct ath_softc *sc, struct ieee80211_vif *vif,
 		       enum ath_chanctx_event ev)
 {
+	unsigned int bh;
 	struct ath_hw *ah = sc->sc_ah;
 	struct ath_common *common = ath9k_hw_common(ah);
 	struct ath_beacon_config *cur_conf;
@@ -505,7 +509,7 @@ void ath_chanctx_event(struct ath_softc *sc, struct ieee80211_vif *vif,
 	if (vif)
 		avp = (struct ath_vif *) vif->drv_priv;
 
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 
 	ath_dbg(common, CHAN_CTX, "cur_chan: %d MHz, event: %s, state: %s, delta: %u ms\n",
 		sc->cur_chan->chandef.center_freq1,
@@ -771,7 +775,7 @@ void ath_chanctx_event(struct ath_softc *sc, struct ieee80211_vif *vif,
 		break;
 	}
 
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 }
 
 void ath_chanctx_beacon_sent_ev(struct ath_softc *sc,
@@ -801,9 +805,10 @@ static int ath_scan_channel_duration(struct ath_softc *sc,
 static void ath_chanctx_switch(struct ath_softc *sc, struct ath_chanctx *ctx,
 			       struct cfg80211_chan_def *chandef)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 
 	if (test_bit(ATH_OP_MULTI_CHANNEL, &common->op_flags) &&
 	    (sc->cur_chan != ctx) && (ctx == &sc->offchannel.chan)) {
@@ -816,7 +821,7 @@ static void ath_chanctx_switch(struct ath_softc *sc, struct ath_chanctx *ctx,
 			jiffies_to_usecs(sc->offchannel.duration) +
 			sc->sched.channel_switch_time;
 
-		spin_unlock_bh(&sc->chan_lock);
+		spin_unlock_bh(&sc->chan_lock, bh);
 		ath_dbg(common, CHAN_CTX,
 			"Set offchannel_pending to true\n");
 		return;
@@ -841,7 +846,7 @@ static void ath_chanctx_switch(struct ath_softc *sc, struct ath_chanctx *ctx,
 				sc->sched.offchannel_duration);
 		}
 	}
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 	ieee80211_queue_work(sc->hw, &sc->chanctx_work);
 }
 
@@ -909,6 +914,7 @@ ath_scan_next_channel(struct ath_softc *sc)
 
 void ath_offchannel_next(struct ath_softc *sc)
 {
+	unsigned int bh;
 	struct ieee80211_vif *vif;
 
 	if (sc->offchannel.scan_req) {
@@ -923,10 +929,10 @@ void ath_offchannel_next(struct ath_softc *sc)
 		sc->offchannel.state = ATH_OFFCHANNEL_ROC_START;
 		ath_chanctx_offchan_switch(sc, sc->offchannel.roc_chan);
 	} else {
-		spin_lock_bh(&sc->chan_lock);
+		bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 		sc->sched.offchannel_pending = false;
 		sc->sched.wait_switch = false;
-		spin_unlock_bh(&sc->chan_lock);
+		spin_unlock_bh(&sc->chan_lock, bh);
 
 		ath_chanctx_switch(sc, ath_chanctx_get_oper_chan(sc, false),
 				   NULL);
@@ -963,6 +969,7 @@ void ath_roc_complete(struct ath_softc *sc, enum ath_roc_complete_reason reason)
 
 void ath_scan_complete(struct ath_softc *sc, bool abort)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	struct cfg80211_scan_info info = {
 		.aborted = abort,
@@ -978,10 +985,10 @@ void ath_scan_complete(struct ath_softc *sc, bool abort)
 	sc->offchannel.state = ATH_OFFCHANNEL_IDLE;
 	ieee80211_scan_completed(sc->hw, &info);
 	clear_bit(ATH_OP_SCANNING, &common->op_flags);
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 	if (test_bit(ATH_OP_MULTI_CHANNEL, &common->op_flags))
 		sc->sched.force_noa_update = true;
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 	ath_offchannel_next(sc);
 	ath9k_ps_restore(sc);
 }
@@ -1228,6 +1235,7 @@ static void ath_offchannel_channel_change(struct ath_softc *sc)
 
 void ath_chanctx_set_next(struct ath_softc *sc, bool force)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	struct ath_chanctx *old_ctx;
 	struct timespec64 ts;
@@ -1235,14 +1243,14 @@ void ath_chanctx_set_next(struct ath_softc *sc, bool force)
 	bool send_ps = false;
 	bool queues_stopped = false;
 
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 	if (!sc->next_chan) {
-		spin_unlock_bh(&sc->chan_lock);
+		spin_unlock_bh(&sc->chan_lock, bh);
 		return;
 	}
 
 	if (!force && ath_chanctx_defer_switch(sc)) {
-		spin_unlock_bh(&sc->chan_lock);
+		spin_unlock_bh(&sc->chan_lock, bh);
 		return;
 	}
 
@@ -1274,7 +1282,7 @@ void ath_chanctx_set_next(struct ath_softc *sc, bool force)
 				      false, false, false);
 
 		send_ps = true;
-		spin_lock_bh(&sc->chan_lock);
+		spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 
 		if (sc->cur_chan != &sc->offchannel.chan) {
 			ktime_get_raw_ts64(&sc->cur_chan->tsf_ts);
@@ -1292,7 +1300,7 @@ void ath_chanctx_set_next(struct ath_softc *sc, bool force)
 	if (sc->sched.state != ATH_CHANCTX_STATE_FORCE_ACTIVE)
 		sc->sched.state = ATH_CHANCTX_STATE_IDLE;
 
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 
 	if (sc->sc_ah->chip_fullsleep ||
 	    memcmp(&sc->cur_chandef, &sc->cur_chan->chandef,
@@ -1604,13 +1612,14 @@ out:
 void ath9k_p2p_bss_info_changed(struct ath_softc *sc,
 				struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	unsigned long flags;
 
-	spin_lock_bh(&sc->sc_pcu_lock);
+	bh = spin_lock_bh(&sc->sc_pcu_lock, SOFTIRQ_ALL_MASK);
 	spin_lock_irqsave(&sc->sc_pm_lock, flags);
 	ath9k_update_p2p_ps(sc, vif);
 	spin_unlock_irqrestore(&sc->sc_pm_lock, flags);
-	spin_unlock_bh(&sc->sc_pcu_lock);
+	spin_unlock_bh(&sc->sc_pcu_lock, bh);
 }
 
 void ath9k_p2p_beacon_sync(struct ath_softc *sc)
@@ -1622,14 +1631,15 @@ void ath9k_p2p_beacon_sync(struct ath_softc *sc)
 void ath9k_p2p_remove_vif(struct ath_softc *sc,
 			  struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct ath_vif *avp = (void *)vif->drv_priv;
 
-	spin_lock_bh(&sc->sc_pcu_lock);
+	bh = spin_lock_bh(&sc->sc_pcu_lock, SOFTIRQ_ALL_MASK);
 	if (avp == sc->p2p_ps_vif) {
 		sc->p2p_ps_vif = NULL;
 		ath9k_update_p2p_ps_timer(sc, NULL);
 	}
-	spin_unlock_bh(&sc->sc_pcu_lock);
+	spin_unlock_bh(&sc->sc_pcu_lock, bh);
 }
 
 int ath9k_init_p2p(struct ath_softc *sc)

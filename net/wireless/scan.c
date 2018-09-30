@@ -218,6 +218,7 @@ static bool cfg80211_bss_expire_oldest(struct cfg80211_registered_device *rdev)
 void ___cfg80211_scan_done(struct cfg80211_registered_device *rdev,
 			   bool send_message)
 {
+	unsigned int bh;
 	struct cfg80211_scan_request *request;
 	struct wireless_dev *wdev;
 	struct sk_buff *msg;
@@ -250,9 +251,9 @@ void ___cfg80211_scan_done(struct cfg80211_registered_device *rdev,
 	if (!request->info.aborted &&
 	    request->flags & NL80211_SCAN_FLAG_FLUSH) {
 		/* flush entries from previous scans */
-		spin_lock_bh(&rdev->bss_lock);
+		bh = spin_lock_bh(&rdev->bss_lock, SOFTIRQ_ALL_MASK);
 		__cfg80211_bss_expire(rdev, request->scan_start);
-		spin_unlock_bh(&rdev->bss_lock);
+		spin_unlock_bh(&rdev->bss_lock, bh);
 	}
 
 	msg = nl80211_build_scan_msg(rdev, wdev, request->info.aborted);
@@ -367,6 +368,7 @@ int cfg80211_sched_scan_req_possible(struct cfg80211_registered_device *rdev,
 
 void cfg80211_sched_scan_results_wk(struct work_struct *work)
 {
+	unsigned int bh;
 	struct cfg80211_registered_device *rdev;
 	struct cfg80211_sched_scan_request *req, *tmp;
 
@@ -379,9 +381,9 @@ void cfg80211_sched_scan_results_wk(struct work_struct *work)
 			req->report_results = false;
 			if (req->flags & NL80211_SCAN_FLAG_FLUSH) {
 				/* flush entries from previous scans */
-				spin_lock_bh(&rdev->bss_lock);
+				bh = spin_lock_bh(&rdev->bss_lock, SOFTIRQ_ALL_MASK);
 				__cfg80211_bss_expire(rdev, req->scan_start);
-				spin_unlock_bh(&rdev->bss_lock);
+				spin_unlock_bh(&rdev->bss_lock, bh);
 				req->scan_start = jiffies;
 			}
 			nl80211_send_sched_scan(req,
@@ -466,13 +468,14 @@ int __cfg80211_stop_sched_scan(struct cfg80211_registered_device *rdev,
 void cfg80211_bss_age(struct cfg80211_registered_device *rdev,
                       unsigned long age_secs)
 {
+	unsigned int bh;
 	struct cfg80211_internal_bss *bss;
 	unsigned long age_jiffies = msecs_to_jiffies(age_secs * MSEC_PER_SEC);
 
-	spin_lock_bh(&rdev->bss_lock);
+	bh = spin_lock_bh(&rdev->bss_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(bss, &rdev->bss_list, list)
 		bss->ts -= age_jiffies;
-	spin_unlock_bh(&rdev->bss_lock);
+	spin_unlock_bh(&rdev->bss_lock, bh);
 }
 
 void cfg80211_bss_expire(struct cfg80211_registered_device *rdev)
@@ -714,6 +717,7 @@ struct cfg80211_bss *cfg80211_get_bss(struct wiphy *wiphy,
 				      enum ieee80211_bss_type bss_type,
 				      enum ieee80211_privacy privacy)
 {
+	unsigned int bh;
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
 	struct cfg80211_internal_bss *bss, *res = NULL;
 	unsigned long now = jiffies;
@@ -722,7 +726,7 @@ struct cfg80211_bss *cfg80211_get_bss(struct wiphy *wiphy,
 	trace_cfg80211_get_bss(wiphy, channel, bssid, ssid, ssid_len, bss_type,
 			       privacy);
 
-	spin_lock_bh(&rdev->bss_lock);
+	bh = spin_lock_bh(&rdev->bss_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(bss, &rdev->bss_list, list) {
 		if (!cfg80211_bss_type_match(bss->pub.capability,
@@ -748,7 +752,7 @@ struct cfg80211_bss *cfg80211_get_bss(struct wiphy *wiphy,
 		}
 	}
 
-	spin_unlock_bh(&rdev->bss_lock);
+	spin_unlock_bh(&rdev->bss_lock, bh);
 	if (!res)
 		return NULL;
 	trace_cfg80211_return_bss(&res->pub);
@@ -888,6 +892,7 @@ cfg80211_bss_update(struct cfg80211_registered_device *rdev,
 		    struct cfg80211_internal_bss *tmp,
 		    bool signal_valid)
 {
+	unsigned int bh;
 	struct cfg80211_internal_bss *found = NULL;
 
 	if (WARN_ON(!tmp->pub.channel))
@@ -895,10 +900,10 @@ cfg80211_bss_update(struct cfg80211_registered_device *rdev,
 
 	tmp->ts = jiffies;
 
-	spin_lock_bh(&rdev->bss_lock);
+	bh = spin_lock_bh(&rdev->bss_lock, SOFTIRQ_ALL_MASK);
 
 	if (WARN_ON(!rcu_access_pointer(tmp->pub.ies))) {
-		spin_unlock_bh(&rdev->bss_lock);
+		spin_unlock_bh(&rdev->bss_lock, bh);
 		return NULL;
 	}
 
@@ -1050,11 +1055,11 @@ cfg80211_bss_update(struct cfg80211_registered_device *rdev,
 
 	rdev->bss_generation++;
 	bss_ref_get(rdev, found);
-	spin_unlock_bh(&rdev->bss_lock);
+	spin_unlock_bh(&rdev->bss_lock, bh);
 
 	return found;
  drop:
-	spin_unlock_bh(&rdev->bss_lock);
+	spin_unlock_bh(&rdev->bss_lock, bh);
 	return NULL;
 }
 
@@ -1264,6 +1269,7 @@ EXPORT_SYMBOL(cfg80211_inform_bss_frame_data);
 
 void cfg80211_ref_bss(struct wiphy *wiphy, struct cfg80211_bss *pub)
 {
+	unsigned int bh;
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
 	struct cfg80211_internal_bss *bss;
 
@@ -1272,14 +1278,15 @@ void cfg80211_ref_bss(struct wiphy *wiphy, struct cfg80211_bss *pub)
 
 	bss = container_of(pub, struct cfg80211_internal_bss, pub);
 
-	spin_lock_bh(&rdev->bss_lock);
+	bh = spin_lock_bh(&rdev->bss_lock, SOFTIRQ_ALL_MASK);
 	bss_ref_get(rdev, bss);
-	spin_unlock_bh(&rdev->bss_lock);
+	spin_unlock_bh(&rdev->bss_lock, bh);
 }
 EXPORT_SYMBOL(cfg80211_ref_bss);
 
 void cfg80211_put_bss(struct wiphy *wiphy, struct cfg80211_bss *pub)
 {
+	unsigned int bh;
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
 	struct cfg80211_internal_bss *bss;
 
@@ -1288,14 +1295,15 @@ void cfg80211_put_bss(struct wiphy *wiphy, struct cfg80211_bss *pub)
 
 	bss = container_of(pub, struct cfg80211_internal_bss, pub);
 
-	spin_lock_bh(&rdev->bss_lock);
+	bh = spin_lock_bh(&rdev->bss_lock, SOFTIRQ_ALL_MASK);
 	bss_ref_put(rdev, bss);
-	spin_unlock_bh(&rdev->bss_lock);
+	spin_unlock_bh(&rdev->bss_lock, bh);
 }
 EXPORT_SYMBOL(cfg80211_put_bss);
 
 void cfg80211_unlink_bss(struct wiphy *wiphy, struct cfg80211_bss *pub)
 {
+	unsigned int bh;
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
 	struct cfg80211_internal_bss *bss;
 
@@ -1304,12 +1312,12 @@ void cfg80211_unlink_bss(struct wiphy *wiphy, struct cfg80211_bss *pub)
 
 	bss = container_of(pub, struct cfg80211_internal_bss, pub);
 
-	spin_lock_bh(&rdev->bss_lock);
+	bh = spin_lock_bh(&rdev->bss_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&bss->list)) {
 		if (__cfg80211_unlink_bss(rdev, bss))
 			rdev->bss_generation++;
 	}
-	spin_unlock_bh(&rdev->bss_lock);
+	spin_unlock_bh(&rdev->bss_lock, bh);
 }
 EXPORT_SYMBOL(cfg80211_unlink_bss);
 
@@ -1780,12 +1788,13 @@ static int ieee80211_scan_results(struct cfg80211_registered_device *rdev,
 				  struct iw_request_info *info,
 				  char *buf, size_t len)
 {
+	unsigned int bh;
 	char *current_ev = buf;
 	char *end_buf = buf + len;
 	struct cfg80211_internal_bss *bss;
 	int err = 0;
 
-	spin_lock_bh(&rdev->bss_lock);
+	bh = spin_lock_bh(&rdev->bss_lock, SOFTIRQ_ALL_MASK);
 	cfg80211_bss_expire(rdev);
 
 	list_for_each_entry(bss, &rdev->bss_list, list) {
@@ -1800,7 +1809,7 @@ static int ieee80211_scan_results(struct cfg80211_registered_device *rdev,
 			break;
 		}
 	}
-	spin_unlock_bh(&rdev->bss_lock);
+	spin_unlock_bh(&rdev->bss_lock, bh);
 
 	if (err)
 		return err;

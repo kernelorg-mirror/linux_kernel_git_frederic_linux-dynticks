@@ -369,9 +369,9 @@ static const int npindex_to_ethertype[NUM_NP] = {
 /*
  * Locking shorthand.
  */
-#define ppp_xmit_lock(ppp)	spin_lock_bh(&(ppp)->wlock)
+#define ppp_xmit_lock(ppp)	spin_lock_bh(&(ppp)->wlock, SOFTIRQ_ALL_MASK)
 #define ppp_xmit_unlock(ppp)	spin_unlock_bh(&(ppp)->wlock)
-#define ppp_recv_lock(ppp)	spin_lock_bh(&(ppp)->rlock)
+#define ppp_recv_lock(ppp)	spin_lock_bh(&(ppp)->rlock, SOFTIRQ_ALL_MASK)
 #define ppp_recv_unlock(ppp)	spin_unlock_bh(&(ppp)->rlock)
 #define ppp_lock(ppp)		do { ppp_xmit_lock(ppp); \
 				     ppp_recv_lock(ppp); } while (0)
@@ -834,6 +834,7 @@ out:
 static int ppp_unattached_ioctl(struct net *net, struct ppp_file *pf,
 			struct file *file, unsigned int cmd, unsigned long arg)
 {
+	unsigned int bh;
 	int unit, err = -EFAULT;
 	struct ppp *ppp;
 	struct channel *chan;
@@ -876,14 +877,14 @@ static int ppp_unattached_ioctl(struct net *net, struct ppp_file *pf,
 			break;
 		err = -ENXIO;
 		pn = ppp_pernet(net);
-		spin_lock_bh(&pn->all_channels_lock);
+		bh = spin_lock_bh(&pn->all_channels_lock, SOFTIRQ_ALL_MASK);
 		chan = ppp_find_channel(pn, unit);
 		if (chan) {
 			refcount_inc(&chan->file.refcnt);
 			file->private_data = &chan->file;
 			err = 0;
 		}
-		spin_unlock_bh(&pn->all_channels_lock);
+		spin_unlock_bh(&pn->all_channels_lock, bh);
 		break;
 
 	default:
@@ -2556,6 +2557,7 @@ int ppp_register_channel(struct ppp_channel *chan)
 /* Create a new, unattached ppp channel for specified net. */
 int ppp_register_net_channel(struct net *net, struct ppp_channel *chan)
 {
+	unsigned int bh;
 	struct channel *pch;
 	struct ppp_net *pn;
 
@@ -2578,11 +2580,11 @@ int ppp_register_net_channel(struct net *net, struct ppp_channel *chan)
 	spin_lock_init(&pch->downl);
 	rwlock_init(&pch->upl);
 
-	spin_lock_bh(&pn->all_channels_lock);
+	bh = spin_lock_bh(&pn->all_channels_lock, SOFTIRQ_ALL_MASK);
 	pch->file.index = ++pn->last_channel_index;
 	list_add(&pch->list, &pn->new_channels);
 	atomic_inc(&channel_count);
-	spin_unlock_bh(&pn->all_channels_lock);
+	spin_unlock_bh(&pn->all_channels_lock, bh);
 
 	return 0;
 }
@@ -2641,6 +2643,7 @@ char *ppp_dev_name(struct ppp_channel *chan)
 void
 ppp_unregister_channel(struct ppp_channel *chan)
 {
+	unsigned int bh;
 	struct channel *pch = chan->ppp;
 	struct ppp_net *pn;
 
@@ -2654,14 +2657,14 @@ ppp_unregister_channel(struct ppp_channel *chan)
 	 * the channel's start_xmit or ioctl routine before we proceed.
 	 */
 	down_write(&pch->chan_sem);
-	spin_lock_bh(&pch->downl);
+	bh = spin_lock_bh(&pch->downl, SOFTIRQ_ALL_MASK);
 	pch->chan = NULL;
-	spin_unlock_bh(&pch->downl);
+	spin_unlock_bh(&pch->downl, bh);
 	up_write(&pch->chan_sem);
 	ppp_disconnect_channel(pch);
 
 	pn = ppp_pernet(pch->chan_net);
-	spin_lock_bh(&pn->all_channels_lock);
+	spin_lock_bh(&pn->all_channels_lock, SOFTIRQ_ALL_MASK);
 	list_del(&pch->list);
 	spin_unlock_bh(&pn->all_channels_lock);
 
@@ -3130,6 +3133,7 @@ ppp_find_channel(struct ppp_net *pn, int unit)
 static int
 ppp_connect_channel(struct channel *pch, int unit)
 {
+	unsigned int bh;
 	struct ppp *ppp;
 	struct ppp_net *pn;
 	int ret = -ENXIO;
@@ -3147,15 +3151,15 @@ ppp_connect_channel(struct channel *pch, int unit)
 		goto outl;
 
 	ppp_lock(ppp);
-	spin_lock_bh(&pch->downl);
+	bh = spin_lock_bh(&pch->downl, SOFTIRQ_ALL_MASK);
 	if (!pch->chan) {
 		/* Don't connect unregistered channels */
-		spin_unlock_bh(&pch->downl);
+		spin_unlock_bh(&pch->downl, bh);
 		ppp_unlock(ppp);
 		ret = -ENOTCONN;
 		goto outl;
 	}
-	spin_unlock_bh(&pch->downl);
+	spin_unlock_bh(&pch->downl, bh);
 	if (pch->file.hdrlen > ppp->file.hdrlen)
 		ppp->file.hdrlen = pch->file.hdrlen;
 	hdrlen = pch->file.hdrlen + 2;	/* for protocol bytes */

@@ -247,6 +247,7 @@ static inline int sctp_verify_addr(struct sock *sk, union sctp_addr *addr,
  */
 struct sctp_association *sctp_id2assoc(struct sock *sk, sctp_assoc_t id)
 {
+	unsigned int bh;
 	struct sctp_association *asoc = NULL;
 
 	/* If this is not a UDP-style socket, assoc id should be ignored. */
@@ -269,9 +270,9 @@ struct sctp_association *sctp_id2assoc(struct sock *sk, sctp_assoc_t id)
 	if (!id || (id == (sctp_assoc_t)-1))
 		return NULL;
 
-	spin_lock_bh(&sctp_assocs_id_lock);
+	bh = spin_lock_bh(&sctp_assocs_id_lock, SOFTIRQ_ALL_MASK);
 	asoc = (struct sctp_association *)idr_find(&sctp_assocs_id, (int)id);
-	spin_unlock_bh(&sctp_assocs_id_lock);
+	spin_unlock_bh(&sctp_assocs_id_lock, bh);
 
 	if (!asoc || (asoc->base.sk != sk) || asoc->base.dead)
 		return NULL;
@@ -1515,6 +1516,7 @@ static int sctp_getsockopt_connectx3(struct sock *sk, int len,
  */
 static void sctp_close(struct sock *sk, long timeout)
 {
+	unsigned int bh;
 	struct net *net = sock_net(sk);
 	struct sctp_endpoint *ep;
 	struct sctp_association *asoc;
@@ -1573,7 +1575,7 @@ static void sctp_close(struct sock *sk, long timeout)
 	 * Also, sctp_destroy_sock() needs to be called with addr_wq_lock
 	 * held and that should be grabbed before socket lock.
 	 */
-	spin_lock_bh(&net->sctp.addr_wq_lock);
+	bh = spin_lock_bh(&net->sctp.addr_wq_lock, SOFTIRQ_ALL_MASK);
 	bh_lock_sock_nested(sk);
 
 	/* Hold the sock, since sk_common_release() will put sock_put()
@@ -1583,7 +1585,7 @@ static void sctp_close(struct sock *sk, long timeout)
 	sk_common_release(sk);
 
 	bh_unlock_sock(sk);
-	spin_unlock_bh(&net->sctp.addr_wq_lock);
+	spin_unlock_bh(&net->sctp.addr_wq_lock, bh);
 
 	sock_put(sk);
 
@@ -3845,6 +3847,7 @@ static int sctp_setsockopt_deactivate_key(struct sock *sk, char __user *optval,
 static int sctp_setsockopt_auto_asconf(struct sock *sk, char __user *optval,
 					unsigned int optlen)
 {
+	unsigned int bh;
 	int val;
 	struct sctp_sock *sp = sctp_sk(sk);
 
@@ -3857,7 +3860,7 @@ static int sctp_setsockopt_auto_asconf(struct sock *sk, char __user *optval,
 	if ((val && sp->do_auto_asconf) || (!val && !sp->do_auto_asconf))
 		return 0;
 
-	spin_lock_bh(&sock_net(sk)->sctp.addr_wq_lock);
+	bh = spin_lock_bh(&sock_net(sk)->sctp.addr_wq_lock, SOFTIRQ_ALL_MASK);
 	if (val == 0 && sp->do_auto_asconf) {
 		list_del(&sp->auto_asconf_list);
 		sp->do_auto_asconf = 0;
@@ -3866,7 +3869,7 @@ static int sctp_setsockopt_auto_asconf(struct sock *sk, char __user *optval,
 		    &sock_net(sk)->sctp.auto_asconf_splist);
 		sp->do_auto_asconf = 1;
 	}
-	spin_unlock_bh(&sock_net(sk)->sctp.addr_wq_lock);
+	spin_unlock_bh(&sock_net(sk)->sctp.addr_wq_lock, bh);
 	return 0;
 }
 
@@ -8846,6 +8849,7 @@ static void sctp_sock_migrate(struct sock *oldsk, struct sock *newsk,
 			      struct sctp_association *assoc,
 			      enum sctp_socket_type type)
 {
+	unsigned int bh;
 	struct sctp_sock *oldsp = sctp_sk(oldsk);
 	struct sctp_sock *newsp = sctp_sk(newsk);
 	struct sctp_bind_bucket *pp; /* hash list port iterator */
@@ -8871,12 +8875,12 @@ static void sctp_sock_migrate(struct sock *oldsk, struct sock *newsk,
 	/* Hook this new socket in to the bind_hash list. */
 	head = &sctp_port_hashtable[sctp_phashfn(sock_net(oldsk),
 						 inet_sk(oldsk)->inet_num)];
-	spin_lock_bh(&head->lock);
+	bh = spin_lock_bh(&head->lock, SOFTIRQ_ALL_MASK);
 	pp = sctp_sk(oldsk)->bind_hash;
 	sk_add_bind_node(newsk, &pp->owner);
 	sctp_sk(newsk)->bind_hash = pp;
 	inet_sk(newsk)->inet_num = inet_sk(oldsk)->inet_num;
-	spin_unlock_bh(&head->lock);
+	spin_unlock_bh(&head->lock, bh);
 
 	/* Copy the bind_addr list from the original endpoint to the new
 	 * endpoint so that we can handle restarts properly

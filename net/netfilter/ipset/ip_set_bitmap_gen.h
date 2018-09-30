@@ -276,7 +276,7 @@ mtype_gc(struct timer_list *t)
 	/* We run parallel with other readers (test element)
 	 * but adding/deleting new entries is locked out
 	 */
-	spin_lock_bh(&set->lock);
+	spin_lock_bh(&set->lock, SOFTIRQ_ALL_MASK);
 	for (id = 0; id < map->elements; id++)
 		if (mtype_gc_test(id, map, set->dsize)) {
 			x = get_ext(set, map, id);

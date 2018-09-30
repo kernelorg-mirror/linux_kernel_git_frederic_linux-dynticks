@@ -252,6 +252,7 @@ static void
 ath5k_bss_info_changed(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		       struct ieee80211_bss_conf *bss_conf, u32 changes)
 {
+	unsigned int bh;
 	struct ath5k_vif *avf = (void *)vif->drv_priv;
 	struct ath5k_hw *ah = hw->priv;
 	struct ath_common *common = ath5k_hw_common(ah);
@@ -300,9 +301,9 @@ ath5k_bss_info_changed(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	}
 
 	if (changes & BSS_CHANGED_BEACON) {
-		spin_lock_bh(&ah->block);
+		bh = spin_lock_bh(&ah->block, SOFTIRQ_ALL_MASK);
 		ath5k_beacon_update(hw, vif);
-		spin_unlock_bh(&ah->block);
+		spin_unlock_bh(&ah->block, bh);
 	}
 
 	if (changes & BSS_CHANGED_BEACON_ENABLED)
@@ -648,6 +649,7 @@ ath5k_reset_tsf(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 static int
 ath5k_get_survey(struct ieee80211_hw *hw, int idx, struct survey_info *survey)
 {
+	unsigned int bh;
 	struct ath5k_hw *ah = hw->priv;
 	struct ieee80211_conf *conf = &hw->conf;
 	struct ath_common *common = ath5k_hw_common(ah);
@@ -657,7 +659,7 @@ ath5k_get_survey(struct ieee80211_hw *hw, int idx, struct survey_info *survey)
 	if (idx != 0)
 		return -ENOENT;
 
-	spin_lock_bh(&common->cc_lock);
+	bh = spin_lock_bh(&common->cc_lock, SOFTIRQ_ALL_MASK);
 	ath_hw_cycle_counters_update(common);
 	if (cc->cycles > 0) {
 		ah->survey.time += cc->cycles / div;
@@ -666,7 +668,7 @@ ath5k_get_survey(struct ieee80211_hw *hw, int idx, struct survey_info *survey)
 		ah->survey.time_tx += cc->tx_frame / div;
 	}
 	memset(cc, 0, sizeof(*cc));
-	spin_unlock_bh(&common->cc_lock);
+	spin_unlock_bh(&common->cc_lock, bh);
 
 	memcpy(survey, &ah->survey, sizeof(*survey));
 

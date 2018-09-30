@@ -52,9 +52,10 @@ void br_init_port(struct net_bridge_port *p)
 /* NO locks held */
 void br_stp_enable_bridge(struct net_bridge *br)
 {
+	unsigned int bh;
 	struct net_bridge_port *p;
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	if (br->stp_enabled == BR_KERNEL_STP)
 		mod_timer(&br->hello_timer, jiffies + br->hello_time);
 	mod_delayed_work(system_long_wq, &br->gc_work, HZ / 10);
@@ -66,15 +67,16 @@ void br_stp_enable_bridge(struct net_bridge *br)
 			br_stp_enable_port(p);
 
 	}
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 }
 
 /* NO locks held */
 void br_stp_disable_bridge(struct net_bridge *br)
 {
+	unsigned int bh;
 	struct net_bridge_port *p;
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(p, &br->port_list, list) {
 		if (p->state != BR_STATE_DISABLED)
 			br_stp_disable_port(p);
@@ -83,7 +85,7 @@ void br_stp_disable_bridge(struct net_bridge *br)
 
 	__br_set_topology_change(br, 0);
 	br->topology_change_detected = 0;
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 
 	del_timer_sync(&br->hello_timer);
 	del_timer_sync(&br->topology_change_timer);
@@ -150,6 +152,7 @@ static int br_stp_call_user(struct net_bridge *br, char *arg)
 
 static void br_stp_start(struct net_bridge *br)
 {
+	unsigned int bh;
 	int err = -ENOENT;
 
 	if (net_eq(dev_net(br->dev), &init_net))
@@ -158,7 +161,7 @@ static void br_stp_start(struct net_bridge *br)
 	if (err && err != -ENOENT)
 		br_err(br, "failed to start userspace STP (%d)\n", err);
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 
 	if (br->bridge_forward_delay < BR_MIN_FORWARD_DELAY)
 		__br_set_forward_delay(br, BR_MIN_FORWARD_DELAY);
@@ -178,11 +181,12 @@ static void br_stp_start(struct net_bridge *br)
 		br_port_state_selection(br);
 	}
 
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 }
 
 static void br_stp_stop(struct net_bridge *br)
 {
+	unsigned int bh;
 	int err;
 
 	if (br->stp_enabled == BR_USER_STP) {
@@ -191,9 +195,9 @@ static void br_stp_stop(struct net_bridge *br)
 			br_err(br, "failed to stop userspace STP (%d)\n", err);
 
 		/* To start timers on any ports left in blocking */
-		spin_lock_bh(&br->lock);
+		bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 		br_port_state_selection(br);
-		spin_unlock_bh(&br->lock);
+		spin_unlock_bh(&br->lock, bh);
 	}
 
 	br->stp_enabled = BR_NO_STP;
@@ -275,10 +279,11 @@ bool br_stp_recalculate_bridge_id(struct net_bridge *br)
 /* Acquires and releases bridge lock */
 void br_stp_set_bridge_priority(struct net_bridge *br, u16 newprio)
 {
+	unsigned int bh;
 	struct net_bridge_port *p;
 	int wasroot;
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	wasroot = br_is_root_bridge(br);
 
 	list_for_each_entry(p, &br->port_list, list) {
@@ -296,7 +301,7 @@ void br_stp_set_bridge_priority(struct net_bridge *br, u16 newprio)
 	br_port_state_selection(br);
 	if (br_is_root_bridge(br) && !wasroot)
 		br_become_root_bridge(br);
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 }
 
 /* called under bridge lock */

@@ -117,11 +117,12 @@ static void __ath10k_p2p_noa_update(struct ath10k_vif *arvif,
 void ath10k_p2p_noa_update(struct ath10k_vif *arvif,
 			   const struct wmi_p2p_noa_info *noa)
 {
+	unsigned int bh;
 	struct ath10k *ar = arvif->ar;
 
-	spin_lock_bh(&ar->data_lock);
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 	__ath10k_p2p_noa_update(arvif, noa);
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 }
 
 struct ath10k_p2p_noa_arg {

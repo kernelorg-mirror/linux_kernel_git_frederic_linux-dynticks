@@ -777,16 +777,17 @@ static int cs_hsi_command(struct cs_hsi_iface *hi, u32 cmd)
 
 static void cs_hsi_set_wakeline(struct cs_hsi_iface *hi, bool new_state)
 {
+	unsigned int bh;
 	int change = 0;
 
-	spin_lock_bh(&hi->lock);
+	bh = spin_lock_bh(&hi->lock, SOFTIRQ_ALL_MASK);
 	if (hi->wakeline_state != new_state) {
 		hi->wakeline_state = new_state;
 		change = 1;
 		dev_dbg(&hi->cl->device, "setting wake line to %d (%p)\n",
 			new_state, hi->cl);
 	}
-	spin_unlock_bh(&hi->lock);
+	spin_unlock_bh(&hi->lock, bh);
 
 	if (change) {
 		if (new_state)
@@ -846,9 +847,10 @@ static int check_buf_params(struct cs_hsi_iface *hi,
  */
 static int cs_hsi_data_sync(struct cs_hsi_iface *hi)
 {
+	unsigned int bh;
 	int r = 0;
 
-	spin_lock_bh(&hi->lock);
+	bh = spin_lock_bh(&hi->lock, SOFTIRQ_ALL_MASK);
 
 	if (!cs_state_xfer_active(hi->data_state)) {
 		dev_dbg(&hi->cl->device, "hsi_data_sync break, idle\n");
@@ -869,10 +871,10 @@ static int cs_hsi_data_sync(struct cs_hsi_iface *hi)
 		 * so that callbacks can check for waitqueue_active()
 		 */
 		prepare_to_wait(&hi->datawait, &wait, TASK_INTERRUPTIBLE);
-		spin_unlock_bh(&hi->lock);
+		spin_unlock_bh(&hi->lock, bh);
 		s = schedule_timeout(
 			msecs_to_jiffies(CS_HSI_TRANSFER_TIMEOUT_MS));
-		spin_lock_bh(&hi->lock);
+		bh = spin_lock_bh(&hi->lock, SOFTIRQ_ALL_MASK);
 		finish_wait(&hi->datawait, &wait);
 		if (!s) {
 			dev_dbg(&hi->cl->device,
@@ -884,7 +886,7 @@ static int cs_hsi_data_sync(struct cs_hsi_iface *hi)
 	}
 
 out:
-	spin_unlock_bh(&hi->lock);
+	spin_unlock_bh(&hi->lock, bh);
 	dev_dbg(&hi->cl->device, "hsi_data_sync done with res %d\n", r);
 
 	return r;
@@ -939,14 +941,15 @@ static int cs_hsi_buf_config(struct cs_hsi_iface *hi,
 					struct cs_buffer_config *buf_cfg)
 {
 	unsigned int bh;
+	unsigned int bh;
 	int r = 0;
 	unsigned int old_state = hi->iface_state;
 
-	spin_lock_bh(&hi->lock);
+	bh = spin_lock_bh(&hi->lock, SOFTIRQ_ALL_MASK);
 	/* Prevent new transactions during buffer reconfig */
 	if (old_state == CS_STATE_CONFIGURED)
 		hi->iface_state = CS_STATE_OPENED;
-	spin_unlock_bh(&hi->lock);
+	spin_unlock_bh(&hi->lock, bh);
 
 	/*
 	 * make sure that no non-zero data reads are ongoing before
@@ -958,7 +961,7 @@ static int cs_hsi_buf_config(struct cs_hsi_iface *hi,
 
 	WARN_ON(cs_state_xfer_active(hi->data_state));
 
-	spin_lock_bh(&hi->lock);
+	bh = spin_lock_bh(&hi->lock, SOFTIRQ_ALL_MASK);
 	r = check_buf_params(hi, buf_cfg);
 	if (r < 0)
 		goto error;
@@ -976,7 +979,7 @@ static int cs_hsi_buf_config(struct cs_hsi_iface *hi,
 	else
 		cs_hsi_data_disable(hi, old_state);
 
-	spin_unlock_bh(&hi->lock);
+	spin_unlock_bh(&hi->lock, bh);
 
 	if (old_state != hi->iface_state) {
 		if (hi->iface_state == CS_STATE_CONFIGURED) {
@@ -993,7 +996,7 @@ static int cs_hsi_buf_config(struct cs_hsi_iface *hi,
 	return r;
 
 error:
-	spin_unlock_bh(&hi->lock);
+	spin_unlock_bh(&hi->lock, bh);
 	return r;
 }
 
@@ -1075,6 +1078,7 @@ leave0:
 
 static void cs_hsi_stop(struct cs_hsi_iface *hi)
 {
+	unsigned int bh;
 	dev_dbg(&hi->cl->device, "cs_hsi_stop\n");
 	cs_hsi_set_wakeline(hi, 0);
 	ssip_slave_put_master(hi->master);
@@ -1094,10 +1098,10 @@ static void cs_hsi_stop(struct cs_hsi_iface *hi)
 	if (pm_qos_request_active(&hi->pm_qos_req))
 		pm_qos_remove_request(&hi->pm_qos_req);
 
-	spin_lock_bh(&hi->lock);
+	bh = spin_lock_bh(&hi->lock, SOFTIRQ_ALL_MASK);
 	cs_hsi_free_data(hi);
 	cs_free_cmds(hi);
-	spin_unlock_bh(&hi->lock);
+	spin_unlock_bh(&hi->lock, bh);
 	kfree(hi);
 }
 
@@ -1129,16 +1133,17 @@ static int cs_char_fasync(int fd, struct file *file, int on)
 
 static __poll_t cs_char_poll(struct file *file, poll_table *wait)
 {
+	unsigned int bh;
 	struct cs_char *csdata = file->private_data;
 	__poll_t ret = 0;
 
 	poll_wait(file, &cs_char_data.wait, wait);
-	spin_lock_bh(&csdata->lock);
+	bh = spin_lock_bh(&csdata->lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&csdata->chardev_queue))
 		ret = EPOLLIN | EPOLLRDNORM;
 	else if (!list_empty(&csdata->dataind_queue))
 		ret = EPOLLIN | EPOLLRDNORM;
-	spin_unlock_bh(&csdata->lock);
+	spin_unlock_bh(&csdata->lock, bh);
 
 	return ret;
 }
@@ -1146,6 +1151,7 @@ static __poll_t cs_char_poll(struct file *file, poll_table *wait)
 static ssize_t cs_char_read(struct file *file, char __user *buf, size_t count,
 								loff_t *unused)
 {
+	unsigned int bh;
 	struct cs_char *csdata = file->private_data;
 	u32 data;
 	ssize_t retval;
@@ -1156,7 +1162,7 @@ static ssize_t cs_char_read(struct file *file, char __user *buf, size_t count,
 	for (;;) {
 		DEFINE_WAIT(wait);
 
-		spin_lock_bh(&csdata->lock);
+		bh = spin_lock_bh(&csdata->lock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&csdata->chardev_queue)) {
 			data = cs_pop_entry(&csdata->chardev_queue);
 		} else if (!list_empty(&csdata->dataind_queue)) {
@@ -1165,7 +1171,7 @@ static ssize_t cs_char_read(struct file *file, char __user *buf, size_t count,
 		} else {
 			data = 0;
 		}
-		spin_unlock_bh(&csdata->lock);
+		spin_unlock_bh(&csdata->lock, bh);
 
 		if (data)
 			break;
@@ -1290,18 +1296,19 @@ static int cs_char_mmap(struct file *file, struct vm_area_struct *vma)
 
 static int cs_char_open(struct inode *unused, struct file *file)
 {
+	unsigned int bh;
 	int ret = 0;
 	unsigned long p;
 
-	spin_lock_bh(&cs_char_data.lock);
+	bh = spin_lock_bh(&cs_char_data.lock, SOFTIRQ_ALL_MASK);
 	if (cs_char_data.opened) {
 		ret = -EBUSY;
-		spin_unlock_bh(&cs_char_data.lock);
+		spin_unlock_bh(&cs_char_data.lock, bh);
 		goto out1;
 	}
 	cs_char_data.opened = 1;
 	cs_char_data.dataind_pending = 0;
-	spin_unlock_bh(&cs_char_data.lock);
+	spin_unlock_bh(&cs_char_data.lock, bh);
 
 	p = get_zeroed_page(GFP_KERNEL);
 	if (!p) {
@@ -1326,9 +1333,9 @@ static int cs_char_open(struct inode *unused, struct file *file)
 out3:
 	free_page(p);
 out2:
-	spin_lock_bh(&cs_char_data.lock);
+	bh = spin_lock_bh(&cs_char_data.lock, SOFTIRQ_ALL_MASK);
 	cs_char_data.opened = 0;
-	spin_unlock_bh(&cs_char_data.lock);
+	spin_unlock_bh(&cs_char_data.lock, bh);
 out1:
 	return ret;
 }
@@ -1350,16 +1357,17 @@ static void cs_free_char_queue(struct list_head *head)
 
 static int cs_char_release(struct inode *unused, struct file *file)
 {
+	unsigned int bh;
 	struct cs_char *csdata = file->private_data;
 
 	cs_hsi_stop(csdata->hi);
-	spin_lock_bh(&csdata->lock);
+	bh = spin_lock_bh(&csdata->lock, SOFTIRQ_ALL_MASK);
 	csdata->hi = NULL;
 	free_page(csdata->mmap_base);
 	cs_free_char_queue(&csdata->chardev_queue);
 	cs_free_char_queue(&csdata->dataind_queue);
 	csdata->opened = 0;
-	spin_unlock_bh(&csdata->lock);
+	spin_unlock_bh(&csdata->lock, bh);
 
 	return 0;
 }
@@ -1421,14 +1429,15 @@ static int cs_hsi_client_probe(struct device *dev)
 
 static int cs_hsi_client_remove(struct device *dev)
 {
+	unsigned int bh;
 	struct cs_hsi_iface *hi;
 
 	dev_dbg(dev, "hsi_client_remove\n");
 	misc_deregister(&cs_char_miscdev);
-	spin_lock_bh(&cs_char_data.lock);
+	bh = spin_lock_bh(&cs_char_data.lock, SOFTIRQ_ALL_MASK);
 	hi = cs_char_data.hi;
 	cs_char_data.hi = NULL;
-	spin_unlock_bh(&cs_char_data.lock);
+	spin_unlock_bh(&cs_char_data.lock, bh);
 	if (hi)
 		cs_hsi_stop(hi);
 

@@ -156,24 +156,25 @@ static int smc_link_send_delete(struct smc_link *lnk)
 
 static void smc_lgr_free_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct smc_link_group *lgr = container_of(to_delayed_work(work),
 						  struct smc_link_group,
 						  free_work);
 	bool conns;
 
-	spin_lock_bh(&smc_lgr_list.lock);
+	bh = spin_lock_bh(&smc_lgr_list.lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&lgr->list))
 		goto free;
 	read_lock_bh(&lgr->conns_lock);
 	conns = RB_EMPTY_ROOT(&lgr->conns_all);
 	read_unlock_bh(&lgr->conns_lock);
 	if (!conns) { /* number of lgr connections is no longer zero */
-		spin_unlock_bh(&smc_lgr_list.lock);
+		spin_unlock_bh(&smc_lgr_list.lock, bh);
 		return;
 	}
 	list_del_init(&lgr->list); /* remove from smc_lgr_list */
 free:
-	spin_unlock_bh(&smc_lgr_list.lock);
+	spin_unlock_bh(&smc_lgr_list.lock, bh);
 
 	if (!lgr->is_smcd && !lgr->terminating)	{
 		/* try to send del link msg, on error free lgr immediately */
@@ -199,6 +200,7 @@ static int smc_lgr_create(struct smc_sock *smc, bool is_smcd,
 			  char *peer_systemid, unsigned short vlan_id,
 			  struct smcd_dev *smcismdev, u64 peer_gid)
 {
+	unsigned int bh;
 	struct smc_link_group *lgr;
 	struct smc_link *lnk;
 	u8 rndvec[3];
@@ -272,9 +274,9 @@ static int smc_lgr_create(struct smc_sock *smc, bool is_smcd,
 			goto destroy_qp;
 	}
 	smc->conn.lgr = lgr;
-	spin_lock_bh(&smc_lgr_list.lock);
+	bh = spin_lock_bh(&smc_lgr_list.lock, SOFTIRQ_ALL_MASK);
 	list_add(&lgr->list, &smc_lgr_list.list);
-	spin_unlock_bh(&smc_lgr_list.lock);
+	spin_unlock_bh(&smc_lgr_list.lock, bh);
 	return 0;
 
 destroy_qp:
@@ -421,11 +423,12 @@ void smc_lgr_free(struct smc_link_group *lgr)
 
 void smc_lgr_forget(struct smc_link_group *lgr)
 {
-	spin_lock_bh(&smc_lgr_list.lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&smc_lgr_list.lock, SOFTIRQ_ALL_MASK);
 	/* do not use this link group for new connections */
 	if (!list_empty(&lgr->list))
 		list_del_init(&lgr->list);
-	spin_unlock_bh(&smc_lgr_list.lock);
+	spin_unlock_bh(&smc_lgr_list.lock, bh);
 }
 
 /* terminate linkgroup abnormally */
@@ -465,34 +468,37 @@ static void __smc_lgr_terminate(struct smc_link_group *lgr)
 
 void smc_lgr_terminate(struct smc_link_group *lgr)
 {
-	spin_lock_bh(&smc_lgr_list.lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&smc_lgr_list.lock, SOFTIRQ_ALL_MASK);
 	__smc_lgr_terminate(lgr);
-	spin_unlock_bh(&smc_lgr_list.lock);
+	spin_unlock_bh(&smc_lgr_list.lock, bh);
 }
 
 /* Called when IB port is terminated */
 void smc_port_terminate(struct smc_ib_device *smcibdev, u8 ibport)
 {
+	unsigned int bh;
 	struct smc_link_group *lgr, *l;
 
-	spin_lock_bh(&smc_lgr_list.lock);
+	bh = spin_lock_bh(&smc_lgr_list.lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(lgr, l, &smc_lgr_list.list, list) {
 		if (!lgr->is_smcd &&
 		    lgr->lnk[SMC_SINGLE_LINK].smcibdev == smcibdev &&
 		    lgr->lnk[SMC_SINGLE_LINK].ibport == ibport)
 			__smc_lgr_terminate(lgr);
 	}
-	spin_unlock_bh(&smc_lgr_list.lock);
+	spin_unlock_bh(&smc_lgr_list.lock, bh);
 }
 
 /* Called when SMC-D device is terminated or peer is lost */
 void smc_smcd_terminate(struct smcd_dev *dev, u64 peer_gid)
 {
+	unsigned int bh;
 	struct smc_link_group *lgr, *l;
 	LIST_HEAD(lgr_free_list);
 
 	/* run common cleanup function and build free list */
-	spin_lock_bh(&smc_lgr_list.lock);
+	bh = spin_lock_bh(&smc_lgr_list.lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(lgr, l, &smc_lgr_list.list, list) {
 		if (lgr->is_smcd && lgr->smcd == dev &&
 		    (!peer_gid || lgr->peer_gid == peer_gid) &&
@@ -501,7 +507,7 @@ void smc_smcd_terminate(struct smcd_dev *dev, u64 peer_gid)
 			list_move(&lgr->list, &lgr_free_list);
 		}
 	}
-	spin_unlock_bh(&smc_lgr_list.lock);
+	spin_unlock_bh(&smc_lgr_list.lock, bh);
 
 	/* cancel the regular free workers and actually free lgrs */
 	list_for_each_entry_safe(lgr, l, &lgr_free_list, list) {
@@ -583,6 +589,7 @@ int smc_conn_create(struct smc_sock *smc, bool is_smcd, int srv_first_contact,
 		    struct smc_clc_msg_local *lcl, struct smcd_dev *smcd,
 		    u64 peer_gid)
 {
+	unsigned int bh;
 	struct smc_connection *conn = &smc->conn;
 	int local_contact = SMC_FIRST_CONTACT;
 	struct smc_link_group *lgr;
@@ -600,7 +607,7 @@ int smc_conn_create(struct smc_sock *smc, bool is_smcd, int srv_first_contact,
 		goto create;
 
 	/* determine if an existing link group can be reused */
-	spin_lock_bh(&smc_lgr_list.lock);
+	bh = spin_lock_bh(&smc_lgr_list.lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(lgr, &smc_lgr_list.list, list) {
 		write_lock_bh(&lgr->conns_lock);
 		if ((is_smcd ? smcd_lgr_match(lgr, smcd, peer_gid) :
@@ -618,7 +625,7 @@ int smc_conn_create(struct smc_sock *smc, bool is_smcd, int srv_first_contact,
 		}
 		write_unlock_bh(&lgr->conns_lock);
 	}
-	spin_unlock_bh(&smc_lgr_list.lock);
+	spin_unlock_bh(&smc_lgr_list.lock, bh);
 
 	if (role == SMC_CLNT && !srv_first_contact &&
 	    (local_contact == SMC_FIRST_CONTACT)) {
@@ -1007,13 +1014,14 @@ int smc_rmb_rtoken_handling(struct smc_connection *conn,
 /* Called (from smc_exit) when module is removed */
 void smc_core_exit(void)
 {
+	unsigned int bh;
 	struct smc_link_group *lgr, *lg;
 	LIST_HEAD(lgr_freeing_list);
 
-	spin_lock_bh(&smc_lgr_list.lock);
+	bh = spin_lock_bh(&smc_lgr_list.lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&smc_lgr_list.list))
 		list_splice_init(&smc_lgr_list.list, &lgr_freeing_list);
-	spin_unlock_bh(&smc_lgr_list.lock);
+	spin_unlock_bh(&smc_lgr_list.lock, bh);
 	list_for_each_entry_safe(lgr, lg, &lgr_freeing_list, list) {
 		list_del_init(&lgr->list);
 		if (!lgr->is_smcd) {

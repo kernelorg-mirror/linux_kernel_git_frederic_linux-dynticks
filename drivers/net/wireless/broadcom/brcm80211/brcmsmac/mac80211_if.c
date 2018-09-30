@@ -404,10 +404,11 @@ static void brcms_ops_tx(struct ieee80211_hw *hw,
 			 struct ieee80211_tx_control *control,
 			 struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
 	struct ieee80211_tx_info *tx_info = IEEE80211_SKB_CB(skb);
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	if (!wl->pub->up) {
 		brcms_err(wl->wlc->hw->d11core, "ops->tx called while down\n");
 		kfree_skb(skb);
@@ -416,7 +417,7 @@ static void brcms_ops_tx(struct ieee80211_hw *hw,
 	if (brcms_c_sendpkt_mac80211(wl->wlc, skb, hw))
 		tx_info->rate_driver_data[0] = control->sta;
  done:
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 }
 
 static int brcms_ops_start(struct ieee80211_hw *hw)
@@ -432,13 +433,13 @@ static int brcms_ops_start(struct ieee80211_hw *hw)
 	}
 
 	ieee80211_wake_queues(hw);
-	spin_lock_bh(&wl->lock);
+	spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	blocked = brcms_rfkill_set_hw_state(wl);
 	spin_unlock_bh(&wl->lock);
 	if (!blocked)
 		wiphy_rfkill_stop_polling(wl->pub->ieee_hw->wiphy);
 
-	spin_lock_bh(&wl->lock);
+	spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	/* avoid acknowledging frames before a non-monitor device is added */
 	wl->mute_tx = true;
 
@@ -461,6 +462,7 @@ static int brcms_ops_start(struct ieee80211_hw *hw)
 
 static void brcms_ops_stop(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
 	int status;
 
@@ -469,9 +471,9 @@ static void brcms_ops_stop(struct ieee80211_hw *hw)
 	if (wl->wlc == NULL)
 		return;
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	status = brcms_c_chipmatch(wl->wlc->hw->d11core);
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 	if (!status) {
 		brcms_err(wl->wlc->hw->d11core,
 			  "wl: brcms_ops_stop: chipmatch failed\n");
@@ -481,7 +483,7 @@ static void brcms_ops_stop(struct ieee80211_hw *hw)
 	bcma_core_pci_power_save(wl->wlc->hw->d11core->bus, false);
 
 	/* put driver in down state */
-	spin_lock_bh(&wl->lock);
+	spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	brcms_down(wl);
 	spin_unlock_bh(&wl->lock);
 }
@@ -489,6 +491,7 @@ static void brcms_ops_stop(struct ieee80211_hw *hw)
 static int
 brcms_ops_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
 
 	/* Just STA, AP and ADHOC for now */
@@ -501,7 +504,7 @@ brcms_ops_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 		return -EOPNOTSUPP;
 	}
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	wl->mute_tx = false;
 	brcms_c_mute(wl->wlc, false);
 	if (vif->type == NL80211_IFTYPE_STATION)
@@ -511,7 +514,7 @@ brcms_ops_add_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 				 vif->bss_conf.ssid, vif->bss_conf.ssid_len);
 	else if (vif->type == NL80211_IFTYPE_ADHOC)
 		brcms_c_start_adhoc(wl->wlc, vif->addr);
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 
 	return 0;
 }
@@ -523,13 +526,14 @@ brcms_ops_remove_interface(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 
 static int brcms_ops_config(struct ieee80211_hw *hw, u32 changed)
 {
+	unsigned int bh;
 	struct ieee80211_conf *conf = &hw->conf;
 	struct brcms_info *wl = hw->priv;
 	struct bcma_device *core = wl->wlc->hw->d11core;
 	int err = 0;
 	int new_int;
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	if (changed & IEEE80211_CONF_CHANGE_LISTEN_INTERVAL) {
 		brcms_c_set_beacon_listen_interval(wl->wlc,
 						   conf->listen_interval);
@@ -571,7 +575,7 @@ static int brcms_ops_config(struct ieee80211_hw *hw, u32 changed)
 					     conf->long_frame_max_tx_count);
 
  config_out:
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 	return err;
 }
 
@@ -580,6 +584,7 @@ brcms_ops_bss_info_changed(struct ieee80211_hw *hw,
 			struct ieee80211_vif *vif,
 			struct ieee80211_bss_conf *info, u32 changed)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
 	struct bcma_device *core = wl->wlc->hw->d11core;
 
@@ -589,9 +594,9 @@ brcms_ops_bss_info_changed(struct ieee80211_hw *hw,
 		 */
 		brcms_err(core, "%s: %s: %sassociated\n", KBUILD_MODNAME,
 			  __func__, info->assoc ? "" : "dis");
-		spin_lock_bh(&wl->lock);
+		bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		brcms_c_associate_upd(wl->wlc, info->assoc);
-		spin_unlock_bh(&wl->lock);
+		spin_unlock_bh(&wl->lock, bh);
 	}
 	if (changed & BSS_CHANGED_ERP_SLOT) {
 		s8 val;
@@ -601,23 +606,23 @@ brcms_ops_bss_info_changed(struct ieee80211_hw *hw,
 			val = 1;
 		else
 			val = 0;
-		spin_lock_bh(&wl->lock);
+		bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		brcms_c_set_shortslot_override(wl->wlc, val);
-		spin_unlock_bh(&wl->lock);
+		spin_unlock_bh(&wl->lock, bh);
 	}
 
 	if (changed & BSS_CHANGED_HT) {
 		/* 802.11n parameters changed */
 		u16 mode = info->ht_operation_mode;
 
-		spin_lock_bh(&wl->lock);
+		bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		brcms_c_protection_upd(wl->wlc, BRCMS_PROT_N_CFG,
 			mode & IEEE80211_HT_OP_MODE_PROTECTION);
 		brcms_c_protection_upd(wl->wlc, BRCMS_PROT_N_NONGF,
 			mode & IEEE80211_HT_OP_MODE_NON_GF_STA_PRSNT);
 		brcms_c_protection_upd(wl->wlc, BRCMS_PROT_N_OBSS,
 			mode & IEEE80211_HT_OP_MODE_NON_HT_STA_PRSNT);
-		spin_unlock_bh(&wl->lock);
+		spin_unlock_bh(&wl->lock, bh);
 	}
 	if (changed & BSS_CHANGED_BASIC_RATES) {
 		struct ieee80211_supported_band *bi;
@@ -627,7 +632,7 @@ brcms_ops_bss_info_changed(struct ieee80211_hw *hw,
 		int error;
 
 		/* retrieve the current rates */
-		spin_lock_bh(&wl->lock);
+		spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		brcms_c_get_current_rateset(wl->wlc, &rs);
 		spin_unlock_bh(&wl->lock);
 
@@ -643,7 +648,7 @@ brcms_ops_bss_info_changed(struct ieee80211_hw *hw,
 		}
 
 		/* update the rate set */
-		spin_lock_bh(&wl->lock);
+		spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		error = brcms_c_set_rateset(wl->wlc, &rs);
 		spin_unlock_bh(&wl->lock);
 		if (error)
@@ -652,41 +657,41 @@ brcms_ops_bss_info_changed(struct ieee80211_hw *hw,
 	}
 	if (changed & BSS_CHANGED_BEACON_INT) {
 		/* Beacon interval changed */
-		spin_lock_bh(&wl->lock);
+		bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		brcms_c_set_beacon_period(wl->wlc, info->beacon_int);
-		spin_unlock_bh(&wl->lock);
+		spin_unlock_bh(&wl->lock, bh);
 	}
 	if (changed & BSS_CHANGED_BSSID) {
 		/* BSSID changed, for whatever reason (IBSS and managed mode) */
-		spin_lock_bh(&wl->lock);
+		bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		brcms_c_set_addrmatch(wl->wlc, RCM_BSSID_OFFSET, info->bssid);
-		spin_unlock_bh(&wl->lock);
+		spin_unlock_bh(&wl->lock, bh);
 	}
 	if (changed & BSS_CHANGED_SSID) {
 		/* BSSID changed, for whatever reason (IBSS and managed mode) */
-		spin_lock_bh(&wl->lock);
+		bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		brcms_c_set_ssid(wl->wlc, info->ssid, info->ssid_len);
-		spin_unlock_bh(&wl->lock);
+		spin_unlock_bh(&wl->lock, bh);
 	}
 	if (changed & BSS_CHANGED_BEACON) {
 		/* Beacon data changed, retrieve new beacon (beaconing modes) */
 		struct sk_buff *beacon;
 		u16 tim_offset = 0;
 
-		spin_lock_bh(&wl->lock);
+		bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		beacon = ieee80211_beacon_get_tim(hw, vif, &tim_offset, NULL);
 		brcms_c_set_new_beacon(wl->wlc, beacon, tim_offset,
 				       info->dtim_period);
-		spin_unlock_bh(&wl->lock);
+		spin_unlock_bh(&wl->lock, bh);
 	}
 
 	if (changed & BSS_CHANGED_AP_PROBE_RESP) {
 		struct sk_buff *probe_resp;
 
-		spin_lock_bh(&wl->lock);
+		bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		probe_resp = ieee80211_proberesp_get(hw, vif);
 		brcms_c_set_new_probe_resp(wl->wlc, probe_resp);
-		spin_unlock_bh(&wl->lock);
+		spin_unlock_bh(&wl->lock, bh);
 	}
 
 	if (changed & BSS_CHANGED_BEACON_ENABLED) {
@@ -736,6 +741,7 @@ brcms_ops_configure_filter(struct ieee80211_hw *hw,
 			unsigned int changed_flags,
 			unsigned int *total_flags, u64 multicast)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
 	struct bcma_device *core = wl->wlc->hw->d11core;
 
@@ -755,9 +761,9 @@ brcms_ops_configure_filter(struct ieee80211_hw *hw,
 	if (changed_flags & FIF_BCN_PRBRESP_PROMISC)
 		brcms_dbg_info(core, "FIF_BCN_PRBRESP_PROMISC\n");
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	brcms_c_mac_promisc(wl->wlc, *total_flags);
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 	return;
 }
 
@@ -765,20 +771,22 @@ static void brcms_ops_sw_scan_start(struct ieee80211_hw *hw,
 				    struct ieee80211_vif *vif,
 				    const u8 *mac_addr)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	brcms_c_scan_start(wl->wlc);
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 	return;
 }
 
 static void brcms_ops_sw_scan_complete(struct ieee80211_hw *hw,
 				       struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	brcms_c_scan_stop(wl->wlc);
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 	return;
 }
 
@@ -786,11 +794,12 @@ static int
 brcms_ops_conf_tx(struct ieee80211_hw *hw, struct ieee80211_vif *vif, u16 queue,
 		  const struct ieee80211_tx_queue_params *params)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	brcms_c_wme_setparams(wl->wlc, queue, params, true);
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 
 	return 0;
 }
@@ -820,6 +829,7 @@ brcms_ops_ampdu_action(struct ieee80211_hw *hw,
 		    struct ieee80211_vif *vif,
 		    struct ieee80211_ampdu_params *params)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
 	struct scb *scb = &wl->wlc->pri_scb;
 	int status;
@@ -836,9 +846,9 @@ brcms_ops_ampdu_action(struct ieee80211_hw *hw,
 	case IEEE80211_AMPDU_RX_STOP:
 		break;
 	case IEEE80211_AMPDU_TX_START:
-		spin_lock_bh(&wl->lock);
+		bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		status = brcms_c_aggregatable(wl->wlc, tid);
-		spin_unlock_bh(&wl->lock);
+		spin_unlock_bh(&wl->lock, bh);
 		if (!status) {
 			brcms_err(wl->wlc->hw->d11core,
 				  "START: tid %d is not agg\'able\n", tid);
@@ -850,9 +860,9 @@ brcms_ops_ampdu_action(struct ieee80211_hw *hw,
 	case IEEE80211_AMPDU_TX_STOP_CONT:
 	case IEEE80211_AMPDU_TX_STOP_FLUSH:
 	case IEEE80211_AMPDU_TX_STOP_FLUSH_CONT:
-		spin_lock_bh(&wl->lock);
+		bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		brcms_c_ampdu_flush(wl->wlc, sta, tid);
-		spin_unlock_bh(&wl->lock);
+		spin_unlock_bh(&wl->lock, bh);
 		ieee80211_stop_tx_ba_cb_irqsafe(vif, sta->addr, tid);
 		break;
 	case IEEE80211_AMPDU_TX_OPERATIONAL:
@@ -862,11 +872,11 @@ brcms_ops_ampdu_action(struct ieee80211_hw *hw,
 		 * recipient and traffic class. 'ampdu_factor' gives maximum
 		 * AMPDU size.
 		 */
-		spin_lock_bh(&wl->lock);
+		bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 		brcms_c_ampdu_tx_operational(wl->wlc, tid, buf_size,
 			(1 << (IEEE80211_HT_MAX_AMPDU_FACTOR +
 			 sta->ht_cap.ampdu_factor)) - 1);
-		spin_unlock_bh(&wl->lock);
+		spin_unlock_bh(&wl->lock, bh);
 		/* Power save wakeup */
 		break;
 	default:
@@ -879,23 +889,25 @@ brcms_ops_ampdu_action(struct ieee80211_hw *hw,
 
 static void brcms_ops_rfkill_poll(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
 	bool blocked;
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	blocked = brcms_c_check_radio_disabled(wl->wlc);
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 
 	wiphy_rfkill_set_hw_state(wl->pub->ieee_hw->wiphy, blocked);
 }
 
 static bool brcms_tx_flush_completed(struct brcms_info *wl)
 {
+	unsigned int bh;
 	bool result;
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	result = brcms_c_tx_flush_completed(wl->wlc);
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 	return result;
 }
 
@@ -917,12 +929,13 @@ static void brcms_ops_flush(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 
 static u64 brcms_ops_get_tsf(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
 	u64 tsf;
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	tsf = brcms_c_tsf_get(wl->wlc);
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 
 	return tsf;
 }
@@ -930,11 +943,12 @@ static u64 brcms_ops_get_tsf(struct ieee80211_hw *hw, struct ieee80211_vif *vif)
 static void brcms_ops_set_tsf(struct ieee80211_hw *hw,
 			   struct ieee80211_vif *vif, u64 tsf)
 {
+	unsigned int bh;
 	struct brcms_info *wl = hw->priv;
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	brcms_c_tsf_set(wl->wlc, tsf);
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 }
 
 static const struct ieee80211_ops brcms_ops = {
@@ -959,11 +973,12 @@ static const struct ieee80211_ops brcms_ops = {
 
 void brcms_dpc(unsigned long data)
 {
+	unsigned int bh;
 	struct brcms_info *wl;
 
 	wl = (struct brcms_info *) data;
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 
 	/* call the common second level interrupt handler */
 	if (wl->pub->up) {
@@ -990,7 +1005,7 @@ void brcms_dpc(unsigned long data)
 		brcms_intrson(wl);
 
  done:
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 	wake_up(&wl->tx_flush_wq);
 }
 
@@ -1230,6 +1245,7 @@ static int brcms_bcma_probe(struct bcma_device *pdev)
 
 static int brcms_suspend(struct bcma_device *pdev)
 {
+	unsigned int bh;
 	struct brcms_info *wl;
 	struct ieee80211_hw *hw;
 
@@ -1242,9 +1258,9 @@ static int brcms_suspend(struct bcma_device *pdev)
 	}
 
 	/* only need to flag hw is down for proper resume */
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	wl->pub->hw_up = false;
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 
 	brcms_dbg_info(wl->wlc->hw->d11core, "brcms_suspend ok\n");
 
@@ -1421,7 +1437,7 @@ void brcms_down(struct brcms_info *wl)
 	 */
 	SPINWAIT((atomic_read(&wl->callbacks) > callbacks), 100 * 1000);
 
-	spin_lock_bh(&wl->lock);
+	spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 }
 
 /*
@@ -1429,10 +1445,11 @@ void brcms_down(struct brcms_info *wl)
  */
 static void _brcms_timer(struct work_struct *work)
 {
+	unsigned int bh;
 	struct brcms_timer *t = container_of(work, struct brcms_timer,
 					     dly_wrk.work);
 
-	spin_lock_bh(&t->wl->lock);
+	bh = spin_lock_bh(&t->wl->lock, SOFTIRQ_ALL_MASK);
 
 	if (t->set) {
 		if (t->periodic) {
@@ -1449,7 +1466,7 @@ static void _brcms_timer(struct work_struct *work)
 
 	atomic_dec(&t->wl->callbacks);
 
-	spin_unlock_bh(&t->wl->lock);
+	spin_unlock_bh(&t->wl->lock, bh);
 }
 
 /*
@@ -1699,6 +1716,6 @@ bool brcms_rfkill_set_hw_state(struct brcms_info *wl)
 	wiphy_rfkill_set_hw_state(wl->pub->ieee_hw->wiphy, blocked);
 	if (blocked)
 		wiphy_rfkill_start_polling(wl->pub->ieee_hw->wiphy);
-	spin_lock_bh(&wl->lock);
+	spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	return blocked;
 }

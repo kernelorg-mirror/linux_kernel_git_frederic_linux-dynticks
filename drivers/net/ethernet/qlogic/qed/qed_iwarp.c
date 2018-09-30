@@ -114,9 +114,10 @@ void qed_iwarp_init_hw(struct qed_hwfn *p_hwfn, struct qed_ptt *p_ptt)
  */
 static void qed_iwarp_cid_cleaned(struct qed_hwfn *p_hwfn, u32 cid)
 {
+	unsigned int bh;
 	cid -= qed_cxt_get_proto_cid_start(p_hwfn, p_hwfn->p_rdma_info->proto);
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 
 	if (cid < QED_IWARP_PREALLOC_CNT)
 		qed_bmap_release_id(p_hwfn, &p_hwfn->p_rdma_info->tcp_cid_map,
@@ -124,7 +125,7 @@ static void qed_iwarp_cid_cleaned(struct qed_hwfn *p_hwfn, u32 cid)
 	else
 		qed_bmap_release_id(p_hwfn, &p_hwfn->p_rdma_info->cid_map, cid);
 
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 }
 
 void
@@ -142,11 +143,12 @@ qed_iwarp_init_fw_ramrod(struct qed_hwfn *p_hwfn,
 
 static int qed_iwarp_alloc_cid(struct qed_hwfn *p_hwfn, u32 *cid)
 {
+	unsigned int bh;
 	int rc;
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	rc = qed_rdma_bmap_alloc_id(p_hwfn, &p_hwfn->p_rdma_info->cid_map, cid);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 	if (rc) {
 		DP_NOTICE(p_hwfn, "Failed in allocating iwarp cid\n");
 		return rc;
@@ -162,11 +164,12 @@ static int qed_iwarp_alloc_cid(struct qed_hwfn *p_hwfn, u32 *cid)
 
 static void qed_iwarp_set_tcp_cid(struct qed_hwfn *p_hwfn, u32 cid)
 {
+	unsigned int bh;
 	cid -= qed_cxt_get_proto_cid_start(p_hwfn, p_hwfn->p_rdma_info->proto);
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	qed_bmap_set_id(p_hwfn, &p_hwfn->p_rdma_info->tcp_cid_map, cid);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 }
 
 /* This function allocates a cid for passive tcp (called from syn receive)
@@ -176,14 +179,15 @@ static void qed_iwarp_set_tcp_cid(struct qed_hwfn *p_hwfn, u32 cid)
  */
 static int qed_iwarp_alloc_tcp_cid(struct qed_hwfn *p_hwfn, u32 *cid)
 {
+	unsigned int bh;
 	int rc;
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 
 	rc = qed_rdma_bmap_alloc_id(p_hwfn,
 				    &p_hwfn->p_rdma_info->tcp_cid_map, cid);
 
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 
 	if (rc) {
 		DP_VERBOSE(p_hwfn, QED_MSG_RDMA,
@@ -390,6 +394,7 @@ qed_iwarp_modify_qp(struct qed_hwfn *p_hwfn,
 		    struct qed_rdma_qp *qp,
 		    enum qed_iwarp_qp_state new_state, bool internal)
 {
+	unsigned int bh;
 	enum qed_iwarp_qp_state prev_iw_state;
 	bool modify_fw = false;
 	int rc = 0;
@@ -397,11 +402,11 @@ qed_iwarp_modify_qp(struct qed_hwfn *p_hwfn,
 	/* modify QP can be called from upper-layer or as a result of async
 	 * RST/FIN... therefore need to protect
 	 */
-	spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.qp_lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.qp_lock, SOFTIRQ_ALL_MASK);
 	prev_iw_state = qp->iwarp_state;
 
 	if (prev_iw_state == new_state) {
-		spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.qp_lock);
+		spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.qp_lock, bh);
 		return 0;
 	}
 
@@ -464,7 +469,7 @@ qed_iwarp_modify_qp(struct qed_hwfn *p_hwfn,
 		   iwarp_state_names[qp->iwarp_state],
 		   internal ? "internal" : "");
 
-	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.qp_lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.qp_lock, bh);
 
 	if (modify_fw)
 		rc = qed_iwarp_modify_fw(p_hwfn, qp);
@@ -501,14 +506,15 @@ static void qed_iwarp_destroy_ep(struct qed_hwfn *p_hwfn,
 				 struct qed_iwarp_ep *ep,
 				 bool remove_from_active_list)
 {
+	unsigned int bh;
 	dma_free_coherent(&p_hwfn->cdev->pdev->dev,
 			  sizeof(*ep->ep_buffer_virt),
 			  ep->ep_buffer_virt, ep->ep_buffer_phys);
 
 	if (remove_from_active_list) {
-		spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+		bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 		list_del(&ep->list_entry);
-		spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+		spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, bh);
 	}
 
 	if (ep->qp)
@@ -921,6 +927,7 @@ qed_iwarp_mpa_offload(struct qed_hwfn *p_hwfn, struct qed_iwarp_ep *ep)
 static void
 qed_iwarp_return_ep(struct qed_hwfn *p_hwfn, struct qed_iwarp_ep *ep)
 {
+	unsigned int bh;
 	ep->state = QED_IWARP_EP_INIT;
 	if (ep->qp)
 		ep->qp->ep = NULL;
@@ -933,13 +940,13 @@ qed_iwarp_return_ep(struct qed_hwfn *p_hwfn, struct qed_iwarp_ep *ep)
 		 */
 		qed_iwarp_alloc_tcp_cid(p_hwfn, &ep->tcp_cid);
 	}
-	spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 
 	list_del(&ep->list_entry);
 	list_add_tail(&ep->list_entry,
 		      &p_hwfn->p_rdma_info->iwarp.ep_free_list);
 
-	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, bh);
 }
 
 static void
@@ -1005,6 +1012,7 @@ static void
 qed_iwarp_mpa_complete(struct qed_hwfn *p_hwfn,
 		       struct qed_iwarp_ep *ep, u8 fw_return_code)
 {
+	unsigned int bh;
 	struct qed_iwarp_cm_event_params params;
 
 	if (ep->connect_mode == TCP_CONNECT_ACTIVE)
@@ -1097,9 +1105,10 @@ qed_iwarp_mpa_complete(struct qed_hwfn *p_hwfn,
 		    (!ep->qp)) {	/* Rejected */
 			qed_iwarp_return_ep(p_hwfn, ep);
 		} else {
-			spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+			bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 			list_del(&ep->list_entry);
-			spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+			spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock,
+				       bh);
 		}
 	}
 }
@@ -1155,6 +1164,7 @@ int qed_iwarp_connect(void *rdma_cxt,
 		      struct qed_iwarp_connect_in *iparams,
 		      struct qed_iwarp_connect_out *oparams)
 {
+	unsigned int bh;
 	struct qed_hwfn *p_hwfn = rdma_cxt;
 	struct qed_iwarp_info *iwarp_info;
 	struct qed_iwarp_ep *ep;
@@ -1185,9 +1195,9 @@ int qed_iwarp_connect(void *rdma_cxt,
 
 	ep->tcp_cid = cid;
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&ep->list_entry, &p_hwfn->p_rdma_info->iwarp.ep_list);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, bh);
 
 	ep->qp = iparams->qp;
 	ep->qp->ep = ep;
@@ -1245,10 +1255,11 @@ err:
 
 static struct qed_iwarp_ep *qed_iwarp_get_free_ep(struct qed_hwfn *p_hwfn)
 {
+	unsigned int bh;
 	struct qed_iwarp_ep *ep = NULL;
 	int rc;
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 
 	if (list_empty(&p_hwfn->p_rdma_info->iwarp.ep_free_list)) {
 		DP_ERR(p_hwfn, "Ep list is empty\n");
@@ -1278,7 +1289,7 @@ static struct qed_iwarp_ep *qed_iwarp_get_free_ep(struct qed_hwfn *p_hwfn)
 	list_del(&ep->list_entry);
 
 out:
-	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, bh);
 	return ep;
 }
 
@@ -1342,21 +1353,23 @@ static int qed_iwarp_wait_for_all_cids(struct qed_hwfn *p_hwfn)
 
 static void qed_iwarp_free_prealloc_ep(struct qed_hwfn *p_hwfn)
 {
+	unsigned int bh;
 	struct qed_iwarp_ep *ep;
 
 	while (!list_empty(&p_hwfn->p_rdma_info->iwarp.ep_free_list)) {
-		spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+		bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 
 		ep = list_first_entry(&p_hwfn->p_rdma_info->iwarp.ep_free_list,
 				      struct qed_iwarp_ep, list_entry);
 
 		if (!ep) {
-			spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+			spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock,
+				       bh);
 			break;
 		}
 		list_del(&ep->list_entry);
 
-		spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+		spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, bh);
 
 		if (ep->tcp_cid != QED_IWARP_INVALID_TCP_CID)
 			qed_iwarp_cid_cleaned(p_hwfn, ep->tcp_cid);
@@ -1367,6 +1380,7 @@ static void qed_iwarp_free_prealloc_ep(struct qed_hwfn *p_hwfn)
 
 static int qed_iwarp_prealloc_ep(struct qed_hwfn *p_hwfn, bool init)
 {
+	unsigned int bh;
 	struct qed_iwarp_ep *ep;
 	int rc = 0;
 	int count;
@@ -1397,10 +1411,10 @@ static int qed_iwarp_prealloc_ep(struct qed_hwfn *p_hwfn, bool init)
 
 		ep->tcp_cid = cid;
 
-		spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+		bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 		list_add_tail(&ep->list_entry,
 			      &p_hwfn->p_rdma_info->iwarp.ep_free_list);
-		spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+		spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, bh);
 	}
 
 	return rc;
@@ -2324,6 +2338,7 @@ err:
 static void
 qed_iwarp_ll2_comp_syn_pkt(void *cxt, struct qed_ll2_comp_rx_data *data)
 {
+	unsigned int bh;
 	struct qed_iwarp_ll2_buff *buf = data->cookie;
 	struct qed_iwarp_listener *listener;
 	struct qed_ll2_tx_pkt_info tx_pkt;
@@ -2401,9 +2416,9 @@ qed_iwarp_ll2_comp_syn_pkt(void *cxt, struct qed_ll2_comp_rx_data *data)
 	if (!ep)
 		goto err;
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&ep->list_entry, &p_hwfn->p_rdma_info->iwarp.ep_list);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, bh);
 
 	ether_addr_copy(ep->remote_mac_addr, remote_mac_addr);
 	ether_addr_copy(ep->local_mac_addr, local_mac_addr);
@@ -2807,6 +2822,7 @@ static void qed_iwarp_qp_in_error(struct qed_hwfn *p_hwfn,
 				  struct qed_iwarp_ep *ep,
 				  u8 fw_return_code)
 {
+	unsigned int bh;
 	struct qed_iwarp_cm_event_params params;
 
 	qed_iwarp_modify_qp(p_hwfn, ep->qp, QED_IWARP_QP_STATE_ERROR, true);
@@ -2818,9 +2834,9 @@ static void qed_iwarp_qp_in_error(struct qed_hwfn *p_hwfn,
 			 0 : -ECONNRESET;
 
 	ep->state = QED_IWARP_EP_CLOSED;
-	spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 	list_del(&ep->list_entry);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, bh);
 
 	ep->event_cb(ep->cb_context, &params);
 }
@@ -2900,6 +2916,7 @@ static void
 qed_iwarp_tcp_connect_unsuccessful(struct qed_hwfn *p_hwfn,
 				   struct qed_iwarp_ep *ep, u8 fw_return_code)
 {
+	unsigned int bh;
 	struct qed_iwarp_cm_event_params params;
 
 	memset(&params, 0, sizeof(params));
@@ -2950,9 +2967,9 @@ qed_iwarp_tcp_connect_unsuccessful(struct qed_hwfn *p_hwfn,
 		qed_iwarp_return_ep(p_hwfn, ep);
 	} else {
 		ep->event_cb(ep->cb_context, &params);
-		spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+		bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 		list_del(&ep->list_entry);
-		spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+		spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, bh);
 	}
 }
 
@@ -3104,6 +3121,7 @@ qed_iwarp_create_listen(void *rdma_cxt,
 			struct qed_iwarp_listen_in *iparams,
 			struct qed_iwarp_listen_out *oparams)
 {
+	unsigned int bh;
 	struct qed_hwfn *p_hwfn = rdma_cxt;
 	struct qed_iwarp_listener *listener;
 
@@ -3121,10 +3139,10 @@ qed_iwarp_create_listen(void *rdma_cxt,
 	listener->max_backlog = iparams->max_backlog;
 	oparams->handle = listener;
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&listener->list_entry,
 		      &p_hwfn->p_rdma_info->iwarp.listen_list);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, bh);
 
 	DP_VERBOSE(p_hwfn,
 		   QED_MSG_RDMA,
@@ -3141,14 +3159,15 @@ qed_iwarp_create_listen(void *rdma_cxt,
 
 int qed_iwarp_destroy_listen(void *rdma_cxt, void *handle)
 {
+	unsigned int bh;
 	struct qed_iwarp_listener *listener = handle;
 	struct qed_hwfn *p_hwfn = rdma_cxt;
 
 	DP_VERBOSE(p_hwfn, QED_MSG_RDMA, "handle=%p\n", handle);
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, SOFTIRQ_ALL_MASK);
 	list_del(&listener->list_entry);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->iwarp.iw_lock, bh);
 
 	kfree(listener);
 

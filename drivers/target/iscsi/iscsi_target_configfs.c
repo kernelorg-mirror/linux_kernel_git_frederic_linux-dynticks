@@ -456,7 +456,7 @@ static ssize_t iscsi_nacl_param_##name##_show(struct config_item *item,	\
 	struct se_session *se_sess;					\
 	ssize_t rb;							\
 									\
-	spin_lock_bh(&se_nacl->nacl_sess_lock);				\
+	spin_lock_bh(&se_nacl->nacl_sess_lock, SOFTIRQ_ALL_MASK);				\
 	se_sess = se_nacl->nacl_sess;					\
 	if (!se_sess) {							\
 		rb = snprintf(page, PAGE_SIZE,				\
@@ -506,6 +506,7 @@ static struct configfs_attribute *lio_target_nacl_param_attrs[] = {
 
 static ssize_t lio_target_nacl_info_show(struct config_item *item, char *page)
 {
+	unsigned int bh;
 	struct se_node_acl *se_nacl = acl_to_nacl(item);
 	struct iscsi_session *sess;
 	struct iscsi_conn *conn;
@@ -513,7 +514,7 @@ static ssize_t lio_target_nacl_info_show(struct config_item *item, char *page)
 	ssize_t rb = 0;
 	u32 max_cmd_sn;
 
-	spin_lock_bh(&se_nacl->nacl_sess_lock);
+	bh = spin_lock_bh(&se_nacl->nacl_sess_lock, SOFTIRQ_ALL_MASK);
 	se_sess = se_nacl->nacl_sess;
 	if (!se_sess) {
 		rb += sprintf(page+rb, "No active iSCSI Session for Initiator"
@@ -616,7 +617,7 @@ static ssize_t lio_target_nacl_info_show(struct config_item *item, char *page)
 		}
 		spin_unlock(&sess->conn_lock);
 	}
-	spin_unlock_bh(&se_nacl->nacl_sess_lock);
+	spin_unlock_bh(&se_nacl->nacl_sess_lock, bh);
 
 	return rb;
 }
@@ -1396,12 +1397,13 @@ static int lio_write_pending(struct se_cmd *se_cmd)
 
 static int lio_write_pending_status(struct se_cmd *se_cmd)
 {
+	unsigned int bh;
 	struct iscsi_cmd *cmd = container_of(se_cmd, struct iscsi_cmd, se_cmd);
 	int ret;
 
-	spin_lock_bh(&cmd->istate_lock);
+	bh = spin_lock_bh(&cmd->istate_lock, SOFTIRQ_ALL_MASK);
 	ret = !(cmd->cmd_flags & ICF_GOT_LAST_DATAOUT);
-	spin_unlock_bh(&cmd->istate_lock);
+	spin_unlock_bh(&cmd->istate_lock, bh);
 
 	return ret;
 }
@@ -1494,16 +1496,17 @@ static int lio_tpg_check_prot_fabric_only(
  */
 static void lio_tpg_close_session(struct se_session *se_sess)
 {
+	unsigned int bh;
 	struct iscsi_session *sess = se_sess->fabric_sess_ptr;
 	struct se_portal_group *se_tpg = &sess->tpg->tpg_se_tpg;
 
-	spin_lock_bh(&se_tpg->session_lock);
+	bh = spin_lock_bh(&se_tpg->session_lock, SOFTIRQ_ALL_MASK);
 	spin_lock(&sess->conn_lock);
 	if (atomic_read(&sess->session_fall_back_to_erl0) ||
 	    atomic_read(&sess->session_logout) ||
 	    (sess->time2retain_timer_flags & ISCSI_TF_EXPIRED)) {
 		spin_unlock(&sess->conn_lock);
-		spin_unlock_bh(&se_tpg->session_lock);
+		spin_unlock_bh(&se_tpg->session_lock, bh);
 		return;
 	}
 	atomic_set(&sess->session_reinstatement, 1);
@@ -1511,7 +1514,7 @@ static void lio_tpg_close_session(struct se_session *se_sess)
 	spin_unlock(&sess->conn_lock);
 
 	iscsit_stop_time2retain_timer(sess);
-	spin_unlock_bh(&se_tpg->session_lock);
+	spin_unlock_bh(&se_tpg->session_lock, bh);
 
 	iscsit_stop_session(sess, 1, 1);
 	iscsit_close_session(sess);

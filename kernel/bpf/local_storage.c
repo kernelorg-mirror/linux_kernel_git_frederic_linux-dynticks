@@ -47,11 +47,12 @@ static struct bpf_cgroup_storage *cgroup_storage_lookup(
 	struct bpf_cgroup_storage_map *map, struct bpf_cgroup_storage_key *key,
 	bool locked)
 {
+	unsigned int bh;
 	struct rb_root *root = &map->root;
 	struct rb_node *node;
 
 	if (!locked)
-		spin_lock_bh(&map->lock);
+		bh = spin_lock_bh(&map->lock, SOFTIRQ_ALL_MASK);
 
 	node = root->rb_node;
 	while (node) {
@@ -68,13 +69,13 @@ static struct bpf_cgroup_storage *cgroup_storage_lookup(
 			break;
 		default:
 			if (!locked)
-				spin_unlock_bh(&map->lock);
+				spin_unlock_bh(&map->lock, bh);
 			return storage;
 		}
 	}
 
 	if (!locked)
-		spin_unlock_bh(&map->lock);
+		spin_unlock_bh(&map->lock, bh);
 
 	return NULL;
 }
@@ -154,12 +155,13 @@ static int cgroup_storage_update_elem(struct bpf_map *map, void *_key,
 static int cgroup_storage_get_next_key(struct bpf_map *_map, void *_key,
 				       void *_next_key)
 {
+	unsigned int bh;
 	struct bpf_cgroup_storage_map *map = map_to_storage(_map);
 	struct bpf_cgroup_storage_key *key = _key;
 	struct bpf_cgroup_storage_key *next = _next_key;
 	struct bpf_cgroup_storage *storage;
 
-	spin_lock_bh(&map->lock);
+	bh = spin_lock_bh(&map->lock, SOFTIRQ_ALL_MASK);
 
 	if (list_empty(&map->list))
 		goto enoent;
@@ -177,13 +179,13 @@ static int cgroup_storage_get_next_key(struct bpf_map *_map, void *_key,
 					 struct bpf_cgroup_storage, list);
 	}
 
-	spin_unlock_bh(&map->lock);
+	spin_unlock_bh(&map->lock, bh);
 	next->attach_type = storage->key.attach_type;
 	next->cgroup_inode_id = storage->key.cgroup_inode_id;
 	return 0;
 
 enoent:
-	spin_unlock_bh(&map->lock);
+	spin_unlock_bh(&map->lock, bh);
 	return -ENOENT;
 }
 
@@ -251,10 +253,11 @@ const struct bpf_map_ops cgroup_storage_map_ops = {
 
 int bpf_cgroup_storage_assign(struct bpf_prog *prog, struct bpf_map *_map)
 {
+	unsigned int bh;
 	struct bpf_cgroup_storage_map *map = map_to_storage(_map);
 	int ret = -EBUSY;
 
-	spin_lock_bh(&map->lock);
+	bh = spin_lock_bh(&map->lock, SOFTIRQ_ALL_MASK);
 
 	if (map->prog && map->prog != prog)
 		goto unlock;
@@ -265,22 +268,23 @@ int bpf_cgroup_storage_assign(struct bpf_prog *prog, struct bpf_map *_map)
 	prog->aux->cgroup_storage = _map;
 	ret = 0;
 unlock:
-	spin_unlock_bh(&map->lock);
+	spin_unlock_bh(&map->lock, bh);
 
 	return ret;
 }
 
 void bpf_cgroup_storage_release(struct bpf_prog *prog, struct bpf_map *_map)
 {
+	unsigned int bh;
 	struct bpf_cgroup_storage_map *map = map_to_storage(_map);
 
-	spin_lock_bh(&map->lock);
+	bh = spin_lock_bh(&map->lock, SOFTIRQ_ALL_MASK);
 	if (map->prog == prog) {
 		WARN_ON(prog->aux->cgroup_storage != _map);
 		map->prog = NULL;
 		prog->aux->cgroup_storage = NULL;
 	}
-	spin_unlock_bh(&map->lock);
+	spin_unlock_bh(&map->lock, bh);
 }
 
 struct bpf_cgroup_storage *bpf_cgroup_storage_alloc(struct bpf_prog *prog)
@@ -342,6 +346,7 @@ void bpf_cgroup_storage_link(struct bpf_cgroup_storage *storage,
 			     struct cgroup *cgroup,
 			     enum bpf_attach_type type)
 {
+	unsigned int bh;
 	struct bpf_cgroup_storage_map *map;
 
 	if (!storage)
@@ -352,14 +357,15 @@ void bpf_cgroup_storage_link(struct bpf_cgroup_storage *storage,
 
 	map = storage->map;
 
-	spin_lock_bh(&map->lock);
+	bh = spin_lock_bh(&map->lock, SOFTIRQ_ALL_MASK);
 	WARN_ON(cgroup_storage_insert(map, storage));
 	list_add(&storage->list, &map->list);
-	spin_unlock_bh(&map->lock);
+	spin_unlock_bh(&map->lock, bh);
 }
 
 void bpf_cgroup_storage_unlink(struct bpf_cgroup_storage *storage)
 {
+	unsigned int bh;
 	struct bpf_cgroup_storage_map *map;
 	struct rb_root *root;
 
@@ -368,12 +374,12 @@ void bpf_cgroup_storage_unlink(struct bpf_cgroup_storage *storage)
 
 	map = storage->map;
 
-	spin_lock_bh(&map->lock);
+	bh = spin_lock_bh(&map->lock, SOFTIRQ_ALL_MASK);
 	root = &map->root;
 	rb_erase(&storage->node, root);
 
 	list_del(&storage->list);
-	spin_unlock_bh(&map->lock);
+	spin_unlock_bh(&map->lock, bh);
 }
 
 #endif

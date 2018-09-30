@@ -37,7 +37,7 @@
  * an exclusive access to counters (a lock is already taken, or per cpu
  * data is used [in a non preemptable context])
  *
- *   spin_lock_bh(...) or other synchronization to get exclusive access
+ *   spin_lock_bh(..., SOFTIRQ_ALL_MASK) or other synchronization to get exclusive access
  *   ...
  *   u64_stats_update_begin(&stats->syncp);
  *   stats->bytes64 += len; // non atomic operation

@@ -167,6 +167,7 @@ static int creg_queue_cmd(struct rsxx_cardinfo *card,
 			  creg_cmd_cb callback,
 			  void *cb_private)
 {
+	unsigned int bh;
 	struct creg_cmd *cmd;
 
 	/* Don't queue stuff up if we're halted. */
@@ -194,11 +195,11 @@ static int creg_queue_cmd(struct rsxx_cardinfo *card,
 	cmd->cb_private = cb_private;
 	cmd->status	= 0;
 
-	spin_lock_bh(&card->creg_ctrl.lock);
+	bh = spin_lock_bh(&card->creg_ctrl.lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&cmd->list, &card->creg_ctrl.queue);
 	card->creg_ctrl.q_depth++;
 	creg_kick_queue(card);
-	spin_unlock_bh(&card->creg_ctrl.lock);
+	spin_unlock_bh(&card->creg_ctrl.lock, bh);
 
 	return 0;
 }
@@ -235,6 +236,7 @@ static void creg_cmd_timed_out(struct timer_list *t)
 
 static void creg_cmd_done(struct work_struct *work)
 {
+	unsigned int bh;
 	struct rsxx_cardinfo *card;
 	struct creg_cmd *cmd;
 	int st = 0;
@@ -249,10 +251,10 @@ static void creg_cmd_done(struct work_struct *work)
 	if (del_timer_sync(&card->creg_ctrl.cmd_timer) == 0)
 		card->creg_ctrl.creg_stats.failed_cancel_timer++;
 
-	spin_lock_bh(&card->creg_ctrl.lock);
+	bh = spin_lock_bh(&card->creg_ctrl.lock, SOFTIRQ_ALL_MASK);
 	cmd = card->creg_ctrl.active_cmd;
 	card->creg_ctrl.active_cmd = NULL;
-	spin_unlock_bh(&card->creg_ctrl.lock);
+	spin_unlock_bh(&card->creg_ctrl.lock, bh);
 
 	if (cmd == NULL) {
 		dev_err(CARD_TO_DEV(card),
@@ -302,14 +304,15 @@ creg_done:
 
 	kmem_cache_free(creg_cmd_pool, cmd);
 
-	spin_lock_bh(&card->creg_ctrl.lock);
+	bh = spin_lock_bh(&card->creg_ctrl.lock, SOFTIRQ_ALL_MASK);
 	card->creg_ctrl.active = 0;
 	creg_kick_queue(card);
-	spin_unlock_bh(&card->creg_ctrl.lock);
+	spin_unlock_bh(&card->creg_ctrl.lock, bh);
 }
 
 static void creg_reset(struct rsxx_cardinfo *card)
 {
+	unsigned int bh;
 	struct creg_cmd *cmd = NULL;
 	struct creg_cmd *tmp;
 	unsigned long flags;
@@ -330,7 +333,7 @@ static void creg_reset(struct rsxx_cardinfo *card)
 		"Resetting creg interface for recovery\n");
 
 	/* Cancel outstanding commands */
-	spin_lock_bh(&card->creg_ctrl.lock);
+	bh = spin_lock_bh(&card->creg_ctrl.lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(cmd, tmp, &card->creg_ctrl.queue, list) {
 		list_del(&cmd->list);
 		card->creg_ctrl.q_depth--;
@@ -351,7 +354,7 @@ static void creg_reset(struct rsxx_cardinfo *card)
 
 		card->creg_ctrl.active = 0;
 	}
-	spin_unlock_bh(&card->creg_ctrl.lock);
+	spin_unlock_bh(&card->creg_ctrl.lock, bh);
 
 	card->creg_ctrl.reset = 0;
 	spin_lock_irqsave(&card->irq_lock, flags);
@@ -707,6 +710,7 @@ int rsxx_reg_access(struct rsxx_cardinfo *card,
 
 void rsxx_eeh_save_issued_creg(struct rsxx_cardinfo *card)
 {
+	unsigned int bh;
 	struct creg_cmd *cmd = NULL;
 
 	cmd = card->creg_ctrl.active_cmd;
@@ -715,20 +719,21 @@ void rsxx_eeh_save_issued_creg(struct rsxx_cardinfo *card)
 	if (cmd) {
 		del_timer_sync(&card->creg_ctrl.cmd_timer);
 
-		spin_lock_bh(&card->creg_ctrl.lock);
+		bh = spin_lock_bh(&card->creg_ctrl.lock, SOFTIRQ_ALL_MASK);
 		list_add(&cmd->list, &card->creg_ctrl.queue);
 		card->creg_ctrl.q_depth++;
 		card->creg_ctrl.active = 0;
-		spin_unlock_bh(&card->creg_ctrl.lock);
+		spin_unlock_bh(&card->creg_ctrl.lock, bh);
 	}
 }
 
 void rsxx_kick_creg_queue(struct rsxx_cardinfo *card)
 {
-	spin_lock_bh(&card->creg_ctrl.lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&card->creg_ctrl.lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&card->creg_ctrl.queue))
 		creg_kick_queue(card);
-	spin_unlock_bh(&card->creg_ctrl.lock);
+	spin_unlock_bh(&card->creg_ctrl.lock, bh);
 }
 
 /*------------ Initialization & Setup --------------*/
@@ -752,12 +757,13 @@ int rsxx_creg_setup(struct rsxx_cardinfo *card)
 
 void rsxx_creg_destroy(struct rsxx_cardinfo *card)
 {
+	unsigned int bh;
 	struct creg_cmd *cmd;
 	struct creg_cmd *tmp;
 	int cnt = 0;
 
 	/* Cancel outstanding commands */
-	spin_lock_bh(&card->creg_ctrl.lock);
+	bh = spin_lock_bh(&card->creg_ctrl.lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(cmd, tmp, &card->creg_ctrl.queue, list) {
 		list_del(&cmd->list);
 		if (cmd->cb)
@@ -782,7 +788,7 @@ void rsxx_creg_destroy(struct rsxx_cardinfo *card)
 			"Canceled active creg command\n");
 		kmem_cache_free(creg_cmd_pool, cmd);
 	}
-	spin_unlock_bh(&card->creg_ctrl.lock);
+	spin_unlock_bh(&card->creg_ctrl.lock, bh);
 
 	cancel_work_sync(&card->creg_ctrl.done_work);
 }

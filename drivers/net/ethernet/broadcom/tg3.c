@@ -1391,30 +1391,32 @@ static int tg3_bmcr_reset(struct tg3 *tp)
 
 static int tg3_mdio_read(struct mii_bus *bp, int mii_id, int reg)
 {
+	unsigned int bh;
 	struct tg3 *tp = bp->priv;
 	u32 val;
 
-	spin_lock_bh(&tp->lock);
+	bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 
 	if (__tg3_readphy(tp, mii_id, reg, &val))
 		val = -EIO;
 
-	spin_unlock_bh(&tp->lock);
+	spin_unlock_bh(&tp->lock, bh);
 
 	return val;
 }
 
 static int tg3_mdio_write(struct mii_bus *bp, int mii_id, int reg, u16 val)
 {
+	unsigned int bh;
 	struct tg3 *tp = bp->priv;
 	u32 ret = 0;
 
-	spin_lock_bh(&tp->lock);
+	bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 
 	if (__tg3_writephy(tp, mii_id, reg, val))
 		ret = -EIO;
 
-	spin_unlock_bh(&tp->lock);
+	spin_unlock_bh(&tp->lock, bh);
 
 	return ret;
 }
@@ -2015,12 +2017,13 @@ static void tg3_setup_flow_control(struct tg3 *tp, u32 lcladv, u32 rmtadv)
 
 static void tg3_adjust_link(struct net_device *dev)
 {
+	unsigned int bh;
 	u8 oldflowctrl, linkmesg = 0;
 	u32 mac_mode, lcl_adv, rmt_adv;
 	struct tg3 *tp = netdev_priv(dev);
 	struct phy_device *phydev = mdiobus_get_phy(tp->mdio_bus, tp->phy_addr);
 
-	spin_lock_bh(&tp->lock);
+	bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 
 	mac_mode = tp->mac_mode & ~(MAC_MODE_PORT_MODE_MASK |
 				    MAC_MODE_HALF_DUPLEX);
@@ -2091,7 +2094,7 @@ static void tg3_adjust_link(struct net_device *dev)
 	tp->link_config.active_speed = phydev->speed;
 	tp->link_config.active_duplex = phydev->duplex;
 
-	spin_unlock_bh(&tp->lock);
+	spin_unlock_bh(&tp->lock, bh);
 
 	if (linkmesg)
 		tg3_link_report(tp);
@@ -7444,14 +7447,12 @@ static unsigned int tg3_irq_quiesce(struct tg3 *tp, unsigned int bh)
 	tp->irq_sync = 1;
 	smp_mb();
 
-	spin_unlock_bh(&tp->lock);
+	spin_unlock_bh(&tp->lock, bh);
 
 	for (i = 0; i < tp->irq_cnt; i++)
 		synchronize_irq(tp->napi[i].irq_vec);
 
-	spin_lock_bh(&tp->lock);
-
-	return 0;
+	return spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 }
 
 /* Fully shutdown all tg3 driver activity elsewhere in the system.
@@ -7461,9 +7462,9 @@ static unsigned int tg3_irq_quiesce(struct tg3 *tp, unsigned int bh)
  */
 static inline unsigned int tg3_full_lock(struct tg3 *tp, int irq_sync)
 {
-	unsigned int bh = 0;
+	unsigned int bh;
 
-	spin_lock_bh(&tp->lock);
+	bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 	if (irq_sync)
 		bh = tg3_irq_quiesce(tp, bh);
 
@@ -7472,7 +7473,7 @@ static inline unsigned int tg3_full_lock(struct tg3 *tp, int irq_sync)
 
 static inline void tg3_full_unlock(struct tg3 *tp, unsigned int bh)
 {
-	spin_unlock_bh(&tp->lock);
+	spin_unlock_bh(&tp->lock, bh);
 }
 
 /* One-shot MSI handler - Chip automatically disables interrupt
@@ -8300,26 +8301,27 @@ static int tg3_phy_lpbk_set(struct tg3 *tp, u32 speed, bool extlpbk)
 
 static void tg3_set_loopback(struct net_device *dev, netdev_features_t features)
 {
+	unsigned int bh;
 	struct tg3 *tp = netdev_priv(dev);
 
 	if (features & NETIF_F_LOOPBACK) {
 		if (tp->mac_mode & MAC_MODE_PORT_INT_LPBACK)
 			return;
 
-		spin_lock_bh(&tp->lock);
+		bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 		tg3_mac_loopback(tp, true);
 		netif_carrier_on(tp->dev);
-		spin_unlock_bh(&tp->lock);
+		spin_unlock_bh(&tp->lock, bh);
 		netdev_info(dev, "Internal MAC loopback mode enabled.\n");
 	} else {
 		if (!(tp->mac_mode & MAC_MODE_PORT_INT_LPBACK))
 			return;
 
-		spin_lock_bh(&tp->lock);
+		bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 		tg3_mac_loopback(tp, false);
 		/* Force link status check */
 		tg3_setup_phy(tp, true);
-		spin_unlock_bh(&tp->lock);
+		spin_unlock_bh(&tp->lock, bh);
 		netdev_info(dev, "Internal MAC loopback mode disabled.\n");
 	}
 }
@@ -9380,6 +9382,7 @@ static int tg3_halt(struct tg3 *tp, int kind, bool silent)
 
 static int tg3_set_mac_addr(struct net_device *dev, void *p)
 {
+	unsigned int bh;
 	struct tg3 *tp = netdev_priv(dev);
 	struct sockaddr *addr = p;
 	int err = 0;
@@ -9406,10 +9409,10 @@ static int tg3_set_mac_addr(struct net_device *dev, void *p)
 		    !(addr1_high == 0 && addr1_low == 0))
 			skip_mac_1 = true;
 	}
-	spin_lock_bh(&tp->lock);
+	bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 	__tg3_set_mac_addr(tp, skip_mac_1);
 	__tg3_set_rx_mode(dev);
-	spin_unlock_bh(&tp->lock);
+	spin_unlock_bh(&tp->lock, bh);
 
 	return err;
 }
@@ -10828,14 +10831,15 @@ static void tg3_sd_scan_scratchpad(struct tg3 *tp, struct tg3_ocir *ocir)
 static ssize_t tg3_show_temp(struct device *dev,
 			     struct device_attribute *devattr, char *buf)
 {
+	unsigned int bh;
 	struct sensor_device_attribute *attr = to_sensor_dev_attr(devattr);
 	struct tg3 *tp = dev_get_drvdata(dev);
 	u32 temperature;
 
-	spin_lock_bh(&tp->lock);
+	bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 	tg3_ape_scratchpad_read(tp, &temperature, attr->index,
 				sizeof(temperature));
-	spin_unlock_bh(&tp->lock);
+	spin_unlock_bh(&tp->lock, bh);
 	return sprintf(buf, "%u\n", temperature * 1000);
 }
 
@@ -12385,6 +12389,7 @@ static void tg3_set_msglevel(struct net_device *dev, u32 value)
 
 static int tg3_nway_reset(struct net_device *dev)
 {
+	unsigned int bh;
 	struct tg3 *tp = netdev_priv(dev);
 	int r;
 
@@ -12403,7 +12408,7 @@ static int tg3_nway_reset(struct net_device *dev)
 	} else {
 		u32 bmcr;
 
-		spin_lock_bh(&tp->lock);
+		bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 		r = -EINVAL;
 		tg3_readphy(tp, MII_BMCR, &bmcr);
 		if (!tg3_readphy(tp, MII_BMCR, &bmcr) &&
@@ -12413,7 +12418,7 @@ static int tg3_nway_reset(struct net_device *dev)
 						   BMCR_ANENABLE);
 			r = 0;
 		}
-		spin_unlock_bh(&tp->lock);
+		spin_unlock_bh(&tp->lock, bh);
 	}
 
 	return r;
@@ -14018,6 +14023,7 @@ static int tg3_hwtstamp_get(struct net_device *dev, struct ifreq *ifr)
 
 static int tg3_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
+	unsigned int bh;
 	struct mii_ioctl_data *data = if_mii(ifr);
 	struct tg3 *tp = netdev_priv(dev);
 	int err;
@@ -14044,10 +14050,10 @@ static int tg3_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		if (!netif_running(dev))
 			return -EAGAIN;
 
-		spin_lock_bh(&tp->lock);
+		bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 		err = __tg3_readphy(tp, data->phy_id & 0x1f,
 				    data->reg_num & 0x1f, &mii_regval);
-		spin_unlock_bh(&tp->lock);
+		spin_unlock_bh(&tp->lock, bh);
 
 		data->val_out = mii_regval;
 
@@ -14061,10 +14067,10 @@ static int tg3_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		if (!netif_running(dev))
 			return -EAGAIN;
 
-		spin_lock_bh(&tp->lock);
+		bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 		err = __tg3_writephy(tp, data->phy_id & 0x1f,
 				     data->reg_num & 0x1f, data->val_in);
-		spin_unlock_bh(&tp->lock);
+		spin_unlock_bh(&tp->lock, bh);
 
 		return err;
 
@@ -14228,17 +14234,18 @@ static const struct ethtool_ops tg3_ethtool_ops = {
 static void tg3_get_stats64(struct net_device *dev,
 			    struct rtnl_link_stats64 *stats)
 {
+	unsigned int bh;
 	struct tg3 *tp = netdev_priv(dev);
 
-	spin_lock_bh(&tp->lock);
+	bh = spin_lock_bh(&tp->lock, SOFTIRQ_ALL_MASK);
 	if (!tp->hw_stats || !tg3_flag(tp, INIT_COMPLETE)) {
 		*stats = tp->net_stats_prev;
-		spin_unlock_bh(&tp->lock);
+		spin_unlock_bh(&tp->lock, bh);
 		return;
 	}
 
 	tg3_get_nstats(tp, stats);
-	spin_unlock_bh(&tp->lock);
+	spin_unlock_bh(&tp->lock, bh);
 }
 
 static void tg3_set_rx_mode(struct net_device *dev)

@@ -90,17 +90,18 @@ static void *cxgbit_uld_add(const struct cxgb4_lld_info *lldi)
 
 static void cxgbit_close_conn(struct cxgbit_device *cdev)
 {
+	unsigned int bh;
 	struct cxgbit_sock *csk;
 	struct sk_buff *skb;
 	bool wakeup_thread = false;
 
-	spin_lock_bh(&cdev->cskq.lock);
+	bh = spin_lock_bh(&cdev->cskq.lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(csk, &cdev->cskq.list, list) {
 		skb = alloc_skb(0, GFP_ATOMIC);
 		if (!skb)
 			continue;
 
-		spin_lock_bh(&csk->rxq.lock);
+		spin_lock_bh(&csk->rxq.lock, SOFTIRQ_ALL_MASK);
 		__skb_queue_tail(&csk->rxq, skb);
 		if (skb_queue_len(&csk->rxq) == 1)
 			wakeup_thread = true;
@@ -111,17 +112,18 @@ static void cxgbit_close_conn(struct cxgbit_device *cdev)
 			wakeup_thread = false;
 		}
 	}
-	spin_unlock_bh(&cdev->cskq.lock);
+	spin_unlock_bh(&cdev->cskq.lock, bh);
 }
 
 static void cxgbit_detach_cdev(struct cxgbit_device *cdev)
 {
+	unsigned int bh;
 	bool free_cdev = false;
 
-	spin_lock_bh(&cdev->cskq.lock);
+	bh = spin_lock_bh(&cdev->cskq.lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&cdev->cskq.list))
 		free_cdev = true;
-	spin_unlock_bh(&cdev->cskq.lock);
+	spin_unlock_bh(&cdev->cskq.lock, bh);
 
 	if (free_cdev) {
 		mutex_lock(&cdev_list_lock);
@@ -533,12 +535,13 @@ static void
 cxgbit_update_dcb_priority(struct cxgbit_device *cdev, u8 port_id,
 			   u8 dcb_priority, u16 port_num)
 {
+	unsigned int bh;
 	struct cxgbit_sock *csk;
 	struct sk_buff *skb;
 	u16 local_port;
 	bool wakeup_thread = false;
 
-	spin_lock_bh(&cdev->cskq.lock);
+	bh = spin_lock_bh(&cdev->cskq.lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(csk, &cdev->cskq.list, list) {
 		if (csk->port_id != port_id)
 			continue;
@@ -576,7 +579,7 @@ cxgbit_update_dcb_priority(struct cxgbit_device *cdev, u8 port_id,
 			wakeup_thread = false;
 		}
 	}
-	spin_unlock_bh(&cdev->cskq.lock);
+	spin_unlock_bh(&cdev->cskq.lock, bh);
 }
 
 static void cxgbit_dcb_workfn(struct work_struct *work)

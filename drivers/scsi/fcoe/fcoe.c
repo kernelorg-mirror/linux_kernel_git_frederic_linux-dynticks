@@ -1292,15 +1292,16 @@ static int __exit fcoe_if_exit(void)
 
 static void fcoe_thread_cleanup_local(unsigned int cpu)
 {
+	unsigned int bh;
 	struct page *crc_eof;
 	struct fcoe_percpu_s *p;
 
 	p = per_cpu_ptr(&fcoe_percpu, cpu);
-	spin_lock_bh(&p->fcoe_rx_list.lock);
+	bh = spin_lock_bh(&p->fcoe_rx_list.lock, SOFTIRQ_ALL_MASK);
 	crc_eof = p->crc_eof_page;
 	p->crc_eof_page = NULL;
 	p->crc_eof_offset = 0;
-	spin_unlock_bh(&p->fcoe_rx_list.lock);
+	spin_unlock_bh(&p->fcoe_rx_list.lock, bh);
 
 	if (crc_eof)
 		put_page(crc_eof);
@@ -1746,6 +1747,7 @@ drop:
  */
 static void fcoe_receive_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct fcoe_percpu_s *p;
 	struct sk_buff *skb;
 	struct sk_buff_head tmp;
@@ -1753,9 +1755,9 @@ static void fcoe_receive_work(struct work_struct *work)
 	p = container_of(work, struct fcoe_percpu_s, work);
 	skb_queue_head_init(&tmp);
 
-	spin_lock_bh(&p->fcoe_rx_list.lock);
+	bh = spin_lock_bh(&p->fcoe_rx_list.lock, SOFTIRQ_ALL_MASK);
 	skb_queue_splice_init(&p->fcoe_rx_list, &tmp);
-	spin_unlock_bh(&p->fcoe_rx_list.lock);
+	spin_unlock_bh(&p->fcoe_rx_list.lock, bh);
 
 	if (!skb_queue_len(&tmp))
 		return;

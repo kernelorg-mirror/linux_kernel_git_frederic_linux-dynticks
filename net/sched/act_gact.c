@@ -59,6 +59,7 @@ static int tcf_gact_init(struct net *net, struct nlattr *nla,
 			 int ovr, int bind, bool rtnl_held,
 			 struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct tc_action_net *tn = net_generic(net, gact_net_id);
 	struct nlattr *tb[TCA_GACT_MAX + 1];
 	struct tc_gact *parm;
@@ -113,7 +114,7 @@ static int tcf_gact_init(struct net *net, struct nlattr *nla,
 
 	gact = to_gact(*a);
 
-	spin_lock_bh(&gact->tcf_lock);
+	bh = spin_lock_bh(&gact->tcf_lock, SOFTIRQ_ALL_MASK);
 	gact->tcf_action = parm->action;
 #ifdef CONFIG_GACT_PROB
 	if (p_parm) {
@@ -126,7 +127,7 @@ static int tcf_gact_init(struct net *net, struct nlattr *nla,
 		gact->tcfg_ptype   = p_parm->ptype;
 	}
 #endif
-	spin_unlock_bh(&gact->tcf_lock);
+	spin_unlock_bh(&gact->tcf_lock, bh);
 
 	if (ret == ACT_P_CREATED)
 		tcf_idr_insert(tn, *a);
@@ -174,6 +175,7 @@ static void tcf_gact_stats_update(struct tc_action *a, u64 bytes, u32 packets,
 static int tcf_gact_dump(struct sk_buff *skb, struct tc_action *a,
 			 int bind, int ref)
 {
+	unsigned int bh;
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tcf_gact *gact = to_gact(a);
 	struct tc_gact opt = {
@@ -183,7 +185,7 @@ static int tcf_gact_dump(struct sk_buff *skb, struct tc_action *a,
 	};
 	struct tcf_t t;
 
-	spin_lock_bh(&gact->tcf_lock);
+	bh = spin_lock_bh(&gact->tcf_lock, SOFTIRQ_ALL_MASK);
 	opt.action = gact->tcf_action;
 	if (nla_put(skb, TCA_GACT_PARMS, sizeof(opt), &opt))
 		goto nla_put_failure;
@@ -202,12 +204,12 @@ static int tcf_gact_dump(struct sk_buff *skb, struct tc_action *a,
 	tcf_tm_dump(&t, &gact->tcf_tm);
 	if (nla_put_64bit(skb, TCA_GACT_TM, sizeof(t), &t, TCA_GACT_PAD))
 		goto nla_put_failure;
-	spin_unlock_bh(&gact->tcf_lock);
+	spin_unlock_bh(&gact->tcf_lock, bh);
 
 	return skb->len;
 
 nla_put_failure:
-	spin_unlock_bh(&gact->tcf_lock);
+	spin_unlock_bh(&gact->tcf_lock, bh);
 	nlmsg_trim(skb, b);
 	return -1;
 }

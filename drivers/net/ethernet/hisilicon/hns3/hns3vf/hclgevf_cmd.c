@@ -176,6 +176,7 @@ void hclgevf_cmd_setup_basic_desc(struct hclgevf_desc *desc,
  */
 int hclgevf_cmd_send(struct hclgevf_hw *hw, struct hclgevf_desc *desc, int num)
 {
+	unsigned int bh;
 	struct hclgevf_dev *hdev = (struct hclgevf_dev *)hw->hdev;
 	struct hclgevf_desc *desc_to_use;
 	bool complete = false;
@@ -186,10 +187,10 @@ int hclgevf_cmd_send(struct hclgevf_hw *hw, struct hclgevf_desc *desc, int num)
 	u16 opcode;
 	int ntc;
 
-	spin_lock_bh(&hw->cmq.csq.lock);
+	bh = spin_lock_bh(&hw->cmq.csq.lock, SOFTIRQ_ALL_MASK);
 
 	if (num > hclgevf_ring_space(&hw->cmq.csq)) {
-		spin_unlock_bh(&hw->cmq.csq.lock);
+		spin_unlock_bh(&hw->cmq.csq.lock, bh);
 		return -EBUSY;
 	}
 
@@ -260,7 +261,7 @@ int hclgevf_cmd_send(struct hclgevf_hw *hw, struct hclgevf_desc *desc, int num)
 			 "cleaned %d, need to clean %d\n", handle, num);
 	}
 
-	spin_unlock_bh(&hw->cmq.csq.lock);
+	spin_unlock_bh(&hw->cmq.csq.lock, bh);
 
 	return status;
 }

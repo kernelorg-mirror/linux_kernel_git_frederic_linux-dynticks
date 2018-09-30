@@ -126,29 +126,32 @@ static void __ath10k_htt_tx_txq_sync(struct ath10k *ar)
 void ath10k_htt_tx_txq_recalc(struct ieee80211_hw *hw,
 			      struct ieee80211_txq *txq)
 {
+	unsigned int bh;
 	struct ath10k *ar = hw->priv;
 
-	spin_lock_bh(&ar->htt.tx_lock);
+	bh = spin_lock_bh(&ar->htt.tx_lock, SOFTIRQ_ALL_MASK);
 	__ath10k_htt_tx_txq_recalc(hw, txq);
-	spin_unlock_bh(&ar->htt.tx_lock);
+	spin_unlock_bh(&ar->htt.tx_lock, bh);
 }
 
 void ath10k_htt_tx_txq_sync(struct ath10k *ar)
 {
-	spin_lock_bh(&ar->htt.tx_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&ar->htt.tx_lock, SOFTIRQ_ALL_MASK);
 	__ath10k_htt_tx_txq_sync(ar);
-	spin_unlock_bh(&ar->htt.tx_lock);
+	spin_unlock_bh(&ar->htt.tx_lock, bh);
 }
 
 void ath10k_htt_tx_txq_update(struct ieee80211_hw *hw,
 			      struct ieee80211_txq *txq)
 {
+	unsigned int bh;
 	struct ath10k *ar = hw->priv;
 
-	spin_lock_bh(&ar->htt.tx_lock);
+	bh = spin_lock_bh(&ar->htt.tx_lock, SOFTIRQ_ALL_MASK);
 	__ath10k_htt_tx_txq_recalc(hw, txq);
 	__ath10k_htt_tx_txq_sync(ar);
-	spin_unlock_bh(&ar->htt.tx_lock);
+	spin_unlock_bh(&ar->htt.tx_lock, bh);
 }
 
 void ath10k_htt_tx_dec_pending(struct ath10k_htt *htt)
@@ -205,13 +208,14 @@ void ath10k_htt_tx_mgmt_dec_pending(struct ath10k_htt *htt)
 
 int ath10k_htt_tx_alloc_msdu_id(struct ath10k_htt *htt, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ath10k *ar = htt->ar;
 	int ret;
 
-	spin_lock_bh(&htt->tx_lock);
+	bh = spin_lock_bh(&htt->tx_lock, SOFTIRQ_ALL_MASK);
 	ret = idr_alloc(&htt->pending_tx, skb, 0,
 			htt->max_num_pending_tx, GFP_ATOMIC);
-	spin_unlock_bh(&htt->tx_lock);
+	spin_unlock_bh(&htt->tx_lock, bh);
 
 	ath10k_dbg(ar, ATH10K_DBG_HTT, "htt tx alloc msdu_id %d\n", ret);
 
@@ -1063,6 +1067,7 @@ static u8 ath10k_htt_tx_get_tid(struct sk_buff *skb, bool is_eth)
 
 int ath10k_htt_mgmt_tx(struct ath10k_htt *htt, struct sk_buff *msdu)
 {
+	unsigned int bh;
 	struct ath10k *ar = htt->ar;
 	struct device *dev = ar->dev;
 	struct sk_buff *txdesc = NULL;
@@ -1127,9 +1132,9 @@ err_unmap_msdu:
 err_free_txdesc:
 	dev_kfree_skb_any(txdesc);
 err_free_msdu_id:
-	spin_lock_bh(&htt->tx_lock);
+	bh = spin_lock_bh(&htt->tx_lock, SOFTIRQ_ALL_MASK);
 	ath10k_htt_tx_free_msdu_id(htt, msdu_id);
-	spin_unlock_bh(&htt->tx_lock);
+	spin_unlock_bh(&htt->tx_lock, bh);
 err:
 	return res;
 }

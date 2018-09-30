@@ -1065,15 +1065,16 @@ int br_multicast_add_port(struct net_bridge_port *port)
 
 void br_multicast_del_port(struct net_bridge_port *port)
 {
+	unsigned int bh;
 	struct net_bridge *br = port->br;
 	struct net_bridge_port_group *pg;
 	struct hlist_node *n;
 
 	/* Take care of the remaining groups, only perm ones should be left */
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 	hlist_for_each_entry_safe(pg, n, &port->mglist, mglist)
 		br_multicast_del_pg(br, pg);
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 	del_timer_sync(&port->multicast_router_timer);
 	free_percpu(port->mcast_stats);
 }
@@ -2025,13 +2026,14 @@ void br_multicast_stop(struct net_bridge *br)
 
 void br_multicast_dev_del(struct net_bridge *br)
 {
+	unsigned int bh;
 	struct net_bridge_mdb_htable *mdb;
 	struct net_bridge_mdb_entry *mp;
 	struct hlist_node *n;
 	u32 ver;
 	int i;
 
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 	mdb = mlock_dereference(br->mdb, br);
 	if (!mdb)
 		goto out;
@@ -2050,7 +2052,7 @@ void br_multicast_dev_del(struct net_bridge *br)
 	if (mdb->old) {
 		spin_unlock_bh(&br->multicast_lock);
 		rcu_barrier_bh();
-		spin_lock_bh(&br->multicast_lock);
+		spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 		WARN_ON(mdb->old);
 	}
 
@@ -2058,14 +2060,15 @@ void br_multicast_dev_del(struct net_bridge *br)
 	call_rcu_bh(&mdb->rcu, br_mdb_free);
 
 out:
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 }
 
 int br_multicast_set_router(struct net_bridge *br, unsigned long val)
 {
+	unsigned int bh;
 	int err = -EINVAL;
 
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 
 	switch (val) {
 	case MDB_RTR_TYPE_DISABLED:
@@ -2083,7 +2086,7 @@ int br_multicast_set_router(struct net_bridge *br, unsigned long val)
 		break;
 	}
 
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 
 	return err;
 }
@@ -2168,11 +2171,12 @@ static void br_multicast_start_querier(struct net_bridge *br,
 
 int br_multicast_toggle(struct net_bridge *br, unsigned long val)
 {
+	unsigned int bh;
 	struct net_bridge_mdb_htable *mdb;
 	struct net_bridge_port *port;
 	int err = 0;
 
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 	if (br->multicast_disabled == !val)
 		goto unlock;
 
@@ -2204,7 +2208,7 @@ rollback:
 		__br_multicast_enable_port(port);
 
 unlock:
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 
 	return err;
 }
@@ -2219,23 +2223,25 @@ EXPORT_SYMBOL_GPL(br_multicast_enabled);
 
 bool br_multicast_router(const struct net_device *dev)
 {
+	unsigned int bh;
 	struct net_bridge *br = netdev_priv(dev);
 	bool is_router;
 
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 	is_router = br_multicast_is_router(br);
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 	return is_router;
 }
 EXPORT_SYMBOL_GPL(br_multicast_router);
 
 int br_multicast_set_querier(struct net_bridge *br, unsigned long val)
 {
+	unsigned int bh;
 	unsigned long max_delay;
 
 	val = !!val;
 
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 	if (br->multicast_querier == val)
 		goto unlock;
 
@@ -2258,18 +2264,19 @@ int br_multicast_set_querier(struct net_bridge *br, unsigned long val)
 #endif
 
 unlock:
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 
 	return 0;
 }
 
 int br_multicast_set_hash_max(struct net_bridge *br, unsigned long val)
 {
+	unsigned int bh;
 	int err = -EINVAL;
 	u32 old;
 	struct net_bridge_mdb_htable *mdb;
 
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 	if (!is_power_of_2(val))
 		goto unlock;
 
@@ -2297,13 +2304,14 @@ rollback:
 	}
 
 unlock:
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 
 	return err;
 }
 
 int br_multicast_set_igmp_version(struct net_bridge *br, unsigned long val)
 {
+	unsigned int bh;
 	/* Currently we support only version 2 and 3 */
 	switch (val) {
 	case 2:
@@ -2313,9 +2321,9 @@ int br_multicast_set_igmp_version(struct net_bridge *br, unsigned long val)
 		return -EINVAL;
 	}
 
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 	br->multicast_igmp_version = val;
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 
 	return 0;
 }
@@ -2323,6 +2331,7 @@ int br_multicast_set_igmp_version(struct net_bridge *br, unsigned long val)
 #if IS_ENABLED(CONFIG_IPV6)
 int br_multicast_set_mld_version(struct net_bridge *br, unsigned long val)
 {
+	unsigned int bh;
 	/* Currently we support version 1 and 2 */
 	switch (val) {
 	case 1:
@@ -2332,9 +2341,9 @@ int br_multicast_set_mld_version(struct net_bridge *br, unsigned long val)
 		return -EINVAL;
 	}
 
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 	br->multicast_mld_version = val;
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 
 	return 0;
 }

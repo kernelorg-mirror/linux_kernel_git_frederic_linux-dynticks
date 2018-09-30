@@ -457,10 +457,11 @@ int dn_fib_semantic_match(int type, struct dn_fib_info *fi, const struct flowidn
 
 void dn_fib_select_multipath(const struct flowidn *fld, struct dn_fib_res *res)
 {
+	unsigned int bh;
 	struct dn_fib_info *fi = res->fi;
 	int w;
 
-	spin_lock_bh(&dn_fib_multipath_lock);
+	bh = spin_lock_bh(&dn_fib_multipath_lock, SOFTIRQ_ALL_MASK);
 	if (fi->fib_power <= 0) {
 		int power = 0;
 		change_nexthops(fi) {
@@ -471,7 +472,7 @@ void dn_fib_select_multipath(const struct flowidn *fld, struct dn_fib_res *res)
 		} endfor_nexthops(fi);
 		fi->fib_power = power;
 		if (power < 0) {
-			spin_unlock_bh(&dn_fib_multipath_lock);
+			spin_unlock_bh(&dn_fib_multipath_lock, bh);
 			res->nh_sel = 0;
 			return;
 		}
@@ -485,13 +486,13 @@ void dn_fib_select_multipath(const struct flowidn *fld, struct dn_fib_res *res)
 				nh->nh_power--;
 				fi->fib_power--;
 				res->nh_sel = nhsel;
-				spin_unlock_bh(&dn_fib_multipath_lock);
+				spin_unlock_bh(&dn_fib_multipath_lock, bh);
 				return;
 			}
 		}
 	} endfor_nexthops(fi);
 	res->nh_sel = 0;
-	spin_unlock_bh(&dn_fib_multipath_lock);
+	spin_unlock_bh(&dn_fib_multipath_lock, bh);
 }
 
 static inline u32 rtm_get_table(struct nlattr *attrs[], u8 table)
@@ -696,6 +697,7 @@ static int dn_fib_dnaddr_event(struct notifier_block *this, unsigned long event,
 
 static int dn_fib_sync_down(__le16 local, struct net_device *dev, int force)
 {
+	unsigned int bh;
 	int ret = 0;
 	int scope = RT_SCOPE_NOWHERE;
 
@@ -720,11 +722,12 @@ static int dn_fib_sync_down(__le16 local, struct net_device *dev, int force)
 					dead++;
 				else if (nh->nh_dev == dev &&
 						nh->nh_scope != scope) {
-					spin_lock_bh(&dn_fib_multipath_lock);
+					bh = spin_lock_bh(&dn_fib_multipath_lock, SOFTIRQ_ALL_MASK);
 					nh->nh_flags |= RTNH_F_DEAD;
 					fi->fib_power -= nh->nh_power;
 					nh->nh_power = 0;
-					spin_unlock_bh(&dn_fib_multipath_lock);
+					spin_unlock_bh(&dn_fib_multipath_lock,
+						       bh);
 					dead++;
 				}
 			} endfor_nexthops(fi)
@@ -740,6 +743,7 @@ static int dn_fib_sync_down(__le16 local, struct net_device *dev, int force)
 
 static int dn_fib_sync_up(struct net_device *dev)
 {
+	unsigned int bh;
 	int ret = 0;
 
 	if (!(dev->flags&IFF_UP))
@@ -758,10 +762,10 @@ static int dn_fib_sync_up(struct net_device *dev)
 			if (nh->nh_dev != dev || dev->dn_ptr == NULL)
 				continue;
 			alive++;
-			spin_lock_bh(&dn_fib_multipath_lock);
+			bh = spin_lock_bh(&dn_fib_multipath_lock, SOFTIRQ_ALL_MASK);
 			nh->nh_power = 0;
 			nh->nh_flags &= ~RTNH_F_DEAD;
-			spin_unlock_bh(&dn_fib_multipath_lock);
+			spin_unlock_bh(&dn_fib_multipath_lock, bh);
 		} endfor_nexthops(fi);
 
 		if (alive > 0) {

@@ -1701,6 +1701,7 @@ static int brcmf_sdio_dcmd_resp_wake(struct brcmf_sdio *bus)
 static void
 brcmf_sdio_read_control(struct brcmf_sdio *bus, u8 *hdr, uint len, uint doff)
 {
+	unsigned int bh;
 	uint rdlen, pad;
 	u8 *buf = NULL, *rbuf;
 	int sdret;
@@ -1768,17 +1769,17 @@ gotpkt:
 			   buf, len, "RxCtrl:\n");
 
 	/* Point to valid data and indicate its length */
-	spin_lock_bh(&bus->rxctl_lock);
+	bh = spin_lock_bh(&bus->rxctl_lock, SOFTIRQ_ALL_MASK);
 	if (bus->rxctl) {
 		brcmf_err("last control frame is being processed.\n");
-		spin_unlock_bh(&bus->rxctl_lock);
+		spin_unlock_bh(&bus->rxctl_lock, bh);
 		vfree(buf);
 		goto done;
 	}
 	bus->rxctl = buf + doff;
 	bus->rxctl_orig = buf;
 	bus->rxlen = len - doff;
-	spin_unlock_bh(&bus->rxctl_lock);
+	spin_unlock_bh(&bus->rxctl_lock, bh);
 
 done:
 	/* Awake any waiters */
@@ -2272,6 +2273,7 @@ done:
 
 static uint brcmf_sdio_sendfromq(struct brcmf_sdio *bus, uint maxframes)
 {
+	unsigned int bh;
 	struct sk_buff *pkt;
 	struct sk_buff_head pktq;
 	u32 intstat_addr = bus->sdio_core->base + SD_REG(intstatus);
@@ -2293,7 +2295,7 @@ static uint brcmf_sdio_sendfromq(struct brcmf_sdio *bus, uint maxframes)
 		pkt_num = min_t(u32, pkt_num,
 				brcmu_pktq_mlen(&bus->txq, ~bus->flowcontrol));
 		__skb_queue_head_init(&pktq);
-		spin_lock_bh(&bus->txq_lock);
+		bh = spin_lock_bh(&bus->txq_lock, SOFTIRQ_ALL_MASK);
 		for (i = 0; i < pkt_num; i++) {
 			pkt = brcmu_pktq_mdeq(&bus->txq, tx_prec_map,
 					      &prec_out);
@@ -2301,7 +2303,7 @@ static uint brcmf_sdio_sendfromq(struct brcmf_sdio *bus, uint maxframes)
 				break;
 			__skb_queue_tail(&pktq, pkt);
 		}
-		spin_unlock_bh(&bus->txq_lock);
+		spin_unlock_bh(&bus->txq_lock, bh);
 		if (i == 0)
 			break;
 
@@ -2399,6 +2401,7 @@ static int brcmf_sdio_tx_ctrlframe(struct brcmf_sdio *bus, u8 *frame, u16 len)
 
 static void brcmf_sdio_bus_stop(struct device *dev)
 {
+	unsigned int bh;
 	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
 	struct brcmf_sdio_dev *sdiodev = bus_if->bus_priv.sdio;
 	struct brcmf_sdio *bus = sdiodev->bus;
@@ -2456,9 +2459,9 @@ static void brcmf_sdio_bus_stop(struct device *dev)
 	brcmf_sdio_free_glom(bus);
 
 	/* Clear rx control and wake any waiters */
-	spin_lock_bh(&bus->rxctl_lock);
+	bh = spin_lock_bh(&bus->rxctl_lock, SOFTIRQ_ALL_MASK);
 	bus->rxlen = 0;
-	spin_unlock_bh(&bus->rxctl_lock);
+	spin_unlock_bh(&bus->rxctl_lock, bh);
 	brcmf_sdio_dcmd_resp_wake(bus);
 
 	/* Reset some F2 state stuff */
@@ -2722,6 +2725,7 @@ static bool brcmf_sdio_prec_enq(struct pktq *q, struct sk_buff *pkt, int prec)
 
 static int brcmf_sdio_bus_txdata(struct device *dev, struct sk_buff *pkt)
 {
+	unsigned int bh;
 	int ret = -EBADE;
 	uint prec;
 	struct brcmf_bus *bus_if = dev_get_drvdata(dev);
@@ -2744,7 +2748,7 @@ static int brcmf_sdio_bus_txdata(struct device *dev, struct sk_buff *pkt)
 	bus->sdcnt.fcqueued++;
 
 	/* Priority based enq */
-	spin_lock_bh(&bus->txq_lock);
+	bh = spin_lock_bh(&bus->txq_lock, SOFTIRQ_ALL_MASK);
 	/* reset bus_flags in packet cb */
 	*(u16 *)(pkt->cb) = 0;
 	if (!brcmf_sdio_prec_enq(&bus->txq, pkt, prec)) {
@@ -2759,7 +2763,7 @@ static int brcmf_sdio_bus_txdata(struct device *dev, struct sk_buff *pkt)
 		bus->txoff = true;
 		brcmf_proto_bcdc_txflowblock(dev, true);
 	}
-	spin_unlock_bh(&bus->txq_lock);
+	spin_unlock_bh(&bus->txq_lock, bh);
 
 #ifdef DEBUG
 	if (pktq_plen(&bus->txq, prec) > qcount[prec])
@@ -3144,6 +3148,7 @@ static void brcmf_sdio_debugfs_create(struct brcmf_sdio *bus)
 static int
 brcmf_sdio_bus_rxctl(struct device *dev, unsigned char *msg, uint msglen)
 {
+	unsigned int bh;
 	int timeleft;
 	uint rxlen = 0;
 	bool pending;
@@ -3159,14 +3164,14 @@ brcmf_sdio_bus_rxctl(struct device *dev, unsigned char *msg, uint msglen)
 	/* Wait until control frame is available */
 	timeleft = brcmf_sdio_dcmd_resp_wait(bus, &bus->rxlen, &pending);
 
-	spin_lock_bh(&bus->rxctl_lock);
+	bh = spin_lock_bh(&bus->rxctl_lock, SOFTIRQ_ALL_MASK);
 	rxlen = bus->rxlen;
 	memcpy(msg, bus->rxctl, min(msglen, rxlen));
 	bus->rxctl = NULL;
 	buf = bus->rxctl_orig;
 	bus->rxctl_orig = NULL;
 	bus->rxlen = 0;
-	spin_unlock_bh(&bus->rxctl_lock);
+	spin_unlock_bh(&bus->rxctl_lock, bh);
 	vfree(buf);
 
 	if (rxlen) {

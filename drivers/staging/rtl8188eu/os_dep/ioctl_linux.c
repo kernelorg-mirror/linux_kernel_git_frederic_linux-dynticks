@@ -948,6 +948,7 @@ static int rtw_wx_set_wap(struct net_device *dev,
 			 union iwreq_data *awrq,
 			 char *extra)
 {
+	unsigned int bh;
 	uint ret = 0;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 	struct sockaddr *temp = (struct sockaddr *)awrq;
@@ -974,7 +975,7 @@ static int rtw_wx_set_wap(struct net_device *dev,
 	}
 
 	authmode = padapter->securitypriv.ndisauthtype;
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	phead = get_list_head(queue);
 	pmlmepriv->pscanned = phead->next;
 
@@ -990,14 +991,14 @@ static int rtw_wx_set_wap(struct net_device *dev,
 		if ((!memcmp(dst_bssid, src_bssid, ETH_ALEN))) {
 			if (!rtw_set_802_11_infrastructure_mode(padapter, pnetwork->network.InfrastructureMode)) {
 				ret = -1;
-				spin_unlock_bh(&queue->lock);
+				spin_unlock_bh(&queue->lock, bh);
 				goto exit;
 			}
 
 				break;
 		}
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 
 	rtw_set_802_11_authentication_mode(padapter, authmode);
 	/* set_802_11_encryption_mode(padapter, padapter->securitypriv.ndisencryptstatus); */
@@ -1070,6 +1071,7 @@ static int rtw_wx_set_mlme(struct net_device *dev,
 static int rtw_wx_set_scan(struct net_device *dev, struct iw_request_info *a,
 			     union iwreq_data *wrqu, char *extra)
 {
+	unsigned int bh;
 	u8 _status = false;
 	int ret = 0;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
@@ -1130,11 +1132,11 @@ static int rtw_wx_set_scan(struct net_device *dev, struct iw_request_info *a,
 
 			DBG_88E("IW_SCAN_THIS_ESSID, ssid =%s, len =%d\n", req->essid, req->essid_len);
 
-			spin_lock_bh(&pmlmepriv->lock);
+			bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 
 			_status = rtw_sitesurvey_cmd(padapter, ssid, 1, NULL, 0);
 
-			spin_unlock_bh(&pmlmepriv->lock);
+			spin_unlock_bh(&pmlmepriv->lock, bh);
 		} else if (req->scan_type == IW_SCAN_TYPE_PASSIVE) {
 			DBG_88E("rtw_wx_set_scan, req->scan_type == IW_SCAN_TYPE_PASSIVE\n");
 		}
@@ -1231,7 +1233,7 @@ static int rtw_wx_get_scan(struct net_device *dev, struct iw_request_info *a,
 			break;
 	}
 
-	spin_lock_bh(&(pmlmepriv->scanned_queue.lock));
+	spin_lock_bh(&(pmlmepriv->scanned_queue.lock), SOFTIRQ_ALL_MASK);
 
 	phead = get_list_head(queue);
 	plist = phead->next;
@@ -1269,6 +1271,7 @@ static int rtw_wx_set_essid(struct net_device *dev,
 			      struct iw_request_info *a,
 			      union iwreq_data *wrqu, char *extra)
 {
+	unsigned int bh;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct __queue *queue = &pmlmepriv->scanned_queue;
@@ -1316,7 +1319,7 @@ static int rtw_wx_set_essid(struct net_device *dev,
 		src_ssid = ndis_ssid.Ssid;
 
 		RT_TRACE(_module_rtl871x_ioctl_os_c, _drv_info_, ("rtw_wx_set_essid: ssid =[%s]\n", src_ssid));
-		spin_lock_bh(&queue->lock);
+		bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	       phead = get_list_head(queue);
 	      pmlmepriv->pscanned = phead->next;
 
@@ -1343,14 +1346,14 @@ static int rtw_wx_set_essid(struct net_device *dev,
 
 				if (!rtw_set_802_11_infrastructure_mode(padapter, pnetwork->network.InfrastructureMode)) {
 					ret = -1;
-					spin_unlock_bh(&queue->lock);
+					spin_unlock_bh(&queue->lock, bh);
 					goto exit;
 				}
 
 				break;
 			}
 		}
-		spin_unlock_bh(&queue->lock);
+		spin_unlock_bh(&queue->lock, bh);
 		RT_TRACE(_module_rtl871x_ioctl_os_c, _drv_info_,
 			 ("set ssid: set_802_11_auth. mode =%d\n", authmode));
 		rtw_set_802_11_authentication_mode(padapter, authmode);
@@ -2509,6 +2512,7 @@ static int rtw_add_sta(struct net_device *dev, struct ieee_param *param)
 
 static int rtw_del_sta(struct net_device *dev, struct ieee_param *param)
 {
+	unsigned int bh;
 	int ret = 0;
 	struct sta_info *psta = NULL;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
@@ -2526,13 +2530,13 @@ static int rtw_del_sta(struct net_device *dev, struct ieee_param *param)
 
 	psta = rtw_get_stainfo(pstapriv, param->sta_addr);
 	if (psta) {
-		spin_lock_bh(&pstapriv->asoc_list_lock);
+		bh = spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&psta->asoc_list)) {
 			list_del_init(&psta->asoc_list);
 			pstapriv->asoc_list_cnt--;
 			updated = ap_free_sta(padapter, psta, true, WLAN_REASON_DEAUTH_LEAVING);
 		}
-		spin_unlock_bh(&pstapriv->asoc_list_lock);
+		spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 		associated_clients_update(padapter, updated);
 		psta = NULL;
 	} else {

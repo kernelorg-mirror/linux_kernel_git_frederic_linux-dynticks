@@ -159,9 +159,10 @@ struct batadv_orig_node_vlan *
 batadv_orig_node_vlan_new(struct batadv_orig_node *orig_node,
 			  unsigned short vid)
 {
+	unsigned int bh;
 	struct batadv_orig_node_vlan *vlan;
 
-	spin_lock_bh(&orig_node->vlan_list_lock);
+	bh = spin_lock_bh(&orig_node->vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	/* first look if an object for this vid already exists */
 	vlan = batadv_orig_node_vlan_get(orig_node, vid);
@@ -179,7 +180,7 @@ batadv_orig_node_vlan_new(struct batadv_orig_node *orig_node,
 	hlist_add_head_rcu(&vlan->list, &orig_node->vlan_list);
 
 out:
-	spin_unlock_bh(&orig_node->vlan_list_lock);
+	spin_unlock_bh(&orig_node->vlan_list_lock, bh);
 
 	return vlan;
 }
@@ -272,14 +273,15 @@ void batadv_neigh_ifinfo_put(struct batadv_neigh_ifinfo *neigh_ifinfo)
  */
 static void batadv_hardif_neigh_release(struct kref *ref)
 {
+	unsigned int bh;
 	struct batadv_hardif_neigh_node *hardif_neigh;
 
 	hardif_neigh = container_of(ref, struct batadv_hardif_neigh_node,
 				    refcount);
 
-	spin_lock_bh(&hardif_neigh->if_incoming->neigh_list_lock);
+	bh = spin_lock_bh(&hardif_neigh->if_incoming->neigh_list_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_init_rcu(&hardif_neigh->list);
-	spin_unlock_bh(&hardif_neigh->if_incoming->neigh_list_lock);
+	spin_unlock_bh(&hardif_neigh->if_incoming->neigh_list_lock, bh);
 
 	batadv_hardif_put(hardif_neigh->if_incoming);
 	kfree_rcu(hardif_neigh, rcu);
@@ -410,10 +412,11 @@ struct batadv_orig_ifinfo *
 batadv_orig_ifinfo_new(struct batadv_orig_node *orig_node,
 		       struct batadv_hard_iface *if_outgoing)
 {
+	unsigned int bh;
 	struct batadv_orig_ifinfo *orig_ifinfo;
 	unsigned long reset_time;
 
-	spin_lock_bh(&orig_node->neigh_list_lock);
+	bh = spin_lock_bh(&orig_node->neigh_list_lock, SOFTIRQ_ALL_MASK);
 
 	orig_ifinfo = batadv_orig_ifinfo_get(orig_node, if_outgoing);
 	if (orig_ifinfo)
@@ -437,7 +440,7 @@ batadv_orig_ifinfo_new(struct batadv_orig_node *orig_node,
 	hlist_add_head_rcu(&orig_ifinfo->list,
 			   &orig_node->ifinfo_list);
 out:
-	spin_unlock_bh(&orig_node->neigh_list_lock);
+	spin_unlock_bh(&orig_node->neigh_list_lock, bh);
 	return orig_ifinfo;
 }
 
@@ -489,9 +492,10 @@ struct batadv_neigh_ifinfo *
 batadv_neigh_ifinfo_new(struct batadv_neigh_node *neigh,
 			struct batadv_hard_iface *if_outgoing)
 {
+	unsigned int bh;
 	struct batadv_neigh_ifinfo *neigh_ifinfo;
 
-	spin_lock_bh(&neigh->ifinfo_lock);
+	bh = spin_lock_bh(&neigh->ifinfo_lock, SOFTIRQ_ALL_MASK);
 
 	neigh_ifinfo = batadv_neigh_ifinfo_get(neigh, if_outgoing);
 	if (neigh_ifinfo)
@@ -512,7 +516,7 @@ batadv_neigh_ifinfo_new(struct batadv_neigh_node *neigh,
 	hlist_add_head_rcu(&neigh_ifinfo->list, &neigh->ifinfo_list);
 
 out:
-	spin_unlock_bh(&neigh->ifinfo_lock);
+	spin_unlock_bh(&neigh->ifinfo_lock, bh);
 
 	return neigh_ifinfo;
 }
@@ -567,10 +571,11 @@ batadv_hardif_neigh_create(struct batadv_hard_iface *hard_iface,
 			   const u8 *neigh_addr,
 			   struct batadv_orig_node *orig_node)
 {
+	unsigned int bh;
 	struct batadv_priv *bat_priv = netdev_priv(hard_iface->soft_iface);
 	struct batadv_hardif_neigh_node *hardif_neigh;
 
-	spin_lock_bh(&hard_iface->neigh_list_lock);
+	bh = spin_lock_bh(&hard_iface->neigh_list_lock, SOFTIRQ_ALL_MASK);
 
 	/* check if neighbor hasn't been added in the meantime */
 	hardif_neigh = batadv_hardif_neigh_get(hard_iface, neigh_addr);
@@ -596,7 +601,7 @@ batadv_hardif_neigh_create(struct batadv_hard_iface *hard_iface,
 	hlist_add_head_rcu(&hardif_neigh->list, &hard_iface->neigh_list);
 
 out:
-	spin_unlock_bh(&hard_iface->neigh_list_lock);
+	spin_unlock_bh(&hard_iface->neigh_list_lock, bh);
 	return hardif_neigh;
 }
 
@@ -671,10 +676,11 @@ batadv_neigh_node_create(struct batadv_orig_node *orig_node,
 			 struct batadv_hard_iface *hard_iface,
 			 const u8 *neigh_addr)
 {
+	unsigned int bh;
 	struct batadv_neigh_node *neigh_node;
 	struct batadv_hardif_neigh_node *hardif_neigh = NULL;
 
-	spin_lock_bh(&orig_node->neigh_list_lock);
+	bh = spin_lock_bh(&orig_node->neigh_list_lock, SOFTIRQ_ALL_MASK);
 
 	neigh_node = batadv_neigh_node_get(orig_node, hard_iface, neigh_addr);
 	if (neigh_node)
@@ -714,7 +720,7 @@ batadv_neigh_node_create(struct batadv_orig_node *orig_node,
 		   neigh_addr, orig_node->orig, hard_iface->net_dev->name);
 
 out:
-	spin_unlock_bh(&orig_node->neigh_list_lock);
+	spin_unlock_bh(&orig_node->neigh_list_lock, bh);
 
 	if (hardif_neigh)
 		batadv_hardif_neigh_put(hardif_neigh);
@@ -918,6 +924,7 @@ static void batadv_orig_node_free_rcu(struct rcu_head *rcu)
  */
 static void batadv_orig_node_release(struct kref *ref)
 {
+	unsigned int bh;
 	struct hlist_node *node_tmp;
 	struct batadv_neigh_node *neigh_node;
 	struct batadv_orig_node *orig_node;
@@ -927,7 +934,7 @@ static void batadv_orig_node_release(struct kref *ref)
 
 	orig_node = container_of(ref, struct batadv_orig_node, refcount);
 
-	spin_lock_bh(&orig_node->neigh_list_lock);
+	bh = spin_lock_bh(&orig_node->neigh_list_lock, SOFTIRQ_ALL_MASK);
 
 	/* for all neighbors towards this originator ... */
 	hlist_for_each_entry_safe(neigh_node, node_tmp,
@@ -944,12 +951,12 @@ static void batadv_orig_node_release(struct kref *ref)
 
 	last_candidate = orig_node->last_bonding_candidate;
 	orig_node->last_bonding_candidate = NULL;
-	spin_unlock_bh(&orig_node->neigh_list_lock);
+	spin_unlock_bh(&orig_node->neigh_list_lock, bh);
 
 	if (last_candidate)
 		batadv_orig_ifinfo_put(last_candidate);
 
-	spin_lock_bh(&orig_node->vlan_list_lock);
+	spin_lock_bh(&orig_node->vlan_list_lock, SOFTIRQ_ALL_MASK);
 	hlist_for_each_entry_safe(vlan, node_tmp, &orig_node->vlan_list, list) {
 		hlist_del_rcu(&vlan->list);
 		batadv_orig_node_vlan_put(vlan);
@@ -978,6 +985,7 @@ void batadv_orig_node_put(struct batadv_orig_node *orig_node)
  */
 void batadv_originator_free(struct batadv_priv *bat_priv)
 {
+	unsigned int bh;
 	struct batadv_hashtable *hash = bat_priv->orig_hash;
 	struct hlist_node *node_tmp;
 	struct hlist_head *head;
@@ -996,13 +1004,13 @@ void batadv_originator_free(struct batadv_priv *bat_priv)
 		head = &hash->table[i];
 		list_lock = &hash->list_locks[i];
 
-		spin_lock_bh(list_lock);
+		bh = spin_lock_bh(list_lock, SOFTIRQ_ALL_MASK);
 		hlist_for_each_entry_safe(orig_node, node_tmp,
 					  head, hash_entry) {
 			hlist_del_rcu(&orig_node->hash_entry);
 			batadv_orig_node_put(orig_node);
 		}
-		spin_unlock_bh(list_lock);
+		spin_unlock_bh(list_lock, bh);
 	}
 
 	batadv_hash_destroy(hash);
@@ -1096,11 +1104,12 @@ static void
 batadv_purge_neigh_ifinfo(struct batadv_priv *bat_priv,
 			  struct batadv_neigh_node *neigh)
 {
+	unsigned int bh;
 	struct batadv_neigh_ifinfo *neigh_ifinfo;
 	struct batadv_hard_iface *if_outgoing;
 	struct hlist_node *node_tmp;
 
-	spin_lock_bh(&neigh->ifinfo_lock);
+	bh = spin_lock_bh(&neigh->ifinfo_lock, SOFTIRQ_ALL_MASK);
 
 	/* for all ifinfo objects for this neighinator */
 	hlist_for_each_entry_safe(neigh_ifinfo, node_tmp,
@@ -1125,7 +1134,7 @@ batadv_purge_neigh_ifinfo(struct batadv_priv *bat_priv,
 		batadv_neigh_ifinfo_put(neigh_ifinfo);
 	}
 
-	spin_unlock_bh(&neigh->ifinfo_lock);
+	spin_unlock_bh(&neigh->ifinfo_lock, bh);
 }
 
 /**
@@ -1139,12 +1148,13 @@ static bool
 batadv_purge_orig_ifinfo(struct batadv_priv *bat_priv,
 			 struct batadv_orig_node *orig_node)
 {
+	unsigned int bh;
 	struct batadv_orig_ifinfo *orig_ifinfo;
 	struct batadv_hard_iface *if_outgoing;
 	struct hlist_node *node_tmp;
 	bool ifinfo_purged = false;
 
-	spin_lock_bh(&orig_node->neigh_list_lock);
+	bh = spin_lock_bh(&orig_node->neigh_list_lock, SOFTIRQ_ALL_MASK);
 
 	/* for all ifinfo objects for this originator */
 	hlist_for_each_entry_safe(orig_ifinfo, node_tmp,
@@ -1175,7 +1185,7 @@ batadv_purge_orig_ifinfo(struct batadv_priv *bat_priv,
 		}
 	}
 
-	spin_unlock_bh(&orig_node->neigh_list_lock);
+	spin_unlock_bh(&orig_node->neigh_list_lock, bh);
 
 	return ifinfo_purged;
 }
@@ -1191,13 +1201,14 @@ static bool
 batadv_purge_orig_neighbors(struct batadv_priv *bat_priv,
 			    struct batadv_orig_node *orig_node)
 {
+	unsigned int bh;
 	struct hlist_node *node_tmp;
 	struct batadv_neigh_node *neigh_node;
 	bool neigh_purged = false;
 	unsigned long last_seen;
 	struct batadv_hard_iface *if_incoming;
 
-	spin_lock_bh(&orig_node->neigh_list_lock);
+	bh = spin_lock_bh(&orig_node->neigh_list_lock, SOFTIRQ_ALL_MASK);
 
 	/* for all neighbors towards this originator ... */
 	hlist_for_each_entry_safe(neigh_node, node_tmp,
@@ -1234,7 +1245,7 @@ batadv_purge_orig_neighbors(struct batadv_priv *bat_priv,
 		}
 	}
 
-	spin_unlock_bh(&orig_node->neigh_list_lock);
+	spin_unlock_bh(&orig_node->neigh_list_lock, bh);
 	return neigh_purged;
 }
 
@@ -1345,6 +1356,7 @@ static bool batadv_purge_orig_node(struct batadv_priv *bat_priv,
  */
 void batadv_purge_orig_ref(struct batadv_priv *bat_priv)
 {
+	unsigned int bh;
 	struct batadv_hashtable *hash = bat_priv->orig_hash;
 	struct hlist_node *node_tmp;
 	struct hlist_head *head;
@@ -1360,7 +1372,7 @@ void batadv_purge_orig_ref(struct batadv_priv *bat_priv)
 		head = &hash->table[i];
 		list_lock = &hash->list_locks[i];
 
-		spin_lock_bh(list_lock);
+		bh = spin_lock_bh(list_lock, SOFTIRQ_ALL_MASK);
 		hlist_for_each_entry_safe(orig_node, node_tmp,
 					  head, hash_entry) {
 			if (batadv_purge_orig_node(bat_priv, orig_node)) {
@@ -1376,7 +1388,7 @@ void batadv_purge_orig_ref(struct batadv_priv *bat_priv)
 			batadv_frag_purge_orig(orig_node,
 					       batadv_frag_check_entry);
 		}
-		spin_unlock_bh(list_lock);
+		spin_unlock_bh(list_lock, bh);
 	}
 
 	batadv_gw_election(bat_priv);

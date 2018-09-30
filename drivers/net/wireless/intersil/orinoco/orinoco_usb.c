@@ -870,6 +870,7 @@ static int ezusb_access_ltv(struct ezusb_priv *upriv,
 			    u16 length, const void *data, u16 frame_type,
 			    void *ans_buff, unsigned ans_size, u16 *ans_length)
 {
+	unsigned int bh;
 	int req_size;
 	int retval = 0;
 	enum ezusb_state state;
@@ -885,7 +886,7 @@ static int ezusb_access_ltv(struct ezusb_priv *upriv,
 		err("%s: in urb not pending", __func__);
 
 	/* protect upriv->reply_count, guarantee sequential numbers */
-	spin_lock_bh(&upriv->reply_count_lock);
+	bh = spin_lock_bh(&upriv->reply_count_lock, SOFTIRQ_ALL_MASK);
 	req_size = ezusb_fill_req(ctx->buf, length, ctx->out_rid, data,
 				  frame_type, upriv->reply_count);
 	usb_fill_bulk_urb(ctx->outurb, upriv->udev, upriv->write_pipe,
@@ -897,7 +898,7 @@ static int ezusb_access_ltv(struct ezusb_priv *upriv,
 
 	ezusb_req_enqueue_run(upriv, ctx);
 
-	spin_unlock_bh(&upriv->reply_count_lock);
+	spin_unlock_bh(&upriv->reply_count_lock, bh);
 
 	if (ctx->in_rid)
 		ezusb_req_ctx_wait(upriv, ctx);
@@ -1521,7 +1522,7 @@ static inline void ezusb_delete(struct ezusb_priv *upriv)
 static void ezusb_lock_irqsave(spinlock_t *lock,
 			       unsigned long *flags) __acquires(lock)
 {
-	spin_lock_bh(lock);
+	spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 }
 
 static void ezusb_unlock_irqrestore(spinlock_t *lock,
@@ -1532,7 +1533,7 @@ static void ezusb_unlock_irqrestore(spinlock_t *lock,
 
 static void ezusb_lock_irq(spinlock_t *lock) __acquires(lock)
 {
-	spin_lock_bh(lock);
+	spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 }
 
 static void ezusb_unlock_irq(spinlock_t *lock) __releases(lock)

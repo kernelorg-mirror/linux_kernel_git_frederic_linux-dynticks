@@ -167,10 +167,11 @@ static void inode_io_list_del_locked(struct inode *inode,
 
 static void wb_wakeup(struct bdi_writeback *wb)
 {
-	spin_lock_bh(&wb->work_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&wb->work_lock, SOFTIRQ_ALL_MASK);
 	if (test_bit(WB_registered, &wb->state))
 		mod_delayed_work(bdi_wq, &wb->dwork, 0);
-	spin_unlock_bh(&wb->work_lock);
+	spin_unlock_bh(&wb->work_lock, bh);
 }
 
 static void finish_writeback_work(struct bdi_writeback *wb,
@@ -187,12 +188,13 @@ static void finish_writeback_work(struct bdi_writeback *wb,
 static void wb_queue_work(struct bdi_writeback *wb,
 			  struct wb_writeback_work *work)
 {
+	unsigned int bh;
 	trace_writeback_queue(wb, work);
 
 	if (work->done)
 		atomic_inc(&work->done->cnt);
 
-	spin_lock_bh(&wb->work_lock);
+	bh = spin_lock_bh(&wb->work_lock, SOFTIRQ_ALL_MASK);
 
 	if (test_bit(WB_registered, &wb->state)) {
 		list_add_tail(&work->list, &wb->work_list);
@@ -200,7 +202,7 @@ static void wb_queue_work(struct bdi_writeback *wb,
 	} else
 		finish_writeback_work(wb, work);
 
-	spin_unlock_bh(&wb->work_lock);
+	spin_unlock_bh(&wb->work_lock, bh);
 }
 
 /**
@@ -1806,15 +1808,16 @@ static long wb_writeback(struct bdi_writeback *wb,
  */
 static struct wb_writeback_work *get_next_work_item(struct bdi_writeback *wb)
 {
+	unsigned int bh;
 	struct wb_writeback_work *work = NULL;
 
-	spin_lock_bh(&wb->work_lock);
+	bh = spin_lock_bh(&wb->work_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&wb->work_list)) {
 		work = list_entry(wb->work_list.next,
 				  struct wb_writeback_work, list);
 		list_del_init(&work->list);
 	}
-	spin_unlock_bh(&wb->work_lock);
+	spin_unlock_bh(&wb->work_lock, bh);
 	return work;
 }
 

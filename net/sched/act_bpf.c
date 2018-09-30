@@ -137,6 +137,7 @@ static int tcf_bpf_dump_ebpf_info(const struct tcf_bpf *prog,
 static int tcf_bpf_dump(struct sk_buff *skb, struct tc_action *act,
 			int bind, int ref)
 {
+	unsigned int bh;
 	unsigned char *tp = skb_tail_pointer(skb);
 	struct tcf_bpf *prog = to_bpf(act);
 	struct tc_act_bpf opt = {
@@ -147,7 +148,7 @@ static int tcf_bpf_dump(struct sk_buff *skb, struct tc_action *act,
 	struct tcf_t tm;
 	int ret;
 
-	spin_lock_bh(&prog->tcf_lock);
+	bh = spin_lock_bh(&prog->tcf_lock, SOFTIRQ_ALL_MASK);
 	opt.action = prog->tcf_action;
 	if (nla_put(skb, TCA_ACT_BPF_PARMS, sizeof(opt), &opt))
 		goto nla_put_failure;
@@ -164,11 +165,11 @@ static int tcf_bpf_dump(struct sk_buff *skb, struct tc_action *act,
 			  TCA_ACT_BPF_PAD))
 		goto nla_put_failure;
 
-	spin_unlock_bh(&prog->tcf_lock);
+	spin_unlock_bh(&prog->tcf_lock, bh);
 	return skb->len;
 
 nla_put_failure:
-	spin_unlock_bh(&prog->tcf_lock);
+	spin_unlock_bh(&prog->tcf_lock, bh);
 	nlmsg_trim(skb, tp);
 	return -1;
 }
@@ -280,6 +281,7 @@ static int tcf_bpf_init(struct net *net, struct nlattr *nla,
 			int replace, int bind, bool rtnl_held,
 			struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct tc_action_net *tn = net_generic(net, bpf_net_id);
 	struct nlattr *tb[TCA_ACT_BPF_MAX + 1];
 	struct tcf_bpf_cfg cfg, old;
@@ -340,7 +342,7 @@ static int tcf_bpf_init(struct net *net, struct nlattr *nla,
 
 	prog = to_bpf(*act);
 
-	spin_lock_bh(&prog->tcf_lock);
+	bh = spin_lock_bh(&prog->tcf_lock, SOFTIRQ_ALL_MASK);
 	if (res != ACT_P_CREATED)
 		tcf_bpf_prog_fill_cfg(prog, &old);
 
@@ -352,7 +354,7 @@ static int tcf_bpf_init(struct net *net, struct nlattr *nla,
 
 	prog->tcf_action = parm->action;
 	rcu_assign_pointer(prog->filter, cfg.filter);
-	spin_unlock_bh(&prog->tcf_lock);
+	spin_unlock_bh(&prog->tcf_lock, bh);
 
 	if (res == ACT_P_CREATED) {
 		tcf_idr_insert(tn, *act);

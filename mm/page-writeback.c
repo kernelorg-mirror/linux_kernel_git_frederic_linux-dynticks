@@ -673,9 +673,10 @@ static unsigned int bdi_min_ratio;
 
 int bdi_set_min_ratio(struct backing_dev_info *bdi, unsigned int min_ratio)
 {
+	unsigned int bh;
 	int ret = 0;
 
-	spin_lock_bh(&bdi_lock);
+	bh = spin_lock_bh(&bdi_lock, SOFTIRQ_ALL_MASK);
 	if (min_ratio > bdi->max_ratio) {
 		ret = -EINVAL;
 	} else {
@@ -687,26 +688,27 @@ int bdi_set_min_ratio(struct backing_dev_info *bdi, unsigned int min_ratio)
 			ret = -EINVAL;
 		}
 	}
-	spin_unlock_bh(&bdi_lock);
+	spin_unlock_bh(&bdi_lock, bh);
 
 	return ret;
 }
 
 int bdi_set_max_ratio(struct backing_dev_info *bdi, unsigned max_ratio)
 {
+	unsigned int bh;
 	int ret = 0;
 
 	if (max_ratio > 100)
 		return -EINVAL;
 
-	spin_lock_bh(&bdi_lock);
+	bh = spin_lock_bh(&bdi_lock, SOFTIRQ_ALL_MASK);
 	if (bdi->min_ratio > max_ratio) {
 		ret = -EINVAL;
 	} else {
 		bdi->max_ratio = max_ratio;
 		bdi->max_prop_frac = (FPROP_FRAC_BASE * max_ratio) / 100;
 	}
-	spin_unlock_bh(&bdi_lock);
+	spin_unlock_bh(&bdi_lock, bh);
 
 	return ret;
 }

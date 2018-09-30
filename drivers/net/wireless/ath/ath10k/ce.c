@@ -636,14 +636,15 @@ int ath10k_ce_send(struct ath10k_ce_pipe *ce_state,
 		   unsigned int transfer_id,
 		   unsigned int flags)
 {
+	unsigned int bh;
 	struct ath10k *ar = ce_state->ar;
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	int ret;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 	ret = ath10k_ce_send_nolock(ce_state, per_transfer_context,
 				    buffer, nbytes, transfer_id, flags);
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	return ret;
 }
@@ -651,15 +652,16 @@ EXPORT_SYMBOL(ath10k_ce_send);
 
 int ath10k_ce_num_free_src_entries(struct ath10k_ce_pipe *pipe)
 {
+	unsigned int bh;
 	struct ath10k *ar = pipe->ar;
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	int delta;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 	delta = CE_RING_DELTA(pipe->src_ring->nentries_mask,
 			      pipe->src_ring->write_index,
 			      pipe->src_ring->sw_index - 1);
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	return delta;
 }
@@ -767,13 +769,14 @@ EXPORT_SYMBOL(ath10k_ce_rx_update_write_idx);
 int ath10k_ce_rx_post_buf(struct ath10k_ce_pipe *pipe, void *ctx,
 			  dma_addr_t paddr)
 {
+	unsigned int bh;
 	struct ath10k *ar = pipe->ar;
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	int ret;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 	ret = pipe->ops->ce_rx_post_buf(pipe, ctx, paddr);
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	return ret;
 }
@@ -896,16 +899,17 @@ int ath10k_ce_completed_recv_next(struct ath10k_ce_pipe *ce_state,
 				  void **per_transfer_contextp,
 				  unsigned int *nbytesp)
 {
+	unsigned int bh;
 	struct ath10k *ar = ce_state->ar;
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	int ret;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 	ret = ce_state->ops->ce_completed_recv_next_nolock(ce_state,
 						   per_transfer_contextp,
 						   nbytesp);
 
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	return ret;
 }
@@ -915,6 +919,7 @@ static int _ath10k_ce_revoke_recv_next(struct ath10k_ce_pipe *ce_state,
 				       void **per_transfer_contextp,
 				       dma_addr_t *bufferp)
 {
+	unsigned int bh;
 	struct ath10k_ce_ring *dest_ring;
 	unsigned int nentries_mask;
 	unsigned int sw_index;
@@ -931,7 +936,7 @@ static int _ath10k_ce_revoke_recv_next(struct ath10k_ce_pipe *ce_state,
 	ar = ce_state->ar;
 	ce = ath10k_ce_priv(ar);
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 
 	nentries_mask = dest_ring->nentries_mask;
 	sw_index = dest_ring->sw_index;
@@ -959,7 +964,7 @@ static int _ath10k_ce_revoke_recv_next(struct ath10k_ce_pipe *ce_state,
 		ret = -EIO;
 	}
 
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	return ret;
 }
@@ -968,6 +973,7 @@ static int _ath10k_ce_revoke_recv_next_64(struct ath10k_ce_pipe *ce_state,
 					  void **per_transfer_contextp,
 					  dma_addr_t *bufferp)
 {
+	unsigned int bh;
 	struct ath10k_ce_ring *dest_ring;
 	unsigned int nentries_mask;
 	unsigned int sw_index;
@@ -984,7 +990,7 @@ static int _ath10k_ce_revoke_recv_next_64(struct ath10k_ce_pipe *ce_state,
 	ar = ce_state->ar;
 	ce = ath10k_ce_priv(ar);
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 
 	nentries_mask = dest_ring->nentries_mask;
 	sw_index = dest_ring->sw_index;
@@ -1013,7 +1019,7 @@ static int _ath10k_ce_revoke_recv_next_64(struct ath10k_ce_pipe *ce_state,
 		ret = -EIO;
 	}
 
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	return ret;
 }
@@ -1128,6 +1134,7 @@ int ath10k_ce_cancel_send_next(struct ath10k_ce_pipe *ce_state,
 			       unsigned int *nbytesp,
 			       unsigned int *transfer_idp)
 {
+	unsigned int bh;
 	struct ath10k_ce_ring *src_ring;
 	unsigned int nentries_mask;
 	unsigned int sw_index;
@@ -1144,7 +1151,7 @@ int ath10k_ce_cancel_send_next(struct ath10k_ce_pipe *ce_state,
 	ar = ce_state->ar;
 	ce = ath10k_ce_priv(ar);
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 
 	nentries_mask = src_ring->nentries_mask;
 	sw_index = src_ring->sw_index;
@@ -1170,7 +1177,7 @@ int ath10k_ce_cancel_send_next(struct ath10k_ce_pipe *ce_state,
 		ret = -EIO;
 	}
 
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	return ret;
 }
@@ -1179,14 +1186,15 @@ EXPORT_SYMBOL(ath10k_ce_cancel_send_next);
 int ath10k_ce_completed_send_next(struct ath10k_ce_pipe *ce_state,
 				  void **per_transfer_contextp)
 {
+	unsigned int bh;
 	struct ath10k *ar = ce_state->ar;
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	int ret;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 	ret = ath10k_ce_completed_send_next_nolock(ce_state,
 						   per_transfer_contextp);
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	return ret;
 }
@@ -1205,7 +1213,7 @@ void ath10k_ce_per_engine_service(struct ath10k *ar, unsigned int ce_id)
 	struct ath10k_hw_ce_host_wm_regs *wm_regs = ar->hw_ce_regs->wm_regs;
 	u32 ctrl_addr = ce_state->ctrl_addr;
 
-	spin_lock_bh(&ce->ce_lock);
+	spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 
 	/* Clear the copy-complete interrupts that will be handled here. */
 	ath10k_ce_engine_int_status_clear(ar, ctrl_addr,
@@ -1219,7 +1227,7 @@ void ath10k_ce_per_engine_service(struct ath10k *ar, unsigned int ce_id)
 	if (ce_state->send_cb)
 		ce_state->send_cb(ce_state);
 
-	spin_lock_bh(&ce->ce_lock);
+	spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 
 	/*
 	 * Misc CE interrupts are not being handled, but still need
@@ -1755,6 +1763,7 @@ EXPORT_SYMBOL(ath10k_ce_free_pipe);
 void ath10k_ce_dump_registers(struct ath10k *ar,
 			      struct ath10k_fw_crash_data *crash_data)
 {
+	unsigned int bh;
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	struct ath10k_ce_crash_data ce_data;
 	u32 addr, id;
@@ -1763,7 +1772,7 @@ void ath10k_ce_dump_registers(struct ath10k *ar,
 
 	ath10k_err(ar, "Copy Engine register dump:\n");
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 	for (id = 0; id < CE_COUNT; id++) {
 		addr = ath10k_ce_base_address(ar, id);
 		ce_data.base_addr = cpu_to_le32(addr);
@@ -1788,7 +1797,7 @@ void ath10k_ce_dump_registers(struct ath10k *ar,
 			   le32_to_cpu(ce_data.dst_r_idx));
 	}
 
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 }
 EXPORT_SYMBOL(ath10k_ce_dump_registers);
 

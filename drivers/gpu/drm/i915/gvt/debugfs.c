@@ -84,6 +84,7 @@ static inline int mmio_diff_handler(struct intel_gvt *gvt,
 /* Show the all the different values of tracked mmio. */
 static int vgpu_mmio_diff_show(struct seq_file *s, void *unused)
 {
+	unsigned int bh;
 	struct intel_vgpu *vgpu = s->private;
 	struct intel_gvt *gvt = vgpu->gvt;
 	struct mmio_diff_param param = {
@@ -96,14 +97,14 @@ static int vgpu_mmio_diff_show(struct seq_file *s, void *unused)
 	INIT_LIST_HEAD(&param.diff_mmio_list);
 
 	mutex_lock(&gvt->lock);
-	spin_lock_bh(&gvt->scheduler.mmio_context_lock);
+	bh = spin_lock_bh(&gvt->scheduler.mmio_context_lock, SOFTIRQ_ALL_MASK);
 
 	mmio_hw_access_pre(gvt->dev_priv);
 	/* Recognize all the diff mmios to list. */
 	intel_gvt_for_each_tracked_mmio(gvt, mmio_diff_handler, &param);
 	mmio_hw_access_post(gvt->dev_priv);
 
-	spin_unlock_bh(&gvt->scheduler.mmio_context_lock);
+	spin_unlock_bh(&gvt->scheduler.mmio_context_lock, bh);
 	mutex_unlock(&gvt->lock);
 
 	/* In an ascending order by mmio offset. */

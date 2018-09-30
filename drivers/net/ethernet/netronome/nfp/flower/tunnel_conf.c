@@ -243,55 +243,58 @@ nfp_flower_xmit_tun_conf(struct nfp_app *app, u8 mtype, u16 plen, void *pdata,
 
 static bool nfp_tun_has_route(struct nfp_app *app, __be32 ipv4_addr)
 {
+	unsigned int bh;
 	struct nfp_flower_priv *priv = app->priv;
 	struct nfp_ipv4_route_entry *entry;
 	struct list_head *ptr, *storage;
 
-	spin_lock_bh(&priv->nfp_neigh_off_lock);
+	bh = spin_lock_bh(&priv->nfp_neigh_off_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_safe(ptr, storage, &priv->nfp_neigh_off_list) {
 		entry = list_entry(ptr, struct nfp_ipv4_route_entry, list);
 		if (entry->ipv4_addr == ipv4_addr) {
-			spin_unlock_bh(&priv->nfp_neigh_off_lock);
+			spin_unlock_bh(&priv->nfp_neigh_off_lock, bh);
 			return true;
 		}
 	}
-	spin_unlock_bh(&priv->nfp_neigh_off_lock);
+	spin_unlock_bh(&priv->nfp_neigh_off_lock, bh);
 	return false;
 }
 
 static void nfp_tun_add_route_to_cache(struct nfp_app *app, __be32 ipv4_addr)
 {
+	unsigned int bh;
 	struct nfp_flower_priv *priv = app->priv;
 	struct nfp_ipv4_route_entry *entry;
 	struct list_head *ptr, *storage;
 
-	spin_lock_bh(&priv->nfp_neigh_off_lock);
+	bh = spin_lock_bh(&priv->nfp_neigh_off_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_safe(ptr, storage, &priv->nfp_neigh_off_list) {
 		entry = list_entry(ptr, struct nfp_ipv4_route_entry, list);
 		if (entry->ipv4_addr == ipv4_addr) {
-			spin_unlock_bh(&priv->nfp_neigh_off_lock);
+			spin_unlock_bh(&priv->nfp_neigh_off_lock, bh);
 			return;
 		}
 	}
 	entry = kmalloc(sizeof(*entry), GFP_ATOMIC);
 	if (!entry) {
-		spin_unlock_bh(&priv->nfp_neigh_off_lock);
+		spin_unlock_bh(&priv->nfp_neigh_off_lock, bh);
 		nfp_flower_cmsg_warn(app, "Mem error when storing new route.\n");
 		return;
 	}
 
 	entry->ipv4_addr = ipv4_addr;
 	list_add_tail(&entry->list, &priv->nfp_neigh_off_list);
-	spin_unlock_bh(&priv->nfp_neigh_off_lock);
+	spin_unlock_bh(&priv->nfp_neigh_off_lock, bh);
 }
 
 static void nfp_tun_del_route_from_cache(struct nfp_app *app, __be32 ipv4_addr)
 {
+	unsigned int bh;
 	struct nfp_flower_priv *priv = app->priv;
 	struct nfp_ipv4_route_entry *entry;
 	struct list_head *ptr, *storage;
 
-	spin_lock_bh(&priv->nfp_neigh_off_lock);
+	bh = spin_lock_bh(&priv->nfp_neigh_off_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_safe(ptr, storage, &priv->nfp_neigh_off_list) {
 		entry = list_entry(ptr, struct nfp_ipv4_route_entry, list);
 		if (entry->ipv4_addr == ipv4_addr) {
@@ -300,7 +303,7 @@ static void nfp_tun_del_route_from_cache(struct nfp_app *app, __be32 ipv4_addr)
 			break;
 		}
 	}
-	spin_unlock_bh(&priv->nfp_neigh_off_lock);
+	spin_unlock_bh(&priv->nfp_neigh_off_lock, bh);
 }
 
 static void

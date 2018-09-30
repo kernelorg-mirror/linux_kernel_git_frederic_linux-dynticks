@@ -406,10 +406,11 @@ static void atmel_sha_fill_padding(struct atmel_sha_reqctx *ctx, int length)
 
 static struct atmel_sha_dev *atmel_sha_find_dev(struct atmel_sha_ctx *tctx)
 {
+	unsigned int bh;
 	struct atmel_sha_dev *dd = NULL;
 	struct atmel_sha_dev *tmp;
 
-	spin_lock_bh(&atmel_sha.lock);
+	bh = spin_lock_bh(&atmel_sha.lock, SOFTIRQ_ALL_MASK);
 	if (!tctx->dd) {
 		list_for_each_entry(tmp, &atmel_sha.dev_list, list) {
 			dd = tmp;
@@ -420,7 +421,7 @@ static struct atmel_sha_dev *atmel_sha_find_dev(struct atmel_sha_ctx *tctx)
 		dd = tctx->dd;
 	}
 
-	spin_unlock_bh(&atmel_sha.lock);
+	spin_unlock_bh(&atmel_sha.lock, bh);
 
 	return dd;
 }

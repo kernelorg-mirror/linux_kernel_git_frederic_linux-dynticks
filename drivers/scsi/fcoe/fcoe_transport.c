@@ -378,16 +378,17 @@ EXPORT_SYMBOL_GPL(fcoe_start_io);
  */
 void fcoe_clean_pending_queue(struct fc_lport *lport)
 {
+	unsigned int bh;
 	struct fcoe_port  *port = lport_priv(lport);
 	struct sk_buff *skb;
 
-	spin_lock_bh(&port->fcoe_pending_queue.lock);
+	bh = spin_lock_bh(&port->fcoe_pending_queue.lock, SOFTIRQ_ALL_MASK);
 	while ((skb = __skb_dequeue(&port->fcoe_pending_queue)) != NULL) {
 		spin_unlock_bh(&port->fcoe_pending_queue.lock);
 		kfree_skb(skb);
-		spin_lock_bh(&port->fcoe_pending_queue.lock);
+		spin_lock_bh(&port->fcoe_pending_queue.lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&port->fcoe_pending_queue.lock);
+	spin_unlock_bh(&port->fcoe_pending_queue.lock, bh);
 }
 EXPORT_SYMBOL_GPL(fcoe_clean_pending_queue);
 
@@ -406,10 +407,11 @@ EXPORT_SYMBOL_GPL(fcoe_clean_pending_queue);
  */
 void fcoe_check_wait_queue(struct fc_lport *lport, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct fcoe_port *port = lport_priv(lport);
 	int rc;
 
-	spin_lock_bh(&port->fcoe_pending_queue.lock);
+	bh = spin_lock_bh(&port->fcoe_pending_queue.lock, SOFTIRQ_ALL_MASK);
 
 	if (skb)
 		__skb_queue_tail(&port->fcoe_pending_queue, skb);
@@ -425,7 +427,7 @@ void fcoe_check_wait_queue(struct fc_lport *lport, struct sk_buff *skb)
 
 		spin_unlock_bh(&port->fcoe_pending_queue.lock);
 		rc = fcoe_start_io(skb);
-		spin_lock_bh(&port->fcoe_pending_queue.lock);
+		spin_lock_bh(&port->fcoe_pending_queue.lock, SOFTIRQ_ALL_MASK);
 
 		if (rc) {
 			__skb_queue_head(&port->fcoe_pending_queue, skb);
@@ -445,7 +447,7 @@ void fcoe_check_wait_queue(struct fc_lport *lport, struct sk_buff *skb)
 out:
 	if (port->fcoe_pending_queue.qlen > port->max_queue_depth)
 		lport->qfull = 1;
-	spin_unlock_bh(&port->fcoe_pending_queue.lock);
+	spin_unlock_bh(&port->fcoe_pending_queue.lock, bh);
 }
 EXPORT_SYMBOL_GPL(fcoe_check_wait_queue);
 

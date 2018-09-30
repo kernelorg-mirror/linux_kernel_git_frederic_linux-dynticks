@@ -254,6 +254,7 @@ svc_rdma_parse_connect_private(struct svcxprt_rdma *newxprt,
 static void handle_connect_req(struct rdma_cm_id *new_cma_id,
 			       struct rdma_conn_param *param)
 {
+	unsigned int bh;
 	struct svcxprt_rdma *listen_xprt = new_cma_id->context;
 	struct svcxprt_rdma *newxprt;
 	struct sockaddr *sa;
@@ -280,9 +281,9 @@ static void handle_connect_req(struct rdma_cm_id *new_cma_id,
 	 * Enqueue the new transport on the accept queue of the listening
 	 * transport
 	 */
-	spin_lock_bh(&listen_xprt->sc_lock);
+	bh = spin_lock_bh(&listen_xprt->sc_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&newxprt->sc_accept_q, &listen_xprt->sc_accept_q);
-	spin_unlock_bh(&listen_xprt->sc_lock);
+	spin_unlock_bh(&listen_xprt->sc_lock, bh);
 
 	set_bit(XPT_CONN, &listen_xprt->sc_xprt.xpt_flags);
 	svc_xprt_enqueue(&listen_xprt->sc_xprt);
@@ -442,6 +443,7 @@ static struct svc_xprt *svc_rdma_create(struct svc_serv *serv,
  */
 static struct svc_xprt *svc_rdma_accept(struct svc_xprt *xprt)
 {
+	unsigned int bh;
 	struct svcxprt_rdma *listen_rdma;
 	struct svcxprt_rdma *newxprt = NULL;
 	struct rdma_conn_param conn_param;
@@ -455,7 +457,7 @@ static struct svc_xprt *svc_rdma_accept(struct svc_xprt *xprt)
 	listen_rdma = container_of(xprt, struct svcxprt_rdma, sc_xprt);
 	clear_bit(XPT_CONN, &xprt->xpt_flags);
 	/* Get the next entry off the accept list */
-	spin_lock_bh(&listen_rdma->sc_lock);
+	bh = spin_lock_bh(&listen_rdma->sc_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&listen_rdma->sc_accept_q)) {
 		newxprt = list_entry(listen_rdma->sc_accept_q.next,
 				     struct svcxprt_rdma, sc_accept_q);
@@ -463,7 +465,7 @@ static struct svc_xprt *svc_rdma_accept(struct svc_xprt *xprt)
 	}
 	if (!list_empty(&listen_rdma->sc_accept_q))
 		set_bit(XPT_CONN, &listen_rdma->sc_xprt.xpt_flags);
-	spin_unlock_bh(&listen_rdma->sc_lock);
+	spin_unlock_bh(&listen_rdma->sc_lock, bh);
 	if (!newxprt)
 		return NULL;
 

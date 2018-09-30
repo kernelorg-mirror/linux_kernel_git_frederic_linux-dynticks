@@ -230,6 +230,7 @@ unsigned int ipvlan_mac_hash(const unsigned char *addr)
 void ipvlan_process_multicast(struct work_struct *work)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct ipvl_port *port = container_of(work, struct ipvl_port, wq);
 	struct ethhdr *ethh;
 	struct ipvl_dev *ipvlan;
@@ -243,9 +244,9 @@ void ipvlan_process_multicast(struct work_struct *work)
 
 	__skb_queue_head_init(&list);
 
-	spin_lock_bh(&port->backlog.lock);
+	bh = spin_lock_bh(&port->backlog.lock, SOFTIRQ_ALL_MASK);
 	skb_queue_splice_tail_init(&port->backlog, &list);
-	spin_unlock_bh(&port->backlog.lock);
+	spin_unlock_bh(&port->backlog.lock, bh);
 
 	while ((skb = __skb_dequeue(&list)) != NULL) {
 		struct net_device *dev = skb->dev;

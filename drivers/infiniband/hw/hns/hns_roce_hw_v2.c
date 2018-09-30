@@ -835,6 +835,7 @@ static int hns_roce_cmq_csq_clean(struct hns_roce_dev *hr_dev)
 static int hns_roce_cmq_send(struct hns_roce_dev *hr_dev,
 			     struct hns_roce_cmq_desc *desc, int num)
 {
+	unsigned int bh;
 	struct hns_roce_v2_priv *priv = (struct hns_roce_v2_priv *)hr_dev->priv;
 	struct hns_roce_v2_cmq_ring *csq = &priv->cmq.csq;
 	struct hns_roce_cmq_desc *desc_to_use;
@@ -848,10 +849,10 @@ static int hns_roce_cmq_send(struct hns_roce_dev *hr_dev,
 	if (hr_dev->is_reset)
 		return 0;
 
-	spin_lock_bh(&csq->lock);
+	bh = spin_lock_bh(&csq->lock, SOFTIRQ_ALL_MASK);
 
 	if (num > hns_roce_cmq_space(csq)) {
-		spin_unlock_bh(&csq->lock);
+		spin_unlock_bh(&csq->lock, bh);
 		return -EBUSY;
 	}
 
@@ -917,7 +918,7 @@ static int hns_roce_cmq_send(struct hns_roce_dev *hr_dev,
 		dev_warn(hr_dev->dev, "Cleaned %d, need to clean %d\n",
 			 handle, num);
 
-	spin_unlock_bh(&csq->lock);
+	spin_unlock_bh(&csq->lock, bh);
 
 	return ret;
 }

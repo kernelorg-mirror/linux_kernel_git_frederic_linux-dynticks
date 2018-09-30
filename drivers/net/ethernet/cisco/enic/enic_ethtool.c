@@ -476,12 +476,13 @@ static int enic_grxclsrule(struct enic *enic, struct ethtool_rxnfc *cmd)
 
 static int enic_get_rx_flow_hash(struct enic *enic, struct ethtool_rxnfc *cmd)
 {
+	unsigned int bh;
 	u8 rss_hash_type = 0;
 	cmd->data = 0;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	(void)vnic_dev_capable_rss_hash_type(enic->vdev, &rss_hash_type);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 	switch (cmd->flow_type) {
 	case TCP_V6_FLOW:
 	case TCP_V4_FLOW:
@@ -520,6 +521,7 @@ static int enic_get_rx_flow_hash(struct enic *enic, struct ethtool_rxnfc *cmd)
 static int enic_get_rxnfc(struct net_device *dev, struct ethtool_rxnfc *cmd,
 			  u32 *rule_locs)
 {
+	unsigned int bh;
 	struct enic *enic = netdev_priv(dev);
 	int ret = 0;
 
@@ -528,20 +530,20 @@ static int enic_get_rxnfc(struct net_device *dev, struct ethtool_rxnfc *cmd,
 		cmd->data = enic->rq_count;
 		break;
 	case ETHTOOL_GRXCLSRLCNT:
-		spin_lock_bh(&enic->rfs_h.lock);
+		bh = spin_lock_bh(&enic->rfs_h.lock, SOFTIRQ_ALL_MASK);
 		cmd->rule_cnt = enic->rfs_h.max - enic->rfs_h.free;
 		cmd->data = enic->rfs_h.max;
-		spin_unlock_bh(&enic->rfs_h.lock);
+		spin_unlock_bh(&enic->rfs_h.lock, bh);
 		break;
 	case ETHTOOL_GRXCLSRLALL:
-		spin_lock_bh(&enic->rfs_h.lock);
+		bh = spin_lock_bh(&enic->rfs_h.lock, SOFTIRQ_ALL_MASK);
 		ret = enic_grxclsrlall(enic, cmd, rule_locs);
-		spin_unlock_bh(&enic->rfs_h.lock);
+		spin_unlock_bh(&enic->rfs_h.lock, bh);
 		break;
 	case ETHTOOL_GRXCLSRULE:
-		spin_lock_bh(&enic->rfs_h.lock);
+		bh = spin_lock_bh(&enic->rfs_h.lock, SOFTIRQ_ALL_MASK);
 		ret = enic_grxclsrule(enic, cmd);
-		spin_unlock_bh(&enic->rfs_h.lock);
+		spin_unlock_bh(&enic->rfs_h.lock, bh);
 		break;
 	case ETHTOOL_GRXFH:
 		ret = enic_get_rx_flow_hash(enic, cmd);

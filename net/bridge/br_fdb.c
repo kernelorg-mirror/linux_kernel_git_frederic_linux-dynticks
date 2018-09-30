@@ -251,23 +251,25 @@ void br_fdb_find_delete_local(struct net_bridge *br,
 			      const struct net_bridge_port *p,
 			      const unsigned char *addr, u16 vid)
 {
+	unsigned int bh;
 	struct net_bridge_fdb_entry *f;
 
-	spin_lock_bh(&br->hash_lock);
+	bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 	f = br_fdb_find(br, addr, vid);
 	if (f && f->is_local && !f->added_by_user && f->dst == p)
 		fdb_delete_local(br, p, f);
-	spin_unlock_bh(&br->hash_lock);
+	spin_unlock_bh(&br->hash_lock, bh);
 }
 
 void br_fdb_changeaddr(struct net_bridge_port *p, const unsigned char *newaddr)
 {
+	unsigned int bh;
 	struct net_bridge_vlan_group *vg;
 	struct net_bridge_fdb_entry *f;
 	struct net_bridge *br = p->br;
 	struct net_bridge_vlan *v;
 
-	spin_lock_bh(&br->hash_lock);
+	bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 	vg = nbp_vlan_group(p);
 	hlist_for_each_entry(f, &br->fdb_list, fdb_node) {
 		if (f->dst == p && f->is_local && !f->added_by_user) {
@@ -298,16 +300,17 @@ insert:
 		fdb_insert(br, p, newaddr, v->vid);
 
 done:
-	spin_unlock_bh(&br->hash_lock);
+	spin_unlock_bh(&br->hash_lock, bh);
 }
 
 void br_fdb_change_mac_address(struct net_bridge *br, const u8 *newaddr)
 {
+	unsigned int bh;
 	struct net_bridge_vlan_group *vg;
 	struct net_bridge_fdb_entry *f;
 	struct net_bridge_vlan *v;
 
-	spin_lock_bh(&br->hash_lock);
+	bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 
 	/* If old entry was unassociated with any port, then delete it. */
 	f = br_fdb_find(br, br->dev->dev_addr, 0);
@@ -331,11 +334,12 @@ void br_fdb_change_mac_address(struct net_bridge *br, const u8 *newaddr)
 		fdb_insert(br, NULL, newaddr, v->vid);
 	}
 out:
-	spin_unlock_bh(&br->hash_lock);
+	spin_unlock_bh(&br->hash_lock, bh);
 }
 
 void br_fdb_cleanup(struct work_struct *work)
 {
+	unsigned int bh;
 	struct net_bridge *br = container_of(work, struct net_bridge,
 					     gc_work.work);
 	struct net_bridge_fdb_entry *f = NULL;
@@ -357,10 +361,10 @@ void br_fdb_cleanup(struct work_struct *work)
 		if (time_after(this_timer, now)) {
 			work_delay = min(work_delay, this_timer - now);
 		} else {
-			spin_lock_bh(&br->hash_lock);
+			bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 			if (!hlist_unhashed(&f->fdb_node))
 				fdb_delete(br, f, true);
-			spin_unlock_bh(&br->hash_lock);
+			spin_unlock_bh(&br->hash_lock, bh);
 		}
 	}
 	rcu_read_unlock();
@@ -373,15 +377,16 @@ void br_fdb_cleanup(struct work_struct *work)
 /* Completely flush all dynamic entries in forwarding database.*/
 void br_fdb_flush(struct net_bridge *br)
 {
+	unsigned int bh;
 	struct net_bridge_fdb_entry *f;
 	struct hlist_node *tmp;
 
-	spin_lock_bh(&br->hash_lock);
+	bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 	hlist_for_each_entry_safe(f, tmp, &br->fdb_list, fdb_node) {
 		if (!f->is_static)
 			fdb_delete(br, f, true);
 	}
-	spin_unlock_bh(&br->hash_lock);
+	spin_unlock_bh(&br->hash_lock, bh);
 }
 
 /* Flush all entries referring to a specific port.
@@ -393,10 +398,11 @@ void br_fdb_delete_by_port(struct net_bridge *br,
 			   u16 vid,
 			   int do_all)
 {
+	unsigned int bh;
 	struct net_bridge_fdb_entry *f;
 	struct hlist_node *tmp;
 
-	spin_lock_bh(&br->hash_lock);
+	bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 	hlist_for_each_entry_safe(f, tmp, &br->fdb_list, fdb_node) {
 		if (f->dst != p)
 			continue;
@@ -410,7 +416,7 @@ void br_fdb_delete_by_port(struct net_bridge *br,
 		else
 			fdb_delete(br, f, true);
 	}
-	spin_unlock_bh(&br->hash_lock);
+	spin_unlock_bh(&br->hash_lock, bh);
 }
 
 #if IS_ENABLED(CONFIG_ATM_LANE)
@@ -550,11 +556,12 @@ static int fdb_insert(struct net_bridge *br, struct net_bridge_port *source,
 int br_fdb_insert(struct net_bridge *br, struct net_bridge_port *source,
 		  const unsigned char *addr, u16 vid)
 {
+	unsigned int bh;
 	int ret;
 
-	spin_lock_bh(&br->hash_lock);
+	bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 	ret = fdb_insert(br, source, addr, vid);
-	spin_unlock_bh(&br->hash_lock);
+	spin_unlock_bh(&br->hash_lock, bh);
 	return ret;
 }
 
@@ -848,6 +855,7 @@ static int __br_fdb_add(struct ndmsg *ndm, struct net_bridge *br,
 			u16 nlh_flags, u16 vid)
 {
 	unsigned int bh;
+	unsigned int bh;
 	int err = 0;
 
 	if (ndm->ndm_flags & NTF_USE) {
@@ -864,10 +872,10 @@ static int __br_fdb_add(struct ndmsg *ndm, struct net_bridge *br,
 	} else if (ndm->ndm_flags & NTF_EXT_LEARNED) {
 		err = br_fdb_external_learn_add(br, p, addr, vid, true);
 	} else {
-		spin_lock_bh(&br->hash_lock);
+		bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 		err = fdb_add_entry(br, p, addr, ndm->ndm_state,
 				    nlh_flags, vid);
-		spin_unlock_bh(&br->hash_lock);
+		spin_unlock_bh(&br->hash_lock, bh);
 	}
 
 	return err;
@@ -960,11 +968,12 @@ static int __br_fdb_delete(struct net_bridge *br,
 			   const struct net_bridge_port *p,
 			   const unsigned char *addr, u16 vid)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&br->hash_lock);
+	bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 	err = fdb_delete_by_addr_and_port(br, p, addr, vid);
-	spin_unlock_bh(&br->hash_lock);
+	spin_unlock_bh(&br->hash_lock, bh);
 
 	return err;
 }
@@ -1074,13 +1083,14 @@ int br_fdb_external_learn_add(struct net_bridge *br, struct net_bridge_port *p,
 			      const unsigned char *addr, u16 vid,
 			      bool swdev_notify)
 {
+	unsigned int bh;
 	struct net_bridge_fdb_entry *fdb;
 	bool modified = false;
 	int err = 0;
 
 	trace_br_fdb_external_learn_add(br, p, addr, vid);
 
-	spin_lock_bh(&br->hash_lock);
+	bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 
 	fdb = br_fdb_find(br, addr, vid);
 	if (!fdb) {
@@ -1113,7 +1123,7 @@ int br_fdb_external_learn_add(struct net_bridge *br, struct net_bridge_port *p,
 	}
 
 err_unlock:
-	spin_unlock_bh(&br->hash_lock);
+	spin_unlock_bh(&br->hash_lock, bh);
 
 	return err;
 }
@@ -1122,10 +1132,11 @@ int br_fdb_external_learn_del(struct net_bridge *br, struct net_bridge_port *p,
 			      const unsigned char *addr, u16 vid,
 			      bool swdev_notify)
 {
+	unsigned int bh;
 	struct net_bridge_fdb_entry *fdb;
 	int err = 0;
 
-	spin_lock_bh(&br->hash_lock);
+	bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 
 	fdb = br_fdb_find(br, addr, vid);
 	if (fdb && fdb->added_by_external_learn)
@@ -1133,7 +1144,7 @@ int br_fdb_external_learn_del(struct net_bridge *br, struct net_bridge_port *p,
 	else
 		err = -ENOENT;
 
-	spin_unlock_bh(&br->hash_lock);
+	spin_unlock_bh(&br->hash_lock, bh);
 
 	return err;
 }
@@ -1141,13 +1152,14 @@ int br_fdb_external_learn_del(struct net_bridge *br, struct net_bridge_port *p,
 void br_fdb_offloaded_set(struct net_bridge *br, struct net_bridge_port *p,
 			  const unsigned char *addr, u16 vid)
 {
+	unsigned int bh;
 	struct net_bridge_fdb_entry *fdb;
 
-	spin_lock_bh(&br->hash_lock);
+	bh = spin_lock_bh(&br->hash_lock, SOFTIRQ_ALL_MASK);
 
 	fdb = br_fdb_find(br, addr, vid);
 	if (fdb)
 		fdb->offloaded = 1;
 
-	spin_unlock_bh(&br->hash_lock);
+	spin_unlock_bh(&br->hash_lock, bh);
 }

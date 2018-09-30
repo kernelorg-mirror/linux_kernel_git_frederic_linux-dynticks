@@ -473,6 +473,7 @@ static int blk_mangle_minor(int minor)
  */
 int blk_alloc_devt(struct hd_struct *part, dev_t *devt)
 {
+	unsigned int bh;
 	struct gendisk *disk = part_to_disk(part);
 	int idx;
 
@@ -485,9 +486,9 @@ int blk_alloc_devt(struct hd_struct *part, dev_t *devt)
 	/* allocate ext devt */
 	idr_preload(GFP_KERNEL);
 
-	spin_lock_bh(&ext_devt_lock);
+	bh = spin_lock_bh(&ext_devt_lock, SOFTIRQ_ALL_MASK);
 	idx = idr_alloc(&ext_devt_idr, part, 0, NR_EXT_DEVT, GFP_NOWAIT);
-	spin_unlock_bh(&ext_devt_lock);
+	spin_unlock_bh(&ext_devt_lock, bh);
 
 	idr_preload_end();
 	if (idx < 0)
@@ -508,13 +509,14 @@ int blk_alloc_devt(struct hd_struct *part, dev_t *devt)
  */
 void blk_free_devt(dev_t devt)
 {
+	unsigned int bh;
 	if (devt == MKDEV(0, 0))
 		return;
 
 	if (MAJOR(devt) == BLOCK_EXT_MAJOR) {
-		spin_lock_bh(&ext_devt_lock);
+		bh = spin_lock_bh(&ext_devt_lock, SOFTIRQ_ALL_MASK);
 		idr_remove(&ext_devt_idr, blk_mangle_minor(MINOR(devt)));
-		spin_unlock_bh(&ext_devt_lock);
+		spin_unlock_bh(&ext_devt_lock, bh);
 	}
 }
 
@@ -817,6 +819,7 @@ static ssize_t disk_badblocks_store(struct device *dev,
  */
 struct gendisk *get_gendisk(dev_t devt, int *partno)
 {
+	unsigned int bh;
 	struct gendisk *disk = NULL;
 
 	if (MAJOR(devt) != BLOCK_EXT_MAJOR) {
@@ -828,13 +831,13 @@ struct gendisk *get_gendisk(dev_t devt, int *partno)
 	} else {
 		struct hd_struct *part;
 
-		spin_lock_bh(&ext_devt_lock);
+		bh = spin_lock_bh(&ext_devt_lock, SOFTIRQ_ALL_MASK);
 		part = idr_find(&ext_devt_idr, blk_mangle_minor(MINOR(devt)));
 		if (part && get_disk_and_module(part_to_disk(part))) {
 			*partno = part->partno;
 			disk = part_to_disk(part);
 		}
-		spin_unlock_bh(&ext_devt_lock);
+		spin_unlock_bh(&ext_devt_lock, bh);
 	}
 
 	if (!disk)

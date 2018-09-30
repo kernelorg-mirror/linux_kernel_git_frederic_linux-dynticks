@@ -380,31 +380,34 @@ static inline int softreq_map_iobuf(struct nitrox_softreq *sr,
 static inline void backlog_list_add(struct nitrox_softreq *sr,
 				    struct nitrox_cmdq *cmdq)
 {
+	unsigned int bh;
 	INIT_LIST_HEAD(&sr->backlog);
 
-	spin_lock_bh(&cmdq->backlog_lock);
+	bh = spin_lock_bh(&cmdq->backlog_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&sr->backlog, &cmdq->backlog_head);
 	atomic_inc(&cmdq->backlog_count);
 	atomic_set(&sr->status, REQ_BACKLOG);
-	spin_unlock_bh(&cmdq->backlog_lock);
+	spin_unlock_bh(&cmdq->backlog_lock, bh);
 }
 
 static inline void response_list_add(struct nitrox_softreq *sr,
 				     struct nitrox_cmdq *cmdq)
 {
+	unsigned int bh;
 	INIT_LIST_HEAD(&sr->response);
 
-	spin_lock_bh(&cmdq->response_lock);
+	bh = spin_lock_bh(&cmdq->response_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&sr->response, &cmdq->response_head);
-	spin_unlock_bh(&cmdq->response_lock);
+	spin_unlock_bh(&cmdq->response_lock, bh);
 }
 
 static inline void response_list_del(struct nitrox_softreq *sr,
 				     struct nitrox_cmdq *cmdq)
 {
-	spin_lock_bh(&cmdq->response_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&cmdq->response_lock, SOFTIRQ_ALL_MASK);
 	list_del(&sr->response);
-	spin_unlock_bh(&cmdq->response_lock);
+	spin_unlock_bh(&cmdq->response_lock, bh);
 }
 
 static struct nitrox_softreq *
@@ -435,11 +438,12 @@ static inline bool cmdq_full(struct nitrox_cmdq *cmdq, int qlen)
 static void post_se_instr(struct nitrox_softreq *sr,
 			  struct nitrox_cmdq *cmdq)
 {
+	unsigned int bh;
 	struct nitrox_device *ndev = sr->ndev;
 	int idx;
 	u8 *ent;
 
-	spin_lock_bh(&cmdq->cmdq_lock);
+	bh = spin_lock_bh(&cmdq->cmdq_lock, SOFTIRQ_ALL_MASK);
 
 	idx = cmdq->write_idx;
 	/* copy the instruction */
@@ -459,11 +463,12 @@ static void post_se_instr(struct nitrox_softreq *sr,
 
 	cmdq->write_idx = incr_index(idx, 1, ndev->qlen);
 
-	spin_unlock_bh(&cmdq->cmdq_lock);
+	spin_unlock_bh(&cmdq->cmdq_lock, bh);
 }
 
 static int post_backlog_cmds(struct nitrox_cmdq *cmdq)
 {
+	unsigned int bh;
 	struct nitrox_device *ndev = cmdq->ndev;
 	struct nitrox_softreq *sr, *tmp;
 	int ret = 0;
@@ -471,7 +476,7 @@ static int post_backlog_cmds(struct nitrox_cmdq *cmdq)
 	if (!atomic_read(&cmdq->backlog_count))
 		return 0;
 
-	spin_lock_bh(&cmdq->backlog_lock);
+	bh = spin_lock_bh(&cmdq->backlog_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe(sr, tmp, &cmdq->backlog_head, backlog) {
 		struct skcipher_request *skreq;
@@ -494,7 +499,7 @@ static int post_backlog_cmds(struct nitrox_cmdq *cmdq)
 		/* backlog requests are posted, wakeup with -EINPROGRESS */
 		skcipher_request_complete(skreq, -EINPROGRESS);
 	}
-	spin_unlock_bh(&cmdq->backlog_lock);
+	spin_unlock_bh(&cmdq->backlog_lock, bh);
 
 	return ret;
 }

@@ -795,6 +795,7 @@ static int ieee80211_open(struct net_device *dev)
 static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata,
 			      bool going_down)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = sdata->local;
 	unsigned long flags;
 	struct sk_buff *skb, *tmp;
@@ -871,10 +872,10 @@ static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata,
 
 	if (sdata->dev) {
 		netif_addr_lock_bh(sdata->dev);
-		spin_lock_bh(&local->filter_lock);
+		bh = spin_lock_bh(&local->filter_lock, SOFTIRQ_ALL_MASK);
 		__hw_addr_unsync(&local->mc_list, &sdata->dev->mc,
 				 sdata->dev->addr_len);
-		spin_unlock_bh(&local->filter_lock);
+		spin_unlock_bh(&local->filter_lock, bh);
 		netif_addr_unlock_bh(sdata->dev);
 	}
 
@@ -963,7 +964,7 @@ static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata,
 		break;
 	case NL80211_IFTYPE_NAN:
 		/* clean all the functions */
-		spin_lock_bh(&sdata->u.nan.func_lock);
+		bh = spin_lock_bh(&sdata->u.nan.func_lock, SOFTIRQ_ALL_MASK);
 
 		idr_for_each_entry(&sdata->u.nan.function_inst_ids, func, i) {
 			idr_remove(&sdata->u.nan.function_inst_ids, i);
@@ -971,7 +972,7 @@ static void ieee80211_do_stop(struct ieee80211_sub_if_data *sdata,
 		}
 		idr_destroy(&sdata->u.nan.function_inst_ids);
 
-		spin_unlock_bh(&sdata->u.nan.func_lock);
+		spin_unlock_bh(&sdata->u.nan.func_lock, bh);
 		break;
 	case NL80211_IFTYPE_P2P_DEVICE:
 		/* relies on synchronize_rcu() below */
@@ -1081,6 +1082,7 @@ static int ieee80211_stop(struct net_device *dev)
 
 static void ieee80211_set_multicast_list(struct net_device *dev)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = IEEE80211_DEV_TO_SUB_IF(dev);
 	struct ieee80211_local *local = sdata->local;
 	int allmulti, sdata_allmulti;
@@ -1096,9 +1098,9 @@ static void ieee80211_set_multicast_list(struct net_device *dev)
 		sdata->flags ^= IEEE80211_SDATA_ALLMULTI;
 	}
 
-	spin_lock_bh(&local->filter_lock);
+	bh = spin_lock_bh(&local->filter_lock, SOFTIRQ_ALL_MASK);
 	__hw_addr_sync(&local->mc_list, &dev->mc, dev->addr_len);
-	spin_unlock_bh(&local->filter_lock);
+	spin_unlock_bh(&local->filter_lock, bh);
 	ieee80211_queue_work(&local->hw, &local->reconfig_filter);
 }
 

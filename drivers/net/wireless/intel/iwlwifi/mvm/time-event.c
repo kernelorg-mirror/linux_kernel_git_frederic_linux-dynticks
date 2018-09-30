@@ -424,6 +424,7 @@ static int iwl_mvm_aux_roc_te_handle_notif(struct iwl_mvm *mvm,
 void iwl_mvm_rx_time_event_notif(struct iwl_mvm *mvm,
 				 struct iwl_rx_cmd_buffer *rxb)
 {
+	unsigned int bh;
 	struct iwl_rx_packet *pkt = rxb_addr(rxb);
 	struct iwl_time_event_notif *notif = (void *)pkt->data;
 	struct iwl_mvm_time_event_data *te_data, *tmp;
@@ -432,7 +433,7 @@ void iwl_mvm_rx_time_event_notif(struct iwl_mvm *mvm,
 		     le32_to_cpu(notif->unique_id),
 		     le32_to_cpu(notif->action));
 
-	spin_lock_bh(&mvm->time_event_lock);
+	bh = spin_lock_bh(&mvm->time_event_lock, SOFTIRQ_ALL_MASK);
 	/* This time event is triggered for Aux ROC request */
 	if (!iwl_mvm_aux_roc_te_handle_notif(mvm, notif))
 		goto unlock;
@@ -442,7 +443,7 @@ void iwl_mvm_rx_time_event_notif(struct iwl_mvm *mvm,
 			iwl_mvm_te_handle_notif(mvm, te_data, notif);
 	}
 unlock:
-	spin_unlock_bh(&mvm->time_event_lock);
+	spin_unlock_bh(&mvm->time_event_lock, bh);
 }
 
 static bool iwl_mvm_te_notif(struct iwl_notif_wait_data *notif_wait,
@@ -511,6 +512,7 @@ static int iwl_mvm_time_event_send_add(struct iwl_mvm *mvm,
 				       struct iwl_mvm_time_event_data *te_data,
 				       struct iwl_time_event_cmd *te_cmd)
 {
+	unsigned int bh;
 	static const u16 time_event_response[] = { TIME_EVENT_CMD };
 	struct iwl_notification_wait wait_time_event;
 	int ret;
@@ -520,16 +522,16 @@ static int iwl_mvm_time_event_send_add(struct iwl_mvm *mvm,
 	IWL_DEBUG_TE(mvm, "Add new TE, duration %d TU\n",
 		     le32_to_cpu(te_cmd->duration));
 
-	spin_lock_bh(&mvm->time_event_lock);
+	bh = spin_lock_bh(&mvm->time_event_lock, SOFTIRQ_ALL_MASK);
 	if (WARN_ON(te_data->id != TE_MAX)) {
-		spin_unlock_bh(&mvm->time_event_lock);
+		spin_unlock_bh(&mvm->time_event_lock, bh);
 		return -EIO;
 	}
 	te_data->vif = vif;
 	te_data->duration = le32_to_cpu(te_cmd->duration);
 	te_data->id = le32_to_cpu(te_cmd->id);
 	list_add_tail(&te_data->list, &mvm->time_event_list);
-	spin_unlock_bh(&mvm->time_event_lock);
+	spin_unlock_bh(&mvm->time_event_lock, bh);
 
 	/*
 	 * Use a notification wait, which really just processes the
@@ -560,7 +562,7 @@ static int iwl_mvm_time_event_send_add(struct iwl_mvm *mvm,
 
 	if (ret) {
  out_clear_te:
-		spin_lock_bh(&mvm->time_event_lock);
+		spin_lock_bh(&mvm->time_event_lock, SOFTIRQ_ALL_MASK);
 		iwl_mvm_te_clear_data(mvm, te_data);
 		spin_unlock_bh(&mvm->time_event_lock);
 	}
@@ -647,13 +649,14 @@ static bool __iwl_mvm_remove_time_event(struct iwl_mvm *mvm,
 					struct iwl_mvm_time_event_data *te_data,
 					u32 *uid)
 {
+	unsigned int bh;
 	u32 id;
 
 	/*
 	 * It is possible that by the time we got to this point the time
 	 * event was already removed.
 	 */
-	spin_lock_bh(&mvm->time_event_lock);
+	bh = spin_lock_bh(&mvm->time_event_lock, SOFTIRQ_ALL_MASK);
 
 	/* Save time event uid before clearing its data */
 	*uid = te_data->uid;
@@ -663,7 +666,7 @@ static bool __iwl_mvm_remove_time_event(struct iwl_mvm *mvm,
 	 * The clear_data function handles time events that were already removed
 	 */
 	iwl_mvm_te_clear_data(mvm, te_data);
-	spin_unlock_bh(&mvm->time_event_lock);
+	spin_unlock_bh(&mvm->time_event_lock, bh);
 
 	/*
 	 * It is possible that by the time we try to remove it, the time event
@@ -740,15 +743,16 @@ void iwl_mvm_remove_time_event(struct iwl_mvm *mvm,
 void iwl_mvm_stop_session_protection(struct iwl_mvm *mvm,
 				     struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 	struct iwl_mvm_time_event_data *te_data = &mvmvif->time_event_data;
 	u32 id;
 
 	lockdep_assert_held(&mvm->mutex);
 
-	spin_lock_bh(&mvm->time_event_lock);
+	bh = spin_lock_bh(&mvm->time_event_lock, SOFTIRQ_ALL_MASK);
 	id = te_data->id;
-	spin_unlock_bh(&mvm->time_event_lock);
+	spin_unlock_bh(&mvm->time_event_lock, bh);
 
 	if (id != TE_BSS_STA_AGGRESSIVE_ASSOC) {
 		IWL_DEBUG_TE(mvm,
@@ -811,11 +815,12 @@ int iwl_mvm_start_p2p_roc(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 
 static struct iwl_mvm_time_event_data *iwl_mvm_get_roc_te(struct iwl_mvm *mvm)
 {
+	unsigned int bh;
 	struct iwl_mvm_time_event_data *te_data;
 
 	lockdep_assert_held(&mvm->mutex);
 
-	spin_lock_bh(&mvm->time_event_lock);
+	bh = spin_lock_bh(&mvm->time_event_lock, SOFTIRQ_ALL_MASK);
 
 	/*
 	 * Iterate over the list of time events and find the time event that is
@@ -836,7 +841,7 @@ static struct iwl_mvm_time_event_data *iwl_mvm_get_roc_te(struct iwl_mvm *mvm)
 					   struct iwl_mvm_time_event_data,
 					   list);
 out:
-	spin_unlock_bh(&mvm->time_event_lock);
+	spin_unlock_bh(&mvm->time_event_lock, bh);
 	return te_data;
 }
 
@@ -877,6 +882,7 @@ int iwl_mvm_schedule_csa_period(struct iwl_mvm *mvm,
 				struct ieee80211_vif *vif,
 				u32 duration, u32 apply_time)
 {
+	unsigned int bh;
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 	struct iwl_mvm_time_event_data *te_data = &mvmvif->time_event_data;
 	struct iwl_time_event_cmd time_cmd = {};
@@ -886,9 +892,9 @@ int iwl_mvm_schedule_csa_period(struct iwl_mvm *mvm,
 	if (te_data->running) {
 		u32 id;
 
-		spin_lock_bh(&mvm->time_event_lock);
+		bh = spin_lock_bh(&mvm->time_event_lock, SOFTIRQ_ALL_MASK);
 		id = te_data->id;
-		spin_unlock_bh(&mvm->time_event_lock);
+		spin_unlock_bh(&mvm->time_event_lock, bh);
 
 		if (id == TE_CHANNEL_SWITCH_PERIOD) {
 			IWL_DEBUG_TE(mvm, "CS period is already scheduled\n");

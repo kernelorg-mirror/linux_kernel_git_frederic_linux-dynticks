@@ -258,6 +258,7 @@ static void
 xpnet_connection_activity(enum xp_retval reason, short partid, int channel,
 			  void *data, void *key)
 {
+	unsigned int bh;
 	DBUG_ON(partid < 0 || partid >= xp_max_npartitions);
 	DBUG_ON(channel != XPC_NET_CHANNEL);
 
@@ -269,9 +270,9 @@ xpnet_connection_activity(enum xp_retval reason, short partid, int channel,
 		break;
 
 	case xpConnected:	/* connection completed to a partition */
-		spin_lock_bh(&xpnet_broadcast_lock);
+		bh = spin_lock_bh(&xpnet_broadcast_lock, SOFTIRQ_ALL_MASK);
 		__set_bit(partid, xpnet_broadcast_partitions);
-		spin_unlock_bh(&xpnet_broadcast_lock);
+		spin_unlock_bh(&xpnet_broadcast_lock, bh);
 
 		netif_carrier_on(xpnet_device);
 
@@ -280,9 +281,9 @@ xpnet_connection_activity(enum xp_retval reason, short partid, int channel,
 		break;
 
 	default:
-		spin_lock_bh(&xpnet_broadcast_lock);
+		bh = spin_lock_bh(&xpnet_broadcast_lock, SOFTIRQ_ALL_MASK);
 		__clear_bit(partid, xpnet_broadcast_partitions);
-		spin_unlock_bh(&xpnet_broadcast_lock);
+		spin_unlock_bh(&xpnet_broadcast_lock, bh);
 
 		if (bitmap_empty((unsigned long *)xpnet_broadcast_partitions,
 				 xp_max_npartitions)) {

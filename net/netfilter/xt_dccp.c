@@ -40,6 +40,7 @@ dccp_find_option(u_int8_t option,
 		 const struct dccp_hdr *dh,
 		 bool *hotdrop)
 {
+	unsigned int bh;
 	/* tcp.doff is only 4 bits, ie. max 15 * 4 bytes */
 	const unsigned char *op;
 	unsigned int optoff = __dccp_hdr_len(dh);
@@ -52,7 +53,7 @@ dccp_find_option(u_int8_t option,
 	if (!optlen)
 		return false;
 
-	spin_lock_bh(&dccp_buflock);
+	bh = spin_lock_bh(&dccp_buflock, SOFTIRQ_ALL_MASK);
 	op = skb_header_pointer(skb, protoff + optoff, optlen, dccp_optbuf);
 	if (op == NULL) {
 		/* If we don't have the whole header, drop packet. */
@@ -61,7 +62,7 @@ dccp_find_option(u_int8_t option,
 
 	for (i = 0; i < optlen; ) {
 		if (op[i] == option) {
-			spin_unlock_bh(&dccp_buflock);
+			spin_unlock_bh(&dccp_buflock, bh);
 			return true;
 		}
 
@@ -71,11 +72,11 @@ dccp_find_option(u_int8_t option,
 			i += op[i+1]?:1;
 	}
 
-	spin_unlock_bh(&dccp_buflock);
+	spin_unlock_bh(&dccp_buflock, bh);
 	return false;
 
 partial:
-	spin_unlock_bh(&dccp_buflock);
+	spin_unlock_bh(&dccp_buflock, bh);
 invalid:
 	*hotdrop = true;
 	return false;

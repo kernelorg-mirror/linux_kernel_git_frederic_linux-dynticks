@@ -334,6 +334,7 @@ insert_tree(struct net *net,
 	    const struct nf_conntrack_tuple *tuple,
 	    const struct nf_conntrack_zone *zone)
 {
+	unsigned int bh;
 	enum nf_conncount_list_add ret;
 	struct nf_conncount_rb *gc_nodes[CONNCOUNT_GC_MAX_NODES];
 	struct rb_node **rbnode, *parent;
@@ -342,7 +343,7 @@ insert_tree(struct net *net,
 	unsigned int count = 0, gc_count = 0;
 	bool node_found = false;
 
-	spin_lock_bh(&nf_conncount_locks[hash % CONNCOUNT_LOCK_SLOTS]);
+	bh = spin_lock_bh(&nf_conncount_locks[hash % CONNCOUNT_LOCK_SLOTS], SOFTIRQ_ALL_MASK);
 
 	parent = NULL;
 	rbnode = &(root->rb_node);
@@ -418,7 +419,7 @@ insert_tree(struct net *net,
 	rb_link_node(&rbconn->node, parent, rbnode);
 	rb_insert_color(&rbconn->node, root);
 out_unlock:
-	spin_unlock_bh(&nf_conncount_locks[hash % CONNCOUNT_LOCK_SLOTS]);
+	spin_unlock_bh(&nf_conncount_locks[hash % CONNCOUNT_LOCK_SLOTS], bh);
 	return count;
 }
 
@@ -481,6 +482,7 @@ count_tree(struct net *net,
 
 static void tree_gc_worker(struct work_struct *work)
 {
+	unsigned int bh;
 	struct nf_conncount_data *data = container_of(work, struct nf_conncount_data, gc_work);
 	struct nf_conncount_rb *gc_nodes[CONNCOUNT_GC_MAX_NODES], *rbconn;
 	struct rb_root *root;
@@ -498,7 +500,7 @@ static void tree_gc_worker(struct work_struct *work)
 	}
 	rcu_read_unlock();
 
-	spin_lock_bh(&nf_conncount_locks[tree]);
+	bh = spin_lock_bh(&nf_conncount_locks[tree], SOFTIRQ_ALL_MASK);
 
 	if (gc_count) {
 		tree_nodes_free(root, gc_nodes, gc_count);
@@ -514,7 +516,7 @@ static void tree_gc_worker(struct work_struct *work)
 		schedule_work(work);
 	}
 
-	spin_unlock_bh(&nf_conncount_locks[tree]);
+	spin_unlock_bh(&nf_conncount_locks[tree], bh);
 }
 
 /* Count and return number of conntrack entries in 'net' with particular 'key'.

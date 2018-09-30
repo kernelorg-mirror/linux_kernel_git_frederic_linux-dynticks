@@ -403,6 +403,7 @@ int i40evf_request_queues(struct i40evf_adapter *adapter, int num)
  **/
 void i40evf_add_ether_addrs(struct i40evf_adapter *adapter)
 {
+	unsigned int bh;
 	struct virtchnl_ether_addr_list *veal;
 	int len, i = 0, count = 0;
 	struct i40evf_mac_filter *f;
@@ -415,7 +416,7 @@ void i40evf_add_ether_addrs(struct i40evf_adapter *adapter)
 		return;
 	}
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(f, &adapter->mac_filter_list, list) {
 		if (f->add)
@@ -423,7 +424,7 @@ void i40evf_add_ether_addrs(struct i40evf_adapter *adapter)
 	}
 	if (!count) {
 		adapter->aq_required &= ~I40EVF_FLAG_AQ_ADD_MAC_FILTER;
-		spin_unlock_bh(&adapter->mac_vlan_list_lock);
+		spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 		return;
 	}
 	adapter->current_op = VIRTCHNL_OP_ADD_ETH_ADDR;
@@ -442,7 +443,7 @@ void i40evf_add_ether_addrs(struct i40evf_adapter *adapter)
 
 	veal = kzalloc(len, GFP_ATOMIC);
 	if (!veal) {
-		spin_unlock_bh(&adapter->mac_vlan_list_lock);
+		spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 		return;
 	}
 
@@ -460,7 +461,7 @@ void i40evf_add_ether_addrs(struct i40evf_adapter *adapter)
 	if (!more)
 		adapter->aq_required &= ~I40EVF_FLAG_AQ_ADD_MAC_FILTER;
 
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 
 	i40evf_send_pf_msg(adapter, VIRTCHNL_OP_ADD_ETH_ADDR,
 			   (u8 *)veal, len);
@@ -475,6 +476,7 @@ void i40evf_add_ether_addrs(struct i40evf_adapter *adapter)
  **/
 void i40evf_del_ether_addrs(struct i40evf_adapter *adapter)
 {
+	unsigned int bh;
 	struct virtchnl_ether_addr_list *veal;
 	struct i40evf_mac_filter *f, *ftmp;
 	int len, i = 0, count = 0;
@@ -487,7 +489,7 @@ void i40evf_del_ether_addrs(struct i40evf_adapter *adapter)
 		return;
 	}
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(f, &adapter->mac_filter_list, list) {
 		if (f->remove)
@@ -495,7 +497,7 @@ void i40evf_del_ether_addrs(struct i40evf_adapter *adapter)
 	}
 	if (!count) {
 		adapter->aq_required &= ~I40EVF_FLAG_AQ_DEL_MAC_FILTER;
-		spin_unlock_bh(&adapter->mac_vlan_list_lock);
+		spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 		return;
 	}
 	adapter->current_op = VIRTCHNL_OP_DEL_ETH_ADDR;
@@ -513,7 +515,7 @@ void i40evf_del_ether_addrs(struct i40evf_adapter *adapter)
 	}
 	veal = kzalloc(len, GFP_ATOMIC);
 	if (!veal) {
-		spin_unlock_bh(&adapter->mac_vlan_list_lock);
+		spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 		return;
 	}
 
@@ -532,7 +534,7 @@ void i40evf_del_ether_addrs(struct i40evf_adapter *adapter)
 	if (!more)
 		adapter->aq_required &= ~I40EVF_FLAG_AQ_DEL_MAC_FILTER;
 
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 
 	i40evf_send_pf_msg(adapter, VIRTCHNL_OP_DEL_ETH_ADDR,
 			   (u8 *)veal, len);
@@ -547,6 +549,7 @@ void i40evf_del_ether_addrs(struct i40evf_adapter *adapter)
  **/
 void i40evf_add_vlans(struct i40evf_adapter *adapter)
 {
+	unsigned int bh;
 	struct virtchnl_vlan_filter_list *vvfl;
 	int len, i = 0, count = 0;
 	struct i40evf_vlan_filter *f;
@@ -559,7 +562,7 @@ void i40evf_add_vlans(struct i40evf_adapter *adapter)
 		return;
 	}
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(f, &adapter->vlan_filter_list, list) {
 		if (f->add)
@@ -567,7 +570,7 @@ void i40evf_add_vlans(struct i40evf_adapter *adapter)
 	}
 	if (!count) {
 		adapter->aq_required &= ~I40EVF_FLAG_AQ_ADD_VLAN_FILTER;
-		spin_unlock_bh(&adapter->mac_vlan_list_lock);
+		spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 		return;
 	}
 	adapter->current_op = VIRTCHNL_OP_ADD_VLAN;
@@ -585,7 +588,7 @@ void i40evf_add_vlans(struct i40evf_adapter *adapter)
 	}
 	vvfl = kzalloc(len, GFP_ATOMIC);
 	if (!vvfl) {
-		spin_unlock_bh(&adapter->mac_vlan_list_lock);
+		spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 		return;
 	}
 
@@ -603,7 +606,7 @@ void i40evf_add_vlans(struct i40evf_adapter *adapter)
 	if (!more)
 		adapter->aq_required &= ~I40EVF_FLAG_AQ_ADD_VLAN_FILTER;
 
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 
 	i40evf_send_pf_msg(adapter, VIRTCHNL_OP_ADD_VLAN, (u8 *)vvfl, len);
 	kfree(vvfl);
@@ -617,6 +620,7 @@ void i40evf_add_vlans(struct i40evf_adapter *adapter)
  **/
 void i40evf_del_vlans(struct i40evf_adapter *adapter)
 {
+	unsigned int bh;
 	struct virtchnl_vlan_filter_list *vvfl;
 	struct i40evf_vlan_filter *f, *ftmp;
 	int len, i = 0, count = 0;
@@ -629,7 +633,7 @@ void i40evf_del_vlans(struct i40evf_adapter *adapter)
 		return;
 	}
 
-	spin_lock_bh(&adapter->mac_vlan_list_lock);
+	bh = spin_lock_bh(&adapter->mac_vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(f, &adapter->vlan_filter_list, list) {
 		if (f->remove)
@@ -637,7 +641,7 @@ void i40evf_del_vlans(struct i40evf_adapter *adapter)
 	}
 	if (!count) {
 		adapter->aq_required &= ~I40EVF_FLAG_AQ_DEL_VLAN_FILTER;
-		spin_unlock_bh(&adapter->mac_vlan_list_lock);
+		spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 		return;
 	}
 	adapter->current_op = VIRTCHNL_OP_DEL_VLAN;
@@ -655,7 +659,7 @@ void i40evf_del_vlans(struct i40evf_adapter *adapter)
 	}
 	vvfl = kzalloc(len, GFP_ATOMIC);
 	if (!vvfl) {
-		spin_unlock_bh(&adapter->mac_vlan_list_lock);
+		spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 		return;
 	}
 
@@ -674,7 +678,7 @@ void i40evf_del_vlans(struct i40evf_adapter *adapter)
 	if (!more)
 		adapter->aq_required &= ~I40EVF_FLAG_AQ_DEL_VLAN_FILTER;
 
-	spin_unlock_bh(&adapter->mac_vlan_list_lock);
+	spin_unlock_bh(&adapter->mac_vlan_list_lock, bh);
 
 	i40evf_send_pf_msg(adapter, VIRTCHNL_OP_DEL_VLAN, (u8 *)vvfl, len);
 	kfree(vvfl);

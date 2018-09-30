@@ -631,14 +631,15 @@ static int btf_add_type(struct btf_verifier_env *env, struct btf_type *t)
 
 static int btf_alloc_id(struct btf *btf)
 {
+	unsigned int bh;
 	int id;
 
 	idr_preload(GFP_KERNEL);
-	spin_lock_bh(&btf_idr_lock);
+	bh = spin_lock_bh(&btf_idr_lock, SOFTIRQ_ALL_MASK);
 	id = idr_alloc_cyclic(&btf_idr, btf, 1, INT_MAX, GFP_ATOMIC);
 	if (id > 0)
 		btf->id = id;
-	spin_unlock_bh(&btf_idr_lock);
+	spin_unlock_bh(&btf_idr_lock, bh);
 	idr_preload_end();
 
 	if (WARN_ON_ONCE(!id))

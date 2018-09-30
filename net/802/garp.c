@@ -345,18 +345,19 @@ int garp_request_join(const struct net_device *dev,
 		      const struct garp_application *appl,
 		      const void *data, u8 len, u8 type)
 {
+	unsigned int bh;
 	struct garp_port *port = rtnl_dereference(dev->garp_port);
 	struct garp_applicant *app = rtnl_dereference(port->applicants[appl->type]);
 	struct garp_attr *attr;
 
-	spin_lock_bh(&app->lock);
+	bh = spin_lock_bh(&app->lock, SOFTIRQ_ALL_MASK);
 	attr = garp_attr_create(app, data, len, type);
 	if (!attr) {
-		spin_unlock_bh(&app->lock);
+		spin_unlock_bh(&app->lock, bh);
 		return -ENOMEM;
 	}
 	garp_attr_event(app, attr, GARP_EVENT_REQ_JOIN);
-	spin_unlock_bh(&app->lock);
+	spin_unlock_bh(&app->lock, bh);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(garp_request_join);
@@ -365,18 +366,19 @@ void garp_request_leave(const struct net_device *dev,
 			const struct garp_application *appl,
 			const void *data, u8 len, u8 type)
 {
+	unsigned int bh;
 	struct garp_port *port = rtnl_dereference(dev->garp_port);
 	struct garp_applicant *app = rtnl_dereference(port->applicants[appl->type]);
 	struct garp_attr *attr;
 
-	spin_lock_bh(&app->lock);
+	bh = spin_lock_bh(&app->lock, SOFTIRQ_ALL_MASK);
 	attr = garp_attr_lookup(app, data, len, type);
 	if (!attr) {
-		spin_unlock_bh(&app->lock);
+		spin_unlock_bh(&app->lock, bh);
 		return;
 	}
 	garp_attr_event(app, attr, GARP_EVENT_REQ_LEAVE);
-	spin_unlock_bh(&app->lock);
+	spin_unlock_bh(&app->lock, bh);
 }
 EXPORT_SYMBOL_GPL(garp_request_leave);
 
@@ -599,6 +601,7 @@ EXPORT_SYMBOL_GPL(garp_init_applicant);
 
 void garp_uninit_applicant(struct net_device *dev, struct garp_application *appl)
 {
+	unsigned int bh;
 	struct garp_port *port = rtnl_dereference(dev->garp_port);
 	struct garp_applicant *app = rtnl_dereference(port->applicants[appl->type]);
 
@@ -610,10 +613,10 @@ void garp_uninit_applicant(struct net_device *dev, struct garp_application *appl
 	 * all pending messages before the applicant is gone. */
 	del_timer_sync(&app->join_timer);
 
-	spin_lock_bh(&app->lock);
+	bh = spin_lock_bh(&app->lock, SOFTIRQ_ALL_MASK);
 	garp_gid_event(app, GARP_EVENT_TRANSMIT_PDU);
 	garp_pdu_queue(app);
-	spin_unlock_bh(&app->lock);
+	spin_unlock_bh(&app->lock, bh);
 
 	garp_queue_xmit(app);
 

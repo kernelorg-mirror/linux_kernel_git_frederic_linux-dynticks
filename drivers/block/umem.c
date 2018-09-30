@@ -410,6 +410,7 @@ static int add_bio(struct cardinfo *card)
 
 static void process_page(unsigned long data)
 {
+	unsigned int bh;
 	/* check if any of the requests in the page are DMA_COMPLETE,
 	 * and deal with them appropriately.
 	 * If we find a descriptor without DMA_COMPLETE in the semaphore, then
@@ -421,7 +422,7 @@ static void process_page(unsigned long data)
 	struct cardinfo *card = (struct cardinfo *)data;
 	unsigned int dma_status = card->dma_status;
 
-	spin_lock_bh(&card->lock);
+	bh = spin_lock_bh(&card->lock, SOFTIRQ_ALL_MASK);
 	if (card->Active < 0)
 		goto out_unlock;
 	page = &card->mm_pages[card->Active];
@@ -496,7 +497,7 @@ static void process_page(unsigned long data)
 		mm_start_io(card);
 	}
  out_unlock:
-	spin_unlock_bh(&card->lock);
+	spin_unlock_bh(&card->lock, bh);
 
 	while (return_bio) {
 		struct bio *bio = return_bio;
@@ -720,17 +721,18 @@ static void check_batteries(struct cardinfo *card)
 
 static void check_all_batteries(struct timer_list *unused)
 {
+	unsigned int bh;
 	int i;
 
 	for (i = 0; i < num_cards; i++)
 		if (!(cards[i].flags & UM_FLAG_NO_BATT)) {
 			struct cardinfo *card = &cards[i];
-			spin_lock_bh(&card->lock);
+			bh = spin_lock_bh(&card->lock, SOFTIRQ_ALL_MASK);
 			if (card->Active >= 0)
 				card->check_batteries = 1;
 			else
 				check_batteries(card);
-			spin_unlock_bh(&card->lock);
+			spin_unlock_bh(&card->lock, bh);
 		}
 
 	init_battery_timer();

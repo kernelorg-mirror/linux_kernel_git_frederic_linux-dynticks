@@ -181,6 +181,7 @@ struct mt76_tx_status mt7601u_mac_fetch_tx_status(struct mt7601u_dev *dev)
 
 void mt76_send_tx_status(struct mt7601u_dev *dev, struct mt76_tx_status *stat)
 {
+	unsigned int bh;
 	struct ieee80211_tx_info info = {};
 	struct ieee80211_sta *sta = NULL;
 	struct mt76_wcid *wcid = NULL;
@@ -198,9 +199,9 @@ void mt76_send_tx_status(struct mt7601u_dev *dev, struct mt76_tx_status *stat)
 
 	mt76_mac_fill_tx_status(dev, &info, stat);
 
-	spin_lock_bh(&dev->mac_lock);
+	bh = spin_lock_bh(&dev->mac_lock, SOFTIRQ_ALL_MASK);
 	ieee80211_tx_status_noskb(dev->hw, sta, &info);
-	spin_unlock_bh(&dev->mac_lock);
+	spin_unlock_bh(&dev->mac_lock, bh);
 
 	rcu_read_unlock();
 }
@@ -468,6 +469,7 @@ mt7601u_rx_is_our_beacon(struct mt7601u_dev *dev, u8 *data)
 u32 mt76_mac_process_rx(struct mt7601u_dev *dev, struct sk_buff *skb,
 			u8 *data, void *rxi)
 {
+	unsigned int bh;
 	struct ieee80211_rx_status *status = IEEE80211_SKB_RXCB(skb);
 	struct mt7601u_rxwi *rxwi = rxi;
 	u32 len, ctl = le32_to_cpu(rxwi->ctl);
@@ -499,12 +501,12 @@ u32 mt76_mac_process_rx(struct mt7601u_dev *dev, struct sk_buff *skb,
 
 	mt76_mac_process_rate(status, rate);
 
-	spin_lock_bh(&dev->con_mon_lock);
+	bh = spin_lock_bh(&dev->con_mon_lock, SOFTIRQ_ALL_MASK);
 	if (mt7601u_rx_is_our_beacon(dev, data))
 		mt7601u_rx_monitor_beacon(dev, rxwi, rate, rssi);
 	else if (rxwi->rxinfo & cpu_to_le32(MT_RXINFO_U2M))
 		ewma_rssi_add(&dev->avg_rssi, -rssi);
-	spin_unlock_bh(&dev->con_mon_lock);
+	spin_unlock_bh(&dev->con_mon_lock, bh);
 
 	return len;
 }

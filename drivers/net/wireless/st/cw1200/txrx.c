@@ -252,12 +252,13 @@ static inline int tx_policy_release(struct tx_policy_cache *cache,
 
 void tx_policy_clean(struct cw1200_common *priv)
 {
+	unsigned int bh;
 	int idx, locked;
 	struct tx_policy_cache *cache = &priv->tx_policy_cache;
 	struct tx_policy_cache_entry *entry;
 
 	cw1200_tx_queues_lock(priv);
-	spin_lock_bh(&cache->lock);
+	bh = spin_lock_bh(&cache->lock, SOFTIRQ_ALL_MASK);
 	locked = list_empty(&cache->free);
 
 	for (idx = 0; idx < TX_POLICY_CACHE_SIZE; idx++) {
@@ -275,7 +276,7 @@ void tx_policy_clean(struct cw1200_common *priv)
 		cw1200_tx_queues_unlock(priv);
 
 	cw1200_tx_queues_unlock(priv);
-	spin_unlock_bh(&cache->lock);
+	spin_unlock_bh(&cache->lock, bh);
 }
 
 /* ******************************************************************** */
@@ -300,15 +301,16 @@ static int tx_policy_get(struct cw1200_common *priv,
 		  struct ieee80211_tx_rate *rates,
 		  size_t count, bool *renew)
 {
+	unsigned int bh;
 	int idx;
 	struct tx_policy_cache *cache = &priv->tx_policy_cache;
 	struct tx_policy wanted;
 
 	tx_policy_build(priv, &wanted, rates, count);
 
-	spin_lock_bh(&cache->lock);
+	bh = spin_lock_bh(&cache->lock, SOFTIRQ_ALL_MASK);
 	if (WARN_ON_ONCE(list_empty(&cache->free))) {
-		spin_unlock_bh(&cache->lock);
+		spin_unlock_bh(&cache->lock, bh);
 		return CW1200_INVALID_RATE_ID;
 	}
 	idx = tx_policy_find(cache, &wanted);
@@ -333,33 +335,35 @@ static int tx_policy_get(struct cw1200_common *priv,
 		/* Lock TX queues. */
 		cw1200_tx_queues_lock(priv);
 	}
-	spin_unlock_bh(&cache->lock);
+	spin_unlock_bh(&cache->lock, bh);
 	return idx;
 }
 
 static void tx_policy_put(struct cw1200_common *priv, int idx)
 {
+	unsigned int bh;
 	int usage, locked;
 	struct tx_policy_cache *cache = &priv->tx_policy_cache;
 
-	spin_lock_bh(&cache->lock);
+	bh = spin_lock_bh(&cache->lock, SOFTIRQ_ALL_MASK);
 	locked = list_empty(&cache->free);
 	usage = tx_policy_release(cache, &cache->cache[idx]);
 	if (locked && !usage) {
 		/* Unlock TX queues. */
 		cw1200_tx_queues_unlock(priv);
 	}
-	spin_unlock_bh(&cache->lock);
+	spin_unlock_bh(&cache->lock, bh);
 }
 
 static int tx_policy_upload(struct cw1200_common *priv)
 {
+	unsigned int bh;
 	struct tx_policy_cache *cache = &priv->tx_policy_cache;
 	int i;
 	struct wsm_set_tx_rate_retry_policy arg = {
 		.num = 0,
 	};
-	spin_lock_bh(&cache->lock);
+	bh = spin_lock_bh(&cache->lock, SOFTIRQ_ALL_MASK);
 
 	/* Upload only modified entries. */
 	for (i = 0; i < TX_POLICY_CACHE_SIZE; ++i) {
@@ -379,7 +383,7 @@ static int tx_policy_upload(struct cw1200_common *priv)
 			++arg.num;
 		}
 	}
-	spin_unlock_bh(&cache->lock);
+	spin_unlock_bh(&cache->lock, bh);
 	cw1200_debug_tx_cache_miss(priv);
 	pr_debug("[TX policy] Upload %d policies\n", arg.num);
 	return wsm_set_tx_rate_retry_policy(priv, &arg);
@@ -478,12 +482,13 @@ static void
 cw1200_tx_h_pm(struct cw1200_common *priv,
 	       struct cw1200_txinfo *t)
 {
+	unsigned int bh;
 	if (ieee80211_is_auth(t->hdr->frame_control)) {
 		u32 mask = ~BIT(t->txpriv.raw_link_id);
-		spin_lock_bh(&priv->ps_state_lock);
+		bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 		priv->sta_asleep_mask &= mask;
 		priv->pspoll_mask &= mask;
-		spin_unlock_bh(&priv->ps_state_lock);
+		spin_unlock_bh(&priv->ps_state_lock, bh);
 	}
 }
 
@@ -707,6 +712,7 @@ void cw1200_tx(struct ieee80211_hw *dev,
 	       struct ieee80211_tx_control *control,
 	       struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cw1200_common *priv = dev->priv;
 	struct cw1200_txinfo t = {
 		.skb = skb,
@@ -768,13 +774,13 @@ void cw1200_tx(struct ieee80211_hw *dev,
 	rcu_read_lock();
 	sta = rcu_dereference(t.sta);
 
-	spin_lock_bh(&priv->ps_state_lock);
+	bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 	{
 		tid_update = cw1200_tx_h_pm_state(priv, &t);
 		BUG_ON(cw1200_queue_put(&priv->tx_queue[t.queue],
 					t.skb, &t.txpriv));
 	}
-	spin_unlock_bh(&priv->ps_state_lock);
+	spin_unlock_bh(&priv->ps_state_lock, bh);
 
 	if (tid_update && sta)
 		ieee80211_sta_set_buffered(sta, t.txpriv.tid, true);
@@ -854,6 +860,7 @@ void cw1200_tx_confirm_cb(struct cw1200_common *priv,
 			  int link_id,
 			  struct wsm_tx_confirm *arg)
 {
+	unsigned int bh;
 	u8 queue_id = cw1200_queue_get_queue_id(arg->packet_id);
 	struct cw1200_queue *queue = &priv->tx_queue[queue_id];
 	struct sk_buff *skb;
@@ -887,7 +894,7 @@ void cw1200_tx_confirm_cb(struct cw1200_common *priv,
 			   cw1200_queue_get_generation(arg->packet_id) + 1,
 			   priv->sta_asleep_mask);
 		cw1200_queue_requeue(queue, arg->packet_id);
-		spin_lock_bh(&priv->ps_state_lock);
+		bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 		if (!link_id) {
 			priv->buffered_multicasts = true;
 			if (priv->sta_asleep_mask) {
@@ -895,7 +902,7 @@ void cw1200_tx_confirm_cb(struct cw1200_common *priv,
 					   &priv->multicast_start_work);
 			}
 		}
-		spin_unlock_bh(&priv->ps_state_lock);
+		spin_unlock_bh(&priv->ps_state_lock, bh);
 	} else if (!cw1200_queue_get_skb(queue, arg->packet_id,
 					 &skb, &txpriv)) {
 		struct ieee80211_tx_info *tx = IEEE80211_SKB_CB(skb);
@@ -965,6 +972,7 @@ void cw1200_tx_confirm_cb(struct cw1200_common *priv,
 static void cw1200_notify_buffered_tx(struct cw1200_common *priv,
 			       struct sk_buff *skb, int link_id, int tid)
 {
+	unsigned int bh;
 	struct ieee80211_sta *sta;
 	struct ieee80211_hdr *hdr;
 	u8 *buffered;
@@ -974,10 +982,10 @@ static void cw1200_notify_buffered_tx(struct cw1200_common *priv,
 		buffered = priv->link_id_db
 				[link_id - 1].buffered;
 
-		spin_lock_bh(&priv->ps_state_lock);
+		bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 		if (!WARN_ON(!buffered[tid]))
 			still_buffered = --buffered[tid];
-		spin_unlock_bh(&priv->ps_state_lock);
+		spin_unlock_bh(&priv->ps_state_lock, bh);
 
 		if (!still_buffered && tid < CW1200_MAX_TID) {
 			hdr = (struct ieee80211_hdr *)skb->data;
@@ -1008,6 +1016,7 @@ void cw1200_rx_cb(struct cw1200_common *priv,
 		  int link_id,
 		  struct sk_buff **skb_p)
 {
+	unsigned int bh;
 	struct sk_buff *skb = *skb_p;
 	struct ieee80211_rx_status *hdr = IEEE80211_SKB_RXCB(skb);
 	struct ieee80211_hdr *frame = (struct ieee80211_hdr *)skb->data;
@@ -1207,13 +1216,13 @@ void cw1200_rx_cb(struct cw1200_common *priv,
 	cw1200_pm_stay_awake(&priv->pm_state, grace_period);
 
 	if (early_data) {
-		spin_lock_bh(&priv->ps_state_lock);
+		bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 		/* Double-check status with lock held */
 		if (entry->status == CW1200_LINK_SOFT)
 			skb_queue_tail(&entry->rx_queue, skb);
 		else
 			ieee80211_rx_irqsafe(priv->hw, skb);
-		spin_unlock_bh(&priv->ps_state_lock);
+		spin_unlock_bh(&priv->ps_state_lock, bh);
 	} else {
 		ieee80211_rx_irqsafe(priv->hw, skb);
 	}
@@ -1270,6 +1279,7 @@ int cw1200_upload_keys(struct cw1200_common *priv)
 /* Workaround for WFD test case 6.1.10 */
 void cw1200_link_id_reset(struct work_struct *work)
 {
+	unsigned int bh;
 	struct cw1200_common *priv =
 		container_of(work, struct cw1200_common, linkid_reset_work);
 	int temp_linkid;
@@ -1283,24 +1293,24 @@ void cw1200_link_id_reset(struct work_struct *work)
 			/* Make sure we execute the WQ */
 			flush_workqueue(priv->workqueue);
 			/* Release the link ID */
-			spin_lock_bh(&priv->ps_state_lock);
+			bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 			priv->link_id_db[temp_linkid - 1].prev_status =
 				priv->link_id_db[temp_linkid - 1].status;
 			priv->link_id_db[temp_linkid - 1].status =
 				CW1200_LINK_RESET;
-			spin_unlock_bh(&priv->ps_state_lock);
+			spin_unlock_bh(&priv->ps_state_lock, bh);
 			wsm_lock_tx_async(priv);
 			if (queue_work(priv->workqueue,
 				       &priv->link_id_work) <= 0)
 				wsm_unlock_tx(priv);
 		}
 	} else {
-		spin_lock_bh(&priv->ps_state_lock);
+		bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 		priv->link_id_db[priv->action_linkid - 1].prev_status =
 			priv->link_id_db[priv->action_linkid - 1].status;
 		priv->link_id_db[priv->action_linkid - 1].status =
 			CW1200_LINK_RESET_REMAP;
-		spin_unlock_bh(&priv->ps_state_lock);
+		spin_unlock_bh(&priv->ps_state_lock, bh);
 		wsm_lock_tx_async(priv);
 		if (queue_work(priv->workqueue, &priv->link_id_work) <= 0)
 			wsm_unlock_tx(priv);
@@ -1310,8 +1320,9 @@ void cw1200_link_id_reset(struct work_struct *work)
 
 int cw1200_find_link_id(struct cw1200_common *priv, const u8 *mac)
 {
+	unsigned int bh;
 	int i, ret = 0;
-	spin_lock_bh(&priv->ps_state_lock);
+	bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < CW1200_MAX_STA_IN_AP_MODE; ++i) {
 		if (!memcmp(mac, priv->link_id_db[i].mac, ETH_ALEN) &&
 		    priv->link_id_db[i].status) {
@@ -1320,17 +1331,18 @@ int cw1200_find_link_id(struct cw1200_common *priv, const u8 *mac)
 			break;
 		}
 	}
-	spin_unlock_bh(&priv->ps_state_lock);
+	spin_unlock_bh(&priv->ps_state_lock, bh);
 	return ret;
 }
 
 int cw1200_alloc_link_id(struct cw1200_common *priv, const u8 *mac)
 {
+	unsigned int bh;
 	int i, ret = 0;
 	unsigned long max_inactivity = 0;
 	unsigned long now = jiffies;
 
-	spin_lock_bh(&priv->ps_state_lock);
+	bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < CW1200_MAX_STA_IN_AP_MODE; ++i) {
 		if (!priv->link_id_db[i].status) {
 			ret = i + 1;
@@ -1360,7 +1372,7 @@ int cw1200_alloc_link_id(struct cw1200_common *priv, const u8 *mac)
 			   "[AP] Early: no more link IDs available.\n");
 	}
 
-	spin_unlock_bh(&priv->ps_state_lock);
+	spin_unlock_bh(&priv->ps_state_lock, bh);
 	return ret;
 }
 
@@ -1375,6 +1387,7 @@ void cw1200_link_id_work(struct work_struct *work)
 
 void cw1200_link_id_gc_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct cw1200_common *priv =
 		container_of(work, struct cw1200_common, link_id_gc_work.work);
 	struct wsm_reset reset = {
@@ -1394,7 +1407,7 @@ void cw1200_link_id_gc_work(struct work_struct *work)
 		return;
 
 	wsm_lock_tx(priv);
-	spin_lock_bh(&priv->ps_state_lock);
+	bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < CW1200_MAX_STA_IN_AP_MODE; ++i) {
 		need_reset = false;
 		mask = BIT(i + 1);
@@ -1419,7 +1432,7 @@ void cw1200_link_id_gc_work(struct work_struct *work)
 			map_link.link_id = i + 1;
 			wsm_map_link(priv, &map_link);
 			next_gc = min(next_gc, CW1200_LINK_ID_GC_TIMEOUT);
-			spin_lock_bh(&priv->ps_state_lock);
+			spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 		} else if (priv->link_id_db[i].status == CW1200_LINK_SOFT) {
 			ttl = priv->link_id_db[i].timestamp - now +
 					CW1200_LINK_ID_GC_TIMEOUT;
@@ -1433,7 +1446,7 @@ void cw1200_link_id_gc_work(struct work_struct *work)
 				spin_unlock_bh(&priv->ps_state_lock);
 				reset.link_id = i + 1;
 				wsm_reset(priv, &reset);
-				spin_lock_bh(&priv->ps_state_lock);
+				spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 			} else {
 				next_gc = min_t(unsigned long, next_gc, ttl);
 			}
@@ -1456,7 +1469,7 @@ void cw1200_link_id_gc_work(struct work_struct *work)
 				next_gc = min(next_gc,
 						CW1200_LINK_ID_GC_TIMEOUT);
 			}
-			spin_lock_bh(&priv->ps_state_lock);
+			spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 		}
 		if (need_reset) {
 			skb_queue_purge(&priv->link_id_db[i].rx_queue);
@@ -1464,7 +1477,7 @@ void cw1200_link_id_gc_work(struct work_struct *work)
 				 reset.link_id);
 		}
 	}
-	spin_unlock_bh(&priv->ps_state_lock);
+	spin_unlock_bh(&priv->ps_state_lock, bh);
 	if (next_gc != -1)
 		queue_delayed_work(priv->workqueue,
 				   &priv->link_id_gc_work, next_gc);

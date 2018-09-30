@@ -28,7 +28,7 @@
  */
 #define ENIC_DEVCMD_PROXY_BY_INDEX(vf, err, enic, vnicdevcmdfn, ...) \
 	do { \
-		spin_lock_bh(&enic->devcmd_lock); \
+		spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK); \
 		if (enic_is_valid_vf(enic, vf)) { \
 			vnic_dev_cmd_proxy_by_index_start(enic->vdev, vf); \
 			err = vnicdevcmdfn(enic->vdev, ##__VA_ARGS__); \

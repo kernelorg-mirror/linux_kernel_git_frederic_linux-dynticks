@@ -313,9 +313,10 @@ static void omap_des_dma_stop(struct omap_des_dev *dd)
 
 static struct omap_des_dev *omap_des_find_dev(struct omap_des_ctx *ctx)
 {
+	unsigned int bh;
 	struct omap_des_dev *dd = NULL, *tmp;
 
-	spin_lock_bh(&list_lock);
+	bh = spin_lock_bh(&list_lock, SOFTIRQ_ALL_MASK);
 	if (!ctx->dd) {
 		list_for_each_entry(tmp, &dev_list, list) {
 			/* FIXME: take fist available des core */
@@ -327,7 +328,7 @@ static struct omap_des_dev *omap_des_find_dev(struct omap_des_ctx *ctx)
 		/* already found before */
 		dd = ctx->dd;
 	}
-	spin_unlock_bh(&list_lock);
+	spin_unlock_bh(&list_lock, bh);
 
 	return dd;
 }

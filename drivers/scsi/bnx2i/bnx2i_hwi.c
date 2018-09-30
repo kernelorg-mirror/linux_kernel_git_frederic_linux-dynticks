@@ -1339,6 +1339,7 @@ int bnx2i_process_scsi_cmd_resp(struct iscsi_session *session,
 				struct bnx2i_conn *bnx2i_conn,
 				struct cqe *cqe)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = bnx2i_conn->cls_conn->dd_data;
 	struct bnx2i_hba *hba = bnx2i_conn->hba;
 	struct bnx2i_cmd_response *resp_cqe;
@@ -1348,7 +1349,7 @@ int bnx2i_process_scsi_cmd_resp(struct iscsi_session *session,
 	u32 datalen = 0;
 
 	resp_cqe = (struct bnx2i_cmd_response *)cqe;
-	spin_lock_bh(&session->back_lock);
+	bh = spin_lock_bh(&session->back_lock, SOFTIRQ_ALL_MASK);
 	task = iscsi_itt_to_task(conn,
 				 resp_cqe->itt & ISCSI_CMD_RESPONSE_INDEX);
 	if (!task)
@@ -1419,7 +1420,7 @@ done:
 	__iscsi_complete_pdu(conn, (struct iscsi_hdr *)hdr,
 			     conn->data, datalen);
 fail:
-	spin_unlock_bh(&session->back_lock);
+	spin_unlock_bh(&session->back_lock, bh);
 	return 0;
 }
 
@@ -1853,6 +1854,7 @@ static void bnx2i_process_cmd_cleanup_resp(struct iscsi_session *session,
  */
 int bnx2i_percpu_io_thread(void *arg)
 {
+	unsigned int bh;
 	struct bnx2i_percpu_s *p = arg;
 	struct bnx2i_work *work, *tmp;
 	LIST_HEAD(work_list);
@@ -1860,7 +1862,7 @@ int bnx2i_percpu_io_thread(void *arg)
 	set_user_nice(current, MIN_NICE);
 
 	while (!kthread_should_stop()) {
-		spin_lock_bh(&p->p_work_lock);
+		bh = spin_lock_bh(&p->p_work_lock, SOFTIRQ_ALL_MASK);
 		while (!list_empty(&p->work_list)) {
 			list_splice_init(&p->work_list, &work_list);
 			spin_unlock_bh(&p->p_work_lock);
@@ -1874,10 +1876,10 @@ int bnx2i_percpu_io_thread(void *arg)
 				atomic_dec(&work->bnx2i_conn->work_cnt);
 				kfree(work);
 			}
-			spin_lock_bh(&p->p_work_lock);
+			spin_lock_bh(&p->p_work_lock, SOFTIRQ_ALL_MASK);
 		}
 		set_current_state(TASK_INTERRUPTIBLE);
-		spin_unlock_bh(&p->p_work_lock);
+		spin_unlock_bh(&p->p_work_lock, bh);
 		schedule();
 	}
 	__set_current_state(TASK_RUNNING);

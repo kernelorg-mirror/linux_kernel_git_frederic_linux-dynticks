@@ -457,14 +457,14 @@ static inline void write_sequnlock(seqlock_t *sl)
 
 static inline void write_seqlock_bh(seqlock_t *sl)
 {
-	spin_lock_bh(&sl->lock);
+	spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 	write_seqcount_begin(&sl->seqcount);
 }
 
 static inline void write_sequnlock_bh(seqlock_t *sl)
 {
 	write_seqcount_end(&sl->seqcount);
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, 0);
 }
 
 static inline void write_seqlock_irq(seqlock_t *sl)
@@ -544,12 +544,12 @@ static inline void done_seqretry(seqlock_t *lock, int seq)
 
 static inline void read_seqlock_excl_bh(seqlock_t *sl)
 {
-	spin_lock_bh(&sl->lock);
+	spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 }
 
 static inline void read_sequnlock_excl_bh(seqlock_t *sl)
 {
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, 0);
 }
 
 static inline void read_seqlock_excl_irq(seqlock_t *sl)

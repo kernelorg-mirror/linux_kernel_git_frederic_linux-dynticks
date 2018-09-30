@@ -895,7 +895,7 @@ static inline u32 session_get_next_ttt(struct iscsi_session *session)
 {
 	u32 ttt;
 
-	spin_lock_bh(&session->ttt_lock);
+	spin_lock_bh(&session->ttt_lock, SOFTIRQ_ALL_MASK);
 	ttt = session->targ_xfer_tag++;
 	if (ttt == 0xFFFFFFFF)
 		ttt = session->targ_xfer_tag++;

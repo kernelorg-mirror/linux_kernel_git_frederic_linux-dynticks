@@ -271,6 +271,7 @@ EXPORT_SYMBOL_GPL(rt2x00lib_dmadone);
 
 static inline int rt2x00lib_txdone_bar_status(struct queue_entry *entry)
 {
+	unsigned int bh;
 	struct rt2x00_dev *rt2x00dev = entry->queue->rt2x00dev;
 	struct ieee80211_bar *bar = (void *) entry->skb->data;
 	struct rt2x00_bar_list_entry *bar_entry;
@@ -298,12 +299,12 @@ static inline int rt2x00lib_txdone_bar_status(struct queue_entry *entry)
 		if (bar_entry->entry != entry)
 			continue;
 
-		spin_lock_bh(&rt2x00dev->bar_list_lock);
+		bh = spin_lock_bh(&rt2x00dev->bar_list_lock, SOFTIRQ_ALL_MASK);
 		/* Return whether this BAR was blockacked or not */
 		ret = bar_entry->block_acked;
 		/* Remove the BAR from our checklist */
 		list_del_rcu(&bar_entry->list);
-		spin_unlock_bh(&rt2x00dev->bar_list_lock);
+		spin_unlock_bh(&rt2x00dev->bar_list_lock, bh);
 		kfree_rcu(bar_entry, head);
 
 		break;
@@ -398,6 +399,7 @@ static void rt2x00lib_fill_tx_status(struct rt2x00_dev *rt2x00dev,
 static void rt2x00lib_clear_entry(struct rt2x00_dev *rt2x00dev,
 				  struct queue_entry *entry)
 {
+	unsigned int bh;
 	/*
 	 * Make this entry available for reuse.
 	 */
@@ -415,10 +417,10 @@ static void rt2x00lib_clear_entry(struct rt2x00_dev *rt2x00dev,
 	 * serialized with rt2x00mac_tx(), otherwise we can wake up queue
 	 * before it was stopped.
 	 */
-	spin_lock_bh(&entry->queue->tx_lock);
+	bh = spin_lock_bh(&entry->queue->tx_lock, SOFTIRQ_ALL_MASK);
 	if (!rt2x00queue_threshold(entry->queue))
 		rt2x00queue_unpause_queue(entry->queue);
-	spin_unlock_bh(&entry->queue->tx_lock);
+	spin_unlock_bh(&entry->queue->tx_lock, bh);
 }
 
 void rt2x00lib_txdone_nomatch(struct queue_entry *entry,
@@ -612,6 +614,7 @@ static void rt2x00lib_rxdone_check_ba(struct rt2x00_dev *rt2x00dev,
 				      struct sk_buff *skb,
 				      struct rxdone_entry_desc *rxdesc)
 {
+	unsigned int bh;
 	struct rt2x00_bar_list_entry *entry;
 	struct ieee80211_bar *ba = (void *)skb->data;
 
@@ -643,9 +646,9 @@ static void rt2x00lib_rxdone_check_ba(struct rt2x00_dev *rt2x00dev,
 			continue;
 
 		/* Mark BAR since we received the according BA */
-		spin_lock_bh(&rt2x00dev->bar_list_lock);
+		bh = spin_lock_bh(&rt2x00dev->bar_list_lock, SOFTIRQ_ALL_MASK);
 		entry->block_acked = 1;
-		spin_unlock_bh(&rt2x00dev->bar_list_lock);
+		spin_unlock_bh(&rt2x00dev->bar_list_lock, bh);
 		break;
 	}
 	rcu_read_unlock();

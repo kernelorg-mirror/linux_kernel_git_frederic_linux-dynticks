@@ -397,17 +397,18 @@ static int mxc_scc_cra_init(struct crypto_tfm *tfm)
 
 static void mxc_scc_dequeue_req_unlocked(struct mxc_scc_ctx *ctx)
 {
+	unsigned int bh;
 	struct crypto_async_request *req, *backlog;
 
 	if (ctx->scc->hw_busy)
 		return;
 
-	spin_lock_bh(&ctx->scc->lock);
+	bh = spin_lock_bh(&ctx->scc->lock, SOFTIRQ_ALL_MASK);
 	backlog = crypto_get_backlog(&ctx->scc->queue);
 	req = crypto_dequeue_request(&ctx->scc->queue);
 	ctx->scc->req = req;
 	ctx->scc->hw_busy = true;
-	spin_unlock_bh(&ctx->scc->lock);
+	spin_unlock_bh(&ctx->scc->lock, bh);
 
 	if (!req)
 		return;
@@ -421,11 +422,12 @@ static void mxc_scc_dequeue_req_unlocked(struct mxc_scc_ctx *ctx)
 static int mxc_scc_queue_req(struct mxc_scc_ctx *ctx,
 			     struct crypto_async_request *req)
 {
+	unsigned int bh;
 	int ret;
 
-	spin_lock_bh(&ctx->scc->lock);
+	bh = spin_lock_bh(&ctx->scc->lock, SOFTIRQ_ALL_MASK);
 	ret = crypto_enqueue_request(&ctx->scc->queue, req);
-	spin_unlock_bh(&ctx->scc->lock);
+	spin_unlock_bh(&ctx->scc->lock, bh);
 
 	if (ret != -EINPROGRESS)
 		return ret;

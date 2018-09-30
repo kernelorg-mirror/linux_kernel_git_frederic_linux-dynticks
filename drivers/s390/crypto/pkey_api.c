@@ -813,10 +813,11 @@ static DEFINE_SPINLOCK(mkvp_list_lock);
 
 static int mkvp_cache_fetch(u16 cardnr, u16 domain, u64 mkvp[2])
 {
+	unsigned int bh;
 	int rc = -ENOENT;
 	struct mkvp_info *ptr;
 
-	spin_lock_bh(&mkvp_list_lock);
+	bh = spin_lock_bh(&mkvp_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ptr, &mkvp_list, list) {
 		if (ptr->cardnr == cardnr &&
 		    ptr->domain == domain) {
@@ -825,17 +826,18 @@ static int mkvp_cache_fetch(u16 cardnr, u16 domain, u64 mkvp[2])
 			break;
 		}
 	}
-	spin_unlock_bh(&mkvp_list_lock);
+	spin_unlock_bh(&mkvp_list_lock, bh);
 
 	return rc;
 }
 
 static void mkvp_cache_update(u16 cardnr, u16 domain, u64 mkvp[2])
 {
+	unsigned int bh;
 	int found = 0;
 	struct mkvp_info *ptr;
 
-	spin_lock_bh(&mkvp_list_lock);
+	bh = spin_lock_bh(&mkvp_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ptr, &mkvp_list, list) {
 		if (ptr->cardnr == cardnr &&
 		    ptr->domain == domain) {
@@ -847,7 +849,7 @@ static void mkvp_cache_update(u16 cardnr, u16 domain, u64 mkvp[2])
 	if (!found) {
 		ptr = kmalloc(sizeof(*ptr), GFP_ATOMIC);
 		if (!ptr) {
-			spin_unlock_bh(&mkvp_list_lock);
+			spin_unlock_bh(&mkvp_list_lock, bh);
 			return;
 		}
 		ptr->cardnr = cardnr;
@@ -855,14 +857,15 @@ static void mkvp_cache_update(u16 cardnr, u16 domain, u64 mkvp[2])
 		memcpy(ptr->mkvp, mkvp, 2 * sizeof(u64));
 		list_add(&ptr->list, &mkvp_list);
 	}
-	spin_unlock_bh(&mkvp_list_lock);
+	spin_unlock_bh(&mkvp_list_lock, bh);
 }
 
 static void mkvp_cache_scrub(u16 cardnr, u16 domain)
 {
+	unsigned int bh;
 	struct mkvp_info *ptr;
 
-	spin_lock_bh(&mkvp_list_lock);
+	bh = spin_lock_bh(&mkvp_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ptr, &mkvp_list, list) {
 		if (ptr->cardnr == cardnr &&
 		    ptr->domain == domain) {
@@ -871,19 +874,20 @@ static void mkvp_cache_scrub(u16 cardnr, u16 domain)
 			break;
 		}
 	}
-	spin_unlock_bh(&mkvp_list_lock);
+	spin_unlock_bh(&mkvp_list_lock, bh);
 }
 
 static void __exit mkvp_cache_free(void)
 {
+	unsigned int bh;
 	struct mkvp_info *ptr, *pnext;
 
-	spin_lock_bh(&mkvp_list_lock);
+	bh = spin_lock_bh(&mkvp_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(ptr, pnext, &mkvp_list, list) {
 		list_del(&ptr->list);
 		kfree(ptr);
 	}
-	spin_unlock_bh(&mkvp_list_lock);
+	spin_unlock_bh(&mkvp_list_lock, bh);
 }
 
 /*

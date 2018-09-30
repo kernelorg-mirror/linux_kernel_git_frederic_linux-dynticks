@@ -86,6 +86,7 @@ static int sta_info_hash_del(struct ieee80211_local *local,
 
 static void __cleanup_single_sta(struct sta_info *sta)
 {
+	unsigned int bh;
 	int ac, i;
 	struct tid_ampdu_tx *tid_tx;
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
@@ -115,9 +116,9 @@ static void __cleanup_single_sta(struct sta_info *sta)
 		for (i = 0; i < ARRAY_SIZE(sta->sta.txq); i++) {
 			struct txq_info *txqi = to_txq_info(sta->sta.txq[i]);
 
-			spin_lock_bh(&fq->lock);
+			bh = spin_lock_bh(&fq->lock, SOFTIRQ_ALL_MASK);
 			ieee80211_txq_purge(local, txqi);
-			spin_unlock_bh(&fq->lock);
+			spin_unlock_bh(&fq->lock, bh);
 		}
 	}
 
@@ -707,6 +708,7 @@ static unsigned long ieee80211_tids_for_ac(int ac)
 
 static void __sta_info_recalc_tim(struct sta_info *sta, bool ignore_pending)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = sta->local;
 	struct ps_data *ps;
 	bool indicate_tim = false;
@@ -767,7 +769,7 @@ static void __sta_info_recalc_tim(struct sta_info *sta, bool ignore_pending)
 	}
 
  done:
-	spin_lock_bh(&local->tim_lock);
+	bh = spin_lock_bh(&local->tim_lock, SOFTIRQ_ALL_MASK);
 
 	if (indicate_tim == __bss_tim_get(ps->tim, id))
 		goto out_unlock;
@@ -784,7 +786,7 @@ static void __sta_info_recalc_tim(struct sta_info *sta, bool ignore_pending)
 	}
 
 out_unlock:
-	spin_unlock_bh(&local->tim_lock);
+	spin_unlock_bh(&local->tim_lock, bh);
 }
 
 void sta_info_recalc_tim(struct sta_info *sta)
@@ -2037,6 +2039,7 @@ static void sta_set_tidstats(struct sta_info *sta,
 			     struct cfg80211_tid_stats *tidstats,
 			     int tid)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = sta->local;
 
 	if (!(tidstats->filled & BIT(NL80211_TID_STATS_RX_MSDU))) {
@@ -2068,7 +2071,7 @@ static void sta_set_tidstats(struct sta_info *sta,
 	}
 
 	if (local->ops->wake_tx_queue && tid < IEEE80211_NUM_TIDS) {
-		spin_lock_bh(&local->fq.lock);
+		bh = spin_lock_bh(&local->fq.lock, SOFTIRQ_ALL_MASK);
 		rcu_read_lock();
 
 		tidstats->filled |= BIT(NL80211_TID_STATS_TXQ_STATS);
@@ -2076,7 +2079,7 @@ static void sta_set_tidstats(struct sta_info *sta,
 					 to_txq_info(sta->sta.txq[tid]));
 
 		rcu_read_unlock();
-		spin_unlock_bh(&local->fq.lock);
+		spin_unlock_bh(&local->fq.lock, bh);
 	}
 }
 

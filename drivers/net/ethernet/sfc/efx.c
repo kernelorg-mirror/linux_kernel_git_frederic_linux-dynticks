@@ -1957,6 +1957,7 @@ static int efx_probe_all(struct efx_nic *efx)
  */
 static void efx_start_all(struct efx_nic *efx)
 {
+	unsigned int bh;
 	EFX_ASSERT_RESET_SERIALISED(efx);
 	BUG_ON(efx->state == STATE_DISABLED);
 
@@ -1984,9 +1985,9 @@ static void efx_start_all(struct efx_nic *efx)
 
 	efx->type->start_stats(efx);
 	efx->type->pull_stats(efx);
-	spin_lock_bh(&efx->stats_lock);
+	bh = spin_lock_bh(&efx->stats_lock, SOFTIRQ_ALL_MASK);
 	efx->type->update_stats(efx, NULL, NULL);
-	spin_unlock_bh(&efx->stats_lock);
+	spin_unlock_bh(&efx->stats_lock, bh);
 }
 
 /* Quiesce the hardware and software data path, and regular activity
@@ -1996,6 +1997,7 @@ static void efx_start_all(struct efx_nic *efx)
  */
 static void efx_stop_all(struct efx_nic *efx)
 {
+	unsigned int bh;
 	EFX_ASSERT_RESET_SERIALISED(efx);
 
 	/* port_enabled can be read safely under the rtnl lock */
@@ -2006,9 +2008,9 @@ static void efx_stop_all(struct efx_nic *efx)
 	 * rx_nodesc_drops
 	 */
 	efx->type->pull_stats(efx);
-	spin_lock_bh(&efx->stats_lock);
+	bh = spin_lock_bh(&efx->stats_lock, SOFTIRQ_ALL_MASK);
 	efx->type->update_stats(efx, NULL, NULL);
-	spin_unlock_bh(&efx->stats_lock);
+	spin_unlock_bh(&efx->stats_lock, bh);
 	efx->type->stop_stats(efx);
 	efx_stop_port(efx);
 
@@ -2284,11 +2286,12 @@ int efx_net_stop(struct net_device *net_dev)
 static void efx_net_stats(struct net_device *net_dev,
 			  struct rtnl_link_stats64 *stats)
 {
+	unsigned int bh;
 	struct efx_nic *efx = netdev_priv(net_dev);
 
-	spin_lock_bh(&efx->stats_lock);
+	bh = spin_lock_bh(&efx->stats_lock, SOFTIRQ_ALL_MASK);
 	efx->type->update_stats(efx, NULL, stats);
-	spin_unlock_bh(&efx->stats_lock);
+	spin_unlock_bh(&efx->stats_lock, bh);
 }
 
 /* Context: netif_tx_lock held, BHs disabled. */

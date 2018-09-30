@@ -797,12 +797,13 @@ static int refresh_signalling_expectation(struct nf_conn *ct,
 					  u8 proto, __be16 port,
 					  unsigned int expires)
 {
+	unsigned int bh;
 	struct nf_conn_help *help = nfct_help(ct);
 	struct nf_conntrack_expect *exp;
 	struct hlist_node *next;
 	int found = 0;
 
-	spin_lock_bh(&nf_conntrack_expect_lock);
+	bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 	hlist_for_each_entry_safe(exp, next, &help->expectations, lnode) {
 		if (exp->class != SIP_EXPECT_SIGNALLING ||
 		    !nf_inet_addr_cmp(&exp->tuple.dst.u3, addr) ||
@@ -815,17 +816,18 @@ static int refresh_signalling_expectation(struct nf_conn *ct,
 			break;
 		}
 	}
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 	return found;
 }
 
 static void flush_expectations(struct nf_conn *ct, bool media)
 {
+	unsigned int bh;
 	struct nf_conn_help *help = nfct_help(ct);
 	struct nf_conntrack_expect *exp;
 	struct hlist_node *next;
 
-	spin_lock_bh(&nf_conntrack_expect_lock);
+	bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 	hlist_for_each_entry_safe(exp, next, &help->expectations, lnode) {
 		if ((exp->class != SIP_EXPECT_SIGNALLING) ^ media)
 			continue;
@@ -834,7 +836,7 @@ static void flush_expectations(struct nf_conn *ct, bool media)
 		if (!media)
 			break;
 	}
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 }
 
 static int set_expected_rtp_rtcp(struct sk_buff *skb, unsigned int protoff,

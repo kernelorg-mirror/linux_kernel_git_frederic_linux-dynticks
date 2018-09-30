@@ -384,6 +384,7 @@ nla_put_failure:
 
 static int mqprio_dump(struct Qdisc *sch, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct net_device *dev = qdisc_dev(sch);
 	struct mqprio_sched *priv = qdisc_priv(sch);
 	struct nlattr *nla = (struct nlattr *)skb_tail_pointer(skb);
@@ -402,7 +403,7 @@ static int mqprio_dump(struct Qdisc *sch, struct sk_buff *skb)
 	 */
 	for (ntx = 0; ntx < dev->num_tx_queues; ntx++) {
 		qdisc = netdev_get_tx_queue(dev, ntx)->qdisc_sleeping;
-		spin_lock_bh(qdisc_lock(qdisc));
+		bh = spin_lock_bh(qdisc_lock(qdisc), SOFTIRQ_ALL_MASK);
 
 		if (qdisc_is_percpu_stats(qdisc)) {
 			__u32 qlen = qdisc_qlen_sum(qdisc);
@@ -423,7 +424,7 @@ static int mqprio_dump(struct Qdisc *sch, struct sk_buff *skb)
 			sch->qstats.overlimits	+= qdisc->qstats.overlimits;
 		}
 
-		spin_unlock_bh(qdisc_lock(qdisc));
+		spin_unlock_bh(qdisc_lock(qdisc), bh);
 	}
 
 	opt.num_tc = netdev_get_num_tc(dev);
@@ -511,6 +512,7 @@ static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 	__releases(d->lock)
 	__acquires(d->lock)
 {
+	unsigned int bh;
 	if (cl >= TC_H_MIN_PRIORITY) {
 		int i;
 		__u32 qlen = 0;
@@ -525,7 +527,7 @@ static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 		 * also acquired below.
 		 */
 		if (d->lock)
-			spin_unlock_bh(d->lock);
+			spin_unlock_bh(d->lock, d->bh);
 
 		for (i = tc.offset; i < tc.offset + tc.count; i++) {
 			struct netdev_queue *q = netdev_get_tx_queue(dev, i);
@@ -533,7 +535,7 @@ static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 			struct gnet_stats_basic_cpu __percpu *cpu_bstats = NULL;
 			struct gnet_stats_queue __percpu *cpu_qstats = NULL;
 
-			spin_lock_bh(qdisc_lock(qdisc));
+			bh = spin_lock_bh(qdisc_lock(qdisc), SOFTIRQ_ALL_MASK);
 			if (qdisc_is_percpu_stats(qdisc)) {
 				cpu_bstats = qdisc->cpu_bstats;
 				cpu_qstats = qdisc->cpu_qstats;
@@ -546,12 +548,12 @@ static int mqprio_dump_class_stats(struct Qdisc *sch, unsigned long cl,
 						cpu_qstats,
 						&qdisc->qstats,
 						qlen);
-			spin_unlock_bh(qdisc_lock(qdisc));
+			spin_unlock_bh(qdisc_lock(qdisc), bh);
 		}
 
 		/* Reclaim root sleeping lock before completing stats */
 		if (d->lock)
-			spin_lock_bh(d->lock);
+			d->bh = spin_lock_bh(d->lock, SOFTIRQ_ALL_MASK);
 		if (gnet_stats_copy_basic(NULL, d, NULL, &bstats) < 0 ||
 		    gnet_stats_copy_queue(d, NULL, &qstats, qlen) < 0)
 			return -1;

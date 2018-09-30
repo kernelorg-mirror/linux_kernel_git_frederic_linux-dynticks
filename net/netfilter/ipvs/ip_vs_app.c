@@ -343,15 +343,16 @@ vs_fix_ack_seq(const struct ip_vs_seq *vseq, struct tcphdr *th)
 static inline void vs_seq_update(struct ip_vs_conn *cp, struct ip_vs_seq *vseq,
 				 unsigned int flag, __u32 seq, int diff)
 {
+	unsigned int bh;
 	/* spinlock is to keep updating cp->flags atomic */
-	spin_lock_bh(&cp->lock);
+	bh = spin_lock_bh(&cp->lock, SOFTIRQ_ALL_MASK);
 	if (!(cp->flags & flag) || after(seq, vseq->init_seq)) {
 		vseq->previous_delta = vseq->delta;
 		vseq->delta += diff;
 		vseq->init_seq = seq;
 		cp->flags |= flag;
 	}
-	spin_unlock_bh(&cp->lock);
+	spin_unlock_bh(&cp->lock, bh);
 }
 
 static inline int app_tcp_pkt_out(struct ip_vs_conn *cp, struct sk_buff *skb,

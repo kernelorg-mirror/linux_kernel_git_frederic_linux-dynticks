@@ -2062,6 +2062,7 @@ void bond_3ad_bind_slave(struct slave *slave)
  */
 void bond_3ad_unbind_slave(struct slave *slave)
 {
+	unsigned int bh;
 	struct port *port, *prev_port, *temp_port;
 	struct aggregator *aggregator, *new_aggregator, *temp_aggregator;
 	int select_new_active_agg = 0;
@@ -2071,7 +2072,7 @@ void bond_3ad_unbind_slave(struct slave *slave)
 	bool dummy_slave_update; /* Ignore this value as caller updates array */
 
 	/* Sync against bond_3ad_state_machine_handler() */
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 	aggregator = &(SLAVE_AD_INFO(slave)->aggregator);
 	port = &(SLAVE_AD_INFO(slave)->port);
 
@@ -2210,7 +2211,7 @@ void bond_3ad_unbind_slave(struct slave *slave)
 	port->slave = NULL;
 
 out:
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }
 
 /**
@@ -2222,6 +2223,7 @@ out:
  */
 void bond_3ad_update_ad_actor_settings(struct bonding *bond)
 {
+	unsigned int bh;
 	struct list_head *iter;
 	struct slave *slave;
 
@@ -2235,14 +2237,14 @@ void bond_3ad_update_ad_actor_settings(struct bonding *bond)
 		BOND_AD_INFO(bond).system.sys_mac_addr =
 		    *((struct mac_addr *)bond->params.ad_actor_system);
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 	bond_for_each_slave(bond, slave, iter) {
 		struct port *port = &(SLAVE_AD_INFO(slave))->port;
 
 		__ad_actor_update_port(port);
 		port->ntt = true;
 	}
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }
 
 /**
@@ -2260,6 +2262,7 @@ void bond_3ad_update_ad_actor_settings(struct bonding *bond)
  */
 void bond_3ad_state_machine_handler(struct work_struct *work)
 {
+	unsigned int bh;
 	struct bonding *bond = container_of(work, struct bonding,
 					    ad_work.work);
 	struct aggregator *aggregator;
@@ -2273,7 +2276,7 @@ void bond_3ad_state_machine_handler(struct work_struct *work)
 	 * against running with bond_3ad_unbind_slave. ad_rx_machine may run
 	 * concurrently due to incoming LACPDU as well.
 	 */
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 	rcu_read_lock();
 
 	/* check if there are any slaves */
@@ -2329,7 +2332,7 @@ re_arm:
 		}
 	}
 	rcu_read_unlock();
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 
 	if (update_slave_arr)
 		bond_slave_arr_work_rearm(bond, 0);
@@ -2464,6 +2467,7 @@ static void ad_update_actor_keys(struct port *port, bool reset)
  */
 void bond_3ad_adapter_speed_duplex_changed(struct slave *slave)
 {
+	unsigned int bh;
 	struct port *port;
 
 	port = &(SLAVE_AD_INFO(slave)->port);
@@ -2476,9 +2480,9 @@ void bond_3ad_adapter_speed_duplex_changed(struct slave *slave)
 		return;
 	}
 
-	spin_lock_bh(&slave->bond->mode_lock);
+	bh = spin_lock_bh(&slave->bond->mode_lock, SOFTIRQ_ALL_MASK);
 	ad_update_actor_keys(port, false);
-	spin_unlock_bh(&slave->bond->mode_lock);
+	spin_unlock_bh(&slave->bond->mode_lock, bh);
 	netdev_dbg(slave->bond->dev, "Port %d slave %s changed speed/duplex\n",
 		   port->actor_port_number, slave->dev->name);
 }
@@ -2492,6 +2496,7 @@ void bond_3ad_adapter_speed_duplex_changed(struct slave *slave)
  */
 void bond_3ad_handle_link_change(struct slave *slave, char link)
 {
+	unsigned int bh;
 	struct aggregator *agg;
 	struct port *port;
 	bool dummy;
@@ -2505,7 +2510,7 @@ void bond_3ad_handle_link_change(struct slave *slave, char link)
 		return;
 	}
 
-	spin_lock_bh(&slave->bond->mode_lock);
+	bh = spin_lock_bh(&slave->bond->mode_lock, SOFTIRQ_ALL_MASK);
 	/* on link down we are zeroing duplex and speed since
 	 * some of the adaptors(ce1000.lan) report full duplex/speed
 	 * instead of N/A(duplex) / 0(speed).
@@ -2524,7 +2529,7 @@ void bond_3ad_handle_link_change(struct slave *slave, char link)
 	agg = __get_first_agg(port);
 	ad_agg_selection_logic(agg, &dummy);
 
-	spin_unlock_bh(&slave->bond->mode_lock);
+	spin_unlock_bh(&slave->bond->mode_lock, bh);
 
 	netdev_dbg(slave->bond->dev, "Port %d changed link status to %s\n",
 		   port->actor_port_number,
@@ -2659,13 +2664,14 @@ int bond_3ad_lacpdu_recv(const struct sk_buff *skb, struct bonding *bond,
  */
 void bond_3ad_update_lacp_rate(struct bonding *bond)
 {
+	unsigned int bh;
 	struct port *port = NULL;
 	struct list_head *iter;
 	struct slave *slave;
 	int lacp_fast;
 
 	lacp_fast = bond->params.lacp_fast;
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 	bond_for_each_slave(bond, slave, iter) {
 		port = &(SLAVE_AD_INFO(slave)->port);
 		if (lacp_fast)
@@ -2673,5 +2679,5 @@ void bond_3ad_update_lacp_rate(struct bonding *bond)
 		else
 			port->actor_oper_port_state &= ~AD_STATE_LACP_TIMEOUT;
 	}
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }

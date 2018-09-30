@@ -507,6 +507,7 @@ conntrack_pptp_help(struct sk_buff *skb, unsigned int protoff,
 		    struct nf_conn *ct, enum ip_conntrack_info ctinfo)
 
 {
+	unsigned int bh;
 	int dir = CTINFO2DIR(ctinfo);
 	const struct nf_ct_pptp_master *info = nfct_help_data(ct);
 	const struct tcphdr *tcph;
@@ -574,7 +575,7 @@ conntrack_pptp_help(struct sk_buff *skb, unsigned int protoff,
 	oldsstate = info->sstate;
 	oldcstate = info->cstate;
 
-	spin_lock_bh(&nf_pptp_lock);
+	bh = spin_lock_bh(&nf_pptp_lock, SOFTIRQ_ALL_MASK);
 
 	/* FIXME: We just blindly assume that the control connection is always
 	 * established from PNS->PAC.  However, RFC makes no guarantee */
@@ -588,7 +589,7 @@ conntrack_pptp_help(struct sk_buff *skb, unsigned int protoff,
 				       ctinfo);
 	pr_debug("sstate: %d->%d, cstate: %d->%d\n",
 		 oldsstate, info->sstate, oldcstate, info->cstate);
-	spin_unlock_bh(&nf_pptp_lock);
+	spin_unlock_bh(&nf_pptp_lock, bh);
 
 	return ret;
 }

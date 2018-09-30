@@ -31,6 +31,7 @@
  */
 static int br_device_event(struct notifier_block *unused, unsigned long event, void *ptr)
 {
+	unsigned int bh;
 	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
 	struct net_bridge_port *p;
 	struct net_bridge *br;
@@ -57,10 +58,10 @@ static int br_device_event(struct notifier_block *unused, unsigned long event, v
 		break;
 
 	case NETDEV_CHANGEADDR:
-		spin_lock_bh(&br->lock);
+		bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 		br_fdb_changeaddr(p, dev->dev_addr);
 		changed_addr = br_stp_recalculate_bridge_id(br);
-		spin_unlock_bh(&br->lock);
+		spin_unlock_bh(&br->lock, bh);
 
 		if (changed_addr)
 			call_netdevice_notifiers(NETDEV_CHANGEADDR, br->dev);
@@ -76,20 +77,20 @@ static int br_device_event(struct notifier_block *unused, unsigned long event, v
 		break;
 
 	case NETDEV_DOWN:
-		spin_lock_bh(&br->lock);
+		bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 		if (br->dev->flags & IFF_UP) {
 			br_stp_disable_port(p);
 			notified = true;
 		}
-		spin_unlock_bh(&br->lock);
+		spin_unlock_bh(&br->lock, bh);
 		break;
 
 	case NETDEV_UP:
 		if (netif_running(br->dev) && netif_oper_up(dev)) {
-			spin_lock_bh(&br->lock);
+			bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 			br_stp_enable_port(p);
 			notified = true;
-			spin_unlock_bh(&br->lock);
+			spin_unlock_bh(&br->lock, bh);
 		}
 		break;
 

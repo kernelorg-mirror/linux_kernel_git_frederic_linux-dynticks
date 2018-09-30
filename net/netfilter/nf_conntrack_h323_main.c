@@ -574,6 +574,7 @@ static int process_h245(struct sk_buff *skb, struct nf_conn *ct,
 static int h245_help(struct sk_buff *skb, unsigned int protoff,
 		     struct nf_conn *ct, enum ip_conntrack_info ctinfo)
 {
+	unsigned int bh;
 	static MultimediaSystemControlMessage mscm;
 	unsigned char *data = NULL;
 	int datalen;
@@ -586,7 +587,7 @@ static int h245_help(struct sk_buff *skb, unsigned int protoff,
 
 	pr_debug("nf_ct_h245: skblen = %u\n", skb->len);
 
-	spin_lock_bh(&nf_h323_lock);
+	bh = spin_lock_bh(&nf_h323_lock, SOFTIRQ_ALL_MASK);
 
 	/* Process each TPKT */
 	while (get_tpkt_data(skb, protoff, ct, ctinfo,
@@ -611,11 +612,11 @@ static int h245_help(struct sk_buff *skb, unsigned int protoff,
 			goto drop;
 	}
 
-	spin_unlock_bh(&nf_h323_lock);
+	spin_unlock_bh(&nf_h323_lock, bh);
 	return NF_ACCEPT;
 
       drop:
-	spin_unlock_bh(&nf_h323_lock);
+	spin_unlock_bh(&nf_h323_lock, bh);
 	nf_ct_helper_log(skb, ct, "cannot process H.245 message");
 	return NF_DROP;
 }
@@ -1139,6 +1140,7 @@ static int process_q931(struct sk_buff *skb, struct nf_conn *ct,
 static int q931_help(struct sk_buff *skb, unsigned int protoff,
 		     struct nf_conn *ct, enum ip_conntrack_info ctinfo)
 {
+	unsigned int bh;
 	static Q931 q931;
 	unsigned char *data = NULL;
 	int datalen;
@@ -1151,7 +1153,7 @@ static int q931_help(struct sk_buff *skb, unsigned int protoff,
 
 	pr_debug("nf_ct_q931: skblen = %u\n", skb->len);
 
-	spin_lock_bh(&nf_h323_lock);
+	bh = spin_lock_bh(&nf_h323_lock, SOFTIRQ_ALL_MASK);
 
 	/* Process each TPKT */
 	while (get_tpkt_data(skb, protoff, ct, ctinfo,
@@ -1175,11 +1177,11 @@ static int q931_help(struct sk_buff *skb, unsigned int protoff,
 			goto drop;
 	}
 
-	spin_unlock_bh(&nf_h323_lock);
+	spin_unlock_bh(&nf_h323_lock, bh);
 	return NF_ACCEPT;
 
       drop:
-	spin_unlock_bh(&nf_h323_lock);
+	spin_unlock_bh(&nf_h323_lock, bh);
 	nf_ct_helper_log(skb, ct, "cannot process Q.931 message");
 	return NF_DROP;
 }
@@ -1407,6 +1409,7 @@ static int process_rcf(struct sk_buff *skb, struct nf_conn *ct,
 		       unsigned int protoff,
 		       unsigned char **data, RegistrationConfirm *rcf)
 {
+	unsigned int bh;
 	struct nf_ct_h323_master *info = nfct_help_data(ct);
 	int dir = CTINFO2DIR(ctinfo);
 	int ret;
@@ -1436,7 +1439,7 @@ static int process_rcf(struct sk_buff *skb, struct nf_conn *ct,
 		nf_ct_refresh(ct, skb, info->timeout * HZ);
 
 		/* Set expect timeout */
-		spin_lock_bh(&nf_conntrack_expect_lock);
+		bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 		exp = find_expect(ct, &ct->tuplehash[dir].tuple.dst.u3,
 				  info->sig_port[!dir]);
 		if (exp) {
@@ -1447,7 +1450,7 @@ static int process_rcf(struct sk_buff *skb, struct nf_conn *ct,
 			mod_timer_pending(&exp->timeout,
 					  jiffies + info->timeout * HZ);
 		}
-		spin_unlock_bh(&nf_conntrack_expect_lock);
+		spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 	}
 
 	return 0;
@@ -1714,6 +1717,7 @@ static int process_ras(struct sk_buff *skb, struct nf_conn *ct,
 static int ras_help(struct sk_buff *skb, unsigned int protoff,
 		    struct nf_conn *ct, enum ip_conntrack_info ctinfo)
 {
+	unsigned int bh;
 	static RasMessage ras;
 	unsigned char *data;
 	int datalen = 0;
@@ -1721,7 +1725,7 @@ static int ras_help(struct sk_buff *skb, unsigned int protoff,
 
 	pr_debug("nf_ct_ras: skblen = %u\n", skb->len);
 
-	spin_lock_bh(&nf_h323_lock);
+	bh = spin_lock_bh(&nf_h323_lock, SOFTIRQ_ALL_MASK);
 
 	/* Get UDP data */
 	data = get_udp_data(skb, protoff, &datalen);
@@ -1744,11 +1748,11 @@ static int ras_help(struct sk_buff *skb, unsigned int protoff,
 		goto drop;
 
       accept:
-	spin_unlock_bh(&nf_h323_lock);
+	spin_unlock_bh(&nf_h323_lock, bh);
 	return NF_ACCEPT;
 
       drop:
-	spin_unlock_bh(&nf_h323_lock);
+	spin_unlock_bh(&nf_h323_lock, bh);
 	nf_ct_helper_log(skb, ct, "cannot process RAS message");
 	return NF_DROP;
 }

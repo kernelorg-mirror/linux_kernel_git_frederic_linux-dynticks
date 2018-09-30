@@ -98,11 +98,12 @@ found_reuse:
 
 static void t4_smte_free(struct smt_entry *e)
 {
-	spin_lock_bh(&e->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 	if (atomic_read(&e->refcnt) == 0) {  /* hasn't been recycled */
 		e->state = SMT_STATE_UNUSED;
 	}
-	spin_unlock_bh(&e->lock);
+	spin_unlock_bh(&e->lock, bh);
 }
 
 /**

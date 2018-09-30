@@ -370,6 +370,7 @@ err:
 
 static void arfs_may_expire_flow(struct mlx5e_priv *priv)
 {
+	unsigned int bh;
 	struct arfs_rule *arfs_rule;
 	struct hlist_node *htmp;
 	int quota = 0;
@@ -377,7 +378,7 @@ static void arfs_may_expire_flow(struct mlx5e_priv *priv)
 	int j;
 
 	HLIST_HEAD(del_list);
-	spin_lock_bh(&priv->fs.arfs.arfs_lock);
+	bh = spin_lock_bh(&priv->fs.arfs.arfs_lock, SOFTIRQ_ALL_MASK);
 	mlx5e_for_each_arfs_rule(arfs_rule, htmp, priv->fs.arfs.arfs_tables, i, j) {
 		if (!work_pending(&arfs_rule->arfs_work) &&
 		    rps_may_expire_flow(priv->netdev,
@@ -389,7 +390,7 @@ static void arfs_may_expire_flow(struct mlx5e_priv *priv)
 				break;
 		}
 	}
-	spin_unlock_bh(&priv->fs.arfs.arfs_lock);
+	spin_unlock_bh(&priv->fs.arfs.arfs_lock, bh);
 	hlist_for_each_entry_safe(arfs_rule, htmp, &del_list, hlist) {
 		if (arfs_rule->rule)
 			mlx5_del_flow_rules(arfs_rule->rule);
@@ -400,18 +401,19 @@ static void arfs_may_expire_flow(struct mlx5e_priv *priv)
 
 static void arfs_del_rules(struct mlx5e_priv *priv)
 {
+	unsigned int bh;
 	struct hlist_node *htmp;
 	struct arfs_rule *rule;
 	int i;
 	int j;
 
 	HLIST_HEAD(del_list);
-	spin_lock_bh(&priv->fs.arfs.arfs_lock);
+	bh = spin_lock_bh(&priv->fs.arfs.arfs_lock, SOFTIRQ_ALL_MASK);
 	mlx5e_for_each_arfs_rule(rule, htmp, priv->fs.arfs.arfs_tables, i, j) {
 		hlist_del_init(&rule->hlist);
 		hlist_add_head(&rule->hlist, &del_list);
 	}
-	spin_unlock_bh(&priv->fs.arfs.arfs_lock);
+	spin_unlock_bh(&priv->fs.arfs.arfs_lock, bh);
 
 	hlist_for_each_entry_safe(rule, htmp, &del_list, hlist) {
 		cancel_work_sync(&rule->arfs_work);
@@ -568,6 +570,7 @@ static void arfs_modify_rule_rq(struct mlx5e_priv *priv,
 
 static void arfs_handle_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct arfs_rule *arfs_rule = container_of(work,
 						   struct arfs_rule,
 						   arfs_work);
@@ -576,9 +579,9 @@ static void arfs_handle_work(struct work_struct *work)
 
 	mutex_lock(&priv->state_lock);
 	if (!test_bit(MLX5E_STATE_OPENED, &priv->state)) {
-		spin_lock_bh(&priv->fs.arfs.arfs_lock);
+		bh = spin_lock_bh(&priv->fs.arfs.arfs_lock, SOFTIRQ_ALL_MASK);
 		hlist_del(&arfs_rule->hlist);
-		spin_unlock_bh(&priv->fs.arfs.arfs_lock);
+		spin_unlock_bh(&priv->fs.arfs.arfs_lock, bh);
 
 		mutex_unlock(&priv->state_lock);
 		kfree(arfs_rule);
@@ -700,6 +703,7 @@ static struct arfs_rule *arfs_find_rule(struct arfs_table *arfs_t,
 int mlx5e_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 			u16 rxq_index, u32 flow_id)
 {
+	unsigned int bh;
 	struct mlx5e_priv *priv = netdev_priv(dev);
 	struct mlx5e_arfs_tables *arfs = &priv->fs.arfs;
 	struct arfs_table *arfs_t;
@@ -716,11 +720,11 @@ int mlx5e_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 	if (!arfs_t)
 		return -EPROTONOSUPPORT;
 
-	spin_lock_bh(&arfs->arfs_lock);
+	bh = spin_lock_bh(&arfs->arfs_lock, SOFTIRQ_ALL_MASK);
 	arfs_rule = arfs_find_rule(arfs_t, skb);
 	if (arfs_rule) {
 		if (arfs_rule->rxq == rxq_index) {
-			spin_unlock_bh(&arfs->arfs_lock);
+			spin_unlock_bh(&arfs->arfs_lock, bh);
 			return arfs_rule->filter_id;
 		}
 		arfs_rule->rxq = rxq_index;
@@ -728,12 +732,12 @@ int mlx5e_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 		arfs_rule = arfs_alloc_rule(priv, arfs_t, skb,
 					    rxq_index, flow_id);
 		if (!arfs_rule) {
-			spin_unlock_bh(&arfs->arfs_lock);
+			spin_unlock_bh(&arfs->arfs_lock, bh);
 			return -ENOMEM;
 		}
 	}
 	queue_work(priv->fs.arfs.wq, &arfs_rule->arfs_work);
-	spin_unlock_bh(&arfs->arfs_lock);
+	spin_unlock_bh(&arfs->arfs_lock, bh);
 	return arfs_rule->filter_id;
 }
 

@@ -134,30 +134,33 @@ static DEFINE_PER_CPU_ALIGNED(struct uncached_list, rt6_uncached_list);
 
 void rt6_uncached_list_add(struct rt6_info *rt)
 {
+	unsigned int bh;
 	struct uncached_list *ul = raw_cpu_ptr(&rt6_uncached_list);
 
 	rt->rt6i_uncached_list = ul;
 
-	spin_lock_bh(&ul->lock);
+	bh = spin_lock_bh(&ul->lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&rt->rt6i_uncached, &ul->head);
-	spin_unlock_bh(&ul->lock);
+	spin_unlock_bh(&ul->lock, bh);
 }
 
 void rt6_uncached_list_del(struct rt6_info *rt)
 {
+	unsigned int bh;
 	if (!list_empty(&rt->rt6i_uncached)) {
 		struct uncached_list *ul = rt->rt6i_uncached_list;
 		struct net *net = dev_net(rt->dst.dev);
 
-		spin_lock_bh(&ul->lock);
+		bh = spin_lock_bh(&ul->lock, SOFTIRQ_ALL_MASK);
 		list_del(&rt->rt6i_uncached);
 		atomic_dec(&net->ipv6.rt6_stats->fib_rt_uncache);
-		spin_unlock_bh(&ul->lock);
+		spin_unlock_bh(&ul->lock, bh);
 	}
 }
 
 static void rt6_uncached_list_flush_dev(struct net *net, struct net_device *dev)
 {
+	unsigned int bh;
 	struct net_device *loopback_dev = net->loopback_dev;
 	int cpu;
 
@@ -168,7 +171,7 @@ static void rt6_uncached_list_flush_dev(struct net *net, struct net_device *dev)
 		struct uncached_list *ul = per_cpu_ptr(&rt6_uncached_list, cpu);
 		struct rt6_info *rt;
 
-		spin_lock_bh(&ul->lock);
+		bh = spin_lock_bh(&ul->lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(rt, &ul->head, rt6i_uncached) {
 			struct inet6_dev *rt_idev = rt->rt6i_idev;
 			struct net_device *rt_dev = rt->dst.dev;
@@ -184,7 +187,7 @@ static void rt6_uncached_list_flush_dev(struct net *net, struct net_device *dev)
 				dev_put(rt_dev);
 			}
 		}
-		spin_unlock_bh(&ul->lock);
+		spin_unlock_bh(&ul->lock, bh);
 	}
 }
 
@@ -735,6 +738,7 @@ static struct fib6_info *find_rr_leaf(struct fib6_node *fn,
 static struct fib6_info *rt6_select(struct net *net, struct fib6_node *fn,
 				   int oif, int strict)
 {
+	unsigned int bh;
 	struct fib6_info *leaf = rcu_dereference(fn->leaf);
 	struct fib6_info *match, *rt0;
 	bool do_rr = false;
@@ -771,11 +775,11 @@ static struct fib6_info *rt6_select(struct net *net, struct fib6_node *fn,
 			next = leaf;
 
 		if (next != rt0) {
-			spin_lock_bh(&leaf->fib6_table->tb6_lock);
+			bh = spin_lock_bh(&leaf->fib6_table->tb6_lock, SOFTIRQ_ALL_MASK);
 			/* make sure next is not being deleted from the tree */
 			if (next->fib6_node)
 				rcu_assign_pointer(fn->rr_ptr, next);
-			spin_unlock_bh(&leaf->fib6_table->tb6_lock);
+			spin_unlock_bh(&leaf->fib6_table->tb6_lock, bh);
 		}
 	}
 
@@ -1150,13 +1154,14 @@ EXPORT_SYMBOL(rt6_lookup);
 static int __ip6_ins_rt(struct fib6_info *rt, struct nl_info *info,
 			struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	int err;
 	struct fib6_table *table;
 
 	table = rt->fib6_table;
-	spin_lock_bh(&table->tb6_lock);
+	bh = spin_lock_bh(&table->tb6_lock, SOFTIRQ_ALL_MASK);
 	err = fib6_add(&table->tb6_root, rt, info, extack);
-	spin_unlock_bh(&table->tb6_lock);
+	spin_unlock_bh(&table->tb6_lock, bh);
 
 	return err;
 }
@@ -1414,13 +1419,14 @@ static unsigned int fib6_mtu(const struct fib6_info *rt)
 static int rt6_insert_exception(struct rt6_info *nrt,
 				struct fib6_info *ort)
 {
+	unsigned int bh;
 	struct net *net = dev_net(nrt->dst.dev);
 	struct rt6_exception_bucket *bucket;
 	struct in6_addr *src_key = NULL;
 	struct rt6_exception *rt6_ex;
 	int err = 0;
 
-	spin_lock_bh(&rt6_exception_lock);
+	bh = spin_lock_bh(&rt6_exception_lock, SOFTIRQ_ALL_MASK);
 
 	if (ort->exception_bucket_flushed) {
 		err = -EINVAL;
@@ -1483,11 +1489,11 @@ static int rt6_insert_exception(struct rt6_info *nrt,
 		rt6_exception_remove_oldest(bucket);
 
 out:
-	spin_unlock_bh(&rt6_exception_lock);
+	spin_unlock_bh(&rt6_exception_lock, bh);
 
 	/* Update fn->fn_sernum to invalidate all cached dst */
 	if (!err) {
-		spin_lock_bh(&ort->fib6_table->tb6_lock);
+		spin_lock_bh(&ort->fib6_table->tb6_lock, SOFTIRQ_ALL_MASK);
 		fib6_update_sernum(net, ort);
 		spin_unlock_bh(&ort->fib6_table->tb6_lock);
 		fib6_force_start_gc(net);
@@ -1498,12 +1504,13 @@ out:
 
 void rt6_flush_exceptions(struct fib6_info *rt)
 {
+	unsigned int bh;
 	struct rt6_exception_bucket *bucket;
 	struct rt6_exception *rt6_ex;
 	struct hlist_node *tmp;
 	int i;
 
-	spin_lock_bh(&rt6_exception_lock);
+	bh = spin_lock_bh(&rt6_exception_lock, SOFTIRQ_ALL_MASK);
 	/* Prevent rt6_insert_exception() to recreate the bucket list */
 	rt->exception_bucket_flushed = 1;
 
@@ -1520,7 +1527,7 @@ void rt6_flush_exceptions(struct fib6_info *rt)
 	}
 
 out:
-	spin_unlock_bh(&rt6_exception_lock);
+	spin_unlock_bh(&rt6_exception_lock, bh);
 }
 
 /* Find cached rt in the hash table inside passed in rt
@@ -1558,6 +1565,7 @@ static struct rt6_info *rt6_find_cached_rt(struct fib6_info *rt,
 /* Remove the passed in cached rt from the hash table that contains it */
 static int rt6_remove_exception_rt(struct rt6_info *rt)
 {
+	unsigned int bh;
 	struct rt6_exception_bucket *bucket;
 	struct in6_addr *src_key = NULL;
 	struct rt6_exception *rt6_ex;
@@ -1572,7 +1580,7 @@ static int rt6_remove_exception_rt(struct rt6_info *rt)
 	if (!rcu_access_pointer(from->rt6i_exception_bucket))
 		return -ENOENT;
 
-	spin_lock_bh(&rt6_exception_lock);
+	bh = spin_lock_bh(&rt6_exception_lock, SOFTIRQ_ALL_MASK);
 	bucket = rcu_dereference_protected(from->rt6i_exception_bucket,
 				    lockdep_is_held(&rt6_exception_lock));
 #ifdef CONFIG_IPV6_SUBTREES
@@ -1595,7 +1603,7 @@ static int rt6_remove_exception_rt(struct rt6_info *rt)
 		err = -ENOENT;
 	}
 
-	spin_unlock_bh(&rt6_exception_lock);
+	spin_unlock_bh(&rt6_exception_lock, bh);
 	return err;
 }
 
@@ -1710,6 +1718,7 @@ static void rt6_exceptions_update_pmtu(struct inet6_dev *idev,
 static void rt6_exceptions_clean_tohost(struct fib6_info *rt,
 					struct in6_addr *gateway)
 {
+	unsigned int bh;
 	struct rt6_exception_bucket *bucket;
 	struct rt6_exception *rt6_ex;
 	struct hlist_node *tmp;
@@ -1718,7 +1727,7 @@ static void rt6_exceptions_clean_tohost(struct fib6_info *rt,
 	if (!rcu_access_pointer(rt->rt6i_exception_bucket))
 		return;
 
-	spin_lock_bh(&rt6_exception_lock);
+	bh = spin_lock_bh(&rt6_exception_lock, SOFTIRQ_ALL_MASK);
 	bucket = rcu_dereference_protected(rt->rt6i_exception_bucket,
 				     lockdep_is_held(&rt6_exception_lock));
 
@@ -1739,7 +1748,7 @@ static void rt6_exceptions_clean_tohost(struct fib6_info *rt,
 		}
 	}
 
-	spin_unlock_bh(&rt6_exception_lock);
+	spin_unlock_bh(&rt6_exception_lock, bh);
 }
 
 static void rt6_age_examine_exception(struct rt6_exception_bucket *bucket,
@@ -3173,6 +3182,7 @@ int ip6_route_add(struct fib6_config *cfg, gfp_t gfp_flags,
 
 static int __ip6_del_rt(struct fib6_info *rt, struct nl_info *info)
 {
+	unsigned int bh;
 	struct net *net = info->nl_net;
 	struct fib6_table *table;
 	int err;
@@ -3183,9 +3193,9 @@ static int __ip6_del_rt(struct fib6_info *rt, struct nl_info *info)
 	}
 
 	table = rt->fib6_table;
-	spin_lock_bh(&table->tb6_lock);
+	bh = spin_lock_bh(&table->tb6_lock, SOFTIRQ_ALL_MASK);
 	err = fib6_del(rt, info);
-	spin_unlock_bh(&table->tb6_lock);
+	spin_unlock_bh(&table->tb6_lock, bh);
 
 out:
 	fib6_info_release(rt);
@@ -3201,6 +3211,7 @@ int ip6_del_rt(struct net *net, struct fib6_info *rt)
 
 static int __ip6_del_rt_siblings(struct fib6_info *rt, struct fib6_config *cfg)
 {
+	unsigned int bh;
 	struct nl_info *info = &cfg->fc_nlinfo;
 	struct net *net = info->nl_net;
 	struct sk_buff *skb = NULL;
@@ -3210,7 +3221,7 @@ static int __ip6_del_rt_siblings(struct fib6_info *rt, struct fib6_config *cfg)
 	if (rt == net->ipv6.fib6_null_entry)
 		goto out_put;
 	table = rt->fib6_table;
-	spin_lock_bh(&table->tb6_lock);
+	bh = spin_lock_bh(&table->tb6_lock, SOFTIRQ_ALL_MASK);
 
 	if (rt->fib6_nsiblings && cfg->fc_delete_all_nh) {
 		struct fib6_info *sibling, *next_sibling;
@@ -3240,7 +3251,7 @@ static int __ip6_del_rt_siblings(struct fib6_info *rt, struct fib6_config *cfg)
 
 	err = fib6_del(rt, info);
 out_unlock:
-	spin_unlock_bh(&table->tb6_lock);
+	spin_unlock_bh(&table->tb6_lock, bh);
 out_put:
 	fib6_info_release(rt);
 
@@ -3787,6 +3798,7 @@ struct arg_dev_net_ip {
 
 static int fib6_remove_prefsrc(struct fib6_info *rt, void *arg)
 {
+	unsigned int bh;
 	struct net_device *dev = ((struct arg_dev_net_ip *)arg)->dev;
 	struct net *net = ((struct arg_dev_net_ip *)arg)->net;
 	struct in6_addr *addr = ((struct arg_dev_net_ip *)arg)->addr;
@@ -3794,12 +3806,12 @@ static int fib6_remove_prefsrc(struct fib6_info *rt, void *arg)
 	if (((void *)rt->fib6_nh.nh_dev == dev || !dev) &&
 	    rt != net->ipv6.fib6_null_entry &&
 	    ipv6_addr_equal(addr, &rt->fib6_prefsrc.addr)) {
-		spin_lock_bh(&rt6_exception_lock);
+		bh = spin_lock_bh(&rt6_exception_lock, SOFTIRQ_ALL_MASK);
 		/* remove prefsrc entry */
 		rt->fib6_prefsrc.plen = 0;
 		/* need to update cache as well */
 		rt6_exceptions_remove_prefsrc(rt);
-		spin_unlock_bh(&rt6_exception_lock);
+		spin_unlock_bh(&rt6_exception_lock, bh);
 	}
 	return 0;
 }
@@ -4094,6 +4106,7 @@ struct rt6_mtu_change_arg {
 
 static int rt6_mtu_change_route(struct fib6_info *rt, void *p_arg)
 {
+	unsigned int bh;
 	struct rt6_mtu_change_arg *arg = (struct rt6_mtu_change_arg *) p_arg;
 	struct inet6_dev *idev;
 
@@ -4120,9 +4133,9 @@ static int rt6_mtu_change_route(struct fib6_info *rt, void *p_arg)
 		    (mtu < arg->mtu && mtu == idev->cnf.mtu6))
 			fib6_metric_set(rt, RTAX_MTU, arg->mtu);
 
-		spin_lock_bh(&rt6_exception_lock);
+		bh = spin_lock_bh(&rt6_exception_lock, SOFTIRQ_ALL_MASK);
 		rt6_exceptions_update_pmtu(idev, rt, arg->mtu);
-		spin_unlock_bh(&rt6_exception_lock);
+		spin_unlock_bh(&rt6_exception_lock, bh);
 	}
 	return 0;
 }

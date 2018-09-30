@@ -191,41 +191,44 @@ static const struct iwl_fw_bcast_filter iwl_mvm_default_bcast_filters[] = {
 
 void iwl_mvm_ref(struct iwl_mvm *mvm, enum iwl_mvm_ref_type ref_type)
 {
+	unsigned int bh;
 	if (!iwl_mvm_is_d0i3_supported(mvm))
 		return;
 
 	IWL_DEBUG_RPM(mvm, "Take mvm reference - type %d\n", ref_type);
-	spin_lock_bh(&mvm->refs_lock);
+	bh = spin_lock_bh(&mvm->refs_lock, SOFTIRQ_ALL_MASK);
 	mvm->refs[ref_type]++;
-	spin_unlock_bh(&mvm->refs_lock);
+	spin_unlock_bh(&mvm->refs_lock, bh);
 	iwl_trans_ref(mvm->trans);
 }
 
 void iwl_mvm_unref(struct iwl_mvm *mvm, enum iwl_mvm_ref_type ref_type)
 {
+	unsigned int bh;
 	if (!iwl_mvm_is_d0i3_supported(mvm))
 		return;
 
 	IWL_DEBUG_RPM(mvm, "Leave mvm reference - type %d\n", ref_type);
-	spin_lock_bh(&mvm->refs_lock);
+	bh = spin_lock_bh(&mvm->refs_lock, SOFTIRQ_ALL_MASK);
 	if (WARN_ON(!mvm->refs[ref_type])) {
-		spin_unlock_bh(&mvm->refs_lock);
+		spin_unlock_bh(&mvm->refs_lock, bh);
 		return;
 	}
 	mvm->refs[ref_type]--;
-	spin_unlock_bh(&mvm->refs_lock);
+	spin_unlock_bh(&mvm->refs_lock, bh);
 	iwl_trans_unref(mvm->trans);
 }
 
 static void iwl_mvm_unref_all_except(struct iwl_mvm *mvm,
 				     enum iwl_mvm_ref_type except_ref)
 {
+	unsigned int bh;
 	int i, j;
 
 	if (!iwl_mvm_is_d0i3_supported(mvm))
 		return;
 
-	spin_lock_bh(&mvm->refs_lock);
+	bh = spin_lock_bh(&mvm->refs_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < IWL_MVM_REF_COUNT; i++) {
 		if (except_ref == i || !mvm->refs[i])
 			continue;
@@ -236,25 +239,26 @@ static void iwl_mvm_unref_all_except(struct iwl_mvm *mvm,
 			iwl_trans_unref(mvm->trans);
 		mvm->refs[i] = 0;
 	}
-	spin_unlock_bh(&mvm->refs_lock);
+	spin_unlock_bh(&mvm->refs_lock, bh);
 }
 
 bool iwl_mvm_ref_taken(struct iwl_mvm *mvm)
 {
+	unsigned int bh;
 	int i;
 	bool taken = false;
 
 	if (!iwl_mvm_is_d0i3_supported(mvm))
 		return true;
 
-	spin_lock_bh(&mvm->refs_lock);
+	bh = spin_lock_bh(&mvm->refs_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < IWL_MVM_REF_COUNT; i++) {
 		if (mvm->refs[i]) {
 			taken = true;
 			break;
 		}
 	}
-	spin_unlock_bh(&mvm->refs_lock);
+	spin_unlock_bh(&mvm->refs_lock, bh);
 
 	return taken;
 }
@@ -1023,15 +1027,16 @@ static int iwl_mvm_mac_ampdu_action(struct ieee80211_hw *hw,
 static void iwl_mvm_cleanup_iterator(void *data, u8 *mac,
 				     struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct iwl_mvm *mvm = data;
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 
 	mvmvif->uploaded = false;
 	mvmvif->ap_sta_id = IWL_MVM_INVALID_STA;
 
-	spin_lock_bh(&mvm->time_event_lock);
+	bh = spin_lock_bh(&mvm->time_event_lock, SOFTIRQ_ALL_MASK);
 	iwl_mvm_te_clear_data(mvm, &mvmvif->time_event_data);
-	spin_unlock_bh(&mvm->time_event_lock);
+	spin_unlock_bh(&mvm->time_event_lock, bh);
 
 	mvmvif->phy_ctxt = NULL;
 	memset(&mvmvif->bf_data, 0, sizeof(mvmvif->bf_data));
@@ -2604,6 +2609,7 @@ static void __iwl_mvm_mac_sta_notify(struct ieee80211_hw *hw,
 				     enum sta_notify_cmd cmd,
 				     struct ieee80211_sta *sta)
 {
+	unsigned int bh;
 	struct iwl_mvm *mvm = IWL_MAC80211_GET_MVM(hw);
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
 	unsigned long txqs = 0, tids = 0;
@@ -2617,7 +2623,7 @@ static void __iwl_mvm_mac_sta_notify(struct ieee80211_hw *hw,
 	if (WARN_ON(iwl_mvm_has_new_tx_api(mvm)))
 		return;
 
-	spin_lock_bh(&mvmsta->lock);
+	bh = spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 	for (tid = 0; tid < IWL_MAX_TID_COUNT; tid++) {
 		struct iwl_mvm_tid_data *tid_data = &mvmsta->tid_data[tid];
 
@@ -2656,7 +2662,7 @@ static void __iwl_mvm_mac_sta_notify(struct ieee80211_hw *hw,
 	default:
 		break;
 	}
-	spin_unlock_bh(&mvmsta->lock);
+	spin_unlock_bh(&mvmsta->lock, bh);
 }
 
 static void iwl_mvm_mac_sta_notify(struct ieee80211_hw *hw,
@@ -2812,11 +2818,12 @@ iwl_mvm_tdls_check_trigger(struct iwl_mvm *mvm,
 static void iwl_mvm_purge_deferred_tx_frames(struct iwl_mvm *mvm,
 					     struct iwl_mvm_sta *mvm_sta)
 {
+	unsigned int bh;
 	struct iwl_mvm_tid_data *tid_data;
 	struct sk_buff *skb;
 	int i;
 
-	spin_lock_bh(&mvm_sta->lock);
+	bh = spin_lock_bh(&mvm_sta->lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i <= IWL_MAX_TID_COUNT; i++) {
 		tid_data = &mvm_sta->tid_data[i];
 
@@ -2832,7 +2839,7 @@ static void iwl_mvm_purge_deferred_tx_frames(struct iwl_mvm *mvm,
 			ieee80211_free_txskb(mvm->hw, skb);
 		}
 	}
-	spin_unlock_bh(&mvm_sta->lock);
+	spin_unlock_bh(&mvm_sta->lock, bh);
 }
 
 static int iwl_mvm_mac_sta_state(struct ieee80211_hw *hw,
@@ -3303,6 +3310,7 @@ static void iwl_mvm_mac_update_tkip_key(struct ieee80211_hw *hw,
 static bool iwl_mvm_rx_aux_roc(struct iwl_notif_wait_data *notif_wait,
 			       struct iwl_rx_packet *pkt, void *data)
 {
+	unsigned int bh;
 	struct iwl_mvm *mvm =
 		container_of(notif_wait, struct iwl_mvm, notif_wait);
 	struct iwl_hs20_roc_res *resp;
@@ -3327,9 +3335,9 @@ static bool iwl_mvm_rx_aux_roc(struct iwl_notif_wait_data *notif_wait,
 	IWL_DEBUG_TE(mvm, "TIME_EVENT_CMD response - UID = 0x%x\n",
 		     te_data->uid);
 
-	spin_lock_bh(&mvm->time_event_lock);
+	bh = spin_lock_bh(&mvm->time_event_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&te_data->list, &mvm->aux_roc_te_list);
-	spin_unlock_bh(&mvm->time_event_lock);
+	spin_unlock_bh(&mvm->time_event_lock, bh);
 
 	return true;
 }
@@ -3344,6 +3352,7 @@ static int iwl_mvm_send_aux_roc_cmd(struct iwl_mvm *mvm,
 				    struct ieee80211_vif *vif,
 				    int duration)
 {
+	unsigned int bh;
 	int res, time_reg = DEVICE_SYSTEM_TIME_REG;
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 	struct iwl_mvm_time_event_data *te_data = &mvmvif->hs_time_event_data;
@@ -3401,10 +3410,10 @@ static int iwl_mvm_send_aux_roc_cmd(struct iwl_mvm *mvm,
 
 	lockdep_assert_held(&mvm->mutex);
 
-	spin_lock_bh(&mvm->time_event_lock);
+	bh = spin_lock_bh(&mvm->time_event_lock, SOFTIRQ_ALL_MASK);
 
 	if (WARN_ON(te_data->id == HOT_SPOT_CMD)) {
-		spin_unlock_bh(&mvm->time_event_lock);
+		spin_unlock_bh(&mvm->time_event_lock, bh);
 		return -EIO;
 	}
 
@@ -3412,7 +3421,7 @@ static int iwl_mvm_send_aux_roc_cmd(struct iwl_mvm *mvm,
 	te_data->duration = duration;
 	te_data->id = HOT_SPOT_CMD;
 
-	spin_unlock_bh(&mvm->time_event_lock);
+	spin_unlock_bh(&mvm->time_event_lock, bh);
 
 	/*
 	 * Use a notification wait, which really just processes the
@@ -3444,7 +3453,7 @@ static int iwl_mvm_send_aux_roc_cmd(struct iwl_mvm *mvm,
 
 	if (res) {
  out_clear_te:
-		spin_lock_bh(&mvm->time_event_lock);
+		spin_lock_bh(&mvm->time_event_lock, SOFTIRQ_ALL_MASK);
 		iwl_mvm_te_clear_data(mvm, te_data);
 		spin_unlock_bh(&mvm->time_event_lock);
 	}

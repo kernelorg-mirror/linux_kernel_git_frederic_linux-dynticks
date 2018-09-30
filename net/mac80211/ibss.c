@@ -687,6 +687,7 @@ static int ieee80211_sta_active_ibss(struct ieee80211_sub_if_data *sdata)
 
 static void ieee80211_ibss_disconnect(struct ieee80211_sub_if_data *sdata)
 {
+	unsigned int bh;
 	struct ieee80211_if_ibss *ifibss = &sdata->u.ibss;
 	struct ieee80211_local *local = sdata->local;
 	struct cfg80211_bss *cbss;
@@ -710,7 +711,7 @@ static void ieee80211_ibss_disconnect(struct ieee80211_sub_if_data *sdata)
 
 	sta_info_flush(sdata);
 
-	spin_lock_bh(&ifibss->incomplete_lock);
+	bh = spin_lock_bh(&ifibss->incomplete_lock, SOFTIRQ_ALL_MASK);
 	while (!list_empty(&ifibss->incomplete_stations)) {
 		sta = list_first_entry(&ifibss->incomplete_stations,
 				       struct sta_info, list);
@@ -718,9 +719,9 @@ static void ieee80211_ibss_disconnect(struct ieee80211_sub_if_data *sdata)
 		spin_unlock_bh(&ifibss->incomplete_lock);
 
 		sta_info_free(local, sta);
-		spin_lock_bh(&ifibss->incomplete_lock);
+		spin_lock_bh(&ifibss->incomplete_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&ifibss->incomplete_lock);
+	spin_unlock_bh(&ifibss->incomplete_lock, bh);
 
 	netif_carrier_off(sdata->dev);
 
@@ -1669,6 +1670,7 @@ void ieee80211_ibss_rx_queued_mgmt(struct ieee80211_sub_if_data *sdata,
 
 void ieee80211_ibss_work(struct ieee80211_sub_if_data *sdata)
 {
+	unsigned int bh;
 	struct ieee80211_if_ibss *ifibss = &sdata->u.ibss;
 	struct sta_info *sta;
 
@@ -1682,7 +1684,7 @@ void ieee80211_ibss_work(struct ieee80211_sub_if_data *sdata)
 	if (!ifibss->ssid_len)
 		goto out;
 
-	spin_lock_bh(&ifibss->incomplete_lock);
+	bh = spin_lock_bh(&ifibss->incomplete_lock, SOFTIRQ_ALL_MASK);
 	while (!list_empty(&ifibss->incomplete_stations)) {
 		sta = list_first_entry(&ifibss->incomplete_stations,
 				       struct sta_info, list);
@@ -1691,9 +1693,9 @@ void ieee80211_ibss_work(struct ieee80211_sub_if_data *sdata)
 
 		ieee80211_ibss_finish_sta(sta);
 		rcu_read_unlock();
-		spin_lock_bh(&ifibss->incomplete_lock);
+		spin_lock_bh(&ifibss->incomplete_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&ifibss->incomplete_lock);
+	spin_unlock_bh(&ifibss->incomplete_lock, bh);
 
 	switch (ifibss->state) {
 	case IEEE80211_IBSS_MLME_SEARCH:

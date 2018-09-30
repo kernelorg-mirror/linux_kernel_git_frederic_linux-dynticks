@@ -990,7 +990,7 @@ static inline struct sk_buff *tipc_skb_peek(struct sk_buff_head *list,
 {
 	struct sk_buff *skb;
 
-	spin_lock_bh(lock);
+	spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 	skb = skb_peek(list);
 	if (skb)
 		skb_get(skb);
@@ -1012,7 +1012,7 @@ static inline u32 tipc_skb_peek_port(struct sk_buff_head *list, u32 filter)
 	u32 dport = 0;
 	bool ignore = true;
 
-	spin_lock_bh(&list->lock);
+	spin_lock_bh(&list->lock, SOFTIRQ_ALL_MASK);
 	skb_queue_walk(list, skb) {
 		dport = msg_destport(buf_msg(skb));
 		if (!filter || skb_queue_is_last(list, skb))
@@ -1035,7 +1035,7 @@ static inline struct sk_buff *tipc_skb_dequeue(struct sk_buff_head *list,
 {
 	struct sk_buff *_skb, *tmp, *skb = NULL;
 
-	spin_lock_bh(&list->lock);
+	spin_lock_bh(&list->lock, SOFTIRQ_ALL_MASK);
 	skb_queue_walk_safe(list, _skb, tmp) {
 		if (msg_destport(buf_msg(_skb)) == dport) {
 			__skb_unlink(_skb, list);
@@ -1054,7 +1054,7 @@ static inline struct sk_buff *tipc_skb_dequeue(struct sk_buff_head *list,
 static inline void tipc_skb_queue_splice_tail(struct sk_buff_head *list,
 					      struct sk_buff_head *head)
 {
-	spin_lock_bh(&head->lock);
+	spin_lock_bh(&head->lock, SOFTIRQ_ALL_MASK);
 	skb_queue_splice_tail(list, head);
 	spin_unlock_bh(&head->lock);
 }
@@ -1070,7 +1070,7 @@ static inline void tipc_skb_queue_splice_tail_init(struct sk_buff_head *list,
 
 	__skb_queue_head_init(&tmp);
 
-	spin_lock_bh(&list->lock);
+	spin_lock_bh(&list->lock, SOFTIRQ_ALL_MASK);
 	skb_queue_splice_tail_init(list, &tmp);
 	spin_unlock_bh(&list->lock);
 	tipc_skb_queue_splice_tail(&tmp, head);

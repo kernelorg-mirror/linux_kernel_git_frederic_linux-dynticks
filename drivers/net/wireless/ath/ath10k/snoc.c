@@ -304,6 +304,7 @@ u32 ath10k_snoc_read32(struct ath10k *ar, u32 offset)
 
 static int __ath10k_snoc_rx_post_buf(struct ath10k_snoc_pipe *pipe)
 {
+	unsigned int bh;
 	struct ath10k_ce_pipe *ce_pipe = pipe->ce_hdl;
 	struct ath10k *ar = pipe->hif_ce_state;
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
@@ -328,9 +329,9 @@ static int __ath10k_snoc_rx_post_buf(struct ath10k_snoc_pipe *pipe)
 
 	ATH10K_SKB_RXCB(skb)->paddr = paddr;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 	ret = ce_pipe->ops->ce_rx_post_buf(ce_pipe, skb, paddr);
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 	if (ret) {
 		dma_unmap_single(ar->dev, paddr, skb->len + skb_tailroom(skb),
 				 DMA_FROM_DEVICE);
@@ -343,6 +344,7 @@ static int __ath10k_snoc_rx_post_buf(struct ath10k_snoc_pipe *pipe)
 
 static void ath10k_snoc_rx_post_pipe(struct ath10k_snoc_pipe *pipe)
 {
+	unsigned int bh;
 	struct ath10k *ar = pipe->hif_ce_state;
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	struct ath10k_snoc *ar_snoc = ath10k_snoc_priv(ar);
@@ -355,9 +357,9 @@ static void ath10k_snoc_rx_post_pipe(struct ath10k_snoc_pipe *pipe)
 	if (!ce_pipe->dest_ring)
 		return;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 	num = __ath10k_ce_rx_num_free_bufs(ce_pipe);
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 	while (num--) {
 		ret = __ath10k_snoc_rx_post_buf(pipe);
 		if (ret) {
@@ -492,6 +494,7 @@ static void ath10k_snoc_htt_tx_cb(struct ath10k_ce_pipe *ce_state)
 static int ath10k_snoc_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 				 struct ath10k_hif_sg_item *items, int n_items)
 {
+	unsigned int bh;
 	struct ath10k_snoc *ar_snoc = ath10k_snoc_priv(ar);
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	struct ath10k_snoc_pipe *snoc_pipe;
@@ -500,7 +503,7 @@ static int ath10k_snoc_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 
 	snoc_pipe = &ar_snoc->pipe_info[pipe_id];
 	ce_pipe = snoc_pipe->ce_hdl;
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < n_items - 1; i++) {
 		ath10k_dbg(ar, ATH10K_DBG_SNOC,
@@ -530,7 +533,7 @@ static int ath10k_snoc_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 	if (err)
 		goto err;
 
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	return 0;
 
@@ -538,7 +541,7 @@ err:
 	for (; i > 0; i--)
 		__ath10k_ce_send_revert(ce_pipe);
 
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 	return err;
 }
 

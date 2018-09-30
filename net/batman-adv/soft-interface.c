@@ -509,13 +509,14 @@ out:
  */
 static void batadv_softif_vlan_release(struct kref *ref)
 {
+	unsigned int bh;
 	struct batadv_softif_vlan *vlan;
 
 	vlan = container_of(ref, struct batadv_softif_vlan, refcount);
 
-	spin_lock_bh(&vlan->bat_priv->softif_vlan_list_lock);
+	bh = spin_lock_bh(&vlan->bat_priv->softif_vlan_list_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_rcu(&vlan->list);
-	spin_unlock_bh(&vlan->bat_priv->softif_vlan_list_lock);
+	spin_unlock_bh(&vlan->bat_priv->softif_vlan_list_lock, bh);
 
 	kfree_rcu(vlan, rcu);
 }
@@ -571,6 +572,7 @@ struct batadv_softif_vlan *batadv_softif_vlan_get(struct batadv_priv *bat_priv,
  */
 int batadv_softif_create_vlan(struct batadv_priv *bat_priv, unsigned short vid)
 {
+	unsigned int bh;
 	struct batadv_softif_vlan *vlan;
 	int err;
 
@@ -596,10 +598,10 @@ int batadv_softif_create_vlan(struct batadv_priv *bat_priv, unsigned short vid)
 		return err;
 	}
 
-	spin_lock_bh(&bat_priv->softif_vlan_list_lock);
+	bh = spin_lock_bh(&bat_priv->softif_vlan_list_lock, SOFTIRQ_ALL_MASK);
 	kref_get(&vlan->refcount);
 	hlist_add_head_rcu(&vlan->list, &bat_priv->softif_vlan_list);
-	spin_unlock_bh(&bat_priv->softif_vlan_list_lock);
+	spin_unlock_bh(&bat_priv->softif_vlan_list_lock, bh);
 
 	/* add a new TT local entry. This one will be marked with the NOPURGE
 	 * flag

@@ -126,15 +126,16 @@ qca_tty_receive(struct serdev_device *serdev, const unsigned char *data,
 /* Write out any remaining transmit buffer. Scheduled when tty is writable */
 static void qcauart_transmit(struct work_struct *work)
 {
+	unsigned int bh;
 	struct qcauart *qca = container_of(work, struct qcauart, tx_work);
 	struct net_device_stats *n_stats = &qca->net_dev->stats;
 	int written;
 
-	spin_lock_bh(&qca->lock);
+	bh = spin_lock_bh(&qca->lock, SOFTIRQ_ALL_MASK);
 
 	/* First make sure we're connected. */
 	if (!netif_running(qca->net_dev)) {
-		spin_unlock_bh(&qca->lock);
+		spin_unlock_bh(&qca->lock, bh);
 		return;
 	}
 
@@ -143,7 +144,7 @@ static void qcauart_transmit(struct work_struct *work)
 		 * transmission of another packet
 		 */
 		n_stats->tx_packets++;
-		spin_unlock_bh(&qca->lock);
+		spin_unlock_bh(&qca->lock, bh);
 		netif_wake_queue(qca->net_dev);
 		return;
 	}
@@ -154,7 +155,7 @@ static void qcauart_transmit(struct work_struct *work)
 		qca->tx_left -= written;
 		qca->tx_head += written;
 	}
-	spin_unlock_bh(&qca->lock);
+	spin_unlock_bh(&qca->lock, bh);
 }
 
 /* Called by the driver when there's room for more data.
@@ -183,14 +184,15 @@ static int qcauart_netdev_open(struct net_device *dev)
 
 static int qcauart_netdev_close(struct net_device *dev)
 {
+	unsigned int bh;
 	struct qcauart *qca = netdev_priv(dev);
 
 	netif_stop_queue(dev);
 	flush_work(&qca->tx_work);
 
-	spin_lock_bh(&qca->lock);
+	bh = spin_lock_bh(&qca->lock, SOFTIRQ_ALL_MASK);
 	qca->tx_left = 0;
-	spin_unlock_bh(&qca->lock);
+	spin_unlock_bh(&qca->lock, bh);
 
 	return 0;
 }

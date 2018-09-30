@@ -834,6 +834,7 @@ MODULE_PARM_DESC(rx_refill_threshold,
 
 static void efx_filter_rfs_work(struct work_struct *data)
 {
+	unsigned int bh;
 	struct efx_async_filter_insertion *req = container_of(data, struct efx_async_filter_insertion,
 							      work);
 	struct efx_nic *efx = netdev_priv(req->net_dev);
@@ -847,7 +848,7 @@ static void efx_filter_rfs_work(struct work_struct *data)
 	if (rc >= 0)
 		rc %= efx->type->max_rx_ip_filters;
 	if (efx->rps_hash_table) {
-		spin_lock_bh(&efx->rps_hash_lock);
+		bh = spin_lock_bh(&efx->rps_hash_lock, SOFTIRQ_ALL_MASK);
 		rule = efx_rps_hash_find(efx, &req->spec);
 		/* The rule might have already gone, if someone else's request
 		 * for the same spec was already worked and then expired before
@@ -862,7 +863,7 @@ static void efx_filter_rfs_work(struct work_struct *data)
 				rule->filter_id = rc;
 			arfs_id = rule->arfs_id;
 		}
-		spin_unlock_bh(&efx->rps_hash_lock);
+		spin_unlock_bh(&efx->rps_hash_lock, bh);
 	}
 	if (rc >= 0) {
 		/* Remember this so we can check whether to expire the filter

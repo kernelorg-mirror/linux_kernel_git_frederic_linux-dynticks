@@ -530,12 +530,13 @@ EXPORT_SYMBOL_GPL(__iscsi_put_task);
 
 void iscsi_put_task(struct iscsi_task *task)
 {
+	unsigned int bh;
 	struct iscsi_session *session = task->conn->session;
 
 	/* regular RX path uses back_lock */
-	spin_lock_bh(&session->back_lock);
+	bh = spin_lock_bh(&session->back_lock, SOFTIRQ_ALL_MASK);
 	__iscsi_put_task(task);
-	spin_unlock_bh(&session->back_lock);
+	spin_unlock_bh(&session->back_lock, bh);
 }
 EXPORT_SYMBOL_GPL(iscsi_put_task);
 
@@ -548,6 +549,7 @@ EXPORT_SYMBOL_GPL(iscsi_put_task);
  */
 static void iscsi_complete_task(struct iscsi_task *task, int state)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = task->conn;
 
 	ISCSI_DBG_SESSION(conn->session,
@@ -561,12 +563,12 @@ static void iscsi_complete_task(struct iscsi_task *task, int state)
 	WARN_ON_ONCE(task->state == ISCSI_TASK_FREE);
 	task->state = state;
 
-	spin_lock_bh(&conn->taskqueuelock);
+	bh = spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&task->running)) {
 		pr_debug_once("%s while task on list", __func__);
 		list_del_init(&task->running);
 	}
-	spin_unlock_bh(&conn->taskqueuelock);
+	spin_unlock_bh(&conn->taskqueuelock, bh);
 
 	if (conn->task == task)
 		conn->task = NULL;
@@ -610,6 +612,7 @@ EXPORT_SYMBOL_GPL(iscsi_complete_scsi_task);
  */
 static void fail_scsi_task(struct iscsi_task *task, int err)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = task->conn;
 	struct scsi_cmnd *sc;
 	int state;
@@ -645,9 +648,9 @@ static void fail_scsi_task(struct iscsi_task *task, int err)
 	}
 
 	/* regular RX path uses back_lock */
-	spin_lock_bh(&conn->session->back_lock);
+	bh = spin_lock_bh(&conn->session->back_lock, SOFTIRQ_ALL_MASK);
 	iscsi_complete_task(task, state);
-	spin_unlock_bh(&conn->session->back_lock);
+	spin_unlock_bh(&conn->session->back_lock, bh);
 }
 
 static int iscsi_prep_mgmt_task(struct iscsi_conn *conn,
@@ -700,6 +703,7 @@ static struct iscsi_task *
 __iscsi_conn_send_pdu(struct iscsi_conn *conn, struct iscsi_hdr *hdr,
 		      char *data, uint32_t data_size)
 {
+	unsigned int bh;
 	struct iscsi_session *session = conn->session;
 	struct iscsi_host *ihost = shost_priv(session->host);
 	uint8_t opcode = hdr->opcode & ISCSI_OPCODE_MASK;
@@ -788,9 +792,9 @@ __iscsi_conn_send_pdu(struct iscsi_conn *conn, struct iscsi_hdr *hdr,
 		if (session->tt->xmit_task(task))
 			goto free_task;
 	} else {
-		spin_lock_bh(&conn->taskqueuelock);
+		bh = spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 		list_add_tail(&task->running, &conn->mgmtqueue);
-		spin_unlock_bh(&conn->taskqueuelock);
+		spin_unlock_bh(&conn->taskqueuelock, bh);
 		iscsi_conn_queue_work(conn);
 	}
 
@@ -807,14 +811,15 @@ free_task:
 int iscsi_conn_send_pdu(struct iscsi_cls_conn *cls_conn, struct iscsi_hdr *hdr,
 			char *data, uint32_t data_size)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = cls_conn->dd_data;
 	struct iscsi_session *session = conn->session;
 	int err = 0;
 
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	if (!__iscsi_conn_send_pdu(conn, hdr, data, data_size))
 		err = -EPERM;
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 	return err;
 }
 EXPORT_SYMBOL_GPL(iscsi_conn_send_pdu);
@@ -1377,18 +1382,19 @@ EXPORT_SYMBOL_GPL(iscsi_itt_to_ctask);
 void iscsi_session_failure(struct iscsi_session *session,
 			   enum iscsi_err err)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn;
 	struct device *dev;
 
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	conn = session->leadconn;
 	if (session->state == ISCSI_STATE_TERMINATE || !conn) {
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 		return;
 	}
 
 	dev = get_device(&conn->cls_conn->dev);
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 	if (!dev)
 	        return;
 	/*
@@ -1406,17 +1412,18 @@ EXPORT_SYMBOL_GPL(iscsi_session_failure);
 
 void iscsi_conn_failure(struct iscsi_conn *conn, enum iscsi_err err)
 {
+	unsigned int bh;
 	struct iscsi_session *session = conn->session;
 
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	if (session->state == ISCSI_STATE_FAILED) {
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 		return;
 	}
 
 	if (conn->stop_stage == 0)
 		session->state = ISCSI_STATE_FAILED;
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 
 	set_bit(ISCSI_SUSPEND_BIT, &conn->suspend_tx);
 	set_bit(ISCSI_SUSPEND_BIT, &conn->suspend_rx);
@@ -1452,7 +1459,7 @@ static int iscsi_xmit_task(struct iscsi_conn *conn)
 	__iscsi_get_task(task);
 	spin_unlock_bh(&conn->session->frwd_lock);
 	rc = conn->session->tt->xmit_task(task);
-	spin_lock_bh(&conn->session->frwd_lock);
+	spin_lock_bh(&conn->session->frwd_lock, SOFTIRQ_ALL_MASK);
 	if (!rc) {
 		/* done with this task */
 		task->last_xfer = jiffies;
@@ -1475,16 +1482,17 @@ static int iscsi_xmit_task(struct iscsi_conn *conn)
  */
 void iscsi_requeue_task(struct iscsi_task *task)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = task->conn;
 
 	/*
 	 * this may be on the requeue list already if the xmit_task callout
 	 * is handling the r2ts while we are adding new ones
 	 */
-	spin_lock_bh(&conn->taskqueuelock);
+	bh = spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&task->running))
 		list_add_tail(&task->running, &conn->requeue);
-	spin_unlock_bh(&conn->taskqueuelock);
+	spin_unlock_bh(&conn->taskqueuelock, bh);
 	iscsi_conn_queue_work(conn);
 }
 EXPORT_SYMBOL_GPL(iscsi_requeue_task);
@@ -1500,13 +1508,14 @@ EXPORT_SYMBOL_GPL(iscsi_requeue_task);
  **/
 static int iscsi_data_xmit(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct iscsi_task *task;
 	int rc = 0;
 
-	spin_lock_bh(&conn->session->frwd_lock);
+	bh = spin_lock_bh(&conn->session->frwd_lock, SOFTIRQ_ALL_MASK);
 	if (test_bit(ISCSI_SUSPEND_BIT, &conn->suspend_tx)) {
 		ISCSI_DBG_SESSION(conn->session, "Tx suspended!\n");
-		spin_unlock_bh(&conn->session->frwd_lock);
+		spin_unlock_bh(&conn->session->frwd_lock, bh);
 		return -ENODATA;
 	}
 
@@ -1521,7 +1530,7 @@ static int iscsi_data_xmit(struct iscsi_conn *conn)
 	 * only have one nop-out as a ping from us and targets should not
 	 * overflow us with nop-ins
 	 */
-	spin_lock_bh(&conn->taskqueuelock);
+	spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 check_mgmt:
 	while (!list_empty(&conn->mgmtqueue)) {
 		conn->task = list_entry(conn->mgmtqueue.next,
@@ -1530,17 +1539,17 @@ check_mgmt:
 		spin_unlock_bh(&conn->taskqueuelock);
 		if (iscsi_prep_mgmt_task(conn, conn->task)) {
 			/* regular RX path uses back_lock */
-			spin_lock_bh(&conn->session->back_lock);
+			spin_lock_bh(&conn->session->back_lock, SOFTIRQ_ALL_MASK);
 			__iscsi_put_task(conn->task);
 			spin_unlock_bh(&conn->session->back_lock);
 			conn->task = NULL;
-			spin_lock_bh(&conn->taskqueuelock);
+			spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 			continue;
 		}
 		rc = iscsi_xmit_task(conn);
 		if (rc)
 			goto done;
-		spin_lock_bh(&conn->taskqueuelock);
+		spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 	}
 
 	/* process pending command queue */
@@ -1551,13 +1560,13 @@ check_mgmt:
 		spin_unlock_bh(&conn->taskqueuelock);
 		if (conn->session->state == ISCSI_STATE_LOGGING_OUT) {
 			fail_scsi_task(conn->task, DID_IMM_RETRY);
-			spin_lock_bh(&conn->taskqueuelock);
+			spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 			continue;
 		}
 		rc = iscsi_prep_scsi_cmd_pdu(conn->task);
 		if (rc) {
 			if (rc == -ENOMEM || rc == -EACCES) {
-				spin_lock_bh(&conn->taskqueuelock);
+				spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 				list_add_tail(&conn->task->running,
 					      &conn->cmdqueue);
 				conn->task = NULL;
@@ -1565,7 +1574,7 @@ check_mgmt:
 				goto done;
 			} else
 				fail_scsi_task(conn->task, DID_ABORT);
-			spin_lock_bh(&conn->taskqueuelock);
+			spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 			continue;
 		}
 		rc = iscsi_xmit_task(conn);
@@ -1576,7 +1585,7 @@ check_mgmt:
 		 * we need to check the mgmt queue for nops that need to
 		 * be sent to aviod starvation
 		 */
-		spin_lock_bh(&conn->taskqueuelock);
+		spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&conn->mgmtqueue))
 			goto check_mgmt;
 	}
@@ -1600,16 +1609,16 @@ check_mgmt:
 		rc = iscsi_xmit_task(conn);
 		if (rc)
 			goto done;
-		spin_lock_bh(&conn->taskqueuelock);
+		spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&conn->mgmtqueue))
 			goto check_mgmt;
 	}
 	spin_unlock_bh(&conn->taskqueuelock);
-	spin_unlock_bh(&conn->session->frwd_lock);
+	spin_unlock_bh(&conn->session->frwd_lock, bh);
 	return -ENODATA;
 
 done:
-	spin_unlock_bh(&conn->session->frwd_lock);
+	spin_unlock_bh(&conn->session->frwd_lock, bh);
 	return rc;
 }
 
@@ -1665,6 +1674,7 @@ enum {
 
 int iscsi_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *sc)
 {
+	unsigned int bh;
 	struct iscsi_cls_session *cls_session;
 	struct iscsi_host *ihost;
 	int reason = 0;
@@ -1679,7 +1689,7 @@ int iscsi_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *sc)
 
 	cls_session = starget_to_session(scsi_target(sc->device));
 	session = cls_session->dd_data;
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 
 	reason = iscsi_session_chkready(cls_session);
 	if (reason) {
@@ -1770,20 +1780,20 @@ int iscsi_queuecommand(struct Scsi_Host *host, struct scsi_cmnd *sc)
 			goto prepd_reject;
 		}
 	} else {
-		spin_lock_bh(&conn->taskqueuelock);
+		spin_lock_bh(&conn->taskqueuelock, SOFTIRQ_ALL_MASK);
 		list_add_tail(&task->running, &conn->cmdqueue);
 		spin_unlock_bh(&conn->taskqueuelock);
 		iscsi_conn_queue_work(conn);
 	}
 
 	session->queued_cmdsn++;
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 	return 0;
 
 prepd_reject:
 	iscsi_complete_task(task, ISCSI_TASK_REQUEUE_SCSIQ);
 reject:
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 	ISCSI_DBG_SESSION(session, "cmd 0x%x rejected (%d)\n",
 			  sc->cmnd[0], reason);
 	return SCSI_MLQUEUE_TARGET_BUSY;
@@ -1791,7 +1801,7 @@ reject:
 prepd_fault:
 	iscsi_complete_task(task, ISCSI_TASK_REQUEUE_SCSIQ);
 fault:
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 	ISCSI_DBG_SESSION(session, "iscsi: cmd 0x%x is not queued (%d)\n",
 			  sc->cmnd[0], reason);
 	if (!scsi_bidi_cmnd(sc))
@@ -1844,7 +1854,7 @@ static int iscsi_exec_task_mgmt_fn(struct iscsi_conn *conn,
 		spin_unlock_bh(&session->frwd_lock);
 		iscsi_conn_printk(KERN_ERR, conn, "Could not send TMF.\n");
 		iscsi_conn_failure(conn, ISCSI_ERR_CONN_FAILED);
-		spin_lock_bh(&session->frwd_lock);
+		spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 		return -EPERM;
 	}
 	conn->tmfcmd_pdus_cnt++;
@@ -1871,7 +1881,7 @@ static int iscsi_exec_task_mgmt_fn(struct iscsi_conn *conn,
 	del_timer_sync(&conn->tmf_timer);
 
 	mutex_lock(&session->eh_mutex);
-	spin_lock_bh(&session->frwd_lock);
+	spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	/* if the session drops it will clean up the task */
 	if (age != session->age ||
 	    session->state != ISCSI_STATE_LOGGED_IN)
@@ -1916,9 +1926,10 @@ static void fail_scsi_tasks(struct iscsi_conn *conn, u64 lun, int error)
  */
 void iscsi_suspend_queue(struct iscsi_conn *conn)
 {
-	spin_lock_bh(&conn->session->frwd_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&conn->session->frwd_lock, SOFTIRQ_ALL_MASK);
 	set_bit(ISCSI_SUSPEND_BIT, &conn->suspend_tx);
-	spin_unlock_bh(&conn->session->frwd_lock);
+	spin_unlock_bh(&conn->session->frwd_lock, bh);
 }
 EXPORT_SYMBOL_GPL(iscsi_suspend_queue);
 
@@ -2169,6 +2180,7 @@ static void iscsi_prep_abort_task_pdu(struct iscsi_task *task,
 
 int iscsi_eh_abort(struct scsi_cmnd *sc)
 {
+	unsigned int bh;
 	struct iscsi_cls_session *cls_session;
 	struct iscsi_session *session;
 	struct iscsi_conn *conn;
@@ -2182,7 +2194,7 @@ int iscsi_eh_abort(struct scsi_cmnd *sc)
 	ISCSI_DBG_EH(session, "aborting sc %p\n", sc);
 
 	mutex_lock(&session->eh_mutex);
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	/*
 	 * if session was ISCSI_STATE_IN_RECOVERY then we may not have
 	 * got the command.
@@ -2190,7 +2202,7 @@ int iscsi_eh_abort(struct scsi_cmnd *sc)
 	if (!sc->SCp.ptr) {
 		ISCSI_DBG_EH(session, "sc never reached iscsi layer or "
 				      "it completed.\n");
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 		mutex_unlock(&session->eh_mutex);
 		return SUCCESS;
 	}
@@ -2201,7 +2213,7 @@ int iscsi_eh_abort(struct scsi_cmnd *sc)
 	 */
 	if (!session->leadconn || session->state != ISCSI_STATE_LOGGED_IN ||
 	    sc->SCp.phase != session->age) {
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 		mutex_unlock(&session->eh_mutex);
 		ISCSI_DBG_EH(session, "failing abort due to dropped "
 				  "session.\n");
@@ -2251,7 +2263,7 @@ int iscsi_eh_abort(struct scsi_cmnd *sc)
 		 * good and have never sent us a successful tmf response
 		 * then sent more data for the cmd.
 		 */
-		spin_lock_bh(&session->frwd_lock);
+		spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 		fail_scsi_task(task, DID_ABORT);
 		conn->tmf_state = TMF_INITIAL;
 		memset(hdr, 0, sizeof(*hdr));
@@ -2259,7 +2271,7 @@ int iscsi_eh_abort(struct scsi_cmnd *sc)
 		iscsi_start_tx(conn);
 		goto success_unlocked;
 	case TMF_TIMEDOUT:
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 		iscsi_conn_failure(conn, ISCSI_ERR_SCSI_EH_SESSION_RST);
 		goto failed_unlocked;
 	case TMF_NOT_FOUND:
@@ -2278,7 +2290,7 @@ int iscsi_eh_abort(struct scsi_cmnd *sc)
 	}
 
 success:
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 success_unlocked:
 	ISCSI_DBG_EH(session, "abort success [sc %p itt 0x%x]\n",
 		     sc, task->itt);
@@ -2286,7 +2298,7 @@ success_unlocked:
 	return SUCCESS;
 
 failed:
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 failed_unlocked:
 	ISCSI_DBG_EH(session, "abort failed [sc %p itt 0x%x]\n", sc,
 		     task ? task->itt : 0);
@@ -2307,6 +2319,7 @@ static void iscsi_prep_lun_reset_pdu(struct scsi_cmnd *sc, struct iscsi_tm *hdr)
 
 int iscsi_eh_device_reset(struct scsi_cmnd *sc)
 {
+	unsigned int bh;
 	struct iscsi_cls_session *cls_session;
 	struct iscsi_session *session;
 	struct iscsi_conn *conn;
@@ -2320,7 +2333,7 @@ int iscsi_eh_device_reset(struct scsi_cmnd *sc)
 		     sc->device->lun);
 
 	mutex_lock(&session->eh_mutex);
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	/*
 	 * Just check if we are not logged in. We cannot check for
 	 * the phase because the reset could come from a ioctl.
@@ -2347,7 +2360,7 @@ int iscsi_eh_device_reset(struct scsi_cmnd *sc)
 	case TMF_SUCCESS:
 		break;
 	case TMF_TIMEDOUT:
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 		iscsi_conn_failure(conn, ISCSI_ERR_SCSI_EH_SESSION_RST);
 		goto done;
 	default:
@@ -2360,7 +2373,7 @@ int iscsi_eh_device_reset(struct scsi_cmnd *sc)
 
 	iscsi_suspend_tx(conn);
 
-	spin_lock_bh(&session->frwd_lock);
+	spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	memset(hdr, 0, sizeof(*hdr));
 	fail_scsi_tasks(conn, sc->device->lun, DID_ERROR);
 	conn->tmf_state = TMF_INITIAL;
@@ -2370,7 +2383,7 @@ int iscsi_eh_device_reset(struct scsi_cmnd *sc)
 	goto done;
 
 unlock:
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 done:
 	ISCSI_DBG_EH(session, "dev reset result = %s\n",
 		     rc == SUCCESS ? "SUCCESS" : "FAILED");
@@ -2381,15 +2394,16 @@ EXPORT_SYMBOL_GPL(iscsi_eh_device_reset);
 
 void iscsi_session_recovery_timedout(struct iscsi_cls_session *cls_session)
 {
+	unsigned int bh;
 	struct iscsi_session *session = cls_session->dd_data;
 
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	if (session->state != ISCSI_STATE_LOGGED_IN) {
 		session->state = ISCSI_STATE_RECOVERY_FAILED;
 		if (session->leadconn)
 			wake_up(&session->leadconn->ehwait);
 	}
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 }
 EXPORT_SYMBOL_GPL(iscsi_session_recovery_timedout);
 
@@ -2402,6 +2416,7 @@ EXPORT_SYMBOL_GPL(iscsi_session_recovery_timedout);
  */
 int iscsi_eh_session_reset(struct scsi_cmnd *sc)
 {
+	unsigned int bh;
 	struct iscsi_cls_session *cls_session;
 	struct iscsi_session *session;
 	struct iscsi_conn *conn;
@@ -2411,14 +2426,14 @@ int iscsi_eh_session_reset(struct scsi_cmnd *sc)
 	conn = session->leadconn;
 
 	mutex_lock(&session->eh_mutex);
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	if (session->state == ISCSI_STATE_TERMINATE) {
 failed:
 		ISCSI_DBG_EH(session,
 			     "failing session reset: Could not log back into "
 			     "%s, %s [age %d]\n", session->targetname,
 			     conn->persistent_address, session->age);
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 		mutex_unlock(&session->eh_mutex);
 		return FAILED;
 	}
@@ -2440,7 +2455,7 @@ failed:
 		flush_signals(current);
 
 	mutex_lock(&session->eh_mutex);
-	spin_lock_bh(&session->frwd_lock);
+	spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	if (session->state == ISCSI_STATE_LOGGED_IN) {
 		ISCSI_DBG_EH(session,
 			     "session reset succeeded for %s,%s\n",
@@ -2470,6 +2485,7 @@ static void iscsi_prep_tgt_reset_pdu(struct scsi_cmnd *sc, struct iscsi_tm *hdr)
  */
 static int iscsi_eh_target_reset(struct scsi_cmnd *sc)
 {
+	unsigned int bh;
 	struct iscsi_cls_session *cls_session;
 	struct iscsi_session *session;
 	struct iscsi_conn *conn;
@@ -2483,7 +2499,7 @@ static int iscsi_eh_target_reset(struct scsi_cmnd *sc)
 		     session->targetname);
 
 	mutex_lock(&session->eh_mutex);
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	/*
 	 * Just check if we are not logged in. We cannot check for
 	 * the phase because the reset could come from a ioctl.
@@ -2510,7 +2526,7 @@ static int iscsi_eh_target_reset(struct scsi_cmnd *sc)
 	case TMF_SUCCESS:
 		break;
 	case TMF_TIMEDOUT:
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 		iscsi_conn_failure(conn, ISCSI_ERR_SCSI_EH_SESSION_RST);
 		goto done;
 	default:
@@ -2523,7 +2539,7 @@ static int iscsi_eh_target_reset(struct scsi_cmnd *sc)
 
 	iscsi_suspend_tx(conn);
 
-	spin_lock_bh(&session->frwd_lock);
+	spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	memset(hdr, 0, sizeof(*hdr));
 	fail_scsi_tasks(conn, -1, DID_ERROR);
 	conn->tmf_state = TMF_INITIAL;
@@ -2533,7 +2549,7 @@ static int iscsi_eh_target_reset(struct scsi_cmnd *sc)
 	goto done;
 
 unlock:
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 done:
 	ISCSI_DBG_EH(session, "tgt %s reset result = %s\n", session->targetname,
 		     rc == SUCCESS ? "SUCCESS" : "FAILED");
@@ -2917,6 +2933,7 @@ struct iscsi_cls_conn *
 iscsi_conn_setup(struct iscsi_cls_session *cls_session, int dd_size,
 		 uint32_t conn_idx)
 {
+	unsigned int bh;
 	struct iscsi_session *session = cls_session->dd_data;
 	struct iscsi_conn *conn;
 	struct iscsi_cls_conn *cls_conn;
@@ -2946,14 +2963,14 @@ iscsi_conn_setup(struct iscsi_cls_session *cls_session, int dd_size,
 	INIT_WORK(&conn->xmitwork, iscsi_xmitworker);
 
 	/* allocate login_task used for the login/text sequences */
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	if (!kfifo_out(&session->cmdpool.queue,
                          (void*)&conn->login_task,
 			 sizeof(void*))) {
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 		goto login_task_alloc_fail;
 	}
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 
 	data = (char *) __get_free_pages(GFP_KERNEL,
 					 get_order(ISCSI_DEF_MAX_RECV_SEG_LEN));
@@ -2990,7 +3007,7 @@ void iscsi_conn_teardown(struct iscsi_cls_conn *cls_conn)
 	del_timer_sync(&conn->transport_timer);
 
 	mutex_lock(&session->eh_mutex);
-	spin_lock_bh(&session->frwd_lock);
+	spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	conn->c_stage = ISCSI_CONN_CLEANUP_WAIT;
 	if (session->leadconn == conn) {
 		/*
@@ -3004,13 +3021,13 @@ void iscsi_conn_teardown(struct iscsi_cls_conn *cls_conn)
 	/* flush queued up work because we free the connection below */
 	iscsi_suspend_tx(conn);
 
-	spin_lock_bh(&session->frwd_lock);
+	spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	free_pages((unsigned long) conn->data,
 		   get_order(ISCSI_DEF_MAX_RECV_SEG_LEN));
 	kfree(conn->persistent_address);
 	kfree(conn->local_ipaddr);
 	/* regular RX path uses back_lock */
-	spin_lock_bh(&session->back_lock);
+	spin_lock_bh(&session->back_lock, SOFTIRQ_ALL_MASK);
 	kfifo_in(&session->cmdpool.queue, (void*)&conn->login_task,
 		    sizeof(void*));
 	spin_unlock_bh(&session->back_lock);
@@ -3025,6 +3042,7 @@ EXPORT_SYMBOL_GPL(iscsi_conn_teardown);
 
 int iscsi_conn_start(struct iscsi_cls_conn *cls_conn)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = cls_conn->dd_data;
 	struct iscsi_session *session = conn->session;
 
@@ -3054,7 +3072,7 @@ int iscsi_conn_start(struct iscsi_cls_conn *cls_conn)
 		conn->ping_timeout = 5;
 	}
 
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	conn->c_stage = ISCSI_CONN_STARTED;
 	session->state = ISCSI_STATE_LOGGED_IN;
 	session->queued_cmdsn = session->cmdsn;
@@ -3083,7 +3101,7 @@ int iscsi_conn_start(struct iscsi_cls_conn *cls_conn)
 	default:
 		break;
 	}
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 
 	iscsi_unblock_session(session->cls_session);
 	wake_up(&conn->ehwait);
@@ -3119,12 +3137,13 @@ fail_mgmt_tasks(struct iscsi_session *session, struct iscsi_conn *conn)
 static void iscsi_start_session_recovery(struct iscsi_session *session,
 					 struct iscsi_conn *conn, int flag)
 {
+	unsigned int bh;
 	int old_stop_stage;
 
 	mutex_lock(&session->eh_mutex);
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	if (conn->stop_stage == STOP_CONN_TERM) {
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 		mutex_unlock(&session->eh_mutex);
 		return;
 	}
@@ -3146,7 +3165,7 @@ static void iscsi_start_session_recovery(struct iscsi_session *session,
 	del_timer_sync(&conn->transport_timer);
 	iscsi_suspend_tx(conn);
 
-	spin_lock_bh(&session->frwd_lock);
+	spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	conn->c_stage = ISCSI_CONN_STOPPED;
 	spin_unlock_bh(&session->frwd_lock);
 
@@ -3169,7 +3188,7 @@ static void iscsi_start_session_recovery(struct iscsi_session *session,
 	/*
 	 * flush queues.
 	 */
-	spin_lock_bh(&session->frwd_lock);
+	spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	fail_scsi_tasks(conn, -1, DID_TRANSPORT_DISRUPTED);
 	fail_mgmt_tasks(session, conn);
 	memset(&conn->tmhdr, 0, sizeof(conn->tmhdr));
@@ -3197,13 +3216,14 @@ EXPORT_SYMBOL_GPL(iscsi_conn_stop);
 int iscsi_conn_bind(struct iscsi_cls_session *cls_session,
 		    struct iscsi_cls_conn *cls_conn, int is_leading)
 {
+	unsigned int bh;
 	struct iscsi_session *session = cls_session->dd_data;
 	struct iscsi_conn *conn = cls_conn->dd_data;
 
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	if (is_leading)
 		session->leadconn = conn;
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 
 	/*
 	 * Unblock xmitworker(), Login Phase will pass through.

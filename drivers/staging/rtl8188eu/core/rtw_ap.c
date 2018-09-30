@@ -32,6 +32,7 @@ void init_mlme_ap_info(struct adapter *padapter)
 
 void free_mlme_ap_info(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct sta_info *psta = NULL;
 	struct sta_priv *pstapriv = &padapter->stapriv;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
@@ -50,9 +51,9 @@ void free_mlme_ap_info(struct adapter *padapter)
 
 	/* free bc/mc sta_info */
 	psta = rtw_get_bcmc_stainfo(padapter);
-	spin_lock_bh(&pstapriv->sta_hash_lock);
+	bh = spin_lock_bh(&pstapriv->sta_hash_lock, SOFTIRQ_ALL_MASK);
 	rtw_free_stainfo(padapter, psta);
-	spin_unlock_bh(&pstapriv->sta_hash_lock);
+	spin_unlock_bh(&pstapriv->sta_hash_lock, bh);
 }
 
 static void update_BCNTIM(struct adapter *padapter)
@@ -164,6 +165,7 @@ static u8 chk_sta_is_alive(struct sta_info *psta)
 
 void	expire_timeout_chk(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct list_head *phead, *plist;
 	u8 updated = 0;
 	struct sta_info *psta = NULL;
@@ -172,7 +174,7 @@ void	expire_timeout_chk(struct adapter *padapter)
 	char chk_alive_list[NUM_STA];
 	int i;
 
-	spin_lock_bh(&pstapriv->auth_list_lock);
+	bh = spin_lock_bh(&pstapriv->auth_list_lock, SOFTIRQ_ALL_MASK);
 
 	phead = &pstapriv->auth_list;
 	plist = phead->next;
@@ -193,19 +195,19 @@ void	expire_timeout_chk(struct adapter *padapter)
 
 				spin_unlock_bh(&pstapriv->auth_list_lock);
 
-				spin_lock_bh(&pstapriv->sta_hash_lock);
+				spin_lock_bh(&pstapriv->sta_hash_lock, SOFTIRQ_ALL_MASK);
 				rtw_free_stainfo(padapter, psta);
 				spin_unlock_bh(&pstapriv->sta_hash_lock);
 
-				spin_lock_bh(&pstapriv->auth_list_lock);
+				spin_lock_bh(&pstapriv->auth_list_lock, SOFTIRQ_ALL_MASK);
 			}
 		}
 	}
-	spin_unlock_bh(&pstapriv->auth_list_lock);
+	spin_unlock_bh(&pstapriv->auth_list_lock, bh);
 
 	psta = NULL;
 
-	spin_lock_bh(&pstapriv->asoc_list_lock);
+	spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 
 	phead = &pstapriv->asoc_list;
 	plist = phead->next;
@@ -316,7 +318,7 @@ void	expire_timeout_chk(struct adapter *padapter)
 			psta->keep_alive_trycnt = 0;
 
 			DBG_88E("asoc expire %pM, state = 0x%x\n", (psta->hwaddr), psta->state);
-			spin_lock_bh(&pstapriv->asoc_list_lock);
+			spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 			list_del_init(&psta->asoc_list);
 			pstapriv->asoc_list_cnt--;
 			updated = ap_free_sta(padapter, psta, true, WLAN_REASON_DEAUTH_LEAVING);
@@ -418,6 +420,7 @@ void add_RATid(struct adapter *padapter, struct sta_info *psta, u8 rssi_level)
 
 static void update_bmc_sta(struct adapter *padapter)
 {
+	unsigned int bh;
 	u32 init_rate = 0;
 	unsigned char	network_type, raid;
 	int i, supportRateNum = 0;
@@ -486,9 +489,9 @@ static void update_bmc_sta(struct adapter *padapter)
 
 		rtw_stassoc_hw_rpt(padapter, psta);
 
-		spin_lock_bh(&psta->lock);
+		bh = spin_lock_bh(&psta->lock, SOFTIRQ_ALL_MASK);
 		psta->state = _FW_LINKED;
-		spin_unlock_bh(&psta->lock);
+		spin_unlock_bh(&psta->lock, bh);
 
 	} else {
 		DBG_88E("add_RATid_bmc_sta error!\n");
@@ -504,6 +507,7 @@ static void update_bmc_sta(struct adapter *padapter)
 
 void update_sta_info_apmode(struct adapter *padapter, struct sta_info *psta)
 {
+	unsigned int bh;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct security_priv *psecuritypriv = &padapter->securitypriv;
 	struct mlme_ext_priv	*pmlmeext = &padapter->mlmeextpriv;
@@ -563,9 +567,9 @@ void update_sta_info_apmode(struct adapter *padapter, struct sta_info *psta)
 
 	memset(&psta->sta_stats, 0, sizeof(struct stainfo_stats));
 
-	spin_lock_bh(&psta->lock);
+	bh = spin_lock_bh(&psta->lock, SOFTIRQ_ALL_MASK);
 	psta->state |= _FW_LINKED;
-	spin_unlock_bh(&psta->lock);
+	spin_unlock_bh(&psta->lock, bh);
 }
 
 static void update_hw_ht_param(struct adapter *padapter)
@@ -1012,6 +1016,7 @@ void rtw_set_macaddr_acl(struct adapter *padapter, int mode)
 
 int rtw_acl_add_sta(struct adapter *padapter, u8 *addr)
 {
+	unsigned int bh;
 	struct list_head *plist, *phead;
 	u8 added = false;
 	int i, ret = 0;
@@ -1025,7 +1030,7 @@ int rtw_acl_add_sta(struct adapter *padapter, u8 *addr)
 	if ((NUM_ACL - 1) < pacl_list->num)
 		return -1;
 
-	spin_lock_bh(&pacl_node_q->lock);
+	bh = spin_lock_bh(&pacl_node_q->lock, SOFTIRQ_ALL_MASK);
 
 	phead = get_list_head(pacl_node_q);
 	plist = phead->next;
@@ -1043,12 +1048,12 @@ int rtw_acl_add_sta(struct adapter *padapter, u8 *addr)
 		}
 	}
 
-	spin_unlock_bh(&pacl_node_q->lock);
+	spin_unlock_bh(&pacl_node_q->lock, bh);
 
 	if (added)
 		return ret;
 
-	spin_lock_bh(&pacl_node_q->lock);
+	spin_lock_bh(&pacl_node_q->lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < NUM_ACL; i++) {
 		paclnode = &pacl_list->aclnode[i];
@@ -1077,6 +1082,7 @@ int rtw_acl_add_sta(struct adapter *padapter, u8 *addr)
 
 int rtw_acl_remove_sta(struct adapter *padapter, u8 *addr)
 {
+	unsigned int bh;
 	struct list_head *plist, *phead;
 	struct rtw_wlan_acl_node *paclnode;
 	struct sta_priv *pstapriv = &padapter->stapriv;
@@ -1085,7 +1091,7 @@ int rtw_acl_remove_sta(struct adapter *padapter, u8 *addr)
 
 	DBG_88E("%s(acl_num =%d) =%pM\n", __func__, pacl_list->num, (addr));
 
-	spin_lock_bh(&pacl_node_q->lock);
+	bh = spin_lock_bh(&pacl_node_q->lock, SOFTIRQ_ALL_MASK);
 
 	phead = get_list_head(pacl_node_q);
 	plist = phead->next;
@@ -1105,7 +1111,7 @@ int rtw_acl_remove_sta(struct adapter *padapter, u8 *addr)
 		}
 	}
 
-	spin_unlock_bh(&pacl_node_q->lock);
+	spin_unlock_bh(&pacl_node_q->lock, bh);
 
 	DBG_88E("%s, acl_num =%d\n", __func__, pacl_list->num);
 	return 0;
@@ -1207,6 +1213,7 @@ static void update_bcn_vendor_spec_ie(struct adapter *padapter, u8 *oui)
 
 void update_beacon(struct adapter *padapter, u8 ie_id, u8 *oui, u8 tx)
 {
+	unsigned int bh;
 	struct mlme_priv *pmlmepriv;
 	struct mlme_ext_priv	*pmlmeext;
 
@@ -1219,7 +1226,7 @@ void update_beacon(struct adapter *padapter, u8 ie_id, u8 *oui, u8 tx)
 	if (!pmlmeext->bstart_bss)
 		return;
 
-	spin_lock_bh(&pmlmepriv->bcn_update_lock);
+	bh = spin_lock_bh(&pmlmepriv->bcn_update_lock, SOFTIRQ_ALL_MASK);
 
 	switch (ie_id) {
 	case _TIM_IE_:
@@ -1237,7 +1244,7 @@ void update_beacon(struct adapter *padapter, u8 ie_id, u8 *oui, u8 tx)
 
 	pmlmepriv->update_bcn = true;
 
-	spin_unlock_bh(&pmlmepriv->bcn_update_lock);
+	spin_unlock_bh(&pmlmepriv->bcn_update_lock, bh);
 
 	if (tx)
 		set_tx_beacon_cmd(padapter);
@@ -1325,13 +1332,14 @@ static int rtw_ht_operation_update(struct adapter *padapter)
 
 void associated_clients_update(struct adapter *padapter, u8 updated)
 {
+	unsigned int bh;
 	/* update associated stations cap. */
 	if (updated) {
 		struct list_head *phead, *plist;
 		struct sta_info *psta = NULL;
 		struct sta_priv *pstapriv = &padapter->stapriv;
 
-		spin_lock_bh(&pstapriv->asoc_list_lock);
+		bh = spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 
 		phead = &pstapriv->asoc_list;
 		plist = phead->next;
@@ -1344,7 +1352,7 @@ void associated_clients_update(struct adapter *padapter, u8 updated)
 
 			VCS_update(padapter, psta);
 		}
-		spin_unlock_bh(&pstapriv->asoc_list_lock);
+		spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 	}
 }
 
@@ -1552,6 +1560,7 @@ u8 bss_cap_update_on_sta_leave(struct adapter *padapter, struct sta_info *psta)
 u8 ap_free_sta(struct adapter *padapter, struct sta_info *psta,
 	       bool active, u16 reason)
 {
+	unsigned int bh;
 	u8 beacon_updated = false;
 	struct sta_priv *pstapriv = &padapter->stapriv;
 
@@ -1572,9 +1581,9 @@ u8 ap_free_sta(struct adapter *padapter, struct sta_info *psta,
 	/* clear cam entry / key */
 	rtw_clearstakey_cmd(padapter, (u8 *)psta, (u8)(psta->mac_id + 3), true);
 
-	spin_lock_bh(&psta->lock);
+	bh = spin_lock_bh(&psta->lock, SOFTIRQ_ALL_MASK);
 	psta->state &= ~_FW_LINKED;
-	spin_unlock_bh(&psta->lock);
+	spin_unlock_bh(&psta->lock, bh);
 
 	rtw_indicate_sta_disassoc_event(padapter, psta);
 
@@ -1582,7 +1591,7 @@ u8 ap_free_sta(struct adapter *padapter, struct sta_info *psta,
 
 	beacon_updated = bss_cap_update_on_sta_leave(padapter, psta);
 
-	spin_lock_bh(&pstapriv->sta_hash_lock);
+	spin_lock_bh(&pstapriv->sta_hash_lock, SOFTIRQ_ALL_MASK);
 	rtw_free_stainfo(padapter, psta);
 	spin_unlock_bh(&pstapriv->sta_hash_lock);
 
@@ -1591,6 +1600,7 @@ u8 ap_free_sta(struct adapter *padapter, struct sta_info *psta,
 
 int rtw_sta_flush(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct list_head *phead, *plist;
 	struct sta_info *psta = NULL;
 	struct sta_priv *pstapriv = &padapter->stapriv;
@@ -1603,7 +1613,7 @@ int rtw_sta_flush(struct adapter *padapter)
 	if ((pmlmeinfo->state & 0x03) != WIFI_FW_AP_STATE)
 		return 0;
 
-	spin_lock_bh(&pstapriv->asoc_list_lock);
+	bh = spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 	phead = &pstapriv->asoc_list;
 	plist = phead->next;
 
@@ -1618,7 +1628,7 @@ int rtw_sta_flush(struct adapter *padapter)
 
 		ap_free_sta(padapter, psta, true, WLAN_REASON_DEAUTH_LEAVING);
 	}
-	spin_unlock_bh(&pstapriv->asoc_list_lock);
+	spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 
 	issue_deauth(padapter, bc_addr, WLAN_REASON_DEAUTH_LEAVING);
 
@@ -1712,6 +1722,7 @@ void start_ap_mode(struct adapter *padapter)
 
 void stop_ap_mode(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct list_head *phead, *plist;
 	struct rtw_wlan_acl_node *paclnode;
 	struct sta_info *psta = NULL;
@@ -1732,7 +1743,7 @@ void stop_ap_mode(struct adapter *padapter)
 	padapter->securitypriv.ndisencryptstatus = Ndis802_11WEPDisabled;
 
 	/* for ACL */
-	spin_lock_bh(&pacl_node_q->lock);
+	bh = spin_lock_bh(&pacl_node_q->lock, SOFTIRQ_ALL_MASK);
 	phead = get_list_head(pacl_node_q);
 	plist = phead->next;
 	while (phead != plist) {
@@ -1747,7 +1758,7 @@ void stop_ap_mode(struct adapter *padapter)
 			pacl_list->num--;
 		}
 	}
-	spin_unlock_bh(&pacl_node_q->lock);
+	spin_unlock_bh(&pacl_node_q->lock, bh);
 
 	DBG_88E("%s, free acl_node_queue, num =%d\n", __func__, pacl_list->num);
 
@@ -1757,7 +1768,7 @@ void stop_ap_mode(struct adapter *padapter)
 	rtw_free_all_stainfo(padapter);
 
 	psta = rtw_get_bcmc_stainfo(padapter);
-	spin_lock_bh(&pstapriv->sta_hash_lock);
+	spin_lock_bh(&pstapriv->sta_hash_lock, SOFTIRQ_ALL_MASK);
 	rtw_free_stainfo(padapter, psta);
 	spin_unlock_bh(&pstapriv->sta_hash_lock);
 

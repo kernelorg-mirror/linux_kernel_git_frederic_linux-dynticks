@@ -364,10 +364,11 @@ static void iss_net_timer(struct timer_list *t)
 
 static int iss_net_open(struct net_device *dev)
 {
+	unsigned int bh;
 	struct iss_net_private *lp = netdev_priv(dev);
 	int err;
 
-	spin_lock_bh(&lp->lock);
+	bh = spin_lock_bh(&lp->lock, SOFTIRQ_ALL_MASK);
 
 	err = lp->tp.open(lp);
 	if (err < 0)
@@ -382,26 +383,27 @@ static int iss_net_open(struct net_device *dev)
 	while ((err = iss_net_rx(dev)) > 0)
 		;
 
-	spin_unlock_bh(&lp->lock);
-	spin_lock_bh(&opened_lock);
+	spin_unlock_bh(&lp->lock, bh);
+	bh = spin_lock_bh(&opened_lock, SOFTIRQ_ALL_MASK);
 	list_add(&lp->opened_list, &opened);
-	spin_unlock_bh(&opened_lock);
-	spin_lock_bh(&lp->lock);
+	spin_unlock_bh(&opened_lock, bh);
+	bh = spin_lock_bh(&lp->lock, SOFTIRQ_ALL_MASK);
 
 	timer_setup(&lp->timer, iss_net_timer, 0);
 	lp->timer_val = ISS_NET_TIMER_VALUE;
 	mod_timer(&lp->timer, jiffies + lp->timer_val);
 
 out:
-	spin_unlock_bh(&lp->lock);
+	spin_unlock_bh(&lp->lock, bh);
 	return err;
 }
 
 static int iss_net_close(struct net_device *dev)
 {
+	unsigned int bh;
 	struct iss_net_private *lp = netdev_priv(dev);
 	netif_stop_queue(dev);
-	spin_lock_bh(&lp->lock);
+	bh = spin_lock_bh(&lp->lock, SOFTIRQ_ALL_MASK);
 
 	spin_lock(&opened_lock);
 	list_del(&opened);
@@ -411,17 +413,18 @@ static int iss_net_close(struct net_device *dev)
 
 	lp->tp.close(lp);
 
-	spin_unlock_bh(&lp->lock);
+	spin_unlock_bh(&lp->lock, bh);
 	return 0;
 }
 
 static int iss_net_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
+	unsigned int bh;
 	struct iss_net_private *lp = netdev_priv(dev);
 	int len;
 
 	netif_stop_queue(dev);
-	spin_lock_bh(&lp->lock);
+	bh = spin_lock_bh(&lp->lock, SOFTIRQ_ALL_MASK);
 
 	len = lp->tp.write(lp, &skb);
 
@@ -443,7 +446,7 @@ static int iss_net_start_xmit(struct sk_buff *skb, struct net_device *dev)
 		pr_err("%s: %s failed(%d)\n", dev->name, __func__, len);
 	}
 
-	spin_unlock_bh(&lp->lock);
+	spin_unlock_bh(&lp->lock, bh);
 
 	dev_kfree_skb(skb);
 	return NETDEV_TX_OK;
@@ -466,14 +469,15 @@ static void iss_net_tx_timeout(struct net_device *dev)
 
 static int iss_net_set_mac(struct net_device *dev, void *addr)
 {
+	unsigned int bh;
 	struct iss_net_private *lp = netdev_priv(dev);
 	struct sockaddr *hwaddr = addr;
 
 	if (!is_valid_ether_addr(hwaddr->sa_data))
 		return -EADDRNOTAVAIL;
-	spin_lock_bh(&lp->lock);
+	bh = spin_lock_bh(&lp->lock, SOFTIRQ_ALL_MASK);
 	memcpy(dev->dev_addr, hwaddr->sa_data, ETH_ALEN);
-	spin_unlock_bh(&lp->lock);
+	spin_unlock_bh(&lp->lock, bh);
 	return 0;
 }
 

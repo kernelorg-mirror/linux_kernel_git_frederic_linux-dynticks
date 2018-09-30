@@ -326,6 +326,7 @@ int cw1200_change_interface(struct ieee80211_hw *dev,
 
 int cw1200_config(struct ieee80211_hw *dev, u32 changed)
 {
+	unsigned int bh;
 	int ret = 0;
 	struct cw1200_common *priv = dev->priv;
 	struct ieee80211_conf *conf = &dev->conf;
@@ -426,13 +427,13 @@ int cw1200_config(struct ieee80211_hw *dev, u32 changed)
 		pr_debug("[STA] Retry limits: %d (long), %d (short).\n",
 			 conf->long_frame_max_tx_count,
 			 conf->short_frame_max_tx_count);
-		spin_lock_bh(&priv->tx_policy_cache.lock);
+		bh = spin_lock_bh(&priv->tx_policy_cache.lock, SOFTIRQ_ALL_MASK);
 		priv->long_frame_max_tx_count = conf->long_frame_max_tx_count;
 		priv->short_frame_max_tx_count =
 			(conf->short_frame_max_tx_count < 0x0F) ?
 			conf->short_frame_max_tx_count : 0x0F;
 		priv->hw->max_rate_tries = priv->short_frame_max_tx_count;
-		spin_unlock_bh(&priv->tx_policy_cache.lock);
+		spin_unlock_bh(&priv->tx_policy_cache.lock, bh);
 	}
 	mutex_unlock(&priv->conf_mutex);
 	up(&priv->scan.lock);
@@ -1542,6 +1543,7 @@ int cw1200_set_uapsd_param(struct cw1200_common *priv,
 int cw1200_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		   struct ieee80211_sta *sta)
 {
+	unsigned int bh;
 	struct cw1200_common *priv = hw->priv;
 	struct cw1200_sta_priv *sta_priv =
 			(struct cw1200_sta_priv *)&sta->drv_priv;
@@ -1559,20 +1561,21 @@ int cw1200_sta_add(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 	}
 
 	entry = &priv->link_id_db[sta_priv->link_id - 1];
-	spin_lock_bh(&priv->ps_state_lock);
+	bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 	if ((sta->uapsd_queues & IEEE80211_WMM_IE_STA_QOSINFO_AC_MASK) ==
 					IEEE80211_WMM_IE_STA_QOSINFO_AC_MASK)
 		priv->sta_asleep_mask |= BIT(sta_priv->link_id);
 	entry->status = CW1200_LINK_HARD;
 	while ((skb = skb_dequeue(&entry->rx_queue)))
 		ieee80211_rx_irqsafe(priv->hw, skb);
-	spin_unlock_bh(&priv->ps_state_lock);
+	spin_unlock_bh(&priv->ps_state_lock, bh);
 	return 0;
 }
 
 int cw1200_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		      struct ieee80211_sta *sta)
 {
+	unsigned int bh;
 	struct cw1200_common *priv = hw->priv;
 	struct cw1200_sta_priv *sta_priv =
 			(struct cw1200_sta_priv *)&sta->drv_priv;
@@ -1582,13 +1585,13 @@ int cw1200_sta_remove(struct ieee80211_hw *hw, struct ieee80211_vif *vif,
 		return 0;
 
 	entry = &priv->link_id_db[sta_priv->link_id - 1];
-	spin_lock_bh(&priv->ps_state_lock);
+	bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 	entry->status = CW1200_LINK_RESERVE;
 	entry->timestamp = jiffies;
 	wsm_lock_tx_async(priv);
 	if (queue_work(priv->workqueue, &priv->link_id_work) <= 0)
 		wsm_unlock_tx(priv);
-	spin_unlock_bh(&priv->ps_state_lock);
+	spin_unlock_bh(&priv->ps_state_lock, bh);
 	flush_workqueue(priv->workqueue);
 	return 0;
 }
@@ -1639,13 +1642,14 @@ void cw1200_sta_notify(struct ieee80211_hw *dev,
 		       enum sta_notify_cmd notify_cmd,
 		       struct ieee80211_sta *sta)
 {
+	unsigned int bh;
 	struct cw1200_common *priv = dev->priv;
 	struct cw1200_sta_priv *sta_priv =
 		(struct cw1200_sta_priv *)&sta->drv_priv;
 
-	spin_lock_bh(&priv->ps_state_lock);
+	bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 	__cw1200_sta_notify(dev, vif, notify_cmd, sta_priv->link_id);
-	spin_unlock_bh(&priv->ps_state_lock);
+	spin_unlock_bh(&priv->ps_state_lock, bh);
 }
 
 static void cw1200_ps_notify(struct cw1200_common *priv,
@@ -2114,16 +2118,17 @@ void cw1200_multicast_stop_work(struct work_struct *work)
 
 void cw1200_mcast_timeout(struct timer_list *t)
 {
+	unsigned int bh;
 	struct cw1200_common *priv = from_timer(priv, t, mcast_timeout);
 
 	wiphy_warn(priv->hw->wiphy,
 		   "Multicast delivery timeout.\n");
-	spin_lock_bh(&priv->ps_state_lock);
+	bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 	priv->tx_multicast = priv->aid0_bit_set &&
 			priv->buffered_multicasts;
 	if (priv->tx_multicast)
 		cw1200_bh_wakeup(priv);
-	spin_unlock_bh(&priv->ps_state_lock);
+	spin_unlock_bh(&priv->ps_state_lock, bh);
 }
 
 int cw1200_ampdu_action(struct ieee80211_hw *hw,
@@ -2145,13 +2150,14 @@ int cw1200_ampdu_action(struct ieee80211_hw *hw,
 void cw1200_suspend_resume(struct cw1200_common *priv,
 			  struct wsm_suspend_resume *arg)
 {
+	unsigned int bh;
 	pr_debug("[AP] %s: %s\n",
 		 arg->stop ? "stop" : "start",
 		 arg->multicast ? "broadcast" : "unicast");
 
 	if (arg->multicast) {
 		bool cancel_tmo = false;
-		spin_lock_bh(&priv->ps_state_lock);
+		bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 		if (arg->stop) {
 			priv->tx_multicast = false;
 		} else {
@@ -2170,13 +2176,13 @@ void cw1200_suspend_resume(struct cw1200_common *priv,
 				cw1200_bh_wakeup(priv);
 			}
 		}
-		spin_unlock_bh(&priv->ps_state_lock);
+		spin_unlock_bh(&priv->ps_state_lock, bh);
 		if (cancel_tmo)
 			del_timer_sync(&priv->mcast_timeout);
 	} else {
-		spin_lock_bh(&priv->ps_state_lock);
+		bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 		cw1200_ps_notify(priv, arg->link_id, arg->stop);
-		spin_unlock_bh(&priv->ps_state_lock);
+		spin_unlock_bh(&priv->ps_state_lock, bh);
 		if (!arg->stop)
 			cw1200_bh_wakeup(priv);
 	}

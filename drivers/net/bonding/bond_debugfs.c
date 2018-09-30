@@ -17,6 +17,7 @@ static struct dentry *bonding_debug_root;
 /* Show RLB hash table */
 static int bond_debug_rlb_hash_show(struct seq_file *m, void *v)
 {
+	unsigned int bh;
 	struct bonding *bond = m->private;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	struct rlb_client_info *client_info;
@@ -28,7 +29,7 @@ static int bond_debug_rlb_hash_show(struct seq_file *m, void *v)
 	seq_printf(m, "SourceIP        DestinationIP   "
 			"Destination MAC   DEV\n");
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	hash_index = bond_info->rx_hashtbl_used_head;
 	for (; hash_index != RLB_NULL_INDEX;
@@ -41,7 +42,7 @@ static int bond_debug_rlb_hash_show(struct seq_file *m, void *v)
 			client_info->slave->dev->name);
 	}
 
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 
 	return 0;
 }

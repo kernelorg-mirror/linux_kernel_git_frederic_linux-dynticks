@@ -76,12 +76,13 @@ static ssize_t aqm_read(struct file *file,
 			size_t count,
 			loff_t *ppos)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = file->private_data;
 	struct fq *fq = &local->fq;
 	char buf[200];
 	int len = 0;
 
-	spin_lock_bh(&local->fq.lock);
+	bh = spin_lock_bh(&local->fq.lock, SOFTIRQ_ALL_MASK);
 	rcu_read_lock();
 
 	len = scnprintf(buf, sizeof(buf),
@@ -106,7 +107,7 @@ static ssize_t aqm_read(struct file *file,
 			fq->quantum);
 
 	rcu_read_unlock();
-	spin_unlock_bh(&local->fq.lock);
+	spin_unlock_bh(&local->fq.lock, bh);
 
 	return simple_read_from_buffer(user_buf, count, ppos,
 				       buf, len);

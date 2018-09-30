@@ -132,6 +132,7 @@ static void mq_attach(struct Qdisc *sch)
 
 static int mq_dump(struct Qdisc *sch, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct net_device *dev = qdisc_dev(sch);
 	struct Qdisc *qdisc;
 	unsigned int ntx;
@@ -148,7 +149,7 @@ static int mq_dump(struct Qdisc *sch, struct sk_buff *skb)
 	 */
 	for (ntx = 0; ntx < dev->num_tx_queues; ntx++) {
 		qdisc = netdev_get_tx_queue(dev, ntx)->qdisc_sleeping;
-		spin_lock_bh(qdisc_lock(qdisc));
+		bh = spin_lock_bh(qdisc_lock(qdisc), SOFTIRQ_ALL_MASK);
 
 		if (qdisc_is_percpu_stats(qdisc)) {
 			qlen = qdisc_qlen_sum(qdisc);
@@ -169,7 +170,7 @@ static int mq_dump(struct Qdisc *sch, struct sk_buff *skb)
 			sch->qstats.overlimits	+= qdisc->qstats.overlimits;
 		}
 
-		spin_unlock_bh(qdisc_lock(qdisc));
+		spin_unlock_bh(qdisc_lock(qdisc), bh);
 	}
 	mq_offload_stats(sch);
 

@@ -943,7 +943,8 @@ static int wil_tx_desc_map(union wil_tx_desc *desc, dma_addr_t pa,
 
 void wil_tx_data_init(struct wil_ring_tx_data *txdata)
 {
-	spin_lock_bh(&txdata->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&txdata->lock, SOFTIRQ_ALL_MASK);
 	txdata->dot1x_open = 0;
 	txdata->enabled = 0;
 	txdata->idle = 0;
@@ -954,12 +955,13 @@ void wil_tx_data_init(struct wil_ring_tx_data *txdata)
 	txdata->agg_amsdu = 0;
 	txdata->addba_in_progress = false;
 	txdata->mid = U8_MAX;
-	spin_unlock_bh(&txdata->lock);
+	spin_unlock_bh(&txdata->lock, bh);
 }
 
 static int wil_vring_init_tx(struct wil6210_vif *vif, int id, int size,
 			     int cid, int tid)
 {
+	unsigned int bh;
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	int rc;
 	struct wmi_vring_cfg_cmd cmd = {
@@ -1027,21 +1029,21 @@ static int wil_vring_init_tx(struct wil6210_vif *vif, int id, int size,
 		goto out_free;
 	}
 
-	spin_lock_bh(&txdata->lock);
+	bh = spin_lock_bh(&txdata->lock, SOFTIRQ_ALL_MASK);
 	vring->hwtail = le32_to_cpu(reply.cmd.tx_vring_tail_ptr);
 	txdata->mid = vif->mid;
 	txdata->enabled = 1;
-	spin_unlock_bh(&txdata->lock);
+	spin_unlock_bh(&txdata->lock, bh);
 
 	if (txdata->dot1x_open && (agg_wsize >= 0))
 		wil_addba_tx_request(wil, id, agg_wsize);
 
 	return 0;
  out_free:
-	spin_lock_bh(&txdata->lock);
+	bh = spin_lock_bh(&txdata->lock, SOFTIRQ_ALL_MASK);
 	txdata->dot1x_open = false;
 	txdata->enabled = 0;
-	spin_unlock_bh(&txdata->lock);
+	spin_unlock_bh(&txdata->lock, bh);
 	wil_vring_free(wil, vring);
 	wil->ring2cid_tid[id][0] = WIL6210_MAX_CID;
 	wil->ring2cid_tid[id][1] = 0;
@@ -1053,6 +1055,7 @@ static int wil_vring_init_tx(struct wil6210_vif *vif, int id, int size,
 
 int wil_vring_init_bcast(struct wil6210_vif *vif, int id, int size)
 {
+	unsigned int bh;
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	int rc;
 	struct wmi_bcast_vring_cfg_cmd cmd = {
@@ -1113,18 +1116,18 @@ int wil_vring_init_bcast(struct wil6210_vif *vif, int id, int size)
 		goto out_free;
 	}
 
-	spin_lock_bh(&txdata->lock);
+	bh = spin_lock_bh(&txdata->lock, SOFTIRQ_ALL_MASK);
 	vring->hwtail = le32_to_cpu(reply.cmd.tx_vring_tail_ptr);
 	txdata->mid = vif->mid;
 	txdata->enabled = 1;
-	spin_unlock_bh(&txdata->lock);
+	spin_unlock_bh(&txdata->lock, bh);
 
 	return 0;
  out_free:
-	spin_lock_bh(&txdata->lock);
+	bh = spin_lock_bh(&txdata->lock, SOFTIRQ_ALL_MASK);
 	txdata->enabled = 0;
 	txdata->dot1x_open = false;
-	spin_unlock_bh(&txdata->lock);
+	spin_unlock_bh(&txdata->lock, bh);
 	wil_vring_free(wil, vring);
  out:
 
@@ -2001,9 +2004,10 @@ void wil_update_net_queues(struct wil6210_priv *wil, struct wil6210_vif *vif,
 void wil_update_net_queues_bh(struct wil6210_priv *wil, struct wil6210_vif *vif,
 			      struct wil_ring *ring, bool check_stop)
 {
-	spin_lock_bh(&wil->net_queue_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&wil->net_queue_lock, SOFTIRQ_ALL_MASK);
 	__wil_update_net_queues(wil, vif, ring, check_stop);
-	spin_unlock_bh(&wil->net_queue_lock);
+	spin_unlock_bh(&wil->net_queue_lock, bh);
 }
 
 netdev_tx_t wil_start_xmit(struct sk_buff *skb, struct net_device *ndev)

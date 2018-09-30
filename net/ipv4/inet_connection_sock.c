@@ -174,7 +174,8 @@ static int inet_csk_bind_conflict(const struct sock *sk,
  * inet_bind_hashbucket lock held.
  */
 static struct inet_bind_hashbucket *
-inet_csk_find_open_port(struct sock *sk, struct inet_bind_bucket **tb_ret, int *port_ret)
+inet_csk_find_open_port(struct sock *sk, struct inet_bind_bucket **tb_ret, int *port_ret,
+			unsigned int *bh)
 {
 	struct inet_hashinfo *hinfo = sk->sk_prot->h.hashinfo;
 	int port = 0;
@@ -217,7 +218,7 @@ other_parity_scan:
 			continue;
 		head = &hinfo->bhash[inet_bhashfn(net, port,
 						  hinfo->bhash_size)];
-		spin_lock_bh(&head->lock);
+		*bh = spin_lock_bh(&head->lock, SOFTIRQ_ALL_MASK);
 		inet_bind_bucket_for_each(tb, &head->chain)
 			if (net_eq(ib_net(tb), net) && tb->port == port) {
 				if (!inet_csk_bind_conflict(sk, tb, false, false))
@@ -227,7 +228,7 @@ other_parity_scan:
 		tb = NULL;
 		goto success;
 next_port:
-		spin_unlock_bh(&head->lock);
+		spin_unlock_bh(&head->lock, *bh);
 		cond_resched();
 	}
 
@@ -286,6 +287,7 @@ static inline int sk_reuseport_match(struct inet_bind_bucket *tb,
  */
 int inet_csk_get_port(struct sock *sk, unsigned short snum)
 {
+	unsigned int bh;
 	bool reuse = sk->sk_reuse && sk->sk_state != TCP_LISTEN;
 	struct inet_hashinfo *hinfo = sk->sk_prot->h.hashinfo;
 	int ret = 1, port = snum;
@@ -295,7 +297,7 @@ int inet_csk_get_port(struct sock *sk, unsigned short snum)
 	kuid_t uid = sock_i_uid(sk);
 
 	if (!port) {
-		head = inet_csk_find_open_port(sk, &tb, &port);
+		head = inet_csk_find_open_port(sk, &tb, &port, &bh);
 		if (!head)
 			return ret;
 		if (!tb)
@@ -304,7 +306,7 @@ int inet_csk_get_port(struct sock *sk, unsigned short snum)
 	}
 	head = &hinfo->bhash[inet_bhashfn(net, port,
 					  hinfo->bhash_size)];
-	spin_lock_bh(&head->lock);
+	bh = spin_lock_bh(&head->lock, SOFTIRQ_ALL_MASK);
 	inet_bind_bucket_for_each(tb, &head->chain)
 		if (net_eq(ib_net(tb), net) && tb->port == port)
 			goto tb_found;
@@ -374,7 +376,7 @@ success:
 	ret = 0;
 
 fail_unlock:
-	spin_unlock_bh(&head->lock);
+	spin_unlock_bh(&head->lock, bh);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(inet_csk_get_port);
@@ -433,6 +435,7 @@ static int inet_csk_wait_for_connect(struct sock *sk, long timeo)
  */
 struct sock *inet_csk_accept(struct sock *sk, int flags, int *err, bool kern)
 {
+	unsigned int bh;
 	struct inet_connection_sock *icsk = inet_csk(sk);
 	struct request_sock_queue *queue = &icsk->icsk_accept_queue;
 	struct request_sock *req;
@@ -466,7 +469,7 @@ struct sock *inet_csk_accept(struct sock *sk, int flags, int *err, bool kern)
 
 	if (sk->sk_protocol == IPPROTO_TCP &&
 	    tcp_rsk(req)->tfo_listener) {
-		spin_lock_bh(&queue->fastopenq.lock);
+		bh = spin_lock_bh(&queue->fastopenq.lock, SOFTIRQ_ALL_MASK);
 		if (tcp_rsk(req)->tfo_listener) {
 			/* We are still waiting for the final ACK from 3WHS
 			 * so can't free req now. Instead, we set req->sk to
@@ -477,7 +480,7 @@ struct sock *inet_csk_accept(struct sock *sk, int flags, int *err, bool kern)
 			req->sk = NULL;
 			req = NULL;
 		}
-		spin_unlock_bh(&queue->fastopenq.lock);
+		spin_unlock_bh(&queue->fastopenq.lock, bh);
 	}
 out:
 	release_sock(sk);
@@ -998,10 +1001,10 @@ void inet_csk_listen_stop(struct sock *sk)
 	}
 	if (queue->fastopenq.rskq_rst_head) {
 		/* Free all the reqs queued in rskq_rst_head. */
-		spin_lock_bh(&queue->fastopenq.lock);
+		bh = spin_lock_bh(&queue->fastopenq.lock, SOFTIRQ_ALL_MASK);
 		req = queue->fastopenq.rskq_rst_head;
 		queue->fastopenq.rskq_rst_head = NULL;
-		spin_unlock_bh(&queue->fastopenq.lock);
+		spin_unlock_bh(&queue->fastopenq.lock, bh);
 		while (req != NULL) {
 			next = req->dl_next;
 			reqsk_put(req);

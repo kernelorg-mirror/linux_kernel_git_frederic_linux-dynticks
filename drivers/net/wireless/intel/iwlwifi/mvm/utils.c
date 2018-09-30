@@ -638,6 +638,7 @@ int iwl_mvm_find_free_queue(struct iwl_mvm *mvm, u8 sta_id, u8 minq, u8 maxq)
 int iwl_mvm_reconfig_scd(struct iwl_mvm *mvm, int queue, int fifo, int sta_id,
 			 int tid, int frame_limit, u16 ssn)
 {
+	unsigned int bh;
 	struct iwl_scd_txq_cfg_cmd cmd = {
 		.scd_queue = queue,
 		.action = SCD_CFG_ENABLE_QUEUE,
@@ -654,13 +655,13 @@ int iwl_mvm_reconfig_scd(struct iwl_mvm *mvm, int queue, int fifo, int sta_id,
 	if (WARN_ON(iwl_mvm_has_new_tx_api(mvm)))
 		return -EINVAL;
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	if (WARN(mvm->queue_info[queue].hw_queue_refcount == 0,
 		 "Trying to reconfig unallocated queue %d\n", queue)) {
-		spin_unlock_bh(&mvm->queue_info_lock);
+		spin_unlock_bh(&mvm->queue_info_lock, bh);
 		return -ENXIO;
 	}
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	IWL_DEBUG_TX_QUEUES(mvm, "Reconfig SCD for TXQ #%d\n", queue);
 
@@ -674,13 +675,14 @@ int iwl_mvm_reconfig_scd(struct iwl_mvm *mvm, int queue, int fifo, int sta_id,
 static bool iwl_mvm_update_txq_mapping(struct iwl_mvm *mvm, int queue,
 				       int mac80211_queue, u8 sta_id, u8 tid)
 {
+	unsigned int bh;
 	bool enable_queue = true;
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 
 	/* Make sure this TID isn't already enabled */
 	if (mvm->queue_info[queue].tid_bitmap & BIT(tid)) {
-		spin_unlock_bh(&mvm->queue_info_lock);
+		spin_unlock_bh(&mvm->queue_info_lock, bh);
 		IWL_ERR(mvm, "Trying to enable TXQ %d with existing TID %d\n",
 			queue, tid);
 		return false;
@@ -717,7 +719,7 @@ static bool iwl_mvm_update_txq_mapping(struct iwl_mvm *mvm, int queue,
 			    queue, mvm->queue_info[queue].hw_queue_refcount,
 			    mvm->hw_queue_to_mac80211[queue]);
 
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	return enable_queue;
 }
@@ -795,6 +797,7 @@ bool iwl_mvm_enable_txq(struct iwl_mvm *mvm, int queue, int mac80211_queue,
 int iwl_mvm_disable_txq(struct iwl_mvm *mvm, int queue, int mac80211_queue,
 			u8 tid, u8 flags)
 {
+	unsigned int bh;
 	struct iwl_scd_txq_cfg_cmd cmd = {
 		.scd_queue = queue,
 		.action = SCD_CFG_DISABLE_QUEUE,
@@ -806,23 +809,23 @@ int iwl_mvm_disable_txq(struct iwl_mvm *mvm, int queue, int mac80211_queue,
 		return -EINVAL;
 
 	if (iwl_mvm_has_new_tx_api(mvm)) {
-		spin_lock_bh(&mvm->queue_info_lock);
+		bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 
 		if (remove_mac_queue)
 			mvm->hw_queue_to_mac80211[queue] &=
 				~BIT(mac80211_queue);
 
-		spin_unlock_bh(&mvm->queue_info_lock);
+		spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 		iwl_trans_txq_free(mvm->trans, queue);
 
 		return 0;
 	}
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 
 	if (WARN_ON(mvm->queue_info[queue].hw_queue_refcount == 0)) {
-		spin_unlock_bh(&mvm->queue_info_lock);
+		spin_unlock_bh(&mvm->queue_info_lock, bh);
 		return 0;
 	}
 
@@ -862,7 +865,7 @@ int iwl_mvm_disable_txq(struct iwl_mvm *mvm, int queue, int mac80211_queue,
 
 	/* If the queue is still enabled - nothing left to do in this func */
 	if (cmd.action == SCD_CFG_ENABLE_QUEUE) {
-		spin_unlock_bh(&mvm->queue_info_lock);
+		spin_unlock_bh(&mvm->queue_info_lock, bh);
 		return 0;
 	}
 
@@ -886,7 +889,7 @@ int iwl_mvm_disable_txq(struct iwl_mvm *mvm, int queue, int mac80211_queue,
 	/* Regardless if this is a reserved TXQ for a STA - mark it as false */
 	mvm->queue_info[queue].reserved = false;
 
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	iwl_trans_txq_disable(mvm->trans, queue, false);
 	ret = iwl_mvm_send_cmd_pdu(mvm, SCD_QUEUE_CFG, flags,
@@ -1351,6 +1354,7 @@ static void iwl_mvm_remove_inactive_tids(struct iwl_mvm *mvm,
 
 void iwl_mvm_inactivity_check(struct iwl_mvm *mvm)
 {
+	unsigned int bh;
 	unsigned long timeout_queues_map = 0;
 	unsigned long now = jiffies;
 	int i;
@@ -1358,11 +1362,11 @@ void iwl_mvm_inactivity_check(struct iwl_mvm *mvm)
 	if (iwl_mvm_has_new_tx_api(mvm))
 		return;
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < IWL_MAX_HW_QUEUES; i++)
 		if (mvm->queue_info[i].hw_queue_refcount > 0)
 			timeout_queues_map |= BIT(i);
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	rcu_read_lock();
 
@@ -1379,7 +1383,7 @@ void iwl_mvm_inactivity_check(struct iwl_mvm *mvm)
 		unsigned long inactive_tid_bitmap = 0;
 		unsigned long queue_tid_bitmap;
 
-		spin_lock_bh(&mvm->queue_info_lock);
+		spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 		queue_tid_bitmap = mvm->queue_info[i].tid_bitmap;
 
 		/* If TXQ isn't in active use anyway - nothing to do here... */
@@ -1422,7 +1426,7 @@ void iwl_mvm_inactivity_check(struct iwl_mvm *mvm)
 
 		mvmsta = iwl_mvm_sta_from_mac80211(sta);
 
-		spin_lock_bh(&mvmsta->lock);
+		spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 		spin_lock(&mvm->queue_info_lock);
 		iwl_mvm_remove_inactive_tids(mvm, mvmsta, i,
 					     inactive_tid_bitmap);
@@ -1795,18 +1799,20 @@ void iwl_mvm_tcm_work(struct work_struct *work)
 
 void iwl_mvm_pause_tcm(struct iwl_mvm *mvm, bool with_cancel)
 {
-	spin_lock_bh(&mvm->tcm.lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&mvm->tcm.lock, SOFTIRQ_ALL_MASK);
 	mvm->tcm.paused = true;
-	spin_unlock_bh(&mvm->tcm.lock);
+	spin_unlock_bh(&mvm->tcm.lock, bh);
 	if (with_cancel)
 		cancel_delayed_work_sync(&mvm->tcm.work);
 }
 
 void iwl_mvm_resume_tcm(struct iwl_mvm *mvm)
 {
+	unsigned int bh;
 	int mac;
 
-	spin_lock_bh(&mvm->tcm.lock);
+	bh = spin_lock_bh(&mvm->tcm.lock, SOFTIRQ_ALL_MASK);
 	mvm->tcm.ts = jiffies;
 	mvm->tcm.ll_ts = jiffies;
 	for (mac = 0; mac < NUM_MAC_INDEX_DRIVER; mac++) {
@@ -1820,7 +1826,7 @@ void iwl_mvm_resume_tcm(struct iwl_mvm *mvm)
 	/* The TCM data needs to be reset before "paused" flag changes */
 	smp_mb();
 	mvm->tcm.paused = false;
-	spin_unlock_bh(&mvm->tcm.lock);
+	spin_unlock_bh(&mvm->tcm.lock, bh);
 }
 
 void iwl_mvm_tcm_add_vif(struct iwl_mvm *mvm, struct ieee80211_vif *vif)

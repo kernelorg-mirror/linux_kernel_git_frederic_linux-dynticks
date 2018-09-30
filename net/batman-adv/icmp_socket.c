@@ -110,10 +110,11 @@ static int batadv_socket_open(struct inode *inode, struct file *file)
 
 static int batadv_socket_release(struct inode *inode, struct file *file)
 {
+	unsigned int bh;
 	struct batadv_socket_client *client = file->private_data;
 	struct batadv_socket_packet *packet, *tmp;
 
-	spin_lock_bh(&client->lock);
+	bh = spin_lock_bh(&client->lock, SOFTIRQ_ALL_MASK);
 
 	/* for all packets in the queue ... */
 	list_for_each_entry_safe(packet, tmp, &client->queue_list, list) {
@@ -122,7 +123,7 @@ static int batadv_socket_release(struct inode *inode, struct file *file)
 	}
 
 	batadv_socket_client_hash[client->index] = NULL;
-	spin_unlock_bh(&client->lock);
+	spin_unlock_bh(&client->lock, bh);
 
 	kfree(client);
 	module_put(THIS_MODULE);
@@ -133,6 +134,7 @@ static int batadv_socket_release(struct inode *inode, struct file *file)
 static ssize_t batadv_socket_read(struct file *file, char __user *buf,
 				  size_t count, loff_t *ppos)
 {
+	unsigned int bh;
 	struct batadv_socket_client *socket_client = file->private_data;
 	struct batadv_socket_packet *socket_packet;
 	size_t packet_len;
@@ -153,14 +155,14 @@ static ssize_t batadv_socket_read(struct file *file, char __user *buf,
 	if (error)
 		return error;
 
-	spin_lock_bh(&socket_client->lock);
+	bh = spin_lock_bh(&socket_client->lock, SOFTIRQ_ALL_MASK);
 
 	socket_packet = list_first_entry(&socket_client->queue_list,
 					 struct batadv_socket_packet, list);
 	list_del(&socket_packet->list);
 	socket_client->queue_len--;
 
-	spin_unlock_bh(&socket_client->lock);
+	spin_unlock_bh(&socket_client->lock, bh);
 
 	packet_len = min(count, socket_packet->icmp_len);
 	error = copy_to_user(buf, &socket_packet->icmp_packet, packet_len);
@@ -355,6 +357,7 @@ static void batadv_socket_add_packet(struct batadv_socket_client *socket_client,
 				     struct batadv_icmp_header *icmph,
 				     size_t icmp_len)
 {
+	unsigned int bh;
 	struct batadv_socket_packet *socket_packet;
 	size_t len;
 
@@ -372,13 +375,13 @@ static void batadv_socket_add_packet(struct batadv_socket_client *socket_client,
 	memcpy(&socket_packet->icmp_packet, icmph, len);
 	socket_packet->icmp_len = len;
 
-	spin_lock_bh(&socket_client->lock);
+	bh = spin_lock_bh(&socket_client->lock, SOFTIRQ_ALL_MASK);
 
 	/* while waiting for the lock the socket_client could have been
 	 * deleted
 	 */
 	if (!batadv_socket_client_hash[icmph->uid]) {
-		spin_unlock_bh(&socket_client->lock);
+		spin_unlock_bh(&socket_client->lock, bh);
 		kfree(socket_packet);
 		return;
 	}
@@ -396,7 +399,7 @@ static void batadv_socket_add_packet(struct batadv_socket_client *socket_client,
 		socket_client->queue_len--;
 	}
 
-	spin_unlock_bh(&socket_client->lock);
+	spin_unlock_bh(&socket_client->lock, bh);
 
 	wake_up(&socket_client->queue_wait);
 }

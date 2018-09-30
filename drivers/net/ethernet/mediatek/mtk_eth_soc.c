@@ -467,6 +467,7 @@ static inline void mtk_rx_irq_enable(struct mtk_eth *eth, u32 mask)
 
 static int mtk_set_mac_address(struct net_device *dev, void *p)
 {
+	unsigned int bh;
 	int ret = eth_mac_addr(dev, p);
 	struct mtk_mac *mac = netdev_priv(dev);
 	const char *macaddr = dev->dev_addr;
@@ -477,13 +478,13 @@ static int mtk_set_mac_address(struct net_device *dev, void *p)
 	if (unlikely(test_bit(MTK_RESETTING, &mac->hw->state)))
 		return -EBUSY;
 
-	spin_lock_bh(&mac->hw->page_lock);
+	bh = spin_lock_bh(&mac->hw->page_lock, SOFTIRQ_ALL_MASK);
 	mtk_w32(mac->hw, (macaddr[0] << 8) | macaddr[1],
 		MTK_GDMA_MAC_ADRH(mac->id));
 	mtk_w32(mac->hw, (macaddr[2] << 24) | (macaddr[3] << 16) |
 		(macaddr[4] << 8) | macaddr[5],
 		MTK_GDMA_MAC_ADRL(mac->id));
-	spin_unlock_bh(&mac->hw->page_lock);
+	spin_unlock_bh(&mac->hw->page_lock, bh);
 
 	return 0;
 }
@@ -1836,15 +1837,16 @@ static int mtk_open(struct net_device *dev)
 
 static void mtk_stop_dma(struct mtk_eth *eth, u32 glo_cfg)
 {
+	unsigned int bh;
 	u32 val;
 	int i;
 
 	/* stop the dma engine */
-	spin_lock_bh(&eth->page_lock);
+	bh = spin_lock_bh(&eth->page_lock, SOFTIRQ_ALL_MASK);
 	val = mtk_r32(eth, glo_cfg);
 	mtk_w32(eth, val & ~(MTK_TX_WB_DDONE | MTK_RX_DMA_EN | MTK_TX_DMA_EN),
 		glo_cfg);
-	spin_unlock_bh(&eth->page_lock);
+	spin_unlock_bh(&eth->page_lock, bh);
 
 	/* wait for dma stop */
 	for (i = 0; i < 10; i++) {

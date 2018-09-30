@@ -36,6 +36,7 @@ static void rpcrdma_bc_free_rqst(struct rpcrdma_xprt *r_xprt,
 static int rpcrdma_bc_setup_reqs(struct rpcrdma_xprt *r_xprt,
 				 unsigned int count)
 {
+	unsigned int bh;
 	struct rpc_xprt *xprt = &r_xprt->rx_xprt;
 	struct rpc_rqst *rqst;
 	unsigned int i;
@@ -54,9 +55,9 @@ static int rpcrdma_bc_setup_reqs(struct rpcrdma_xprt *r_xprt,
 		INIT_LIST_HEAD(&rqst->rq_list);
 		INIT_LIST_HEAD(&rqst->rq_bc_list);
 		__set_bit(RPC_BC_PA_IN_USE, &rqst->rq_bc_pa_state);
-		spin_lock_bh(&xprt->bc_pa_lock);
+		bh = spin_lock_bh(&xprt->bc_pa_lock, SOFTIRQ_ALL_MASK);
 		list_add(&rqst->rq_bc_pa_list, &xprt->bc_pa_list);
-		spin_unlock_bh(&xprt->bc_pa_lock);
+		spin_unlock_bh(&xprt->bc_pa_lock, bh);
 
 		size = r_xprt->rx_data.inline_rsize;
 		rb = rpcrdma_alloc_regbuf(size, DMA_TO_DEVICE, GFP_KERNEL);
@@ -225,19 +226,20 @@ drop_connection:
  */
 void xprt_rdma_bc_destroy(struct rpc_xprt *xprt, unsigned int reqs)
 {
+	unsigned int bh;
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
 	struct rpc_rqst *rqst, *tmp;
 
-	spin_lock_bh(&xprt->bc_pa_lock);
+	bh = spin_lock_bh(&xprt->bc_pa_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(rqst, tmp, &xprt->bc_pa_list, rq_bc_pa_list) {
 		list_del(&rqst->rq_bc_pa_list);
 		spin_unlock_bh(&xprt->bc_pa_lock);
 
 		rpcrdma_bc_free_rqst(r_xprt, rqst);
 
-		spin_lock_bh(&xprt->bc_pa_lock);
+		spin_lock_bh(&xprt->bc_pa_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&xprt->bc_pa_lock);
+	spin_unlock_bh(&xprt->bc_pa_lock, bh);
 }
 
 /**
@@ -246,6 +248,7 @@ void xprt_rdma_bc_destroy(struct rpc_xprt *xprt, unsigned int reqs)
  */
 void xprt_rdma_bc_free_rqst(struct rpc_rqst *rqst)
 {
+	unsigned int bh;
 	struct rpcrdma_req *req = rpcr_to_rdmar(rqst);
 	struct rpc_xprt *xprt = rqst->rq_xprt;
 
@@ -255,9 +258,9 @@ void xprt_rdma_bc_free_rqst(struct rpc_rqst *rqst)
 	rpcrdma_recv_buffer_put(req->rl_reply);
 	req->rl_reply = NULL;
 
-	spin_lock_bh(&xprt->bc_pa_lock);
+	bh = spin_lock_bh(&xprt->bc_pa_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&rqst->rq_bc_pa_list, &xprt->bc_pa_list);
-	spin_unlock_bh(&xprt->bc_pa_lock);
+	spin_unlock_bh(&xprt->bc_pa_lock, bh);
 }
 
 /**

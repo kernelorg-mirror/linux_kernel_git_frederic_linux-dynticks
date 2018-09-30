@@ -2642,6 +2642,7 @@ static int
 ath10k_wmi_mgmt_tx_alloc_msdu_id(struct ath10k *ar, struct sk_buff *skb,
 				 dma_addr_t paddr)
 {
+	unsigned int bh;
 	struct ath10k_wmi *wmi = &ar->wmi;
 	struct ath10k_mgmt_tx_pkt_addr *pkt_addr;
 	int ret;
@@ -2653,10 +2654,10 @@ ath10k_wmi_mgmt_tx_alloc_msdu_id(struct ath10k *ar, struct sk_buff *skb,
 	pkt_addr->vaddr = skb;
 	pkt_addr->paddr = paddr;
 
-	spin_lock_bh(&ar->data_lock);
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 	ret = idr_alloc(&wmi->mgmt_pending_tx, pkt_addr, 0,
 			wmi->mgmt_max_num_pending_tx, GFP_ATOMIC);
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 
 	ath10k_dbg(ar, ATH10K_DBG_WMI, "wmi mgmt tx alloc msdu_id ret %d\n", ret);
 	return ret;

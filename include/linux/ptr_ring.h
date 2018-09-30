@@ -92,10 +92,11 @@ static inline bool ptr_ring_full_any(struct ptr_ring *r)
 static inline bool ptr_ring_full_bh(struct ptr_ring *r)
 {
 	bool ret;
+	unsigned int bh;
 
-	spin_lock_bh(&r->producer_lock);
+	bh = spin_lock_bh(&r->producer_lock, SOFTIRQ_ALL_MASK);
 	ret = __ptr_ring_full(r);
-	spin_unlock_bh(&r->producer_lock);
+	spin_unlock_bh(&r->producer_lock, bh);
 
 	return ret;
 }
@@ -162,10 +163,11 @@ static inline int ptr_ring_produce_any(struct ptr_ring *r, void *ptr)
 static inline int ptr_ring_produce_bh(struct ptr_ring *r, void *ptr)
 {
 	int ret;
+	unsigned int bh;
 
-	spin_lock_bh(&r->producer_lock);
+	bh = spin_lock_bh(&r->producer_lock, SOFTIRQ_ALL_MASK);
 	ret = __ptr_ring_produce(r, ptr);
-	spin_unlock_bh(&r->producer_lock);
+	spin_unlock_bh(&r->producer_lock, bh);
 
 	return ret;
 }
@@ -239,10 +241,11 @@ static inline bool ptr_ring_empty_any(struct ptr_ring *r)
 static inline bool ptr_ring_empty_bh(struct ptr_ring *r)
 {
 	bool ret;
+	unsigned int bh;
 
-	spin_lock_bh(&r->consumer_lock);
+	bh = spin_lock_bh(&r->consumer_lock, SOFTIRQ_ALL_MASK);
 	ret = __ptr_ring_empty(r);
-	spin_unlock_bh(&r->consumer_lock);
+	spin_unlock_bh(&r->consumer_lock, bh);
 
 	return ret;
 }
@@ -365,10 +368,11 @@ static inline void *ptr_ring_consume_any(struct ptr_ring *r)
 static inline void *ptr_ring_consume_bh(struct ptr_ring *r)
 {
 	void *ptr;
+	unsigned int bh;
 
-	spin_lock_bh(&r->consumer_lock);
+	bh = spin_lock_bh(&r->consumer_lock, SOFTIRQ_ALL_MASK);
 	ptr = __ptr_ring_consume(r);
-	spin_unlock_bh(&r->consumer_lock);
+	spin_unlock_bh(&r->consumer_lock, bh);
 
 	return ptr;
 }
@@ -414,10 +418,11 @@ static inline int ptr_ring_consume_batched_bh(struct ptr_ring *r,
 					      void **array, int n)
 {
 	int ret;
+	unsigned int bh;
 
-	spin_lock_bh(&r->consumer_lock);
+	bh = spin_lock_bh(&r->consumer_lock, SOFTIRQ_ALL_MASK);
 	ret = __ptr_ring_consume_batched(r, array, n);
-	spin_unlock_bh(&r->consumer_lock);
+	spin_unlock_bh(&r->consumer_lock, bh);
 
 	return ret;
 }
@@ -448,10 +453,11 @@ static inline int ptr_ring_consume_batched_bh(struct ptr_ring *r,
 
 #define PTR_RING_PEEK_CALL_BH(r, f) ({ \
 	typeof((f)(NULL)) __PTR_RING_PEEK_CALL_v; \
+	unsigned int bh;\
 	\
-	spin_lock_bh(&(r)->consumer_lock); \
+	bh = spin_lock_bh(&(r)->consumer_lock, SOFTIRQ_ALL_MASK); \
 	__PTR_RING_PEEK_CALL_v = __PTR_RING_PEEK_CALL(r, f); \
-	spin_unlock_bh(&(r)->consumer_lock); \
+	spin_unlock_bh(&(r)->consumer_lock, bh);		     \
 	__PTR_RING_PEEK_CALL_v; \
 })
 

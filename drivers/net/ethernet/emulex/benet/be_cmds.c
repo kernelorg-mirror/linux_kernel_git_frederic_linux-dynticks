@@ -530,22 +530,24 @@ static struct be_mcc_compl *be_mcc_compl_get(struct be_adapter *adapter)
 
 void be_async_mcc_enable(struct be_adapter *adapter)
 {
-	spin_lock_bh(&adapter->mcc_cq_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&adapter->mcc_cq_lock, SOFTIRQ_ALL_MASK);
 
 	be_cq_notify(adapter, adapter->mcc_obj.cq.id, true, 0);
 	adapter->mcc_obj.rearm_cq = true;
 
-	spin_unlock_bh(&adapter->mcc_cq_lock);
+	spin_unlock_bh(&adapter->mcc_cq_lock, bh);
 }
 
 void be_async_mcc_disable(struct be_adapter *adapter)
 {
-	spin_lock_bh(&adapter->mcc_cq_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&adapter->mcc_cq_lock, SOFTIRQ_ALL_MASK);
 
 	adapter->mcc_obj.rearm_cq = false;
 	be_cq_notify(adapter, adapter->mcc_obj.cq.id, false, 0);
 
-	spin_unlock_bh(&adapter->mcc_cq_lock);
+	spin_unlock_bh(&adapter->mcc_cq_lock, bh);
 }
 
 int be_process_mcc(struct be_adapter *adapter)

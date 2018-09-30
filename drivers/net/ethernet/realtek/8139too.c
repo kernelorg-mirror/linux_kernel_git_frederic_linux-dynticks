@@ -1652,6 +1652,7 @@ static inline void rtl8139_tx_clear (struct rtl8139_private *tp)
 
 static void rtl8139_tx_timeout_task (struct work_struct *work)
 {
+	unsigned int bh;
 	struct rtl8139_private *tp =
 		container_of(work, struct rtl8139_private, thread.work);
 	struct net_device *dev = tp->mii.dev;
@@ -1682,7 +1683,7 @@ static void rtl8139_tx_timeout_task (struct work_struct *work)
 	if (tmp8 & CmdTxEnb)
 		RTL_W8 (ChipCmd, CmdRxEnb);
 
-	spin_lock_bh(&tp->rx_lock);
+	bh = spin_lock_bh(&tp->rx_lock, SOFTIRQ_ALL_MASK);
 	/* Disable interrupts by clearing the interrupt mask. */
 	RTL_W16 (IntrMask, 0x0000);
 
@@ -1696,7 +1697,7 @@ static void rtl8139_tx_timeout_task (struct work_struct *work)
 	rtl8139_hw_start(dev);
 	netif_wake_queue(dev);
 
-	spin_unlock_bh(&tp->rx_lock);
+	spin_unlock_bh(&tp->rx_lock, bh);
 }
 
 static void rtl8139_tx_timeout (struct net_device *dev)

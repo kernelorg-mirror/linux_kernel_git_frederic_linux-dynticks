@@ -8179,6 +8179,7 @@ static int nl80211_send_bss(struct sk_buff *msg, struct netlink_callback *cb,
 
 static int nl80211_dump_scan(struct sk_buff *skb, struct netlink_callback *cb)
 {
+	unsigned int bh;
 	struct cfg80211_registered_device *rdev;
 	struct cfg80211_internal_bss *scan;
 	struct wireless_dev *wdev;
@@ -8193,7 +8194,7 @@ static int nl80211_dump_scan(struct sk_buff *skb, struct netlink_callback *cb)
 	}
 
 	wdev_lock(wdev);
-	spin_lock_bh(&rdev->bss_lock);
+	bh = spin_lock_bh(&rdev->bss_lock, SOFTIRQ_ALL_MASK);
 
 	/*
 	 * dump_scan will be called multiple times to break up the scan results
@@ -8217,7 +8218,7 @@ static int nl80211_dump_scan(struct sk_buff *skb, struct netlink_callback *cb)
 		}
 	}
 
-	spin_unlock_bh(&rdev->bss_lock);
+	spin_unlock_bh(&rdev->bss_lock, bh);
 	wdev_unlock(wdev);
 
 	cb->args[2] = idx;
@@ -11543,6 +11544,7 @@ static int nl80211_probe_client(struct sk_buff *skb,
 
 static int nl80211_register_beacons(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	struct cfg80211_registered_device *rdev = info->user_ptr[0];
 	struct cfg80211_beacon_registration *reg, *nreg;
 	int rv;
@@ -11555,7 +11557,7 @@ static int nl80211_register_beacons(struct sk_buff *skb, struct genl_info *info)
 		return -ENOMEM;
 
 	/* First, check if already registered. */
-	spin_lock_bh(&rdev->beacon_registrations_lock);
+	bh = spin_lock_bh(&rdev->beacon_registrations_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(reg, &rdev->beacon_registrations, list) {
 		if (reg->nlportid == info->snd_portid) {
 			rv = -EALREADY;
@@ -11566,11 +11568,11 @@ static int nl80211_register_beacons(struct sk_buff *skb, struct genl_info *info)
 	nreg->nlportid = info->snd_portid;
 	list_add(&nreg->list, &rdev->beacon_registrations);
 
-	spin_unlock_bh(&rdev->beacon_registrations_lock);
+	spin_unlock_bh(&rdev->beacon_registrations_lock, bh);
 
 	return 0;
 out_err:
-	spin_unlock_bh(&rdev->beacon_registrations_lock);
+	spin_unlock_bh(&rdev->beacon_registrations_lock, bh);
 	kfree(nreg);
 	return rv;
 }
@@ -15593,6 +15595,7 @@ void cfg80211_report_obss_beacon(struct wiphy *wiphy,
 				 const u8 *frame, size_t len,
 				 int freq, int sig_dbm)
 {
+	unsigned int bh;
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
 	struct sk_buff *msg;
 	void *hdr;
@@ -15600,11 +15603,11 @@ void cfg80211_report_obss_beacon(struct wiphy *wiphy,
 
 	trace_cfg80211_report_obss_beacon(wiphy, frame, len, freq, sig_dbm);
 
-	spin_lock_bh(&rdev->beacon_registrations_lock);
+	bh = spin_lock_bh(&rdev->beacon_registrations_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(reg, &rdev->beacon_registrations, list) {
 		msg = nlmsg_new(len + 100, GFP_ATOMIC);
 		if (!msg) {
-			spin_unlock_bh(&rdev->beacon_registrations_lock);
+			spin_unlock_bh(&rdev->beacon_registrations_lock, bh);
 			return;
 		}
 
@@ -15624,11 +15627,11 @@ void cfg80211_report_obss_beacon(struct wiphy *wiphy,
 
 		genlmsg_unicast(wiphy_net(&rdev->wiphy), msg, reg->nlportid);
 	}
-	spin_unlock_bh(&rdev->beacon_registrations_lock);
+	spin_unlock_bh(&rdev->beacon_registrations_lock, bh);
 	return;
 
  nla_put_failure:
-	spin_unlock_bh(&rdev->beacon_registrations_lock);
+	spin_unlock_bh(&rdev->beacon_registrations_lock, bh);
 	nlmsg_free(msg);
 }
 EXPORT_SYMBOL(cfg80211_report_obss_beacon);
@@ -15852,6 +15855,7 @@ static int nl80211_netlink_notify(struct notifier_block * nb,
 				  unsigned long state,
 				  void *_notify)
 {
+	unsigned int bh;
 	struct netlink_notify *notify = _notify;
 	struct cfg80211_registered_device *rdev;
 	struct wireless_dev *wdev;
@@ -15885,7 +15889,7 @@ static int nl80211_netlink_notify(struct notifier_block * nb,
 			}
 		}
 
-		spin_lock_bh(&rdev->beacon_registrations_lock);
+		bh = spin_lock_bh(&rdev->beacon_registrations_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry_safe(reg, tmp, &rdev->beacon_registrations,
 					 list) {
 			if (reg->nlportid == notify->portid) {
@@ -15894,7 +15898,7 @@ static int nl80211_netlink_notify(struct notifier_block * nb,
 				break;
 			}
 		}
-		spin_unlock_bh(&rdev->beacon_registrations_lock);
+		spin_unlock_bh(&rdev->beacon_registrations_lock, bh);
 	}
 
 	rcu_read_unlock();

@@ -217,6 +217,7 @@ static struct clusterip_config *
 clusterip_config_init(struct net *net, const struct ipt_clusterip_tgt_info *i,
 		      __be32 ip, const char *iniface)
 {
+	unsigned int bh;
 	struct clusterip_net *cn = net_generic(net, clusterip_net_id);
 	struct clusterip_config *c;
 	int err;
@@ -235,16 +236,16 @@ clusterip_config_init(struct net *net, const struct ipt_clusterip_tgt_info *i,
 	c->hash_initval = i->hash_initval;
 	refcount_set(&c->refcount, 1);
 
-	spin_lock_bh(&cn->lock);
+	bh = spin_lock_bh(&cn->lock, SOFTIRQ_ALL_MASK);
 	if (__clusterip_config_find(net, ip)) {
-		spin_unlock_bh(&cn->lock);
+		spin_unlock_bh(&cn->lock, bh);
 		kfree(c);
 
 		return ERR_PTR(-EBUSY);
 	}
 
 	list_add_rcu(&c->list, &cn->configs);
-	spin_unlock_bh(&cn->lock);
+	spin_unlock_bh(&cn->lock, bh);
 
 #ifdef CONFIG_PROC_FS
 	{
@@ -273,7 +274,7 @@ clusterip_config_init(struct net *net, const struct ipt_clusterip_tgt_info *i,
 	proc_remove(c->pde);
 err:
 #endif
-	spin_lock_bh(&cn->lock);
+	spin_lock_bh(&cn->lock, SOFTIRQ_ALL_MASK);
 	list_del_rcu(&c->list);
 	spin_unlock_bh(&cn->lock);
 	clusterip_config_put(c);

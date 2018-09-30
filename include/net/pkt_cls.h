@@ -210,10 +210,12 @@ static inline unsigned long
 cls_set_class(struct Qdisc *q, unsigned long *clp, unsigned long cl)
 {
 	unsigned long old_cl;
+	unsigned int bh;
 
-	sch_tree_lock(q);
+
+	bh = sch_tree_lock(q);
 	old_cl = __cls_set_class(clp, cl);
-	sch_tree_unlock(q);
+	sch_tree_unlock(q, bh);
 	return old_cl;
 }
 

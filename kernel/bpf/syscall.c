@@ -238,14 +238,15 @@ void bpf_map_uncharge_memlock(struct bpf_map *map, u32 pages)
 
 static int bpf_map_alloc_id(struct bpf_map *map)
 {
+	unsigned int bh;
 	int id;
 
 	idr_preload(GFP_KERNEL);
-	spin_lock_bh(&map_idr_lock);
+	bh = spin_lock_bh(&map_idr_lock, SOFTIRQ_ALL_MASK);
 	id = idr_alloc_cyclic(&map_idr, map, 1, INT_MAX, GFP_ATOMIC);
 	if (id > 0)
 		map->id = id;
-	spin_unlock_bh(&map_idr_lock);
+	spin_unlock_bh(&map_idr_lock, bh);
 	idr_preload_end();
 
 	if (WARN_ON_ONCE(!id))
@@ -1047,14 +1048,15 @@ static void bpf_prog_uncharge_memlock(struct bpf_prog *prog)
 
 static int bpf_prog_alloc_id(struct bpf_prog *prog)
 {
+	unsigned int bh;
 	int id;
 
 	idr_preload(GFP_KERNEL);
-	spin_lock_bh(&prog_idr_lock);
+	bh = spin_lock_bh(&prog_idr_lock, SOFTIRQ_ALL_MASK);
 	id = idr_alloc_cyclic(&prog_idr, prog, 1, INT_MAX, GFP_ATOMIC);
 	if (id > 0)
 		prog->aux->id = id;
-	spin_unlock_bh(&prog_idr_lock);
+	spin_unlock_bh(&prog_idr_lock, bh);
 	idr_preload_end();
 
 	/* id is in [1, INT_MAX) */
@@ -1066,6 +1068,7 @@ static int bpf_prog_alloc_id(struct bpf_prog *prog)
 
 void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
 {
+	unsigned int bh;
 	/* cBPF to eBPF migrations are currently not in the idr store.
 	 * Offloaded programs are removed from the store when their device
 	 * disappears - even if someone grabs an fd to them they are unusable,
@@ -1075,7 +1078,7 @@ void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
 		return;
 
 	if (do_idr_lock)
-		spin_lock_bh(&prog_idr_lock);
+		bh = spin_lock_bh(&prog_idr_lock, SOFTIRQ_ALL_MASK);
 	else
 		__acquire(&prog_idr_lock);
 
@@ -1083,7 +1086,7 @@ void bpf_prog_free_id(struct bpf_prog *prog, bool do_idr_lock)
 	prog->aux->id = 0;
 
 	if (do_idr_lock)
-		spin_unlock_bh(&prog_idr_lock);
+		spin_unlock_bh(&prog_idr_lock, bh);
 	else
 		__release(&prog_idr_lock);
 }
@@ -1763,6 +1766,7 @@ static int bpf_obj_get_next_id(const union bpf_attr *attr,
 			       struct idr *idr,
 			       spinlock_t *lock)
 {
+	unsigned int bh;
 	u32 next_id = attr->start_id;
 	int err = 0;
 
@@ -1773,10 +1777,10 @@ static int bpf_obj_get_next_id(const union bpf_attr *attr,
 		return -EPERM;
 
 	next_id++;
-	spin_lock_bh(lock);
+	bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 	if (!idr_get_next(idr, &next_id))
 		err = -ENOENT;
-	spin_unlock_bh(lock);
+	spin_unlock_bh(lock, bh);
 
 	if (!err)
 		err = put_user(next_id, &uattr->next_id);
@@ -1788,6 +1792,7 @@ static int bpf_obj_get_next_id(const union bpf_attr *attr,
 
 static int bpf_prog_get_fd_by_id(const union bpf_attr *attr)
 {
+	unsigned int bh;
 	struct bpf_prog *prog;
 	u32 id = attr->prog_id;
 	int fd;
@@ -1798,13 +1803,13 @@ static int bpf_prog_get_fd_by_id(const union bpf_attr *attr)
 	if (!capable(CAP_SYS_ADMIN))
 		return -EPERM;
 
-	spin_lock_bh(&prog_idr_lock);
+	bh = spin_lock_bh(&prog_idr_lock, SOFTIRQ_ALL_MASK);
 	prog = idr_find(&prog_idr, id);
 	if (prog)
 		prog = bpf_prog_inc_not_zero(prog);
 	else
 		prog = ERR_PTR(-ENOENT);
-	spin_unlock_bh(&prog_idr_lock);
+	spin_unlock_bh(&prog_idr_lock, bh);
 
 	if (IS_ERR(prog))
 		return PTR_ERR(prog);
@@ -1820,6 +1825,7 @@ static int bpf_prog_get_fd_by_id(const union bpf_attr *attr)
 
 static int bpf_map_get_fd_by_id(const union bpf_attr *attr)
 {
+	unsigned int bh;
 	struct bpf_map *map;
 	u32 id = attr->map_id;
 	int f_flags;
@@ -1836,13 +1842,13 @@ static int bpf_map_get_fd_by_id(const union bpf_attr *attr)
 	if (f_flags < 0)
 		return f_flags;
 
-	spin_lock_bh(&map_idr_lock);
+	bh = spin_lock_bh(&map_idr_lock, SOFTIRQ_ALL_MASK);
 	map = idr_find(&map_idr, id);
 	if (map)
 		map = bpf_map_inc_not_zero(map, true);
 	else
 		map = ERR_PTR(-ENOENT);
-	spin_unlock_bh(&map_idr_lock);
+	spin_unlock_bh(&map_idr_lock, bh);
 
 	if (IS_ERR(map))
 		return PTR_ERR(map);

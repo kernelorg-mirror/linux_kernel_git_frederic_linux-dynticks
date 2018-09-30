@@ -634,6 +634,7 @@ void qlcnic_82xx_free_mac_list(struct qlcnic_adapter *adapter)
 
 void qlcnic_prune_lb_filters(struct qlcnic_adapter *adapter)
 {
+	unsigned int bh;
 	struct qlcnic_filter *tmp_fil;
 	struct hlist_node *n;
 	struct hlist_head *head;
@@ -652,10 +653,10 @@ void qlcnic_prune_lb_filters(struct qlcnic_adapter *adapter)
 							  tmp_fil->faddr,
 							  tmp_fil->vlan_id,
 							  cmd);
-				spin_lock_bh(&adapter->mac_learn_lock);
+				bh = spin_lock_bh(&adapter->mac_learn_lock, SOFTIRQ_ALL_MASK);
 				adapter->fhash.fnum--;
 				hlist_del(&tmp_fil->fnode);
-				spin_unlock_bh(&adapter->mac_learn_lock);
+				spin_unlock_bh(&adapter->mac_learn_lock, bh);
 				kfree(tmp_fil);
 			}
 		}
@@ -667,10 +668,11 @@ void qlcnic_prune_lb_filters(struct qlcnic_adapter *adapter)
 		{
 			expires = tmp_fil->ftime + QLCNIC_FILTER_AGE * HZ;
 			if (time_before(expires, jiffies)) {
-				spin_lock_bh(&adapter->rx_mac_learn_lock);
+				bh = spin_lock_bh(&adapter->rx_mac_learn_lock, SOFTIRQ_ALL_MASK);
 				adapter->rx_fhash.fnum--;
 				hlist_del(&tmp_fil->fnode);
-				spin_unlock_bh(&adapter->rx_mac_learn_lock);
+				spin_unlock_bh(&adapter->rx_mac_learn_lock,
+					       bh);
 				kfree(tmp_fil);
 			}
 		}
@@ -679,6 +681,7 @@ void qlcnic_prune_lb_filters(struct qlcnic_adapter *adapter)
 
 void qlcnic_delete_lb_filters(struct qlcnic_adapter *adapter)
 {
+	unsigned int bh;
 	struct qlcnic_filter *tmp_fil;
 	struct hlist_node *n;
 	struct hlist_head *head;
@@ -694,10 +697,10 @@ void qlcnic_delete_lb_filters(struct qlcnic_adapter *adapter)
 						  tmp_fil->faddr,
 						  tmp_fil->vlan_id,
 						  cmd);
-			spin_lock_bh(&adapter->mac_learn_lock);
+			bh = spin_lock_bh(&adapter->mac_learn_lock, SOFTIRQ_ALL_MASK);
 			adapter->fhash.fnum--;
 			hlist_del(&tmp_fil->fnode);
-			spin_unlock_bh(&adapter->mac_learn_lock);
+			spin_unlock_bh(&adapter->mac_learn_lock, bh);
 			kfree(tmp_fil);
 		}
 	}

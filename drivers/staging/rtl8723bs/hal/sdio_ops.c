@@ -1186,7 +1186,7 @@ u8 HalQueryTxBufferStatus8723BSdio(struct adapter *adapter)
 
 	numof_free_page = SdioLocalCmd53Read4Byte(adapter, SDIO_REG_FREE_TXPG);
 
-	/* spin_lock_bh(&phal->SdioTxFIFOFreePageLock); */
+	/* spin_lock_bh(&phal->SdioTxFIFOFreePageLock, SOFTIRQ_ALL_MASK); */
 	memcpy(hal->SdioTxFIFOFreePage, &numof_free_page, 4);
 	RT_TRACE(_module_hci_ops_c_, _drv_notice_,
 			("%s: Free page for HIQ(%#x), MIDQ(%#x), LOWQ(%#x), PUBQ(%#x)\n",

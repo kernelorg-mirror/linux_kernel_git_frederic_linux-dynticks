@@ -631,6 +631,7 @@ EXPORT_SYMBOL_GPL(inet_hash);
 
 void inet_unhash(struct sock *sk)
 {
+	unsigned int bh;
 	struct inet_hashinfo *hashinfo = sk->sk_prot->h.hashinfo;
 	struct inet_listen_hashbucket *ilb = NULL;
 	spinlock_t *lock;
@@ -644,7 +645,7 @@ void inet_unhash(struct sock *sk)
 	} else {
 		lock = inet_ehash_lockp(hashinfo, sk->sk_hash);
 	}
-	spin_lock_bh(lock);
+	bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 	if (sk_unhashed(sk))
 		goto unlock;
 
@@ -659,7 +660,7 @@ void inet_unhash(struct sock *sk)
 	}
 	sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
 unlock:
-	spin_unlock_bh(lock);
+	spin_unlock_bh(lock, bh);
 }
 EXPORT_SYMBOL_GPL(inet_unhash);
 
@@ -668,6 +669,7 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
 		int (*check_established)(struct inet_timewait_death_row *,
 			struct sock *, __u16, struct inet_timewait_sock **))
 {
+	unsigned int bh;
 	struct inet_hashinfo *hinfo = death_row->hashinfo;
 	struct inet_timewait_sock *tw = NULL;
 	struct inet_bind_hashbucket *head;
@@ -682,16 +684,16 @@ int __inet_hash_connect(struct inet_timewait_death_row *death_row,
 		head = &hinfo->bhash[inet_bhashfn(net, port,
 						  hinfo->bhash_size)];
 		tb = inet_csk(sk)->icsk_bind_hash;
-		spin_lock_bh(&head->lock);
+		bh = spin_lock_bh(&head->lock, SOFTIRQ_ALL_MASK);
 		if (sk_head(&tb->owners) == sk && !sk->sk_bind_node.next) {
 			inet_ehash_nolisten(sk, NULL);
-			spin_unlock_bh(&head->lock);
+			spin_unlock_bh(&head->lock, bh);
 			return 0;
 		}
 		spin_unlock(&head->lock);
 		/* No definite answer... Walk to established hash table */
 		ret = check_established(death_row, sk, port, NULL);
-		local_bh_enable(0);
+		local_bh_enable(bh);
 		return ret;
 	}
 
@@ -715,7 +717,7 @@ other_parity_scan:
 			continue;
 		head = &hinfo->bhash[inet_bhashfn(net, port,
 						  hinfo->bhash_size)];
-		spin_lock_bh(&head->lock);
+		bh = spin_lock_bh(&head->lock, SOFTIRQ_ALL_MASK);
 
 		/* Does not bother with rcv_saddr checks, because
 		 * the established check is already unique enough.
@@ -736,14 +738,14 @@ other_parity_scan:
 		tb = inet_bind_bucket_create(hinfo->bind_bucket_cachep,
 					     net, head, port);
 		if (!tb) {
-			spin_unlock_bh(&head->lock);
+			spin_unlock_bh(&head->lock, bh);
 			return -ENOMEM;
 		}
 		tb->fastreuse = -1;
 		tb->fastreuseport = -1;
 		goto ok;
 next_port:
-		spin_unlock_bh(&head->lock);
+		spin_unlock_bh(&head->lock, bh);
 		cond_resched();
 	}
 
@@ -767,7 +769,7 @@ ok:
 	spin_unlock(&head->lock);
 	if (tw)
 		inet_twsk_deschedule_put(tw);
-	local_bh_enable(0);
+	local_bh_enable(bh);
 	return 0;
 }
 

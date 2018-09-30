@@ -185,17 +185,18 @@ static void batadv_backbone_gw_put(struct batadv_bla_backbone_gw *backbone_gw)
  */
 static void batadv_claim_release(struct kref *ref)
 {
+	unsigned int bh;
 	struct batadv_bla_claim *claim;
 	struct batadv_bla_backbone_gw *old_backbone_gw;
 
 	claim = container_of(ref, struct batadv_bla_claim, refcount);
 
-	spin_lock_bh(&claim->backbone_lock);
+	bh = spin_lock_bh(&claim->backbone_lock, SOFTIRQ_ALL_MASK);
 	old_backbone_gw = claim->backbone_gw;
 	claim->backbone_gw = NULL;
-	spin_unlock_bh(&claim->backbone_lock);
+	spin_unlock_bh(&claim->backbone_lock, bh);
 
-	spin_lock_bh(&old_backbone_gw->crc_lock);
+	spin_lock_bh(&old_backbone_gw->crc_lock, SOFTIRQ_ALL_MASK);
 	old_backbone_gw->crc ^= crc16(0, claim->addr, ETH_ALEN);
 	spin_unlock_bh(&old_backbone_gw->crc_lock);
 
@@ -303,6 +304,7 @@ batadv_backbone_hash_find(struct batadv_priv *bat_priv, u8 *addr,
 static void
 batadv_bla_del_backbone_claims(struct batadv_bla_backbone_gw *backbone_gw)
 {
+	unsigned int bh;
 	struct batadv_hashtable *hash;
 	struct hlist_node *node_tmp;
 	struct hlist_head *head;
@@ -318,7 +320,7 @@ batadv_bla_del_backbone_claims(struct batadv_bla_backbone_gw *backbone_gw)
 		head = &hash->table[i];
 		list_lock = &hash->list_locks[i];
 
-		spin_lock_bh(list_lock);
+		bh = spin_lock_bh(list_lock, SOFTIRQ_ALL_MASK);
 		hlist_for_each_entry_safe(claim, node_tmp,
 					  head, hash_entry) {
 			if (claim->backbone_gw != backbone_gw)
@@ -327,13 +329,13 @@ batadv_bla_del_backbone_claims(struct batadv_bla_backbone_gw *backbone_gw)
 			batadv_claim_put(claim);
 			hlist_del_rcu(&claim->hash_entry);
 		}
-		spin_unlock_bh(list_lock);
+		spin_unlock_bh(list_lock, bh);
 	}
 
 	/* all claims gone, initialize CRC */
-	spin_lock_bh(&backbone_gw->crc_lock);
+	bh = spin_lock_bh(&backbone_gw->crc_lock, SOFTIRQ_ALL_MASK);
 	backbone_gw->crc = BATADV_BLA_CRC_INIT;
-	spin_unlock_bh(&backbone_gw->crc_lock);
+	spin_unlock_bh(&backbone_gw->crc_lock, bh);
 }
 
 /**
@@ -670,13 +672,14 @@ static void batadv_bla_send_request(struct batadv_bla_backbone_gw *backbone_gw)
 static void batadv_bla_send_announce(struct batadv_priv *bat_priv,
 				     struct batadv_bla_backbone_gw *backbone_gw)
 {
+	unsigned int bh;
 	u8 mac[ETH_ALEN];
 	__be16 crc;
 
 	memcpy(mac, batadv_announce_mac, 4);
-	spin_lock_bh(&backbone_gw->crc_lock);
+	bh = spin_lock_bh(&backbone_gw->crc_lock, SOFTIRQ_ALL_MASK);
 	crc = htons(backbone_gw->crc);
-	spin_unlock_bh(&backbone_gw->crc_lock);
+	spin_unlock_bh(&backbone_gw->crc_lock, bh);
 	memcpy(&mac[4], &crc, 2);
 
 	batadv_bla_send_claim(bat_priv, mac, backbone_gw->vid,
@@ -694,6 +697,7 @@ static void batadv_bla_add_claim(struct batadv_priv *bat_priv,
 				 const u8 *mac, const unsigned short vid,
 				 struct batadv_bla_backbone_gw *backbone_gw)
 {
+	unsigned int bh;
 	struct batadv_bla_backbone_gw *old_backbone_gw;
 	struct batadv_bla_claim *claim;
 	struct batadv_bla_claim search_claim;
@@ -748,15 +752,15 @@ static void batadv_bla_add_claim(struct batadv_priv *bat_priv,
 	}
 
 	/* replace backbone_gw atomically and adjust reference counters */
-	spin_lock_bh(&claim->backbone_lock);
+	bh = spin_lock_bh(&claim->backbone_lock, SOFTIRQ_ALL_MASK);
 	old_backbone_gw = claim->backbone_gw;
 	kref_get(&backbone_gw->refcount);
 	claim->backbone_gw = backbone_gw;
-	spin_unlock_bh(&claim->backbone_lock);
+	spin_unlock_bh(&claim->backbone_lock, bh);
 
 	if (remove_crc) {
 		/* remove claim address from old backbone_gw */
-		spin_lock_bh(&old_backbone_gw->crc_lock);
+		spin_lock_bh(&old_backbone_gw->crc_lock, SOFTIRQ_ALL_MASK);
 		old_backbone_gw->crc ^= crc16(0, claim->addr, ETH_ALEN);
 		spin_unlock_bh(&old_backbone_gw->crc_lock);
 	}
@@ -764,7 +768,7 @@ static void batadv_bla_add_claim(struct batadv_priv *bat_priv,
 	batadv_backbone_gw_put(old_backbone_gw);
 
 	/* add claim address to new backbone_gw */
-	spin_lock_bh(&backbone_gw->crc_lock);
+	spin_lock_bh(&backbone_gw->crc_lock, SOFTIRQ_ALL_MASK);
 	backbone_gw->crc ^= crc16(0, claim->addr, ETH_ALEN);
 	spin_unlock_bh(&backbone_gw->crc_lock);
 	backbone_gw->lasttime = jiffies;
@@ -783,12 +787,13 @@ claim_free_ref:
 static struct batadv_bla_backbone_gw *
 batadv_bla_claim_get_backbone_gw(struct batadv_bla_claim *claim)
 {
+	unsigned int bh;
 	struct batadv_bla_backbone_gw *backbone_gw;
 
-	spin_lock_bh(&claim->backbone_lock);
+	bh = spin_lock_bh(&claim->backbone_lock, SOFTIRQ_ALL_MASK);
 	backbone_gw = claim->backbone_gw;
 	kref_get(&backbone_gw->refcount);
-	spin_unlock_bh(&claim->backbone_lock);
+	spin_unlock_bh(&claim->backbone_lock, bh);
 
 	return backbone_gw;
 }
@@ -833,6 +838,7 @@ static void batadv_bla_del_claim(struct batadv_priv *bat_priv,
 static bool batadv_handle_announce(struct batadv_priv *bat_priv, u8 *an_addr,
 				   u8 *backbone_addr, unsigned short vid)
 {
+	unsigned int bh;
 	struct batadv_bla_backbone_gw *backbone_gw;
 	u16 backbone_crc, crc;
 
@@ -853,9 +859,9 @@ static bool batadv_handle_announce(struct batadv_priv *bat_priv, u8 *an_addr,
 		   "%s(): ANNOUNCE vid %d (sent by %pM)... CRC = %#.4x\n",
 		   __func__, batadv_print_vid(vid), backbone_gw->orig, crc);
 
-	spin_lock_bh(&backbone_gw->crc_lock);
+	bh = spin_lock_bh(&backbone_gw->crc_lock, SOFTIRQ_ALL_MASK);
 	backbone_crc = backbone_gw->crc;
-	spin_unlock_bh(&backbone_gw->crc_lock);
+	spin_unlock_bh(&backbone_gw->crc_lock, bh);
 
 	if (backbone_crc != crc) {
 		batadv_dbg(BATADV_DBG_BLA, backbone_gw->bat_priv,
@@ -1215,6 +1221,7 @@ static bool batadv_bla_process_claim(struct batadv_priv *bat_priv,
  */
 static void batadv_bla_purge_backbone_gw(struct batadv_priv *bat_priv, int now)
 {
+	unsigned int bh;
 	struct batadv_bla_backbone_gw *backbone_gw;
 	struct hlist_node *node_tmp;
 	struct hlist_head *head;
@@ -1230,7 +1237,7 @@ static void batadv_bla_purge_backbone_gw(struct batadv_priv *bat_priv, int now)
 		head = &hash->table[i];
 		list_lock = &hash->list_locks[i];
 
-		spin_lock_bh(list_lock);
+		bh = spin_lock_bh(list_lock, SOFTIRQ_ALL_MASK);
 		hlist_for_each_entry_safe(backbone_gw, node_tmp,
 					  head, hash_entry) {
 			if (now)
@@ -1253,7 +1260,7 @@ purge_now:
 			hlist_del_rcu(&backbone_gw->hash_entry);
 			batadv_backbone_gw_put(backbone_gw);
 		}
-		spin_unlock_bh(list_lock);
+		spin_unlock_bh(list_lock, bh);
 	}
 }
 
@@ -1597,6 +1604,7 @@ int batadv_bla_init(struct batadv_priv *bat_priv)
 bool batadv_bla_check_bcast_duplist(struct batadv_priv *bat_priv,
 				    struct sk_buff *skb)
 {
+	unsigned int bh;
 	int i, curr;
 	__be32 crc;
 	struct batadv_bcast_packet *bcast_packet;
@@ -1608,7 +1616,7 @@ bool batadv_bla_check_bcast_duplist(struct batadv_priv *bat_priv,
 	/* calculate the crc ... */
 	crc = batadv_skb_crc32(skb, (u8 *)(bcast_packet + 1));
 
-	spin_lock_bh(&bat_priv->bla.bcast_duplist_lock);
+	bh = spin_lock_bh(&bat_priv->bla.bcast_duplist_lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < BATADV_DUPLIST_SIZE; i++) {
 		curr = (bat_priv->bla.bcast_duplist_curr + i);
@@ -1646,7 +1654,7 @@ bool batadv_bla_check_bcast_duplist(struct batadv_priv *bat_priv,
 	bat_priv->bla.bcast_duplist_curr = curr;
 
 out:
-	spin_unlock_bh(&bat_priv->bla.bcast_duplist_lock);
+	spin_unlock_bh(&bat_priv->bla.bcast_duplist_lock, bh);
 
 	return ret;
 }
@@ -2030,6 +2038,7 @@ out:
  */
 int batadv_bla_claim_table_seq_print_text(struct seq_file *seq, void *offset)
 {
+	unsigned int bh;
 	struct net_device *net_dev = (struct net_device *)seq->private;
 	struct batadv_priv *bat_priv = netdev_priv(net_dev);
 	struct batadv_hashtable *hash = bat_priv->bla.claim_hash;
@@ -2063,9 +2072,9 @@ int batadv_bla_claim_table_seq_print_text(struct seq_file *seq, void *offset)
 			is_own = batadv_compare_eth(backbone_gw->orig,
 						    primary_addr);
 
-			spin_lock_bh(&backbone_gw->crc_lock);
+			bh = spin_lock_bh(&backbone_gw->crc_lock, SOFTIRQ_ALL_MASK);
 			backbone_crc = backbone_gw->crc;
-			spin_unlock_bh(&backbone_gw->crc_lock);
+			spin_unlock_bh(&backbone_gw->crc_lock, bh);
 			seq_printf(seq, " * %pM on %5d by %pM [%c] (%#.4x)\n",
 				   claim->addr, batadv_print_vid(claim->vid),
 				   backbone_gw->orig,
@@ -2099,6 +2108,7 @@ batadv_bla_claim_dump_entry(struct sk_buff *msg, u32 portid, u32 seq,
 			    struct batadv_hard_iface *primary_if,
 			    struct batadv_bla_claim *claim)
 {
+	unsigned int bh;
 	u8 *primary_addr = primary_if->net_dev->dev_addr;
 	u16 backbone_crc;
 	bool is_own;
@@ -2115,9 +2125,9 @@ batadv_bla_claim_dump_entry(struct sk_buff *msg, u32 portid, u32 seq,
 	is_own = batadv_compare_eth(claim->backbone_gw->orig,
 				    primary_addr);
 
-	spin_lock_bh(&claim->backbone_gw->crc_lock);
+	bh = spin_lock_bh(&claim->backbone_gw->crc_lock, SOFTIRQ_ALL_MASK);
 	backbone_crc = claim->backbone_gw->crc;
-	spin_unlock_bh(&claim->backbone_gw->crc_lock);
+	spin_unlock_bh(&claim->backbone_gw->crc_lock, bh);
 
 	if (is_own)
 		if (nla_put_flag(msg, BATADV_ATTR_BLA_OWN)) {
@@ -2259,6 +2269,7 @@ out:
  */
 int batadv_bla_backbone_table_seq_print_text(struct seq_file *seq, void *offset)
 {
+	unsigned int bh;
 	struct net_device *net_dev = (struct net_device *)seq->private;
 	struct batadv_priv *bat_priv = netdev_priv(net_dev);
 	struct batadv_hashtable *hash = bat_priv->bla.backbone_hash;
@@ -2296,9 +2307,9 @@ int batadv_bla_backbone_table_seq_print_text(struct seq_file *seq, void *offset)
 			if (is_own)
 				continue;
 
-			spin_lock_bh(&backbone_gw->crc_lock);
+			bh = spin_lock_bh(&backbone_gw->crc_lock, SOFTIRQ_ALL_MASK);
 			backbone_crc = backbone_gw->crc;
-			spin_unlock_bh(&backbone_gw->crc_lock);
+			spin_unlock_bh(&backbone_gw->crc_lock, bh);
 
 			seq_printf(seq, " * %pM on %5d %4i.%03is (%#.4x)\n",
 				   backbone_gw->orig,
@@ -2330,6 +2341,7 @@ batadv_bla_backbone_dump_entry(struct sk_buff *msg, u32 portid, u32 seq,
 			       struct batadv_hard_iface *primary_if,
 			       struct batadv_bla_backbone_gw *backbone_gw)
 {
+	unsigned int bh;
 	u8 *primary_addr = primary_if->net_dev->dev_addr;
 	u16 backbone_crc;
 	bool is_own;
@@ -2346,9 +2358,9 @@ batadv_bla_backbone_dump_entry(struct sk_buff *msg, u32 portid, u32 seq,
 
 	is_own = batadv_compare_eth(backbone_gw->orig, primary_addr);
 
-	spin_lock_bh(&backbone_gw->crc_lock);
+	bh = spin_lock_bh(&backbone_gw->crc_lock, SOFTIRQ_ALL_MASK);
 	backbone_crc = backbone_gw->crc;
-	spin_unlock_bh(&backbone_gw->crc_lock);
+	spin_unlock_bh(&backbone_gw->crc_lock, bh);
 
 	msecs = jiffies_to_msecs(jiffies - backbone_gw->lasttime);
 

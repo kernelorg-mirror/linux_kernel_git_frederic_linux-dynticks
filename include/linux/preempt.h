@@ -123,7 +123,7 @@
 /*
  * The preempt_count offset needed for things like:
  *
- *  spin_lock_bh()
+ *  spin_lock_bh(, SOFTIRQ_ALL_MASK)
  *
  * Which need to disable both preemption (CONFIG_PREEMPT_COUNT) and
  * softirqs, such that unlock sequences of:

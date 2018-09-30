@@ -40,6 +40,7 @@ static int tcf_nat_init(struct net *net, struct nlattr *nla, struct nlattr *est,
 			struct tc_action **a, int ovr, int bind,
 			bool rtnl_held, struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct tc_action_net *tn = net_generic(net, nat_net_id);
 	struct nlattr *tb[TCA_NAT_MAX + 1];
 	struct tc_nat *parm;
@@ -78,14 +79,14 @@ static int tcf_nat_init(struct net *net, struct nlattr *nla, struct nlattr *est,
 	}
 	p = to_tcf_nat(*a);
 
-	spin_lock_bh(&p->tcf_lock);
+	bh = spin_lock_bh(&p->tcf_lock, SOFTIRQ_ALL_MASK);
 	p->old_addr = parm->old_addr;
 	p->new_addr = parm->new_addr;
 	p->mask = parm->mask;
 	p->flags = parm->flags;
 
 	p->tcf_action = parm->action;
-	spin_unlock_bh(&p->tcf_lock);
+	spin_unlock_bh(&p->tcf_lock, bh);
 
 	if (ret == ACT_P_CREATED)
 		tcf_idr_insert(tn, *a);

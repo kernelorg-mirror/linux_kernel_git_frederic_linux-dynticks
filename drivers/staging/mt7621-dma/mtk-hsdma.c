@@ -289,16 +289,17 @@ static void mtk_hsdma_reset(struct mtk_hsdam_engine *hsdma,
 
 static int mtk_hsdma_terminate_all(struct dma_chan *c)
 {
+	unsigned int bh;
 	struct mtk_hsdma_chan *chan = to_mtk_hsdma_chan(c);
 	struct mtk_hsdam_engine *hsdma = mtk_hsdma_chan_get_dev(chan);
 	unsigned long timeout;
 	LIST_HEAD(head);
 
-	spin_lock_bh(&chan->vchan.lock);
+	bh = spin_lock_bh(&chan->vchan.lock, SOFTIRQ_ALL_MASK);
 	chan->desc = NULL;
 	clear_bit(chan->id, &hsdma->chan_issued);
 	vchan_get_all_descriptors(&chan->vchan, &head);
-	spin_unlock_bh(&chan->vchan.lock);
+	spin_unlock_bh(&chan->vchan.lock, bh);
 
 	vchan_dma_desc_free_list(&chan->vchan, &head);
 
@@ -406,11 +407,12 @@ static int gdma_next_desc(struct mtk_hsdma_chan *chan)
 static void mtk_hsdma_chan_done(struct mtk_hsdam_engine *hsdma,
 				struct mtk_hsdma_chan *chan)
 {
+	unsigned int bh;
 	struct mtk_hsdma_desc *desc;
 	int chan_issued;
 
 	chan_issued = 0;
-	spin_lock_bh(&chan->vchan.lock);
+	bh = spin_lock_bh(&chan->vchan.lock, SOFTIRQ_ALL_MASK);
 	desc = chan->desc;
 	if (likely(desc)) {
 		if (chan->next_sg == desc->num_sgs) {
@@ -423,7 +425,7 @@ static void mtk_hsdma_chan_done(struct mtk_hsdam_engine *hsdma,
 
 	if (chan_issued)
 		set_bit(chan->id, &hsdma->chan_issued);
-	spin_unlock_bh(&chan->vchan.lock);
+	spin_unlock_bh(&chan->vchan.lock, bh);
 }
 
 static irqreturn_t mtk_hsdma_irq(int irq, void *devid)
@@ -448,10 +450,11 @@ static irqreturn_t mtk_hsdma_irq(int irq, void *devid)
 
 static void mtk_hsdma_issue_pending(struct dma_chan *c)
 {
+	unsigned int bh;
 	struct mtk_hsdma_chan *chan = to_mtk_hsdma_chan(c);
 	struct mtk_hsdam_engine *hsdma = mtk_hsdma_chan_get_dev(chan);
 
-	spin_lock_bh(&chan->vchan.lock);
+	bh = spin_lock_bh(&chan->vchan.lock, SOFTIRQ_ALL_MASK);
 	if (vchan_issue_pending(&chan->vchan) && !chan->desc) {
 		if (gdma_next_desc(chan)) {
 			set_bit(chan->id, &hsdma->chan_issued);
@@ -459,7 +462,7 @@ static void mtk_hsdma_issue_pending(struct dma_chan *c)
 		} else
 			dev_dbg(hsdma->ddev.dev, "no desc to issue\n");
 	}
-	spin_unlock_bh(&chan->vchan.lock);
+	spin_unlock_bh(&chan->vchan.lock, bh);
 }
 
 static struct dma_async_tx_descriptor *mtk_hsdma_prep_dma_memcpy(

@@ -209,13 +209,14 @@ void __rxrpc_disconnect_call(struct rxrpc_connection *conn,
  */
 void rxrpc_disconnect_call(struct rxrpc_call *call)
 {
+	unsigned int bh;
 	struct rxrpc_connection *conn = call->conn;
 
 	call->peer->cong_cwnd = call->cong_cwnd;
 
-	spin_lock_bh(&conn->params.peer->lock);
+	bh = spin_lock_bh(&conn->params.peer->lock, SOFTIRQ_ALL_MASK);
 	hlist_del_init(&call->error_link);
-	spin_unlock_bh(&conn->params.peer->lock);
+	spin_unlock_bh(&conn->params.peer->lock, bh);
 
 	if (rxrpc_is_client_call(call))
 		return rxrpc_disconnect_client_call(call);

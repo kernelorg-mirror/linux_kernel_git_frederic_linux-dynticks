@@ -571,7 +571,7 @@ static inline void ath_chanctx_check_active(struct ath_softc *sc,
 
 static inline void ath_txq_lock(struct ath_softc *sc, struct ath_txq *txq)
 {
-	spin_lock_bh(&txq->axq_lock);
+	spin_lock_bh(&txq->axq_lock, SOFTIRQ_ALL_MASK);
 }
 static inline void ath_txq_unlock(struct ath_softc *sc, struct ath_txq *txq)
 {

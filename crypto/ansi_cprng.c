@@ -186,12 +186,13 @@ static int _get_more_prng_bytes(struct prng_context *ctx, int cont_test)
 static int get_prng_bytes(char *buf, size_t nbytes, struct prng_context *ctx,
 				int do_cont_test)
 {
+	unsigned int bh;
 	unsigned char *ptr = buf;
 	unsigned int byte_count = (unsigned int)nbytes;
 	int err;
 
 
-	spin_lock_bh(&ctx->prng_lock);
+	bh = spin_lock_bh(&ctx->prng_lock, SOFTIRQ_ALL_MASK);
 
 	err = -EINVAL;
 	if (ctx->flags & PRNG_NEED_RESET)
@@ -267,7 +268,7 @@ empty_rbuf:
 		goto remainder;
 
 done:
-	spin_unlock_bh(&ctx->prng_lock);
+	spin_unlock_bh(&ctx->prng_lock, bh);
 	dbgprint(KERN_CRIT "returning %d from get_prng_bytes in context %p\n",
 		err, ctx);
 	return err;
@@ -282,10 +283,11 @@ static int reset_prng_context(struct prng_context *ctx,
 			      const unsigned char *key, size_t klen,
 			      const unsigned char *V, const unsigned char *DT)
 {
+	unsigned int bh;
 	int ret;
 	const unsigned char *prng_key;
 
-	spin_lock_bh(&ctx->prng_lock);
+	bh = spin_lock_bh(&ctx->prng_lock, SOFTIRQ_ALL_MASK);
 	ctx->flags |= PRNG_NEED_RESET;
 
 	prng_key = (key != NULL) ? key : (unsigned char *)DEFAULT_PRNG_KEY;
@@ -318,7 +320,7 @@ static int reset_prng_context(struct prng_context *ctx,
 	ret = 0;
 	ctx->flags &= ~PRNG_NEED_RESET;
 out:
-	spin_unlock_bh(&ctx->prng_lock);
+	spin_unlock_bh(&ctx->prng_lock, bh);
 	return ret;
 }
 

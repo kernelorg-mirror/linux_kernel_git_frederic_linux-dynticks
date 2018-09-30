@@ -504,6 +504,7 @@ static void safexcel_try_push_requests(struct safexcel_crypto_priv *priv,
 
 void safexcel_dequeue(struct safexcel_crypto_priv *priv, int ring)
 {
+	unsigned int bh;
 	struct crypto_async_request *req, *backlog;
 	struct safexcel_context *ctx;
 	int ret, nreq = 0, cdesc = 0, rdesc = 0, commands, results;
@@ -517,10 +518,10 @@ void safexcel_dequeue(struct safexcel_crypto_priv *priv, int ring)
 		goto handle_req;
 
 	while (true) {
-		spin_lock_bh(&priv->ring[ring].queue_lock);
+		bh = spin_lock_bh(&priv->ring[ring].queue_lock, SOFTIRQ_ALL_MASK);
 		backlog = crypto_get_backlog(&priv->ring[ring].queue);
 		req = crypto_dequeue_request(&priv->ring[ring].queue);
-		spin_unlock_bh(&priv->ring[ring].queue_lock);
+		spin_unlock_bh(&priv->ring[ring].queue_lock, bh);
 
 		if (!req) {
 			priv->ring[ring].req = NULL;
@@ -560,7 +561,7 @@ finalize:
 	if (!nreq)
 		return;
 
-	spin_lock_bh(&priv->ring[ring].lock);
+	bh = spin_lock_bh(&priv->ring[ring].lock, SOFTIRQ_ALL_MASK);
 
 	priv->ring[ring].requests += nreq;
 
@@ -569,7 +570,7 @@ finalize:
 		priv->ring[ring].busy = true;
 	}
 
-	spin_unlock_bh(&priv->ring[ring].lock);
+	spin_unlock_bh(&priv->ring[ring].lock, bh);
 
 	/* let the RDR know we have pending descriptors */
 	writel((rdesc * priv->config.rd_offset) << 2,
@@ -685,6 +686,7 @@ static inline void safexcel_handle_result_descriptor(struct safexcel_crypto_priv
 						     int ring)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct crypto_async_request *req;
 	struct safexcel_context *ctx;
 	int ret, i, nreq, ndesc, tot_descs, handled = 0;
@@ -734,7 +736,7 @@ acknowledge:
 		goto handle_results;
 
 requests_left:
-	spin_lock_bh(&priv->ring[ring].lock);
+	bh = spin_lock_bh(&priv->ring[ring].lock, SOFTIRQ_ALL_MASK);
 
 	priv->ring[ring].requests -= handled;
 	safexcel_try_push_requests(priv, ring);
@@ -742,7 +744,7 @@ requests_left:
 	if (!priv->ring[ring].requests)
 		priv->ring[ring].busy = false;
 
-	spin_unlock_bh(&priv->ring[ring].lock);
+	spin_unlock_bh(&priv->ring[ring].lock, bh);
 }
 
 static void safexcel_dequeue_work(struct work_struct *work)

@@ -237,24 +237,26 @@ out_err:
 void vmw_generic_waiter_add(struct vmw_private *dev_priv,
 			    u32 flag, int *waiter_count)
 {
-	spin_lock_bh(&dev_priv->waiter_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&dev_priv->waiter_lock, SOFTIRQ_ALL_MASK);
 	if ((*waiter_count)++ == 0) {
 		outl(flag, dev_priv->io_start + VMWGFX_IRQSTATUS_PORT);
 		dev_priv->irq_mask |= flag;
 		vmw_write(dev_priv, SVGA_REG_IRQMASK, dev_priv->irq_mask);
 	}
-	spin_unlock_bh(&dev_priv->waiter_lock);
+	spin_unlock_bh(&dev_priv->waiter_lock, bh);
 }
 
 void vmw_generic_waiter_remove(struct vmw_private *dev_priv,
 			       u32 flag, int *waiter_count)
 {
-	spin_lock_bh(&dev_priv->waiter_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&dev_priv->waiter_lock, SOFTIRQ_ALL_MASK);
 	if (--(*waiter_count) == 0) {
 		dev_priv->irq_mask &= ~flag;
 		vmw_write(dev_priv, SVGA_REG_IRQMASK, dev_priv->irq_mask);
 	}
-	spin_unlock_bh(&dev_priv->waiter_lock);
+	spin_unlock_bh(&dev_priv->waiter_lock, bh);
 }
 
 void vmw_seqno_waiter_add(struct vmw_private *dev_priv)

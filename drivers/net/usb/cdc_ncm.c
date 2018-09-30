@@ -262,6 +262,7 @@ static ssize_t cdc_ncm_store_tx_max(struct device *d,  struct device_attribute *
 
 static ssize_t cdc_ncm_store_tx_timer_usecs(struct device *d,  struct device_attribute *attr, const char *buf, size_t len)
 {
+	unsigned int bh;
 	struct usbnet *dev = netdev_priv(to_net_dev(d));
 	struct cdc_ncm_ctx *ctx = (struct cdc_ncm_ctx *)dev->data[0];
 	ssize_t ret;
@@ -273,11 +274,11 @@ static ssize_t cdc_ncm_store_tx_timer_usecs(struct device *d,  struct device_att
 	if (val && (val < CDC_NCM_TIMER_INTERVAL_MIN || val > CDC_NCM_TIMER_INTERVAL_MAX))
 		return -EINVAL;
 
-	spin_lock_bh(&ctx->mtx);
+	bh = spin_lock_bh(&ctx->mtx, SOFTIRQ_ALL_MASK);
 	ctx->timer_interval = val * NSEC_PER_USEC;
 	if (!ctx->timer_interval)
 		ctx->tx_timer_pending = 0;
-	spin_unlock_bh(&ctx->mtx);
+	spin_unlock_bh(&ctx->mtx, bh);
 	return len;
 }
 
@@ -296,6 +297,7 @@ static ssize_t ndp_to_end_show(struct device *d, struct device_attribute *attr, 
 
 static ssize_t ndp_to_end_store(struct device *d,  struct device_attribute *attr, const char *buf, size_t len)
 {
+	unsigned int bh;
 	unsigned int bh;
 	struct usbnet *dev = netdev_priv(to_net_dev(d));
 	struct cdc_ncm_ctx *ctx = (struct cdc_ncm_ctx *)dev->data[0];
@@ -317,12 +319,12 @@ static ssize_t ndp_to_end_store(struct device *d,  struct device_attribute *attr
 	/* flush pending data before changing flag */
 	bh = netif_tx_lock_bh(dev->net);
 	usbnet_start_xmit(NULL, dev->net);
-	spin_lock_bh(&ctx->mtx);
+	bh = spin_lock_bh(&ctx->mtx, SOFTIRQ_ALL_MASK);
 	if (enable)
 		ctx->drvflags |= CDC_NCM_FLAG_NDP_TO_END;
 	else
 		ctx->drvflags &= ~CDC_NCM_FLAG_NDP_TO_END;
-	spin_unlock_bh(&ctx->mtx);
+	spin_unlock_bh(&ctx->mtx, bh);
 	netif_tx_unlock_bh(dev->net, bh);
 
 	return len;
@@ -1362,28 +1364,30 @@ static enum hrtimer_restart cdc_ncm_tx_timer_cb(struct hrtimer *timer)
 static void cdc_ncm_txpath_bh(unsigned long param)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct usbnet *dev = (struct usbnet *)param;
 	struct cdc_ncm_ctx *ctx = (struct cdc_ncm_ctx *)dev->data[0];
 
-	spin_lock_bh(&ctx->mtx);
+	bh = spin_lock_bh(&ctx->mtx, SOFTIRQ_ALL_MASK);
 	if (ctx->tx_timer_pending != 0) {
 		ctx->tx_timer_pending--;
 		cdc_ncm_tx_timeout_start(ctx);
-		spin_unlock_bh(&ctx->mtx);
+		spin_unlock_bh(&ctx->mtx, bh);
 	} else if (dev->net != NULL) {
 		ctx->tx_reason_timeout++;	/* count reason for transmitting */
-		spin_unlock_bh(&ctx->mtx);
+		spin_unlock_bh(&ctx->mtx, bh);
 		bh = netif_tx_lock_bh(dev->net);
 		usbnet_start_xmit(NULL, dev->net);
 		netif_tx_unlock_bh(dev->net, bh);
 	} else {
-		spin_unlock_bh(&ctx->mtx);
+		spin_unlock_bh(&ctx->mtx, bh);
 	}
 }
 
 struct sk_buff *
 cdc_ncm_tx_fixup(struct usbnet *dev, struct sk_buff *skb, gfp_t flags)
 {
+	unsigned int bh;
 	struct sk_buff *skb_out;
 	struct cdc_ncm_ctx *ctx = (struct cdc_ncm_ctx *)dev->data[0];
 
@@ -1397,9 +1401,9 @@ cdc_ncm_tx_fixup(struct usbnet *dev, struct sk_buff *skb, gfp_t flags)
 	if (ctx == NULL)
 		goto error;
 
-	spin_lock_bh(&ctx->mtx);
+	bh = spin_lock_bh(&ctx->mtx, SOFTIRQ_ALL_MASK);
 	skb_out = cdc_ncm_fill_tx_frame(dev, skb, cpu_to_le32(USB_CDC_NCM_NDP16_NOCRC_SIGN));
-	spin_unlock_bh(&ctx->mtx);
+	spin_unlock_bh(&ctx->mtx, bh);
 	return skb_out;
 
 error:

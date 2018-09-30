@@ -702,6 +702,7 @@ err_out:
 
 static dma_cookie_t tsi721_tx_submit(struct dma_async_tx_descriptor *txd)
 {
+	unsigned int bh;
 	struct tsi721_tx_desc *desc = to_tsi721_desc(txd);
 	struct tsi721_bdma_chan *bdma_chan = to_tsi721_chan(txd->chan);
 	dma_cookie_t cookie;
@@ -714,10 +715,10 @@ static dma_cookie_t tsi721_tx_submit(struct dma_async_tx_descriptor *txd)
 		return -EIO;
 	}
 
-	spin_lock_bh(&bdma_chan->lock);
+	bh = spin_lock_bh(&bdma_chan->lock, SOFTIRQ_ALL_MASK);
 
 	if (!bdma_chan->active) {
-		spin_unlock_bh(&bdma_chan->lock);
+		spin_unlock_bh(&bdma_chan->lock, bh);
 		return -ENODEV;
 	}
 
@@ -726,7 +727,7 @@ static dma_cookie_t tsi721_tx_submit(struct dma_async_tx_descriptor *txd)
 	list_add_tail(&desc->desc_node, &bdma_chan->queue);
 	tsi721_advance_work(bdma_chan, NULL);
 
-	spin_unlock_bh(&bdma_chan->lock);
+	spin_unlock_bh(&bdma_chan->lock, bh);
 	return cookie;
 }
 
@@ -810,26 +811,28 @@ static
 enum dma_status tsi721_tx_status(struct dma_chan *dchan, dma_cookie_t cookie,
 				 struct dma_tx_state *txstate)
 {
+	unsigned int bh;
 	struct tsi721_bdma_chan *bdma_chan = to_tsi721_chan(dchan);
 	enum dma_status	status;
 
-	spin_lock_bh(&bdma_chan->lock);
+	bh = spin_lock_bh(&bdma_chan->lock, SOFTIRQ_ALL_MASK);
 	status = dma_cookie_status(dchan, cookie, txstate);
-	spin_unlock_bh(&bdma_chan->lock);
+	spin_unlock_bh(&bdma_chan->lock, bh);
 	return status;
 }
 
 static void tsi721_issue_pending(struct dma_chan *dchan)
 {
+	unsigned int bh;
 	struct tsi721_bdma_chan *bdma_chan = to_tsi721_chan(dchan);
 
 	tsi_debug(DMA, &dchan->dev->device, "DMAC%d", bdma_chan->id);
 
-	spin_lock_bh(&bdma_chan->lock);
+	bh = spin_lock_bh(&bdma_chan->lock, SOFTIRQ_ALL_MASK);
 	if (tsi721_dma_is_idle(bdma_chan) && bdma_chan->active) {
 		tsi721_advance_work(bdma_chan, NULL);
 	}
-	spin_unlock_bh(&bdma_chan->lock);
+	spin_unlock_bh(&bdma_chan->lock, bh);
 }
 
 static
@@ -838,6 +841,7 @@ struct dma_async_tx_descriptor *tsi721_prep_rio_sg(struct dma_chan *dchan,
 			enum dma_transfer_direction dir, unsigned long flags,
 			void *tinfo)
 {
+	unsigned int bh;
 	struct tsi721_bdma_chan *bdma_chan = to_tsi721_chan(dchan);
 	struct tsi721_tx_desc *desc;
 	struct rio_dma_ext *rext = tinfo;
@@ -875,7 +879,7 @@ struct dma_async_tx_descriptor *tsi721_prep_rio_sg(struct dma_chan *dchan,
 		return ERR_PTR(-EINVAL);
 	}
 
-	spin_lock_bh(&bdma_chan->lock);
+	bh = spin_lock_bh(&bdma_chan->lock, SOFTIRQ_ALL_MASK);
 
 	if (!list_empty(&bdma_chan->free_list)) {
 		desc = list_first_entry(&bdma_chan->free_list,
@@ -891,7 +895,7 @@ struct dma_async_tx_descriptor *tsi721_prep_rio_sg(struct dma_chan *dchan,
 		txd->flags	= flags;
 	}
 
-	spin_unlock_bh(&bdma_chan->lock);
+	spin_unlock_bh(&bdma_chan->lock, bh);
 
 	if (!txd) {
 		tsi_debug(DMA, &dchan->dev->device,
@@ -904,13 +908,14 @@ struct dma_async_tx_descriptor *tsi721_prep_rio_sg(struct dma_chan *dchan,
 
 static int tsi721_terminate_all(struct dma_chan *dchan)
 {
+	unsigned int bh;
 	struct tsi721_bdma_chan *bdma_chan = to_tsi721_chan(dchan);
 	struct tsi721_tx_desc *desc, *_d;
 	LIST_HEAD(list);
 
 	tsi_debug(DMA, &dchan->dev->device, "DMAC%d", bdma_chan->id);
 
-	spin_lock_bh(&bdma_chan->lock);
+	bh = spin_lock_bh(&bdma_chan->lock, SOFTIRQ_ALL_MASK);
 
 	bdma_chan->active = false;
 
@@ -936,16 +941,17 @@ static int tsi721_terminate_all(struct dma_chan *dchan)
 	list_for_each_entry_safe(desc, _d, &list, desc_node)
 		tsi721_dma_tx_err(bdma_chan, desc);
 
-	spin_unlock_bh(&bdma_chan->lock);
+	spin_unlock_bh(&bdma_chan->lock, bh);
 
 	return 0;
 }
 
 static void tsi721_dma_stop(struct tsi721_bdma_chan *bdma_chan)
 {
+	unsigned int bh;
 	if (!bdma_chan->active)
 		return;
-	spin_lock_bh(&bdma_chan->lock);
+	bh = spin_lock_bh(&bdma_chan->lock, SOFTIRQ_ALL_MASK);
 	if (!tsi721_dma_is_idle(bdma_chan)) {
 		int timeout = 100000;
 
@@ -958,7 +964,7 @@ static void tsi721_dma_stop(struct tsi721_bdma_chan *bdma_chan)
 			udelay(1);
 	}
 
-	spin_unlock_bh(&bdma_chan->lock);
+	spin_unlock_bh(&bdma_chan->lock, bh);
 }
 
 void tsi721_dma_stop_all(struct tsi721_device *priv)

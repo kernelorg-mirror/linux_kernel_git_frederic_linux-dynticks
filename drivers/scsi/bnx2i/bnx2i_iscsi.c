@@ -1176,8 +1176,8 @@ static void bnx2i_cleanup_task(struct iscsi_task *task)
 		spin_unlock_bh(&conn->session->frwd_lock);
 		wait_for_completion_timeout(&bnx2i_conn->cmd_cleanup_cmpl,
 				msecs_to_jiffies(ISCSI_CMD_CLEANUP_TIMEOUT));
-		spin_lock_bh(&conn->session->frwd_lock);
-		spin_lock_bh(&conn->session->back_lock);
+		spin_lock_bh(&conn->session->frwd_lock, SOFTIRQ_ALL_MASK);
+		spin_lock_bh(&conn->session->back_lock, SOFTIRQ_ALL_MASK);
 	}
 	bnx2i_iscsi_unmap_sg_list(task->dd_data);
 }
@@ -1474,6 +1474,7 @@ static int bnx2i_conn_bind(struct iscsi_cls_session *cls_session,
  */
 static void bnx2i_conn_destroy(struct iscsi_cls_conn *cls_conn)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = cls_conn->dd_data;
 	struct bnx2i_conn *bnx2i_conn = conn->dd_data;
 	struct Scsi_Host *shost;
@@ -1490,7 +1491,7 @@ static void bnx2i_conn_destroy(struct iscsi_cls_conn *cls_conn)
 	if (atomic_read(&bnx2i_conn->work_cnt)) {
 		for_each_online_cpu(cpu) {
 			p = &per_cpu(bnx2i_percpu, cpu);
-			spin_lock_bh(&p->p_work_lock);
+			bh = spin_lock_bh(&p->p_work_lock, SOFTIRQ_ALL_MASK);
 			list_for_each_entry_safe(work, tmp,
 						 &p->work_list, list) {
 				if (work->session == conn->session &&
@@ -1502,7 +1503,7 @@ static void bnx2i_conn_destroy(struct iscsi_cls_conn *cls_conn)
 						break;
 				}
 			}
-			spin_unlock_bh(&p->p_work_lock);
+			spin_unlock_bh(&p->p_work_lock, bh);
 		}
 	}
 
@@ -2022,6 +2023,7 @@ static int bnx2i_ep_tcp_conn_active(struct bnx2i_endpoint *bnx2i_ep)
  */
 int bnx2i_hw_ep_disconnect(struct bnx2i_endpoint *bnx2i_ep)
 {
+	unsigned int bh;
 	struct bnx2i_hba *hba = bnx2i_ep->hba;
 	struct cnic_dev *cnic;
 	struct iscsi_session *session = NULL;
@@ -2057,7 +2059,7 @@ int bnx2i_hw_ep_disconnect(struct bnx2i_endpoint *bnx2i_ep)
 		goto out;
 
 	if (session) {
-		spin_lock_bh(&session->frwd_lock);
+		bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 		if (bnx2i_ep->state != EP_STATE_TCP_FIN_RCVD) {
 			if (session->state == ISCSI_STATE_LOGGING_OUT) {
 				if (bnx2i_ep->state == EP_STATE_LOGOUT_SENT) {
@@ -2073,7 +2075,7 @@ int bnx2i_hw_ep_disconnect(struct bnx2i_endpoint *bnx2i_ep)
 		} else
 			close = 1;
 
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 	}
 
 	bnx2i_ep->state = EP_STATE_DISCONN_START;

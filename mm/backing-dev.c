@@ -276,13 +276,14 @@ subsys_initcall(default_bdi_init);
  */
 void wb_wakeup_delayed(struct bdi_writeback *wb)
 {
+	unsigned int bh;
 	unsigned long timeout;
 
 	timeout = msecs_to_jiffies(dirty_writeback_interval * 10);
-	spin_lock_bh(&wb->work_lock);
+	bh = spin_lock_bh(&wb->work_lock, SOFTIRQ_ALL_MASK);
 	if (test_bit(WB_registered, &wb->state))
 		queue_delayed_work(bdi_wq, &wb->dwork, timeout);
-	spin_unlock_bh(&wb->work_lock);
+	spin_unlock_bh(&wb->work_lock, bh);
 }
 
 /*
@@ -355,13 +356,14 @@ static void cgwb_remove_from_bdi_list(struct bdi_writeback *wb);
  */
 static void wb_shutdown(struct bdi_writeback *wb)
 {
+	unsigned int bh;
 	/* Make sure nobody queues further work */
-	spin_lock_bh(&wb->work_lock);
+	bh = spin_lock_bh(&wb->work_lock, SOFTIRQ_ALL_MASK);
 	if (!test_and_clear_bit(WB_registered, &wb->state)) {
-		spin_unlock_bh(&wb->work_lock);
+		spin_unlock_bh(&wb->work_lock, bh);
 		return;
 	}
-	spin_unlock_bh(&wb->work_lock);
+	spin_unlock_bh(&wb->work_lock, bh);
 
 	cgwb_remove_from_bdi_list(wb);
 	/*
@@ -873,6 +875,7 @@ EXPORT_SYMBOL(bdi_alloc_node);
 
 int bdi_register_va(struct backing_dev_info *bdi, const char *fmt, va_list args)
 {
+	unsigned int bh;
 	struct device *dev;
 
 	if (bdi->dev)	/* The driver needs to use separate queues per device */
@@ -888,9 +891,9 @@ int bdi_register_va(struct backing_dev_info *bdi, const char *fmt, va_list args)
 	bdi_debug_register(bdi, dev_name(dev));
 	set_bit(WB_registered, &bdi->wb.state);
 
-	spin_lock_bh(&bdi_lock);
+	bh = spin_lock_bh(&bdi_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail_rcu(&bdi->bdi_list, &bdi_list);
-	spin_unlock_bh(&bdi_lock);
+	spin_unlock_bh(&bdi_lock, bh);
 
 	trace_writeback_bdi_register(bdi);
 	return 0;
@@ -929,9 +932,10 @@ EXPORT_SYMBOL(bdi_register_owner);
  */
 static void bdi_remove_from_list(struct backing_dev_info *bdi)
 {
-	spin_lock_bh(&bdi_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&bdi_lock, SOFTIRQ_ALL_MASK);
 	list_del_rcu(&bdi->bdi_list);
-	spin_unlock_bh(&bdi_lock);
+	spin_unlock_bh(&bdi_lock, bh);
 
 	synchronize_rcu_expedited();
 }

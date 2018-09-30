@@ -235,6 +235,7 @@ static void recent_table_flush(struct recent_table *t)
 static bool
 recent_mt(const struct sk_buff *skb, struct xt_action_param *par)
 {
+	unsigned int bh;
 	struct net *net = xt_net(par);
 	struct recent_net *recent_net = recent_pernet(net);
 	const struct xt_recent_mtinfo_v1 *info = par->matchinfo;
@@ -269,7 +270,7 @@ recent_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	    (!skb->sk || !net_eq(net, sock_net(skb->sk))))
 		ttl++;
 
-	spin_lock_bh(&recent_lock);
+	bh = spin_lock_bh(&recent_lock, SOFTIRQ_ALL_MASK);
 	t = recent_table_lookup(recent_net, info->name);
 
 	nf_inet_addr_mask(&addr, &addr_mask, &t->mask);
@@ -315,7 +316,7 @@ recent_mt(const struct sk_buff *skb, struct xt_action_param *par)
 		e->ttl = ttl;
 	}
 out:
-	spin_unlock_bh(&recent_lock);
+	spin_unlock_bh(&recent_lock, bh);
 	return ret;
 }
 
@@ -327,6 +328,7 @@ static void recent_table_free(void *addr)
 static int recent_mt_check(const struct xt_mtchk_param *par,
 			   const struct xt_recent_mtinfo_v1 *info)
 {
+	unsigned int bh;
 	struct recent_net *recent_net = recent_pernet(par->net);
 	struct recent_table *t;
 #ifdef CONFIG_PROC_FS
@@ -376,10 +378,10 @@ static int recent_mt_check(const struct xt_mtchk_param *par,
 	t = recent_table_lookup(recent_net, info->name);
 	if (t != NULL) {
 		if (nstamp_mask > t->nstamps_max_mask) {
-			spin_lock_bh(&recent_lock);
+			bh = spin_lock_bh(&recent_lock, SOFTIRQ_ALL_MASK);
 			recent_table_flush(t);
 			t->nstamps_max_mask = nstamp_mask;
-			spin_unlock_bh(&recent_lock);
+			spin_unlock_bh(&recent_lock, bh);
 		}
 
 		t->refcnt++;
@@ -418,9 +420,9 @@ static int recent_mt_check(const struct xt_mtchk_param *par,
 	}
 	proc_set_user(pde, uid, gid);
 #endif
-	spin_lock_bh(&recent_lock);
+	bh = spin_lock_bh(&recent_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&t->list, &recent_net->tables);
-	spin_unlock_bh(&recent_lock);
+	spin_unlock_bh(&recent_lock, bh);
 	ret = 0;
 out:
 	mutex_unlock(&recent_mutex);
@@ -447,6 +449,7 @@ static int recent_mt_check_v1(const struct xt_mtchk_param *par)
 
 static void recent_mt_destroy(const struct xt_mtdtor_param *par)
 {
+	unsigned int bh;
 	struct recent_net *recent_net = recent_pernet(par->net);
 	const struct xt_recent_mtinfo_v1 *info = par->matchinfo;
 	struct recent_table *t;
@@ -454,9 +457,9 @@ static void recent_mt_destroy(const struct xt_mtdtor_param *par)
 	mutex_lock(&recent_mutex);
 	t = recent_table_lookup(recent_net, info->name);
 	if (--t->refcnt == 0) {
-		spin_lock_bh(&recent_lock);
+		bh = spin_lock_bh(&recent_lock, SOFTIRQ_ALL_MASK);
 		list_del(&t->list);
-		spin_unlock_bh(&recent_lock);
+		spin_unlock_bh(&recent_lock, bh);
 #ifdef CONFIG_PROC_FS
 		if (recent_net->xt_recent != NULL)
 			remove_proc_entry(t->name, recent_net->xt_recent);
@@ -481,7 +484,7 @@ static void *recent_seq_start(struct seq_file *seq, loff_t *pos)
 	struct recent_entry *e;
 	loff_t p = *pos;
 
-	spin_lock_bh(&recent_lock);
+	spin_lock_bh(&recent_lock, SOFTIRQ_ALL_MASK);
 
 	for (st->bucket = 0; st->bucket < ip_list_hash_size; st->bucket++)
 		list_for_each_entry(e, &t->iphash[st->bucket], list)
@@ -556,6 +559,7 @@ static ssize_t
 recent_mt_proc_write(struct file *file, const char __user *input,
 		     size_t size, loff_t *loff)
 {
+	unsigned int bh;
 	struct recent_table *t = PDE_DATA(file_inode(file));
 	struct recent_entry *e;
 	char buf[sizeof("+b335:1d35:1e55:dead:c0de:1715:5afe:c0de")];
@@ -576,9 +580,9 @@ recent_mt_proc_write(struct file *file, const char __user *input,
 		return -ESPIPE;
 	switch (*c) {
 	case '/': /* flush table */
-		spin_lock_bh(&recent_lock);
+		bh = spin_lock_bh(&recent_lock, SOFTIRQ_ALL_MASK);
 		recent_table_flush(t);
-		spin_unlock_bh(&recent_lock);
+		spin_unlock_bh(&recent_lock, bh);
 		return size;
 	case '-': /* remove address */
 		add = false;
@@ -604,7 +608,7 @@ recent_mt_proc_write(struct file *file, const char __user *input,
 	if (!succ)
 		return -EINVAL;
 
-	spin_lock_bh(&recent_lock);
+	bh = spin_lock_bh(&recent_lock, SOFTIRQ_ALL_MASK);
 	e = recent_entry_lookup(t, &addr, family, 0);
 	if (e == NULL) {
 		if (add)
@@ -615,7 +619,7 @@ recent_mt_proc_write(struct file *file, const char __user *input,
 		else
 			recent_entry_remove(t, e);
 	}
-	spin_unlock_bh(&recent_lock);
+	spin_unlock_bh(&recent_lock, bh);
 	/* Note we removed one above */
 	*loff += size + 1;
 	return size + 1;
@@ -642,6 +646,7 @@ static int __net_init recent_proc_net_init(struct net *net)
 
 static void __net_exit recent_proc_net_exit(struct net *net)
 {
+	unsigned int bh;
 	struct recent_net *recent_net = recent_pernet(net);
 	struct recent_table *t;
 
@@ -649,12 +654,12 @@ static void __net_exit recent_proc_net_exit(struct net *net)
 	 * that the parent xt_recent proc entry is is empty before trying to
 	 * remove it.
 	 */
-	spin_lock_bh(&recent_lock);
+	bh = spin_lock_bh(&recent_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(t, &recent_net->tables, list)
 	        remove_proc_entry(t->name, recent_net->xt_recent);
 
 	recent_net->xt_recent = NULL;
-	spin_unlock_bh(&recent_lock);
+	spin_unlock_bh(&recent_lock, bh);
 
 	remove_proc_entry("xt_recent", net->proc_net);
 }

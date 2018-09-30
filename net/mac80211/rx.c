@@ -2588,6 +2588,7 @@ ieee80211_rx_h_amsdu(struct ieee80211_rx_data *rx)
 static ieee80211_rx_result
 ieee80211_rx_h_mesh_fwding(struct ieee80211_rx_data *rx)
 {
+	unsigned int bh;
 	struct ieee80211_hdr *fwd_hdr, *hdr;
 	struct ieee80211_tx_info *info;
 	struct ieee80211s_hdr *mesh_hdr;
@@ -2652,11 +2653,11 @@ ieee80211_rx_h_mesh_fwding(struct ieee80211_rx_data *rx)
 		if (!mppath) {
 			mpp_path_add(sdata, proxied_addr, mpp_addr);
 		} else {
-			spin_lock_bh(&mppath->state_lock);
+			bh = spin_lock_bh(&mppath->state_lock, SOFTIRQ_ALL_MASK);
 			if (!ether_addr_equal(mppath->mpp, mpp_addr))
 				memcpy(mppath->mpp, mpp_addr, ETH_ALEN);
 			mppath->exp_time = jiffies;
-			spin_unlock_bh(&mppath->state_lock);
+			spin_unlock_bh(&mppath->state_lock, bh);
 		}
 		rcu_read_unlock();
 	}
@@ -3521,6 +3522,7 @@ static void ieee80211_rx_handlers_result(struct ieee80211_rx_data *rx,
 static void ieee80211_rx_handlers(struct ieee80211_rx_data *rx,
 				  struct sk_buff_head *frames)
 {
+	unsigned int bh;
 	ieee80211_rx_result res = RX_DROP_MONITOR;
 	struct sk_buff *skb;
 
@@ -3537,7 +3539,7 @@ static void ieee80211_rx_handlers(struct ieee80211_rx_data *rx,
 	 * from the timer, potentially concurrently with RX from the
 	 * driver.
 	 */
-	spin_lock_bh(&rx->local->rx_path_lock);
+	bh = spin_lock_bh(&rx->local->rx_path_lock, SOFTIRQ_ALL_MASK);
 
 	while ((skb = __skb_dequeue(frames))) {
 		/*
@@ -3578,7 +3580,7 @@ static void ieee80211_rx_handlers(struct ieee80211_rx_data *rx,
 #undef CALL_RXH
 	}
 
-	spin_unlock_bh(&rx->local->rx_path_lock);
+	spin_unlock_bh(&rx->local->rx_path_lock, bh);
 }
 
 static void ieee80211_invoke_rx_handlers(struct ieee80211_rx_data *rx)
@@ -3653,6 +3655,7 @@ void ieee80211_mark_rx_ba_filtered_frames(struct ieee80211_sta *pubsta, u8 tid,
 					  u16 ssn, u64 filtered,
 					  u16 received_mpdus)
 {
+	unsigned int bh;
 	struct sta_info *sta;
 	struct tid_ampdu_rx *tid_agg_rx;
 	struct sk_buff_head frames;
@@ -3679,7 +3682,7 @@ void ieee80211_mark_rx_ba_filtered_frames(struct ieee80211_sta *pubsta, u8 tid,
 	if (!tid_agg_rx)
 		goto out;
 
-	spin_lock_bh(&tid_agg_rx->reorder_lock);
+	bh = spin_lock_bh(&tid_agg_rx->reorder_lock, SOFTIRQ_ALL_MASK);
 
 	if (received_mpdus >= IEEE80211_SN_MODULO >> 1) {
 		int release;
@@ -3719,7 +3722,7 @@ void ieee80211_mark_rx_ba_filtered_frames(struct ieee80211_sta *pubsta, u8 tid,
 	ieee80211_sta_reorder_release(sta->sdata, tid_agg_rx, &frames);
 
 release:
-	spin_unlock_bh(&tid_agg_rx->reorder_lock);
+	spin_unlock_bh(&tid_agg_rx->reorder_lock, bh);
 
 	ieee80211_rx_handlers(&rx, &frames);
 
@@ -3869,6 +3872,7 @@ static bool ieee80211_accept_frame(struct ieee80211_rx_data *rx)
 
 void ieee80211_check_fast_rx(struct sta_info *sta)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_key *key;
@@ -3993,10 +3997,10 @@ void ieee80211_check_fast_rx(struct sta_info *sta)
 	if (assign)
 		new = kmemdup(&fastrx, sizeof(fastrx), GFP_KERNEL);
 
-	spin_lock_bh(&sta->lock);
+	bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 	old = rcu_dereference_protected(sta->fast_rx, true);
 	rcu_assign_pointer(sta->fast_rx, new);
-	spin_unlock_bh(&sta->lock);
+	spin_unlock_bh(&sta->lock, bh);
 
 	if (old)
 		kfree_rcu(old, rcu_head);
@@ -4004,12 +4008,13 @@ void ieee80211_check_fast_rx(struct sta_info *sta)
 
 void ieee80211_clear_fast_rx(struct sta_info *sta)
 {
+	unsigned int bh;
 	struct ieee80211_fast_rx *old;
 
-	spin_lock_bh(&sta->lock);
+	bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 	old = rcu_dereference_protected(sta->fast_rx, true);
 	RCU_INIT_POINTER(sta->fast_rx, NULL);
-	spin_unlock_bh(&sta->lock);
+	spin_unlock_bh(&sta->lock, bh);
 
 	if (old)
 		kfree_rcu(old, rcu_head);

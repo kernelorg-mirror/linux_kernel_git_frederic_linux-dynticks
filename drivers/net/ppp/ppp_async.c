@@ -650,6 +650,7 @@ ppp_async_send(struct ppp_channel *chan, struct sk_buff *skb)
 static int
 ppp_async_push(struct asyncppp *ap)
 {
+	unsigned int bh;
 	int avail, sent, done = 0;
 	struct tty_struct *tty = ap->tty;
 	int tty_stuffed = 0;
@@ -665,7 +666,7 @@ ppp_async_push(struct asyncppp *ap)
 	 */
 	if (test_and_set_bit(XMIT_BUSY, &ap->xmit_flags))
 		return 0;
-	spin_lock_bh(&ap->xmit_lock);
+	bh = spin_lock_bh(&ap->xmit_lock, SOFTIRQ_ALL_MASK);
 	for (;;) {
 		if (test_and_clear_bit(XMIT_WAKEUP, &ap->xmit_flags))
 			tty_stuffed = 0;
@@ -706,7 +707,7 @@ ppp_async_push(struct asyncppp *ap)
 		if (test_and_set_bit(XMIT_BUSY, &ap->xmit_flags))
 			break;
 	}
-	spin_unlock_bh(&ap->xmit_lock);
+	spin_unlock_bh(&ap->xmit_lock, bh);
 	return done;
 
 flush:
@@ -718,7 +719,7 @@ flush:
 		done = 1;
 	}
 	ap->optr = ap->olim;
-	spin_unlock_bh(&ap->xmit_lock);
+	spin_unlock_bh(&ap->xmit_lock, bh);
 	return done;
 }
 
@@ -730,9 +731,10 @@ flush:
 static void
 ppp_async_flush_output(struct asyncppp *ap)
 {
+	unsigned int bh;
 	int done = 0;
 
-	spin_lock_bh(&ap->xmit_lock);
+	bh = spin_lock_bh(&ap->xmit_lock, SOFTIRQ_ALL_MASK);
 	ap->optr = ap->olim;
 	if (ap->tpkt != NULL) {
 		kfree_skb(ap->tpkt);
@@ -740,7 +742,7 @@ ppp_async_flush_output(struct asyncppp *ap)
 		clear_bit(XMIT_FULL, &ap->xmit_flags);
 		done = 1;
 	}
-	spin_unlock_bh(&ap->xmit_lock);
+	spin_unlock_bh(&ap->xmit_lock, bh);
 	if (done)
 		ppp_output_wakeup(&ap->chan);
 }

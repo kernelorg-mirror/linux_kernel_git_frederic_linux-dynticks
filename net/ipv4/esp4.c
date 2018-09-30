@@ -225,6 +225,7 @@ static void esp_output_fill_trailer(u8 *tail, int tfclen, int plen, __u8 proto)
 
 static void esp_output_udp_encap(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *esp)
 {
+	unsigned int bh;
 	int encap_type;
 	struct udphdr *uh;
 	__be32 *udpdata32;
@@ -232,11 +233,11 @@ static void esp_output_udp_encap(struct xfrm_state *x, struct sk_buff *skb, stru
 	struct xfrm_encap_tmpl *encap = x->encap;
 	struct ip_esp_hdr *esph = esp->esph;
 
-	spin_lock_bh(&x->lock);
+	bh = spin_lock_bh(&x->lock, SOFTIRQ_ALL_MASK);
 	sport = encap->encap_sport;
 	dport = encap->encap_dport;
 	encap_type = encap->encap_type;
-	spin_unlock_bh(&x->lock);
+	spin_unlock_bh(&x->lock, bh);
 
 	uh = (struct udphdr *)esph;
 	uh->source = sport;
@@ -263,6 +264,7 @@ static void esp_output_udp_encap(struct xfrm_state *x, struct sk_buff *skb, stru
 
 int esp_output_head(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *esp)
 {
+	unsigned int bh;
 	u8 *tail;
 	u8 *vaddr;
 	int nfrags;
@@ -292,10 +294,10 @@ int esp_output_head(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *
 
 			allocsize = ALIGN(tailen, L1_CACHE_BYTES);
 
-			spin_lock_bh(&x->lock);
+			bh = spin_lock_bh(&x->lock, SOFTIRQ_ALL_MASK);
 
 			if (unlikely(!skb_page_frag_refill(allocsize, pfrag, GFP_ATOMIC))) {
-				spin_unlock_bh(&x->lock);
+				spin_unlock_bh(&x->lock, bh);
 				goto cow;
 			}
 
@@ -318,7 +320,7 @@ int esp_output_head(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *
 
 			pfrag->offset = pfrag->offset + allocsize;
 
-			spin_unlock_bh(&x->lock);
+			spin_unlock_bh(&x->lock, bh);
 
 			nfrags++;
 
@@ -352,6 +354,7 @@ EXPORT_SYMBOL_GPL(esp_output_head);
 
 int esp_output_tail(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *esp)
 {
+	unsigned int bh;
 	u8 *iv;
 	int alen;
 	void *tmp;
@@ -408,9 +411,9 @@ int esp_output_tail(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *
 
 		allocsize = ALIGN(skb->data_len, L1_CACHE_BYTES);
 
-		spin_lock_bh(&x->lock);
+		bh = spin_lock_bh(&x->lock, SOFTIRQ_ALL_MASK);
 		if (unlikely(!skb_page_frag_refill(allocsize, pfrag, GFP_ATOMIC))) {
-			spin_unlock_bh(&x->lock);
+			spin_unlock_bh(&x->lock, bh);
 			goto error_free;
 		}
 
@@ -421,7 +424,7 @@ int esp_output_tail(struct xfrm_state *x, struct sk_buff *skb, struct esp_info *
 		/* replace page frags in skb with new page */
 		__skb_fill_page_desc(skb, 0, page, pfrag->offset, skb->data_len);
 		pfrag->offset = pfrag->offset + allocsize;
-		spin_unlock_bh(&x->lock);
+		spin_unlock_bh(&x->lock, bh);
 
 		sg_init_table(dsg, skb_shinfo(skb)->nr_frags + 1);
 		err = skb_to_sgvec(skb, dsg,

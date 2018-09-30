@@ -533,7 +533,7 @@ mtype_gc(struct timer_list *t)
 	struct ip_set *set = h->set;
 
 	pr_debug("called\n");
-	spin_lock_bh(&set->lock);
+	spin_lock_bh(&set->lock, SOFTIRQ_ALL_MASK);
 	mtype_expire(set, h);
 	spin_unlock_bh(&set->lock);
 
@@ -590,7 +590,7 @@ retry:
 	}
 	t->htable_bits = htable_bits;
 
-	spin_lock_bh(&set->lock);
+	spin_lock_bh(&set->lock, SOFTIRQ_ALL_MASK);
 	orig = __ipset_dereference_protected(h->table, 1);
 	/* There can't be another parallel resizing, but dumping is possible */
 	atomic_set(&orig->ref, 1);
@@ -1048,7 +1048,7 @@ mtype_head(struct ip_set *set, struct sk_buff *skb)
 	 * because elements might time out during the listing.
 	 */
 	if (SET_WITH_TIMEOUT(set)) {
-		spin_lock_bh(&set->lock);
+		spin_lock_bh(&set->lock, SOFTIRQ_ALL_MASK);
 		mtype_expire(set, h);
 		spin_unlock_bh(&set->lock);
 	}

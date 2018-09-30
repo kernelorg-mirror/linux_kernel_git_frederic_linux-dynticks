@@ -123,6 +123,7 @@ void mv_cesa_tdma_chain(struct mv_cesa_engine *engine,
 
 int mv_cesa_tdma_process(struct mv_cesa_engine *engine, u32 status)
 {
+	unsigned int bh;
 	struct crypto_async_request *req = NULL;
 	struct mv_cesa_tdma_desc *tdma = NULL, *next = NULL;
 	dma_addr_t tdma_cur;
@@ -131,16 +132,16 @@ int mv_cesa_tdma_process(struct mv_cesa_engine *engine, u32 status)
 	tdma_cur = readl(engine->regs + CESA_TDMA_CUR);
 
 	for (tdma = engine->chain.first; tdma; tdma = next) {
-		spin_lock_bh(&engine->lock);
+		bh = spin_lock_bh(&engine->lock, SOFTIRQ_ALL_MASK);
 		next = tdma->next;
-		spin_unlock_bh(&engine->lock);
+		spin_unlock_bh(&engine->lock, bh);
 
 		if (tdma->flags & CESA_TDMA_END_OF_REQ) {
 			struct crypto_async_request *backlog = NULL;
 			struct mv_cesa_ctx *ctx;
 			u32 current_status;
 
-			spin_lock_bh(&engine->lock);
+			bh = spin_lock_bh(&engine->lock, SOFTIRQ_ALL_MASK);
 			/*
 			 * if req is NULL, this means we're processing the
 			 * request in engine->req.
@@ -158,7 +159,7 @@ int mv_cesa_tdma_process(struct mv_cesa_engine *engine, u32 status)
 			/* If this is the last request, clear the chain */
 			if (engine->chain.first == NULL)
 				engine->chain.last  = NULL;
-			spin_unlock_bh(&engine->lock);
+			spin_unlock_bh(&engine->lock, bh);
 
 			ctx = crypto_tfm_ctx(req->tfm);
 			current_status = (tdma->cur_dma == tdma_cur) ?
@@ -181,9 +182,9 @@ int mv_cesa_tdma_process(struct mv_cesa_engine *engine, u32 status)
 	/* Save the last request in error to engine->req, so that the core
 	 * knows which request was fautly */
 	if (res) {
-		spin_lock_bh(&engine->lock);
+		bh = spin_lock_bh(&engine->lock, SOFTIRQ_ALL_MASK);
 		engine->req = req;
-		spin_unlock_bh(&engine->lock);
+		spin_unlock_bh(&engine->lock, bh);
 	}
 
 	return res;

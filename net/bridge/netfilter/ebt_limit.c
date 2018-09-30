@@ -34,10 +34,11 @@ static DEFINE_SPINLOCK(limit_lock);
 static bool
 ebt_limit_mt(const struct sk_buff *skb, struct xt_action_param *par)
 {
+	unsigned int bh;
 	struct ebt_limit_info *info = (void *)par->matchinfo;
 	unsigned long now = jiffies;
 
-	spin_lock_bh(&limit_lock);
+	bh = spin_lock_bh(&limit_lock, SOFTIRQ_ALL_MASK);
 	info->credit += (now - xchg(&info->prev, now)) * CREDITS_PER_JIFFY;
 	if (info->credit > info->credit_cap)
 		info->credit = info->credit_cap;
@@ -45,11 +46,11 @@ ebt_limit_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	if (info->credit >= info->cost) {
 		/* We're not limited. */
 		info->credit -= info->cost;
-		spin_unlock_bh(&limit_lock);
+		spin_unlock_bh(&limit_lock, bh);
 		return true;
 	}
 
-	spin_unlock_bh(&limit_lock);
+	spin_unlock_bh(&limit_lock, bh);
 	return false;
 }
 

@@ -410,17 +410,18 @@ out_splice:
 
 static dma_cookie_t fsl_dma_tx_submit(struct dma_async_tx_descriptor *tx)
 {
+	unsigned int bh;
 	struct fsldma_chan *chan = to_fsl_chan(tx->chan);
 	struct fsl_desc_sw *desc = tx_to_fsl_desc(tx);
 	struct fsl_desc_sw *child;
 	dma_cookie_t cookie = -EINVAL;
 
-	spin_lock_bh(&chan->desc_lock);
+	bh = spin_lock_bh(&chan->desc_lock, SOFTIRQ_ALL_MASK);
 
 #ifdef CONFIG_PM
 	if (unlikely(chan->pm_state != RUNNING)) {
 		chan_dbg(chan, "cannot submit due to suspend\n");
-		spin_unlock_bh(&chan->desc_lock);
+		spin_unlock_bh(&chan->desc_lock, bh);
 		return -1;
 	}
 #endif
@@ -436,7 +437,7 @@ static dma_cookie_t fsl_dma_tx_submit(struct dma_async_tx_descriptor *tx)
 	/* put this transaction onto the tail of the pending queue */
 	append_ld_queue(chan, desc);
 
-	spin_unlock_bh(&chan->desc_lock);
+	spin_unlock_bh(&chan->desc_lock, bh);
 
 	return cookie;
 }
@@ -746,15 +747,16 @@ static void fsldma_free_desc_list_reverse(struct fsldma_chan *chan,
  */
 static void fsl_dma_free_chan_resources(struct dma_chan *dchan)
 {
+	unsigned int bh;
 	struct fsldma_chan *chan = to_fsl_chan(dchan);
 
 	chan_dbg(chan, "free all channel resources\n");
-	spin_lock_bh(&chan->desc_lock);
+	bh = spin_lock_bh(&chan->desc_lock, SOFTIRQ_ALL_MASK);
 	fsldma_cleanup_descriptors(chan);
 	fsldma_free_desc_list(chan, &chan->ld_pending);
 	fsldma_free_desc_list(chan, &chan->ld_running);
 	fsldma_free_desc_list(chan, &chan->ld_completed);
-	spin_unlock_bh(&chan->desc_lock);
+	spin_unlock_bh(&chan->desc_lock, bh);
 
 	dma_pool_destroy(chan->desc_pool);
 	chan->desc_pool = NULL;
@@ -827,6 +829,7 @@ fail:
 
 static int fsl_dma_device_terminate_all(struct dma_chan *dchan)
 {
+	unsigned int bh;
 	struct fsldma_chan *chan;
 
 	if (!dchan)
@@ -834,7 +837,7 @@ static int fsl_dma_device_terminate_all(struct dma_chan *dchan)
 
 	chan = to_fsl_chan(dchan);
 
-	spin_lock_bh(&chan->desc_lock);
+	bh = spin_lock_bh(&chan->desc_lock, SOFTIRQ_ALL_MASK);
 
 	/* Halt the DMA engine */
 	dma_halt(chan);
@@ -845,7 +848,7 @@ static int fsl_dma_device_terminate_all(struct dma_chan *dchan)
 	fsldma_free_desc_list(chan, &chan->ld_completed);
 	chan->idle = true;
 
-	spin_unlock_bh(&chan->desc_lock);
+	spin_unlock_bh(&chan->desc_lock, bh);
 	return 0;
 }
 
@@ -881,11 +884,12 @@ static int fsl_dma_device_config(struct dma_chan *dchan,
  */
 static void fsl_dma_memcpy_issue_pending(struct dma_chan *dchan)
 {
+	unsigned int bh;
 	struct fsldma_chan *chan = to_fsl_chan(dchan);
 
-	spin_lock_bh(&chan->desc_lock);
+	bh = spin_lock_bh(&chan->desc_lock, SOFTIRQ_ALL_MASK);
 	fsl_chan_xfer_ld_queue(chan);
-	spin_unlock_bh(&chan->desc_lock);
+	spin_unlock_bh(&chan->desc_lock, bh);
 }
 
 /**
@@ -896,6 +900,7 @@ static enum dma_status fsl_tx_status(struct dma_chan *dchan,
 					dma_cookie_t cookie,
 					struct dma_tx_state *txstate)
 {
+	unsigned int bh;
 	struct fsldma_chan *chan = to_fsl_chan(dchan);
 	enum dma_status ret;
 
@@ -903,9 +908,9 @@ static enum dma_status fsl_tx_status(struct dma_chan *dchan,
 	if (ret == DMA_COMPLETE)
 		return ret;
 
-	spin_lock_bh(&chan->desc_lock);
+	bh = spin_lock_bh(&chan->desc_lock, SOFTIRQ_ALL_MASK);
 	fsldma_cleanup_descriptors(chan);
-	spin_unlock_bh(&chan->desc_lock);
+	spin_unlock_bh(&chan->desc_lock, bh);
 
 	return dma_cookie_status(dchan, cookie, txstate);
 }
@@ -983,11 +988,12 @@ static irqreturn_t fsldma_chan_irq(int irq, void *data)
 
 static void dma_do_tasklet(unsigned long data)
 {
+	unsigned int bh;
 	struct fsldma_chan *chan = (struct fsldma_chan *)data;
 
 	chan_dbg(chan, "tasklet entry\n");
 
-	spin_lock_bh(&chan->desc_lock);
+	bh = spin_lock_bh(&chan->desc_lock, SOFTIRQ_ALL_MASK);
 
 	/* the hardware is now idle and ready for more */
 	chan->idle = true;
@@ -995,7 +1001,7 @@ static void dma_do_tasklet(unsigned long data)
 	/* Run all cleanup for descriptors which have been completed */
 	fsldma_cleanup_descriptors(chan);
 
-	spin_unlock_bh(&chan->desc_lock);
+	spin_unlock_bh(&chan->desc_lock, bh);
 
 	chan_dbg(chan, "tasklet exit\n");
 }
@@ -1328,6 +1334,7 @@ static int fsldma_of_remove(struct platform_device *op)
 #ifdef CONFIG_PM
 static int fsldma_suspend_late(struct device *dev)
 {
+	unsigned int bh;
 	struct fsldma_device *fdev = dev_get_drvdata(dev);
 	struct fsldma_chan *chan;
 	int i;
@@ -1337,12 +1344,12 @@ static int fsldma_suspend_late(struct device *dev)
 		if (!chan)
 			continue;
 
-		spin_lock_bh(&chan->desc_lock);
+		bh = spin_lock_bh(&chan->desc_lock, SOFTIRQ_ALL_MASK);
 		if (unlikely(!chan->idle))
 			goto out;
 		chan->regs_save.mr = get_mr(chan);
 		chan->pm_state = SUSPENDED;
-		spin_unlock_bh(&chan->desc_lock);
+		spin_unlock_bh(&chan->desc_lock, bh);
 	}
 	return 0;
 
@@ -1352,13 +1359,14 @@ out:
 		if (!chan)
 			continue;
 		chan->pm_state = RUNNING;
-		spin_unlock_bh(&chan->desc_lock);
+		spin_unlock_bh(&chan->desc_lock, bh);
 	}
 	return -EBUSY;
 }
 
 static int fsldma_resume_early(struct device *dev)
 {
+	unsigned int bh;
 	struct fsldma_device *fdev = dev_get_drvdata(dev);
 	struct fsldma_chan *chan;
 	u32 mode;
@@ -1369,12 +1377,12 @@ static int fsldma_resume_early(struct device *dev)
 		if (!chan)
 			continue;
 
-		spin_lock_bh(&chan->desc_lock);
+		bh = spin_lock_bh(&chan->desc_lock, SOFTIRQ_ALL_MASK);
 		mode = chan->regs_save.mr
 			& ~FSL_DMA_MR_CS & ~FSL_DMA_MR_CC & ~FSL_DMA_MR_CA;
 		set_mr(chan, mode);
 		chan->pm_state = RUNNING;
-		spin_unlock_bh(&chan->desc_lock);
+		spin_unlock_bh(&chan->desc_lock, bh);
 	}
 
 	return 0;

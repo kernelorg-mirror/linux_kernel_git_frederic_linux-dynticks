@@ -1406,6 +1406,7 @@ static bool fq_vlan_filter_func(struct fq *fq, struct fq_tin *tin,
 void ieee80211_txq_remove_vlan(struct ieee80211_local *local,
 			       struct ieee80211_sub_if_data *sdata)
 {
+	unsigned int bh;
 	struct fq *fq = &local->fq;
 	struct txq_info *txqi;
 	struct fq_tin *tin;
@@ -1422,10 +1423,10 @@ void ieee80211_txq_remove_vlan(struct ieee80211_local *local,
 	txqi = to_txq_info(ap->vif.txq);
 	tin = &txqi->tin;
 
-	spin_lock_bh(&fq->lock);
+	bh = spin_lock_bh(&fq->lock, SOFTIRQ_ALL_MASK);
 	fq_tin_filter(fq, tin, fq_vlan_filter_func, &sdata->vif,
 		      fq_skb_free_func);
-	spin_unlock_bh(&fq->lock);
+	spin_unlock_bh(&fq->lock, bh);
 }
 
 void ieee80211_txq_init(struct ieee80211_sub_if_data *sdata,
@@ -1482,6 +1483,7 @@ void ieee80211_txq_set_params(struct ieee80211_local *local)
 
 int ieee80211_txq_setup_flows(struct ieee80211_local *local)
 {
+	unsigned int bh;
 	struct fq *fq = &local->fq;
 	int ret;
 	int i;
@@ -1520,9 +1522,9 @@ int ieee80211_txq_setup_flows(struct ieee80211_local *local)
 	local->cvars = kcalloc(fq->flows_cnt, sizeof(local->cvars[0]),
 			       GFP_KERNEL);
 	if (!local->cvars) {
-		spin_lock_bh(&fq->lock);
+		bh = spin_lock_bh(&fq->lock, SOFTIRQ_ALL_MASK);
 		fq_reset(fq, fq_skb_free_func);
-		spin_unlock_bh(&fq->lock);
+		spin_unlock_bh(&fq->lock, bh);
 		return -ENOMEM;
 	}
 
@@ -1536,6 +1538,7 @@ int ieee80211_txq_setup_flows(struct ieee80211_local *local)
 
 void ieee80211_txq_teardown_flows(struct ieee80211_local *local)
 {
+	unsigned int bh;
 	struct fq *fq = &local->fq;
 
 	if (!local->ops->wake_tx_queue)
@@ -1544,9 +1547,9 @@ void ieee80211_txq_teardown_flows(struct ieee80211_local *local)
 	kfree(local->cvars);
 	local->cvars = NULL;
 
-	spin_lock_bh(&fq->lock);
+	bh = spin_lock_bh(&fq->lock, SOFTIRQ_ALL_MASK);
 	fq_reset(fq, fq_skb_free_func);
-	spin_unlock_bh(&fq->lock);
+	spin_unlock_bh(&fq->lock, bh);
 }
 
 static bool ieee80211_queue_skb(struct ieee80211_local *local,
@@ -1554,6 +1557,7 @@ static bool ieee80211_queue_skb(struct ieee80211_local *local,
 				struct sta_info *sta,
 				struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct fq *fq = &local->fq;
 	struct ieee80211_vif *vif;
 	struct txq_info *txqi;
@@ -1572,9 +1576,9 @@ static bool ieee80211_queue_skb(struct ieee80211_local *local,
 	if (!txqi)
 		return false;
 
-	spin_lock_bh(&fq->lock);
+	bh = spin_lock_bh(&fq->lock, SOFTIRQ_ALL_MASK);
 	ieee80211_txq_enqueue(local, txqi, skb);
-	spin_unlock_bh(&fq->lock);
+	spin_unlock_bh(&fq->lock, bh);
 
 	drv_wake_tx_queue(local, txqi);
 
@@ -2806,6 +2810,7 @@ static struct sk_buff *ieee80211_build_hdr(struct ieee80211_sub_if_data *sdata,
 
 void ieee80211_check_fast_xmit(struct sta_info *sta)
 {
+	unsigned int bh;
 	struct ieee80211_fast_tx build = {}, *fast_tx = NULL, *old;
 	struct ieee80211_local *local = sta->local;
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
@@ -2828,7 +2833,7 @@ void ieee80211_check_fast_xmit(struct sta_info *sta)
 	 * modifies the key will either wait or other one will see the key
 	 * cleared/changed already.
 	 */
-	spin_lock_bh(&sta->lock);
+	bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 	if (ieee80211_hw_check(&local->hw, SUPPORTS_PS) &&
 	    !ieee80211_hw_check(&local->hw, SUPPORTS_DYNAMIC_PS) &&
 	    sdata->vif.type == NL80211_IFTYPE_STATION)
@@ -3033,7 +3038,7 @@ void ieee80211_check_fast_xmit(struct sta_info *sta)
 	rcu_assign_pointer(sta->fast_tx, fast_tx);
 	if (old)
 		kfree_rcu(old, rcu_head);
-	spin_unlock_bh(&sta->lock);
+	spin_unlock_bh(&sta->lock, bh);
 }
 
 void ieee80211_check_fast_xmit_all(struct ieee80211_local *local)
@@ -3065,13 +3070,14 @@ void ieee80211_check_fast_xmit_iface(struct ieee80211_sub_if_data *sdata)
 
 void ieee80211_clear_fast_xmit(struct sta_info *sta)
 {
+	unsigned int bh;
 	struct ieee80211_fast_tx *fast_tx;
 
-	spin_lock_bh(&sta->lock);
+	bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 	fast_tx = rcu_dereference_protected(sta->fast_tx,
 					    lockdep_is_held(&sta->lock));
 	RCU_INIT_POINTER(sta->fast_tx, NULL);
-	spin_unlock_bh(&sta->lock);
+	spin_unlock_bh(&sta->lock, bh);
 
 	if (fast_tx)
 		kfree_rcu(fast_tx, rcu_head);
@@ -3163,6 +3169,7 @@ static bool ieee80211_amsdu_aggregate(struct ieee80211_sub_if_data *sdata,
 				      struct ieee80211_fast_tx *fast_tx,
 				      struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = sdata->local;
 	struct fq *fq = &local->fq;
 	struct fq_tin *tin;
@@ -3196,7 +3203,7 @@ static bool ieee80211_amsdu_aggregate(struct ieee80211_sub_if_data *sdata,
 		max_amsdu_len = min_t(int, max_amsdu_len,
 				      sta->sta.max_rc_amsdu_len);
 
-	spin_lock_bh(&fq->lock);
+	bh = spin_lock_bh(&fq->lock, SOFTIRQ_ALL_MASK);
 
 	/* TODO: Ideally aggregation should be done on dequeue to remain
 	 * responsive to environment changes.
@@ -3269,7 +3276,7 @@ out_recalc:
 		fq_recalc_backlog(fq, tin, flow);
 	}
 out:
-	spin_unlock_bh(&fq->lock);
+	spin_unlock_bh(&fq->lock, bh);
 
 	return ret;
 }
@@ -3463,6 +3470,7 @@ static bool ieee80211_xmit_fast(struct ieee80211_sub_if_data *sdata,
 struct sk_buff *ieee80211_tx_dequeue(struct ieee80211_hw *hw,
 				     struct ieee80211_txq *txq)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = hw_to_local(hw);
 	struct txq_info *txqi = container_of(txq, struct txq_info, txq);
 	struct ieee80211_hdr *hdr;
@@ -3474,7 +3482,7 @@ struct sk_buff *ieee80211_tx_dequeue(struct ieee80211_hw *hw,
 	ieee80211_tx_result r;
 	struct ieee80211_vif *vif;
 
-	spin_lock_bh(&fq->lock);
+	bh = spin_lock_bh(&fq->lock, SOFTIRQ_ALL_MASK);
 
 	if (test_bit(IEEE80211_TXQ_STOP, &txqi->flags))
 		goto out;
@@ -3574,7 +3582,7 @@ begin:
 
 	IEEE80211_SKB_CB(skb)->control.vif = vif;
 out:
-	spin_unlock_bh(&fq->lock);
+	spin_unlock_bh(&fq->lock, bh);
 
 	return skb;
 }
@@ -4014,6 +4022,7 @@ static int ieee80211_beacon_add_tim(struct ieee80211_sub_if_data *sdata,
 				    struct ps_data *ps, struct sk_buff *skb,
 				    bool is_template)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = sdata->local;
 
 	/*
@@ -4026,9 +4035,9 @@ static int ieee80211_beacon_add_tim(struct ieee80211_sub_if_data *sdata,
 	if (local->tim_in_locked_section) {
 		__ieee80211_beacon_add_tim(sdata, ps, skb, is_template);
 	} else {
-		spin_lock_bh(&local->tim_lock);
+		bh = spin_lock_bh(&local->tim_lock, SOFTIRQ_ALL_MASK);
 		__ieee80211_beacon_add_tim(sdata, ps, skb, is_template);
-		spin_unlock_bh(&local->tim_lock);
+		spin_unlock_bh(&local->tim_lock, bh);
 	}
 
 	return 0;

@@ -289,25 +289,27 @@ void cxgbit_push_tx_frames(struct cxgbit_sock *csk)
 
 static bool cxgbit_lock_sock(struct cxgbit_sock *csk)
 {
-	spin_lock_bh(&csk->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	if (before(csk->write_seq, csk->snd_una + csk->snd_win))
 		csk->lock_owner = true;
 
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 
 	return csk->lock_owner;
 }
 
 static void cxgbit_unlock_sock(struct cxgbit_sock *csk)
 {
+	unsigned int bh;
 	struct sk_buff_head backlogq;
 	struct sk_buff *skb;
 	void (*fn)(struct cxgbit_sock *, struct sk_buff *);
 
 	skb_queue_head_init(&backlogq);
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	while (skb_queue_len(&csk->backlogq)) {
 		skb_queue_splice_init(&csk->backlogq, &backlogq);
 		spin_unlock_bh(&csk->lock);
@@ -317,15 +319,16 @@ static void cxgbit_unlock_sock(struct cxgbit_sock *csk)
 			fn(csk, skb);
 		}
 
-		spin_lock_bh(&csk->lock);
+		spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	}
 
 	csk->lock_owner = false;
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 }
 
 static int cxgbit_queue_skb(struct cxgbit_sock *csk, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int ret = 0;
 
 	wait_event_interruptible(csk->ack_waitq, cxgbit_lock_sock(csk));
@@ -335,12 +338,12 @@ static int cxgbit_queue_skb(struct cxgbit_sock *csk, struct sk_buff *skb)
 		__kfree_skb(skb);
 		__skb_queue_purge(&csk->ppodq);
 		ret = -1;
-		spin_lock_bh(&csk->lock);
+		bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 		if (csk->lock_owner) {
-			spin_unlock_bh(&csk->lock);
+			spin_unlock_bh(&csk->lock, bh);
 			goto unlock;
 		}
-		spin_unlock_bh(&csk->lock);
+		spin_unlock_bh(&csk->lock, bh);
 		return ret;
 	}
 
@@ -876,6 +879,7 @@ static int
 cxgbit_handle_immediate_data(struct iscsi_cmd *cmd, struct iscsi_scsi_req *hdr,
 			     u32 length)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = cmd->conn;
 	struct cxgbit_sock *csk = conn->context;
 	struct cxgbit_lro_pdu_cb *pdu_cb = cxgbit_rx_pdu_cb(csk->skb);
@@ -920,10 +924,10 @@ cxgbit_handle_immediate_data(struct iscsi_cmd *cmd, struct iscsi_scsi_req *hdr,
 	cmd->write_data_done += pdu_cb->dlen;
 
 	if (cmd->write_data_done == cmd->se_cmd.data_length) {
-		spin_lock_bh(&cmd->istate_lock);
+		bh = spin_lock_bh(&cmd->istate_lock, SOFTIRQ_ALL_MASK);
 		cmd->cmd_flags |= ICF_GOT_LAST_DATAOUT;
 		cmd->i_state = ISTATE_RECEIVED_LAST_DATAOUT;
-		spin_unlock_bh(&cmd->istate_lock);
+		spin_unlock_bh(&cmd->istate_lock, bh);
 	}
 
 	return IMMEDIATE_DATA_NORMAL_OPERATION;
@@ -1579,13 +1583,14 @@ static int cxgbit_rx_skb(struct cxgbit_sock *csk, struct sk_buff *skb)
 
 static bool cxgbit_rxq_len(struct cxgbit_sock *csk, struct sk_buff_head *rxq)
 {
-	spin_lock_bh(&csk->rxq.lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&csk->rxq.lock, SOFTIRQ_ALL_MASK);
 	if (skb_queue_len(&csk->rxq)) {
 		skb_queue_splice_init(&csk->rxq, rxq);
-		spin_unlock_bh(&csk->rxq.lock);
+		spin_unlock_bh(&csk->rxq.lock, bh);
 		return true;
 	}
-	spin_unlock_bh(&csk->rxq.lock);
+	spin_unlock_bh(&csk->rxq.lock, bh);
 	return false;
 }
 

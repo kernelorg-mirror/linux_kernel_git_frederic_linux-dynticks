@@ -127,7 +127,8 @@ static int rxrpc_wait_for_tx_window(struct rxrpc_sock *rx,
  */
 static inline void rxrpc_instant_resend(struct rxrpc_call *call, int ix)
 {
-	spin_lock_bh(&call->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&call->lock, SOFTIRQ_ALL_MASK);
 
 	if (call->state < RXRPC_CALL_COMPLETE) {
 		call->rxtx_annotations[ix] =
@@ -137,7 +138,7 @@ static inline void rxrpc_instant_resend(struct rxrpc_call *call, int ix)
 			rxrpc_queue_call(call);
 	}
 
-	spin_unlock_bh(&call->lock);
+	spin_unlock_bh(&call->lock, bh);
 }
 
 /*

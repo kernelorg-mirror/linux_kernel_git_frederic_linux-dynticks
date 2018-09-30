@@ -112,6 +112,7 @@ static void ath9k_beacon_setup(struct ath_softc *sc, struct ieee80211_vif *vif,
 static struct ath_buf *ath9k_beacon_generate(struct ieee80211_hw *hw,
 					     struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct ath_softc *sc = hw->priv;
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	struct ath_buf *bf;
@@ -172,9 +173,9 @@ static struct ath_buf *ath9k_beacon_generate(struct ieee80211_hw *hw,
 	 *     beacons, then drain the cabq by dropping all the frames in
 	 *     the cabq so that the current vifs cab traffic can be scheduled.
 	 */
-	spin_lock_bh(&cabq->axq_lock);
+	bh = spin_lock_bh(&cabq->axq_lock, SOFTIRQ_ALL_MASK);
 	cabq_depth = cabq->axq_depth;
-	spin_unlock_bh(&cabq->axq_lock);
+	spin_unlock_bh(&cabq->axq_lock, bh);
 
 	if (skb && cabq_depth) {
 		if (sc->cur_chan->nvifs > 1) {

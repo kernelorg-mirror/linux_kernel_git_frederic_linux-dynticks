@@ -138,6 +138,7 @@ STA_OPS(last_seq_ctrl);
 static ssize_t sta_aqm_read(struct file *file, char __user *userbuf,
 			size_t count, loff_t *ppos)
 {
+	unsigned int bh;
 	struct sta_info *sta = file->private_data;
 	struct ieee80211_local *local = sta->local;
 	size_t bufsz = AQM_TXQ_ENTRY_LEN*(IEEE80211_NUM_TIDS+1);
@@ -149,7 +150,7 @@ static ssize_t sta_aqm_read(struct file *file, char __user *userbuf,
 	if (!buf)
 		return -ENOMEM;
 
-	spin_lock_bh(&local->fq.lock);
+	bh = spin_lock_bh(&local->fq.lock, SOFTIRQ_ALL_MASK);
 	rcu_read_lock();
 
 	p += scnprintf(p,
@@ -184,7 +185,7 @@ static ssize_t sta_aqm_read(struct file *file, char __user *userbuf,
 	}
 
 	rcu_read_unlock();
-	spin_unlock_bh(&local->fq.lock);
+	spin_unlock_bh(&local->fq.lock, bh);
 
 	rv = simple_read_from_buffer(userbuf, count, ppos, buf, p - buf);
 	kfree(buf);

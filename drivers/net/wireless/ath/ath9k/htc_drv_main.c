@@ -705,6 +705,7 @@ static int ath9k_htc_tx_aggr_oper(struct ath9k_htc_priv *priv,
 				  enum ieee80211_ampdu_mlme_action action,
 				  u16 tid)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(priv->ah);
 	struct ath9k_htc_target_aggr aggr;
 	struct ath9k_htc_sta *ista;
@@ -732,9 +733,9 @@ static int ath9k_htc_tx_aggr_oper(struct ath9k_htc_priv *priv,
 			(aggr.aggr_enable) ? "Starting" : "Stopping",
 			sta->addr, tid);
 
-	spin_lock_bh(&priv->tx.tx_lock);
+	bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	ista->tid_state[tid] = (aggr.aggr_enable && !ret) ? AGGR_START : AGGR_STOP;
-	spin_unlock_bh(&priv->tx.tx_lock);
+	spin_unlock_bh(&priv->tx.tx_lock, bh);
 
 	return ret;
 }
@@ -906,6 +907,7 @@ fail_tx:
 
 static int ath9k_htc_start(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct ath9k_htc_priv *priv = hw->priv;
 	struct ath_hw *ah = priv->ah;
 	struct ath_common *common = ath9k_hw_common(ah);
@@ -957,9 +959,9 @@ static int ath9k_htc_start(struct ieee80211_hw *hw)
 	clear_bit(ATH_OP_INVALID, &common->op_flags);
 	htc_start(priv->htc);
 
-	spin_lock_bh(&priv->tx.tx_lock);
+	bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	priv->tx.flags &= ~ATH9K_HTC_OP_TX_QUEUES_STOP;
-	spin_unlock_bh(&priv->tx.tx_lock);
+	spin_unlock_bh(&priv->tx.tx_lock, bh);
 
 	ieee80211_wake_queues(hw);
 
@@ -1656,6 +1658,7 @@ static int ath9k_htc_ampdu_action(struct ieee80211_hw *hw,
 				  struct ieee80211_vif *vif,
 				  struct ieee80211_ampdu_params *params)
 {
+	unsigned int bh;
 	struct ath9k_htc_priv *priv = hw->priv;
 	struct ath9k_htc_sta *ista;
 	int ret = 0;
@@ -1688,9 +1691,9 @@ static int ath9k_htc_ampdu_action(struct ieee80211_hw *hw,
 			break;
 		}
 		ista = (struct ath9k_htc_sta *) sta->drv_priv;
-		spin_lock_bh(&priv->tx.tx_lock);
+		bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 		ista->tid_state[tid] = AGGR_OPERATIONAL;
-		spin_unlock_bh(&priv->tx.tx_lock);
+		spin_unlock_bh(&priv->tx.tx_lock, bh);
 		break;
 	default:
 		ath_err(ath9k_hw_common(priv->ah), "Unknown AMPDU action\n");
@@ -1706,13 +1709,14 @@ static void ath9k_htc_sw_scan_start(struct ieee80211_hw *hw,
 				    struct ieee80211_vif *vif,
 				    const u8 *mac_addr)
 {
+	unsigned int bh;
 	struct ath9k_htc_priv *priv = hw->priv;
 	struct ath_common *common = ath9k_hw_common(priv->ah);
 
 	mutex_lock(&priv->mutex);
-	spin_lock_bh(&priv->beacon_lock);
+	bh = spin_lock_bh(&priv->beacon_lock, SOFTIRQ_ALL_MASK);
 	set_bit(ATH_OP_SCANNING, &common->op_flags);
-	spin_unlock_bh(&priv->beacon_lock);
+	spin_unlock_bh(&priv->beacon_lock, bh);
 	cancel_work_sync(&priv->ps_work);
 	ath9k_htc_stop_ani(priv);
 	mutex_unlock(&priv->mutex);
@@ -1721,13 +1725,14 @@ static void ath9k_htc_sw_scan_start(struct ieee80211_hw *hw,
 static void ath9k_htc_sw_scan_complete(struct ieee80211_hw *hw,
 				       struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct ath9k_htc_priv *priv = hw->priv;
 	struct ath_common *common = ath9k_hw_common(priv->ah);
 
 	mutex_lock(&priv->mutex);
-	spin_lock_bh(&priv->beacon_lock);
+	bh = spin_lock_bh(&priv->beacon_lock, SOFTIRQ_ALL_MASK);
 	clear_bit(ATH_OP_SCANNING, &common->op_flags);
-	spin_unlock_bh(&priv->beacon_lock);
+	spin_unlock_bh(&priv->beacon_lock, bh);
 	ath9k_htc_ps_wakeup(priv);
 	ath9k_htc_vif_reconfig(priv);
 	ath9k_htc_ps_restore(priv);

@@ -828,6 +828,7 @@ static void vmci_transport_peer_detach_cb(u32 sub_id,
 					  const struct vmci_event_data *e_data,
 					  void *client_data)
 {
+	unsigned int bh;
 	struct vmci_transport *trans = client_data;
 	const struct vmci_event_payload_qp *e_payload;
 
@@ -846,7 +847,7 @@ static void vmci_transport_peer_detach_cb(u32 sub_id,
 	 * so it could be BH or process, blockable or non-blockable.  So we
 	 * need to account for all possible contexts here.
 	 */
-	spin_lock_bh(&trans->lock);
+	bh = spin_lock_bh(&trans->lock, SOFTIRQ_ALL_MASK);
 	if (!trans->sk)
 		goto out;
 
@@ -859,7 +860,7 @@ static void vmci_transport_peer_detach_cb(u32 sub_id,
 
 	bh_unlock_sock(trans->sk);
  out:
-	spin_unlock_bh(&trans->lock);
+	spin_unlock_bh(&trans->lock, bh);
 }
 
 static void vmci_transport_qp_resumed_cb(u32 sub_id,
@@ -1608,27 +1609,29 @@ static void vmci_transport_free_resources(struct list_head *transport_list)
 
 static void vmci_transport_cleanup(struct work_struct *work)
 {
+	unsigned int bh;
 	LIST_HEAD(pending);
 
-	spin_lock_bh(&vmci_transport_cleanup_lock);
+	bh = spin_lock_bh(&vmci_transport_cleanup_lock, SOFTIRQ_ALL_MASK);
 	list_replace_init(&vmci_transport_cleanup_list, &pending);
-	spin_unlock_bh(&vmci_transport_cleanup_lock);
+	spin_unlock_bh(&vmci_transport_cleanup_lock, bh);
 	vmci_transport_free_resources(&pending);
 }
 
 static void vmci_transport_destruct(struct vsock_sock *vsk)
 {
+	unsigned int bh;
 	/* Ensure that the detach callback doesn't use the sk/vsk
 	 * we are about to destruct.
 	 */
-	spin_lock_bh(&vmci_trans(vsk)->lock);
+	bh = spin_lock_bh(&vmci_trans(vsk)->lock, SOFTIRQ_ALL_MASK);
 	vmci_trans(vsk)->sk = NULL;
-	spin_unlock_bh(&vmci_trans(vsk)->lock);
+	spin_unlock_bh(&vmci_trans(vsk)->lock, bh);
 
 	if (vmci_trans(vsk)->notify_ops)
 		vmci_trans(vsk)->notify_ops->socket_destruct(vsk);
 
-	spin_lock_bh(&vmci_transport_cleanup_lock);
+	spin_lock_bh(&vmci_transport_cleanup_lock, SOFTIRQ_ALL_MASK);
 	list_add(&vmci_trans(vsk)->elem, &vmci_transport_cleanup_list);
 	spin_unlock_bh(&vmci_transport_cleanup_lock);
 	schedule_work(&vmci_transport_cleanup_work);

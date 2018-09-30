@@ -94,6 +94,7 @@ static inline bool ib_nl_is_good_ip_resp(const struct nlmsghdr *nlh)
 
 static void ib_nl_process_good_ip_rsep(const struct nlmsghdr *nlh)
 {
+	unsigned int bh;
 	const struct nlattr *head, *curr;
 	union ib_gid gid;
 	struct addr_req *req;
@@ -108,7 +109,7 @@ static void ib_nl_process_good_ip_rsep(const struct nlmsghdr *nlh)
 			memcpy(&gid, nla_data(curr), nla_len(curr));
 	}
 
-	spin_lock_bh(&lock);
+	bh = spin_lock_bh(&lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(req, &req_list, list) {
 		if (nlh->nlmsg_seq != req->seq)
 			continue;
@@ -118,7 +119,7 @@ static void ib_nl_process_good_ip_rsep(const struct nlmsghdr *nlh)
 		found = 1;
 		break;
 	}
-	spin_unlock_bh(&lock);
+	spin_unlock_bh(&lock, bh);
 
 	if (!found)
 		pr_info("Couldn't find request waiting for DGID: %pI6\n",
@@ -289,10 +290,11 @@ static void set_timeout(struct addr_req *req, unsigned long time)
 
 static void queue_req(struct addr_req *req)
 {
-	spin_lock_bh(&lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&req->list, &req_list);
 	set_timeout(req, req->timeout);
-	spin_unlock_bh(&lock);
+	spin_unlock_bh(&lock, bh);
 }
 
 static int ib_nl_fetch_ha(const struct dst_entry *dst,
@@ -545,6 +547,7 @@ static int addr_resolve(struct sockaddr *src_in,
 
 static void process_one_req(struct work_struct *_work)
 {
+	unsigned int bh;
 	struct addr_req *req;
 	struct sockaddr *src_in, *dst_in;
 
@@ -559,10 +562,10 @@ static void process_one_req(struct work_struct *_work)
 			req->status = -ETIMEDOUT;
 		} else if (req->status == -ENODATA) {
 			/* requeue the work for retrying again */
-			spin_lock_bh(&lock);
+			bh = spin_lock_bh(&lock, SOFTIRQ_ALL_MASK);
 			if (!list_empty(&req->list))
 				set_timeout(req, req->timeout);
-			spin_unlock_bh(&lock);
+			spin_unlock_bh(&lock, bh);
 			return;
 		}
 	}
@@ -571,7 +574,7 @@ static void process_one_req(struct work_struct *_work)
 		req->addr, req->context);
 	req->callback = NULL;
 
-	spin_lock_bh(&lock);
+	bh = spin_lock_bh(&lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&req->list)) {
 		/*
 		 * Although the work will normally have been canceled by the
@@ -582,7 +585,7 @@ static void process_one_req(struct work_struct *_work)
 		list_del_init(&req->list);
 		kfree(req);
 	}
-	spin_unlock_bh(&lock);
+	spin_unlock_bh(&lock, bh);
 }
 
 int rdma_resolve_ip(struct sockaddr *src_addr, const struct sockaddr *dst_addr,
@@ -662,10 +665,11 @@ int rdma_resolve_ip_route(struct sockaddr *src_addr,
 
 void rdma_addr_cancel(struct rdma_dev_addr *addr)
 {
+	unsigned int bh;
 	struct addr_req *req, *temp_req;
 	struct addr_req *found = NULL;
 
-	spin_lock_bh(&lock);
+	bh = spin_lock_bh(&lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(req, temp_req, &req_list, list) {
 		if (req->addr == addr) {
 			/*
@@ -677,7 +681,7 @@ void rdma_addr_cancel(struct rdma_dev_addr *addr)
 			break;
 		}
 	}
-	spin_unlock_bh(&lock);
+	spin_unlock_bh(&lock, bh);
 
 	if (!found)
 		return;
@@ -749,16 +753,17 @@ int rdma_addr_find_l2_eth_by_grh(const union ib_gid *sgid,
 static int netevent_callback(struct notifier_block *self, unsigned long event,
 	void *ctx)
 {
+	unsigned int bh;
 	struct addr_req *req;
 
 	if (event == NETEVENT_NEIGH_UPDATE) {
 		struct neighbour *neigh = ctx;
 
 		if (neigh->nud_state & NUD_VALID) {
-			spin_lock_bh(&lock);
+			bh = spin_lock_bh(&lock, SOFTIRQ_ALL_MASK);
 			list_for_each_entry(req, &req_list, list)
 				set_timeout(req, jiffies);
-			spin_unlock_bh(&lock);
+			spin_unlock_bh(&lock, bh);
 		}
 	}
 	return 0;

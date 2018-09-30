@@ -688,6 +688,7 @@ int rxrpc_connect_call(struct rxrpc_call *call,
 		       struct sockaddr_rxrpc *srx,
 		       gfp_t gfp)
 {
+	unsigned int bh;
 	struct rxrpc_net *rxnet = cp->local->rxnet;
 	int ret;
 
@@ -709,10 +710,10 @@ int rxrpc_connect_call(struct rxrpc_call *call,
 		goto out;
 	}
 
-	spin_lock_bh(&call->conn->params.peer->lock);
+	bh = spin_lock_bh(&call->conn->params.peer->lock, SOFTIRQ_ALL_MASK);
 	hlist_add_head(&call->error_link,
 		       &call->conn->params.peer->error_targets);
-	spin_unlock_bh(&call->conn->params.peer->lock);
+	spin_unlock_bh(&call->conn->params.peer->lock, bh);
 
 out:
 	_leave(" = %d", ret);

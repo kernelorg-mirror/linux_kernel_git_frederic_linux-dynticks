@@ -55,6 +55,7 @@ static int sk_diag_fill(struct sock *sk, struct sk_buff *skb,
 
 static int vsock_diag_dump(struct sk_buff *skb, struct netlink_callback *cb)
 {
+	unsigned int bh;
 	struct vsock_diag_req *req;
 	struct vsock_sock *vsk;
 	unsigned int bucket;
@@ -73,7 +74,7 @@ static int vsock_diag_dump(struct sk_buff *skb, struct netlink_callback *cb)
 
 	/* TODO VMCI pending sockets? */
 
-	spin_lock_bh(&vsock_table_lock);
+	bh = spin_lock_bh(&vsock_table_lock, SOFTIRQ_ALL_MASK);
 
 	/* Bind table (locally created sockets) */
 	if (table == 0) {
@@ -137,7 +138,7 @@ next_connected:
 	}
 
 done:
-	spin_unlock_bh(&vsock_table_lock);
+	spin_unlock_bh(&vsock_table_lock, bh);
 
 	cb->args[0] = table;
 	cb->args[1] = bucket;

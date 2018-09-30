@@ -143,10 +143,11 @@ void rxrpc_propose_ACK(struct rxrpc_call *call, u8 ack_reason,
 		       u16 skew, u32 serial, bool immediate, bool background,
 		       enum rxrpc_propose_ack_trace why)
 {
-	spin_lock_bh(&call->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&call->lock, SOFTIRQ_ALL_MASK);
 	__rxrpc_propose_ACK(call, ack_reason, skew, serial,
 			    immediate, background, why);
-	spin_unlock_bh(&call->lock);
+	spin_unlock_bh(&call->lock, bh);
 }
 
 /*
@@ -162,6 +163,7 @@ static void rxrpc_congestion_timeout(struct rxrpc_call *call)
  */
 static void rxrpc_resend(struct rxrpc_call *call, unsigned long now_j)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	unsigned long resend_at;
 	rxrpc_seq_t cursor, seq, top;
@@ -182,7 +184,7 @@ static void rxrpc_resend(struct rxrpc_call *call, unsigned long now_j)
 	now = ktime_get_real();
 	max_age = ktime_sub(now, timeout);
 
-	spin_lock_bh(&call->lock);
+	bh = spin_lock_bh(&call->lock, SOFTIRQ_ALL_MASK);
 
 	cursor = call->tx_hard_ack;
 	top = call->tx_top;
@@ -238,7 +240,7 @@ static void rxrpc_resend(struct rxrpc_call *call, unsigned long now_j)
 	if (!retrans) {
 		rxrpc_reduce_call_timer(call, resend_at, now_j,
 					rxrpc_timer_set_for_resend);
-		spin_unlock_bh(&call->lock);
+		spin_unlock_bh(&call->lock, bh);
 		ack_ts = ktime_sub(now, call->acks_latest_ts);
 		if (ktime_to_ns(ack_ts) < call->peer->rtt)
 			goto out;
@@ -262,7 +264,7 @@ static void rxrpc_resend(struct rxrpc_call *call, unsigned long now_j)
 
 		skb = call->rxtx_buffer[ix];
 		rxrpc_get_skb(skb, rxrpc_skb_tx_got);
-		spin_unlock_bh(&call->lock);
+		spin_unlock_bh(&call->lock, bh);
 
 		if (rxrpc_send_data_packet(call, skb, true) < 0) {
 			rxrpc_free_skb(skb, rxrpc_skb_tx_freed);
@@ -273,7 +275,7 @@ static void rxrpc_resend(struct rxrpc_call *call, unsigned long now_j)
 			rxrpc_expose_client_call(call);
 
 		rxrpc_free_skb(skb, rxrpc_skb_tx_freed);
-		spin_lock_bh(&call->lock);
+		spin_lock_bh(&call->lock, SOFTIRQ_ALL_MASK);
 
 		/* We need to clear the retransmit state, but there are two
 		 * things we need to be aware of: A new ACK/NAK might have been
@@ -297,7 +299,7 @@ static void rxrpc_resend(struct rxrpc_call *call, unsigned long now_j)
 	}
 
 out_unlock:
-	spin_unlock_bh(&call->lock);
+	spin_unlock_bh(&call->lock, bh);
 out:
 	_leave("");
 }

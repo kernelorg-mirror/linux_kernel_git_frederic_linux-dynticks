@@ -1150,12 +1150,13 @@ void rtw_survey_cmd_callback(struct adapter *padapter,  struct cmd_obj *pcmd)
 
 void rtw_disassoc_cmd_callback(struct adapter *padapter, struct cmd_obj *pcmd)
 {
+	unsigned int bh;
 	struct	mlme_priv *pmlmepriv = &padapter->mlmepriv;
 
 	if (pcmd->res != H2C_SUCCESS) {
-		spin_lock_bh(&pmlmepriv->lock);
+		bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 		set_fwstate(pmlmepriv, _FW_LINKED);
-		spin_unlock_bh(&pmlmepriv->lock);
+		spin_unlock_bh(&pmlmepriv->lock, bh);
 
 		RT_TRACE(_module_rtl871x_cmd_c_, _drv_err_, ("\n ***Error: disconnect_cmd_callback Fail ***\n."));
 		return;
@@ -1185,6 +1186,7 @@ void rtw_joinbss_cmd_callback(struct adapter *padapter,  struct cmd_obj *pcmd)
 
 void rtw_createbss_cmd_callback(struct adapter *padapter, struct cmd_obj *pcmd)
 {
+	unsigned int bh;
 	struct sta_info *psta = NULL;
 	struct wlan_network *pwlan = NULL;
 	struct	mlme_priv *pmlmepriv = &padapter->mlmepriv;
@@ -1200,7 +1202,7 @@ void rtw_createbss_cmd_callback(struct adapter *padapter, struct cmd_obj *pcmd)
 
 	del_timer_sync(&pmlmepriv->assoc_timer);
 
-	spin_lock_bh(&pmlmepriv->lock);
+	bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 
 	if (check_fwstate(pmlmepriv, WIFI_AP_STATE)) {
 		psta = rtw_get_stainfo(&padapter->stapriv, pnetwork->MacAddress);
@@ -1215,7 +1217,7 @@ void rtw_createbss_cmd_callback(struct adapter *padapter, struct cmd_obj *pcmd)
 		rtw_indicate_connect(padapter);
 	} else {
 		pwlan = _rtw_alloc_network(pmlmepriv);
-		spin_lock_bh(&pmlmepriv->scanned_queue.lock);
+		spin_lock_bh(&pmlmepriv->scanned_queue.lock, SOFTIRQ_ALL_MASK);
 		if (!pwlan) {
 			pwlan = rtw_get_oldest_wlan_network(&pmlmepriv->scanned_queue);
 			if (!pwlan) {
@@ -1244,7 +1246,7 @@ void rtw_createbss_cmd_callback(struct adapter *padapter, struct cmd_obj *pcmd)
 
 createbss_cmd_fail:
 
-	spin_unlock_bh(&pmlmepriv->lock);
+	spin_unlock_bh(&pmlmepriv->lock, bh);
 
 	rtw_free_cmd_obj(pcmd);
 }
@@ -1265,6 +1267,7 @@ exit:
 
 void rtw_setassocsta_cmdrsp_callback(struct adapter *padapter,  struct cmd_obj *pcmd)
 {
+	unsigned int bh;
 	struct sta_priv *pstapriv = &padapter->stapriv;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct set_assocsta_parm *passocsta_parm = (struct set_assocsta_parm *)(pcmd->parmbuf);
@@ -1279,10 +1282,10 @@ void rtw_setassocsta_cmdrsp_callback(struct adapter *padapter,  struct cmd_obj *
 	psta->aid = passocsta_rsp->cam_id;
 	psta->mac_id = passocsta_rsp->cam_id;
 
-	spin_lock_bh(&pmlmepriv->lock);
+	bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 
 	set_fwstate(pmlmepriv, _FW_LINKED);
-	spin_unlock_bh(&pmlmepriv->lock);
+	spin_unlock_bh(&pmlmepriv->lock, bh);
 
 exit:
 	rtw_free_cmd_obj(pcmd);

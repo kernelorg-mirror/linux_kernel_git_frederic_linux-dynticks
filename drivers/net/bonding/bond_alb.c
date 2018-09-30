@@ -136,14 +136,16 @@ static void __tlb_clear_slave(struct bonding *bond, struct slave *slave,
 static void tlb_clear_slave(struct bonding *bond, struct slave *slave,
 			 int save_load)
 {
-	spin_lock_bh(&bond->mode_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 	__tlb_clear_slave(bond, slave, save_load);
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }
 
 /* Must be called before starting the monitor timer */
 static int tlb_initialize(struct bonding *bond)
 {
+	unsigned int bh;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	int size = TLB_HASH_TABLE_SIZE * sizeof(struct tlb_client_info);
 	struct tlb_client_info *new_hashtbl;
@@ -153,14 +155,14 @@ static int tlb_initialize(struct bonding *bond)
 	if (!new_hashtbl)
 		return -ENOMEM;
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	bond_info->tx_hashtbl = new_hashtbl;
 
 	for (i = 0; i < TLB_HASH_TABLE_SIZE; i++)
 		tlb_init_table_entry(&bond_info->tx_hashtbl[i], 0);
 
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 
 	return 0;
 }
@@ -168,14 +170,15 @@ static int tlb_initialize(struct bonding *bond)
 /* Must be called only after all slaves have been released */
 static void tlb_deinitialize(struct bonding *bond)
 {
+	unsigned int bh;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	kfree(bond_info->tx_hashtbl);
 	bond_info->tx_hashtbl = NULL;
 
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }
 
 static long long compute_gap(struct slave *slave)
@@ -267,11 +270,12 @@ static struct slave *tlb_choose_channel(struct bonding *bond, u32 hash_index,
  */
 static void rlb_update_entry_from_arp(struct bonding *bond, struct arp_pkt *arp)
 {
+	unsigned int bh;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	struct rlb_client_info *client_info;
 	u32 hash_index;
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	hash_index = _simple_hash((u8 *)&(arp->ip_src), sizeof(arp->ip_src));
 	client_info = &(bond_info->rx_hashtbl[hash_index]);
@@ -286,7 +290,7 @@ static void rlb_update_entry_from_arp(struct bonding *bond, struct arp_pkt *arp)
 		bond_info->rx_ntt = 1;
 	}
 
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }
 
 static int rlb_arp_recv(const struct sk_buff *skb, struct bonding *bond,
@@ -399,12 +403,13 @@ static void rlb_teach_disabled_mac_on_primary(struct bonding *bond, u8 addr[])
  */
 static void rlb_clear_slave(struct bonding *bond, struct slave *slave)
 {
+	unsigned int bh;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	struct rlb_client_info *rx_hash_table;
 	u32 index, next_index;
 
 	/* clear slave from rx_hashtbl */
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	rx_hash_table = bond_info->rx_hashtbl;
 	index = bond_info->rx_hashtbl_used_head;
@@ -434,7 +439,7 @@ static void rlb_clear_slave(struct bonding *bond, struct slave *slave)
 		}
 	}
 
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 
 	if (slave != rtnl_dereference(bond->curr_active_slave))
 		rlb_teach_disabled_mac_on_primary(bond, slave->dev->dev_addr);
@@ -477,11 +482,12 @@ static void rlb_update_client(struct rlb_client_info *client_info)
 /* sends ARP REPLIES that update the clients that need updating */
 static void rlb_update_rx_clients(struct bonding *bond)
 {
+	unsigned int bh;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	struct rlb_client_info *client_info;
 	u32 hash_index;
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	hash_index = bond_info->rx_hashtbl_used_head;
 	for (; hash_index != RLB_NULL_INDEX;
@@ -499,18 +505,19 @@ static void rlb_update_rx_clients(struct bonding *bond)
 	 */
 	bond_info->rlb_update_delay_counter = RLB_UPDATE_DELAY;
 
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }
 
 /* The slave was assigned a new mac address - update the clients */
 static void rlb_req_update_slave_clients(struct bonding *bond, struct slave *slave)
 {
+	unsigned int bh;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	struct rlb_client_info *client_info;
 	int ntt = 0;
 	u32 hash_index;
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	hash_index = bond_info->rx_hashtbl_used_head;
 	for (; hash_index != RLB_NULL_INDEX;
@@ -531,7 +538,7 @@ static void rlb_req_update_slave_clients(struct bonding *bond, struct slave *sla
 		bond_info->rlb_update_retry_counter = RLB_UPDATE_RETRY;
 	}
 
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }
 
 /* mark all clients using src_ip to be updated */
@@ -711,13 +718,14 @@ static struct slave *rlb_arp_xmit(struct sk_buff *skb, struct bonding *bond)
 
 static void rlb_rebalance(struct bonding *bond)
 {
+	unsigned int bh;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	struct slave *assigned_slave;
 	struct rlb_client_info *client_info;
 	int ntt;
 	u32 hash_index;
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	ntt = 0;
 	hash_index = bond_info->rx_hashtbl_used_head;
@@ -737,7 +745,7 @@ static void rlb_rebalance(struct bonding *bond)
 	/* update the team's flag only after the whole iteration */
 	if (ntt)
 		bond_info->rx_ntt = 1;
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }
 
 /* Caller must hold mode_lock */
@@ -833,11 +841,12 @@ static void rlb_src_link(struct bonding *bond, u32 ip_src_hash, u32 ip_dst_hash)
  */
 static void rlb_purge_src_ip(struct bonding *bond, struct arp_pkt *arp)
 {
+	unsigned int bh;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	u32 ip_src_hash = _simple_hash((u8 *)&(arp->ip_src), sizeof(arp->ip_src));
 	u32 index;
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	index = bond_info->rx_hashtbl[ip_src_hash].src_first;
 	while (index != RLB_NULL_INDEX) {
@@ -848,11 +857,12 @@ static void rlb_purge_src_ip(struct bonding *bond, struct arp_pkt *arp)
 				rlb_delete_table_entry(bond, index);
 		index = next_index;
 	}
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }
 
 static int rlb_initialize(struct bonding *bond)
 {
+	unsigned int bh;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	struct rlb_client_info	*new_hashtbl;
 	int size = RLB_HASH_TABLE_SIZE * sizeof(struct rlb_client_info);
@@ -862,7 +872,7 @@ static int rlb_initialize(struct bonding *bond)
 	if (!new_hashtbl)
 		return -1;
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	bond_info->rx_hashtbl = new_hashtbl;
 
@@ -871,7 +881,7 @@ static int rlb_initialize(struct bonding *bond)
 	for (i = 0; i < RLB_HASH_TABLE_SIZE; i++)
 		rlb_init_table_entry(bond_info->rx_hashtbl + i);
 
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 
 	/* register to receive ARPs */
 	bond->recv_probe = rlb_arp_recv;
@@ -881,23 +891,25 @@ static int rlb_initialize(struct bonding *bond)
 
 static void rlb_deinitialize(struct bonding *bond)
 {
+	unsigned int bh;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	kfree(bond_info->rx_hashtbl);
 	bond_info->rx_hashtbl = NULL;
 	bond_info->rx_hashtbl_used_head = RLB_NULL_INDEX;
 
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }
 
 static void rlb_clear_vlan(struct bonding *bond, unsigned short vlan_id)
 {
+	unsigned int bh;
 	struct alb_bond_info *bond_info = &(BOND_ALB_INFO(bond));
 	u32 curr_index;
 
-	spin_lock_bh(&bond->mode_lock);
+	bh = spin_lock_bh(&bond->mode_lock, SOFTIRQ_ALL_MASK);
 
 	curr_index = bond_info->rx_hashtbl_used_head;
 	while (curr_index != RLB_NULL_INDEX) {
@@ -910,7 +922,7 @@ static void rlb_clear_vlan(struct bonding *bond, unsigned short vlan_id)
 		curr_index = next_index;
 	}
 
-	spin_unlock_bh(&bond->mode_lock);
+	spin_unlock_bh(&bond->mode_lock, bh);
 }
 
 /*********************** tlb/rlb shared functions *********************/

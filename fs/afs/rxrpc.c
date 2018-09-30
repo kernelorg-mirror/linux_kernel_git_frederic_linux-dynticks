@@ -543,6 +543,7 @@ call_complete:
 static long afs_wait_for_call_to_complete(struct afs_call *call,
 					  struct afs_addr_cursor *ac)
 {
+	unsigned int bh;
 	signed long rtt2, timeout;
 	long ret;
 	u64 rtt;
@@ -600,10 +601,10 @@ static long afs_wait_for_call_to_complete(struct afs_call *call,
 			afs_set_call_complete(call, -EINTR, 0);
 	}
 
-	spin_lock_bh(&call->state_lock);
+	bh = spin_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 	ac->abort_code = call->abort_code;
 	ac->error = call->error;
-	spin_unlock_bh(&call->state_lock);
+	spin_unlock_bh(&call->state_lock, bh);
 
 	ret = ac->error;
 	switch (ret) {

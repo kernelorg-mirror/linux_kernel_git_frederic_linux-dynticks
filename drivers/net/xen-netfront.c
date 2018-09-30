@@ -346,6 +346,7 @@ static void xennet_alloc_rx_buffers(struct netfront_queue *queue)
 
 static int xennet_open(struct net_device *dev)
 {
+	unsigned int bh;
 	struct netfront_info *np = netdev_priv(dev);
 	unsigned int num_queues = dev->real_num_tx_queues;
 	unsigned int i = 0;
@@ -358,14 +359,14 @@ static int xennet_open(struct net_device *dev)
 		queue = &np->queues[i];
 		napi_enable(&queue->napi);
 
-		spin_lock_bh(&queue->rx_lock);
+		bh = spin_lock_bh(&queue->rx_lock, SOFTIRQ_ALL_MASK);
 		if (netif_carrier_ok(dev)) {
 			xennet_alloc_rx_buffers(queue);
 			queue->rx.sring->rsp_event = queue->rx.rsp_cons + 1;
 			if (RING_HAS_UNCONSUMED_RESPONSES(&queue->rx))
 				napi_schedule(&queue->napi);
 		}
-		spin_unlock_bh(&queue->rx_lock);
+		spin_unlock_bh(&queue->rx_lock, bh);
 	}
 
 	netif_tx_start_all_queues(dev);
@@ -1152,9 +1153,10 @@ static void xennet_release_tx_bufs(struct netfront_queue *queue)
 
 static void xennet_release_rx_bufs(struct netfront_queue *queue)
 {
+	unsigned int bh;
 	int id, ref;
 
-	spin_lock_bh(&queue->rx_lock);
+	bh = spin_lock_bh(&queue->rx_lock, SOFTIRQ_ALL_MASK);
 
 	for (id = 0; id < NET_RX_RING_SIZE; id++) {
 		struct sk_buff *skb;
@@ -1181,7 +1183,7 @@ static void xennet_release_rx_bufs(struct netfront_queue *queue)
 		kfree_skb(skb);
 	}
 
-	spin_unlock_bh(&queue->rx_lock);
+	spin_unlock_bh(&queue->rx_lock, bh);
 }
 
 static netdev_features_t xennet_fix_features(struct net_device *dev,
@@ -1946,6 +1948,7 @@ out_unlocked:
 
 static int xennet_connect(struct net_device *dev)
 {
+	unsigned int bh;
 	struct netfront_info *np = netdev_priv(dev);
 	unsigned int num_queues = 0;
 	int err;
@@ -1996,9 +1999,9 @@ static int xennet_connect(struct net_device *dev)
 		xennet_tx_buf_gc(queue);
 		spin_unlock_irq(&queue->tx_lock);
 
-		spin_lock_bh(&queue->rx_lock);
+		bh = spin_lock_bh(&queue->rx_lock, SOFTIRQ_ALL_MASK);
 		xennet_alloc_rx_buffers(queue);
-		spin_unlock_bh(&queue->rx_lock);
+		spin_unlock_bh(&queue->rx_lock, bh);
 	}
 
 	return 0;

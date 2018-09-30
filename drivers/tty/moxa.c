@@ -286,6 +286,7 @@ static void moxa_low_water_check(void __iomem *ofsAddr)
 static int moxa_ioctl(struct tty_struct *tty,
 		      unsigned int cmd, unsigned long arg)
 {
+	unsigned int bh;
 	struct moxa_port *ch = tty->driver_data;
 	void __user *argp = (void __user *)arg;
 	int status, ret = 0;
@@ -316,12 +317,12 @@ static int moxa_ioctl(struct tty_struct *tty,
 			p = moxa_boards[i].ports;
 			for (j = 0; j < MAX_PORTS_PER_BOARD; j++, p++, argm++) {
 				memset(&tmp, 0, sizeof(tmp));
-				spin_lock_bh(&moxa_lock);
+				bh = spin_lock_bh(&moxa_lock, SOFTIRQ_ALL_MASK);
 				if (moxa_boards[i].ready) {
 					tmp.inq = MoxaPortRxQueue(p);
 					tmp.outq = MoxaPortTxQueue(p);
 				}
-				spin_unlock_bh(&moxa_lock);
+				spin_unlock_bh(&moxa_lock, bh);
 				if (copy_to_user(argm, &tmp, sizeof(tmp)))
 					return -EFAULT;
 			}
@@ -346,14 +347,14 @@ static int moxa_ioctl(struct tty_struct *tty,
 			for (j = 0; j < MAX_PORTS_PER_BOARD; j++, p++, argm++) {
 				struct tty_struct *ttyp;
 				memset(&tmp, 0, sizeof(tmp));
-				spin_lock_bh(&moxa_lock);
+				bh = spin_lock_bh(&moxa_lock, SOFTIRQ_ALL_MASK);
 				if (!moxa_boards[i].ready) {
-				        spin_unlock_bh(&moxa_lock);
+				        spin_unlock_bh(&moxa_lock, bh);
 					goto copy;
                                 }
 
 				status = MoxaPortLineStatus(p);
-				spin_unlock_bh(&moxa_lock);
+				spin_unlock_bh(&moxa_lock, bh);
 
 				if (status & 1)
 					tmp.cts = 1;
@@ -827,6 +828,7 @@ err:
 
 static int moxa_init_board(struct moxa_board_conf *brd, struct device *dev)
 {
+	unsigned int bh;
 	const struct firmware *fw;
 	const char *file;
 	struct moxa_port *p;
@@ -877,11 +879,11 @@ static int moxa_init_board(struct moxa_board_conf *brd, struct device *dev)
 	if (ret)
 		goto err_free;
 
-	spin_lock_bh(&moxa_lock);
+	bh = spin_lock_bh(&moxa_lock, SOFTIRQ_ALL_MASK);
 	brd->ready = 1;
 	if (!timer_pending(&moxaTimer))
 		mod_timer(&moxaTimer, jiffies + HZ / 50);
-	spin_unlock_bh(&moxa_lock);
+	spin_unlock_bh(&moxa_lock, bh);
 
 	first_idx = (brd - moxa_boards) * MAX_PORTS_PER_BOARD;
 	for (i = 0; i < brd->numPorts; i++)
@@ -899,12 +901,13 @@ err:
 
 static void moxa_board_deinit(struct moxa_board_conf *brd)
 {
+	unsigned int bh;
 	unsigned int a, opened, first_idx;
 
 	mutex_lock(&moxa_openlock);
-	spin_lock_bh(&moxa_lock);
+	bh = spin_lock_bh(&moxa_lock, SOFTIRQ_ALL_MASK);
 	brd->ready = 0;
-	spin_unlock_bh(&moxa_lock);
+	spin_unlock_bh(&moxa_lock, bh);
 
 	/* pci hot-un-plug support */
 	for (a = 0; a < brd->numPorts; a++)

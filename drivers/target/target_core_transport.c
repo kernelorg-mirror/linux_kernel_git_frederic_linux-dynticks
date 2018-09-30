@@ -462,10 +462,11 @@ EXPORT_SYMBOL(target_setup_session);
 
 ssize_t target_show_dynamic_sessions(struct se_portal_group *se_tpg, char *page)
 {
+	unsigned int bh;
 	struct se_session *se_sess;
 	ssize_t len = 0;
 
-	spin_lock_bh(&se_tpg->session_lock);
+	bh = spin_lock_bh(&se_tpg->session_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(se_sess, &se_tpg->tpg_sess_list, sess_list) {
 		if (!se_sess->se_node_acl)
 			continue;
@@ -478,7 +479,7 @@ ssize_t target_show_dynamic_sessions(struct se_portal_group *se_tpg, char *page)
 				se_sess->se_node_acl->initiatorname);
 		len += 1; /* Include NULL terminator */
 	}
-	spin_unlock_bh(&se_tpg->session_lock);
+	spin_unlock_bh(&se_tpg->session_lock, bh);
 
 	return len;
 }

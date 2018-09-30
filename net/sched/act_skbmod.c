@@ -84,6 +84,7 @@ static int tcf_skbmod_init(struct net *net, struct nlattr *nla,
 			   int ovr, int bind, bool rtnl_held,
 			   struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct tc_action_net *tn = net_generic(net, skbmod_net_id);
 	struct nlattr *tb[TCA_SKBMOD_MAX + 1];
 	struct tcf_skbmod_params *p, *p_old;
@@ -166,7 +167,7 @@ static int tcf_skbmod_init(struct net *net, struct nlattr *nla,
 	d->tcf_action = parm->action;
 
 	if (ovr)
-		spin_lock_bh(&d->tcf_lock);
+		bh = spin_lock_bh(&d->tcf_lock, SOFTIRQ_ALL_MASK);
 	/* Protected by tcf_lock if overwriting existing action. */
 	p_old = rcu_dereference_protected(d->skbmod_p, 1);
 
@@ -179,7 +180,7 @@ static int tcf_skbmod_init(struct net *net, struct nlattr *nla,
 
 	rcu_assign_pointer(d->skbmod_p, p);
 	if (ovr)
-		spin_unlock_bh(&d->tcf_lock);
+		spin_unlock_bh(&d->tcf_lock, bh);
 
 	if (p_old)
 		kfree_rcu(p_old, rcu);
@@ -202,6 +203,7 @@ static void tcf_skbmod_cleanup(struct tc_action *a)
 static int tcf_skbmod_dump(struct sk_buff *skb, struct tc_action *a,
 			   int bind, int ref)
 {
+	unsigned int bh;
 	struct tcf_skbmod *d = to_skbmod(a);
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tcf_skbmod_params  *p;
@@ -212,7 +214,7 @@ static int tcf_skbmod_dump(struct sk_buff *skb, struct tc_action *a,
 	};
 	struct tcf_t t;
 
-	spin_lock_bh(&d->tcf_lock);
+	bh = spin_lock_bh(&d->tcf_lock, SOFTIRQ_ALL_MASK);
 	opt.action = d->tcf_action;
 	p = rcu_dereference_protected(d->skbmod_p,
 				      lockdep_is_held(&d->tcf_lock));
@@ -233,10 +235,10 @@ static int tcf_skbmod_dump(struct sk_buff *skb, struct tc_action *a,
 	if (nla_put_64bit(skb, TCA_SKBMOD_TM, sizeof(t), &t, TCA_SKBMOD_PAD))
 		goto nla_put_failure;
 
-	spin_unlock_bh(&d->tcf_lock);
+	spin_unlock_bh(&d->tcf_lock, bh);
 	return skb->len;
 nla_put_failure:
-	spin_unlock_bh(&d->tcf_lock);
+	spin_unlock_bh(&d->tcf_lock, bh);
 	nlmsg_trim(skb, b);
 	return -1;
 }

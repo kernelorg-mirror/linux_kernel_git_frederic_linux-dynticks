@@ -152,9 +152,10 @@ out:
 static void batadv_gw_select(struct batadv_priv *bat_priv,
 			     struct batadv_gw_node *new_gw_node)
 {
+	unsigned int bh;
 	struct batadv_gw_node *curr_gw_node;
 
-	spin_lock_bh(&bat_priv->gw.list_lock);
+	bh = spin_lock_bh(&bat_priv->gw.list_lock, SOFTIRQ_ALL_MASK);
 
 	if (new_gw_node)
 		kref_get(&new_gw_node->refcount);
@@ -165,7 +166,7 @@ static void batadv_gw_select(struct batadv_priv *bat_priv,
 	if (curr_gw_node)
 		batadv_gw_node_put(curr_gw_node);
 
-	spin_unlock_bh(&bat_priv->gw.list_lock);
+	spin_unlock_bh(&bat_priv->gw.list_lock, bh);
 }
 
 /**
@@ -353,6 +354,7 @@ static void batadv_gw_node_add(struct batadv_priv *bat_priv,
 			       struct batadv_orig_node *orig_node,
 			       struct batadv_tvlv_gateway_data *gateway)
 {
+	unsigned int bh;
 	struct batadv_gw_node *gw_node;
 
 	if (gateway->bandwidth_down == 0)
@@ -369,10 +371,10 @@ static void batadv_gw_node_add(struct batadv_priv *bat_priv,
 	gw_node->bandwidth_down = ntohl(gateway->bandwidth_down);
 	gw_node->bandwidth_up = ntohl(gateway->bandwidth_up);
 
-	spin_lock_bh(&bat_priv->gw.list_lock);
+	bh = spin_lock_bh(&bat_priv->gw.list_lock, SOFTIRQ_ALL_MASK);
 	kref_get(&gw_node->refcount);
 	hlist_add_head_rcu(&gw_node->list, &bat_priv->gw.gateway_list);
-	spin_unlock_bh(&bat_priv->gw.list_lock);
+	spin_unlock_bh(&bat_priv->gw.list_lock, bh);
 
 	batadv_dbg(BATADV_DBG_BATMAN, bat_priv,
 		   "Found new gateway %pM -> gw bandwidth: %u.%u/%u.%u MBit\n",
@@ -426,6 +428,7 @@ void batadv_gw_node_update(struct batadv_priv *bat_priv,
 			   struct batadv_orig_node *orig_node,
 			   struct batadv_tvlv_gateway_data *gateway)
 {
+	unsigned int bh;
 	struct batadv_gw_node *gw_node, *curr_gw = NULL;
 
 	gw_node = batadv_gw_node_get(bat_priv, orig_node);
@@ -461,12 +464,12 @@ void batadv_gw_node_update(struct batadv_priv *bat_priv,
 		/* Note: We don't need a NULL check here, since curr_gw never
 		 * gets dereferenced.
 		 */
-		spin_lock_bh(&bat_priv->gw.list_lock);
+		bh = spin_lock_bh(&bat_priv->gw.list_lock, SOFTIRQ_ALL_MASK);
 		if (!hlist_unhashed(&gw_node->list)) {
 			hlist_del_init_rcu(&gw_node->list);
 			batadv_gw_node_put(gw_node);
 		}
-		spin_unlock_bh(&bat_priv->gw.list_lock);
+		spin_unlock_bh(&bat_priv->gw.list_lock, bh);
 
 		curr_gw = batadv_gw_get_selected_gw_node(bat_priv);
 		if (gw_node == curr_gw)
@@ -503,16 +506,17 @@ void batadv_gw_node_delete(struct batadv_priv *bat_priv,
  */
 void batadv_gw_node_free(struct batadv_priv *bat_priv)
 {
+	unsigned int bh;
 	struct batadv_gw_node *gw_node;
 	struct hlist_node *node_tmp;
 
-	spin_lock_bh(&bat_priv->gw.list_lock);
+	bh = spin_lock_bh(&bat_priv->gw.list_lock, SOFTIRQ_ALL_MASK);
 	hlist_for_each_entry_safe(gw_node, node_tmp,
 				  &bat_priv->gw.gateway_list, list) {
 		hlist_del_init_rcu(&gw_node->list);
 		batadv_gw_node_put(gw_node);
 	}
-	spin_unlock_bh(&bat_priv->gw.list_lock);
+	spin_unlock_bh(&bat_priv->gw.list_lock, bh);
 }
 
 #ifdef CONFIG_BATMAN_ADV_DEBUGFS

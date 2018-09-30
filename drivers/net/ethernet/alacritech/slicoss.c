@@ -134,16 +134,17 @@ static unsigned int slic_get_free_rx_descs(struct slic_rx_queue *rxq)
 
 static void slic_clear_upr_list(struct slic_upr_list *upr_list)
 {
+	unsigned int bh;
 	struct slic_upr *upr;
 	struct slic_upr *tmp;
 
-	spin_lock_bh(&upr_list->lock);
+	bh = spin_lock_bh(&upr_list->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(upr, tmp, &upr_list->list, list) {
 		list_del(&upr->list);
 		kfree(upr);
 	}
 	upr_list->pending = false;
-	spin_unlock_bh(&upr_list->lock);
+	spin_unlock_bh(&upr_list->lock, bh);
 }
 
 static void slic_start_upr(struct slic_device *sdev, struct slic_upr *upr)
@@ -158,15 +159,16 @@ static void slic_start_upr(struct slic_device *sdev, struct slic_upr *upr)
 
 static void slic_queue_upr(struct slic_device *sdev, struct slic_upr *upr)
 {
+	unsigned int bh;
 	struct slic_upr_list *upr_list = &sdev->upr_list;
 	bool pending;
 
-	spin_lock_bh(&upr_list->lock);
+	bh = spin_lock_bh(&upr_list->lock, SOFTIRQ_ALL_MASK);
 	pending = upr_list->pending;
 	INIT_LIST_HEAD(&upr->list);
 	list_add_tail(&upr->list, &upr_list->list);
 	upr_list->pending = true;
-	spin_unlock_bh(&upr_list->lock);
+	spin_unlock_bh(&upr_list->lock, bh);
 
 	if (!pending)
 		slic_start_upr(sdev, upr);
@@ -174,11 +176,12 @@ static void slic_queue_upr(struct slic_device *sdev, struct slic_upr *upr)
 
 static struct slic_upr *slic_dequeue_upr(struct slic_device *sdev)
 {
+	unsigned int bh;
 	struct slic_upr_list *upr_list = &sdev->upr_list;
 	struct slic_upr *next_upr = NULL;
 	struct slic_upr *upr = NULL;
 
-	spin_lock_bh(&upr_list->lock);
+	bh = spin_lock_bh(&upr_list->lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&upr_list->list)) {
 		upr = list_first_entry(&upr_list->list, struct slic_upr, list);
 		list_del(&upr->list);
@@ -189,7 +192,7 @@ static struct slic_upr *slic_dequeue_upr(struct slic_device *sdev)
 			next_upr = list_first_entry(&upr_list->list,
 						    struct slic_upr, list);
 	}
-	spin_unlock_bh(&upr_list->lock);
+	spin_unlock_bh(&upr_list->lock, bh);
 	/* trigger processing of the next upr in list */
 	if (next_upr)
 		slic_start_upr(sdev, next_upr);
@@ -309,13 +312,15 @@ static void slic_configure_link_locked(struct slic_device *sdev, int speed,
 static void slic_configure_link(struct slic_device *sdev, int speed,
 				unsigned int duplex)
 {
-	spin_lock_bh(&sdev->link_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&sdev->link_lock, SOFTIRQ_ALL_MASK);
 	slic_configure_link_locked(sdev, speed, duplex);
-	spin_unlock_bh(&sdev->link_lock);
+	spin_unlock_bh(&sdev->link_lock, bh);
 }
 
 static void slic_set_rx_mode(struct net_device *dev)
 {
+	unsigned int bh;
 	struct slic_device *sdev = netdev_priv(dev);
 	struct netdev_hw_addr *hwaddr;
 	bool set_promisc;
@@ -341,14 +346,14 @@ static void slic_set_rx_mode(struct net_device *dev)
 
 	set_promisc = !!(dev->flags & IFF_PROMISC);
 
-	spin_lock_bh(&sdev->link_lock);
+	bh = spin_lock_bh(&sdev->link_lock, SOFTIRQ_ALL_MASK);
 	if (sdev->promisc != set_promisc) {
 		sdev->promisc = set_promisc;
 		slic_configure_rcv(sdev);
 		/* make sure writes to receiver cant leak out of the lock */
 		mmiowb();
 	}
-	spin_unlock_bh(&sdev->link_lock);
+	spin_unlock_bh(&sdev->link_lock, bh);
 }
 
 static void slic_xmit_complete(struct slic_device *sdev)
@@ -1265,6 +1270,7 @@ static void slic_free_shmem(struct slic_device *sdev)
 
 static int slic_init_iface(struct slic_device *sdev)
 {
+	unsigned int bh;
 	struct slic_shmem *sm = &sdev->shmem;
 	int err;
 
@@ -1321,10 +1327,10 @@ static int slic_init_iface(struct slic_device *sdev)
 
 	slic_set_mac_address(sdev);
 
-	spin_lock_bh(&sdev->link_lock);
+	bh = spin_lock_bh(&sdev->link_lock, SOFTIRQ_ALL_MASK);
 	sdev->duplex = DUPLEX_UNKNOWN;
 	sdev->speed = SPEED_UNKNOWN;
-	spin_unlock_bh(&sdev->link_lock);
+	spin_unlock_bh(&sdev->link_lock, bh);
 
 	slic_set_link_autoneg(sdev);
 

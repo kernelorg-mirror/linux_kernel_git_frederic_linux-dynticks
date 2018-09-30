@@ -1123,6 +1123,7 @@ fail:
 
 static void efx_ptp_drop_time_expired_events(struct efx_nic *efx)
 {
+	unsigned int bh;
 	struct efx_ptp_data *ptp = efx->ptp_data;
 	struct list_head *cursor;
 	struct list_head *next;
@@ -1131,7 +1132,7 @@ static void efx_ptp_drop_time_expired_events(struct efx_nic *efx)
 		return;
 
 	/* Drop time-expired events */
-	spin_lock_bh(&ptp->evt_lock);
+	bh = spin_lock_bh(&ptp->evt_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&ptp->evt_list)) {
 		list_for_each_safe(cursor, next, &ptp->evt_list) {
 			struct efx_ptp_event_rx *evt;
@@ -1145,12 +1146,13 @@ static void efx_ptp_drop_time_expired_events(struct efx_nic *efx)
 			}
 		}
 	}
-	spin_unlock_bh(&ptp->evt_lock);
+	spin_unlock_bh(&ptp->evt_lock, bh);
 }
 
 static enum ptp_packet_state efx_ptp_match_rx(struct efx_nic *efx,
 					      struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct efx_ptp_data *ptp = efx->ptp_data;
 	bool evts_waiting;
 	struct list_head *cursor;
@@ -1160,16 +1162,16 @@ static enum ptp_packet_state efx_ptp_match_rx(struct efx_nic *efx,
 
 	WARN_ON_ONCE(ptp->rx_ts_inline);
 
-	spin_lock_bh(&ptp->evt_lock);
+	bh = spin_lock_bh(&ptp->evt_lock, SOFTIRQ_ALL_MASK);
 	evts_waiting = !list_empty(&ptp->evt_list);
-	spin_unlock_bh(&ptp->evt_lock);
+	spin_unlock_bh(&ptp->evt_lock, bh);
 
 	if (!evts_waiting)
 		return PTP_PACKET_STATE_UNMATCHED;
 
 	match = (struct efx_ptp_match *)skb->cb;
 	/* Look for a matching timestamp in the event queue */
-	spin_lock_bh(&ptp->evt_lock);
+	spin_lock_bh(&ptp->evt_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_safe(cursor, next, &ptp->evt_list) {
 		struct efx_ptp_event_rx *evt;
 
@@ -1321,6 +1323,7 @@ fail:
 
 static int efx_ptp_stop(struct efx_nic *efx)
 {
+	unsigned int bh;
 	struct efx_ptp_data *ptp = efx->ptp_data;
 	struct list_head *cursor;
 	struct list_head *next;
@@ -1338,11 +1341,11 @@ static int efx_ptp_stop(struct efx_nic *efx)
 	skb_queue_purge(&efx->ptp_data->txq);
 
 	/* Drop any pending receive events */
-	spin_lock_bh(&efx->ptp_data->evt_lock);
+	bh = spin_lock_bh(&efx->ptp_data->evt_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_safe(cursor, next, &efx->ptp_data->evt_list) {
 		list_move(cursor, &efx->ptp_data->evt_free_list);
 	}
-	spin_unlock_bh(&efx->ptp_data->evt_lock);
+	spin_unlock_bh(&efx->ptp_data->evt_lock, bh);
 
 	return rc;
 }
@@ -1831,6 +1834,7 @@ static void ptp_event_failure(struct efx_nic *efx, int expected_frag_len)
  */
 static void ptp_event_rx(struct efx_nic *efx, struct efx_ptp_data *ptp)
 {
+	unsigned int bh;
 	struct efx_ptp_event_rx *evt = NULL;
 
 	if (WARN_ON_ONCE(ptp->rx_ts_inline))
@@ -1841,7 +1845,7 @@ static void ptp_event_rx(struct efx_nic *efx, struct efx_ptp_data *ptp)
 		return;
 	}
 
-	spin_lock_bh(&ptp->evt_lock);
+	bh = spin_lock_bh(&ptp->evt_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&ptp->evt_free_list)) {
 		evt = list_first_entry(&ptp->evt_free_list,
 				       struct efx_ptp_event_rx, link);
@@ -1866,7 +1870,7 @@ static void ptp_event_rx(struct efx_nic *efx, struct efx_ptp_data *ptp)
 		/* Log a rate-limited warning message. */
 		netif_err(efx, rx_err, efx->net_dev, "PTP event queue overflow\n");
 	}
-	spin_unlock_bh(&ptp->evt_lock);
+	spin_unlock_bh(&ptp->evt_lock, bh);
 }
 
 static void ptp_event_fault(struct efx_nic *efx, struct efx_ptp_data *ptp)

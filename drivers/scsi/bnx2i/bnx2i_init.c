@@ -430,13 +430,14 @@ static int bnx2i_cpu_online(unsigned int cpu)
 
 static int bnx2i_cpu_offline(unsigned int cpu)
 {
+	unsigned int bh;
 	struct bnx2i_percpu_s *p;
 	struct task_struct *thread;
 	struct bnx2i_work *work, *tmp;
 
 	/* Prevent any new work from being queued for this CPU */
 	p = &per_cpu(bnx2i_percpu, cpu);
-	spin_lock_bh(&p->p_work_lock);
+	bh = spin_lock_bh(&p->p_work_lock, SOFTIRQ_ALL_MASK);
 	thread = p->iothread;
 	p->iothread = NULL;
 
@@ -448,7 +449,7 @@ static int bnx2i_cpu_offline(unsigned int cpu)
 		kfree(work);
 	}
 
-	spin_unlock_bh(&p->p_work_lock);
+	spin_unlock_bh(&p->p_work_lock, bh);
 	if (thread)
 		kthread_stop(thread);
 	return 0;

@@ -80,6 +80,7 @@ static int qce_handle_request(struct crypto_async_request *async_req)
 static int qce_handle_queue(struct qce_device *qce,
 			    struct crypto_async_request *req)
 {
+	unsigned int bh;
 	struct crypto_async_request *async_req, *backlog;
 	unsigned long flags;
 	int ret = 0, err;
@@ -106,9 +107,9 @@ static int qce_handle_queue(struct qce_device *qce,
 		return ret;
 
 	if (backlog) {
-		spin_lock_bh(&qce->lock);
+		bh = spin_lock_bh(&qce->lock, SOFTIRQ_ALL_MASK);
 		backlog->complete(backlog, -EINPROGRESS);
-		spin_unlock_bh(&qce->lock);
+		spin_unlock_bh(&qce->lock, bh);
 	}
 
 	err = qce_handle_request(async_req);

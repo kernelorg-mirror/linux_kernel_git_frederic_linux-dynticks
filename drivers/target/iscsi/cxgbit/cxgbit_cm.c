@@ -478,6 +478,7 @@ cxgbit_set_conn_info(struct iscsi_np *np, struct iscsi_conn *conn,
 
 int cxgbit_accept_np(struct iscsi_np *np, struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct cxgbit_np *cnp = np->np_context;
 	struct cxgbit_sock *csk;
 	int ret = 0;
@@ -487,18 +488,18 @@ accept_wait:
 	if (ret)
 		return -ENODEV;
 
-	spin_lock_bh(&np->np_thread_lock);
+	bh = spin_lock_bh(&np->np_thread_lock, SOFTIRQ_ALL_MASK);
 	if (np->np_thread_state >= ISCSI_NP_THREAD_RESET) {
-		spin_unlock_bh(&np->np_thread_lock);
+		spin_unlock_bh(&np->np_thread_lock, bh);
 		/**
 		 * No point in stalling here when np_thread
 		 * is in state RESET/SHUTDOWN/EXIT - bail
 		 **/
 		return -ENODEV;
 	}
-	spin_unlock_bh(&np->np_thread_lock);
+	spin_unlock_bh(&np->np_thread_lock, bh);
 
-	spin_lock_bh(&cnp->np_accept_lock);
+	spin_lock_bh(&cnp->np_accept_lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&cnp->np_accept_list)) {
 		spin_unlock_bh(&cnp->np_accept_lock);
 		goto accept_wait;
@@ -687,19 +688,20 @@ no_abort:
 
 void cxgbit_abort_conn(struct cxgbit_sock *csk)
 {
+	unsigned int bh;
 	struct sk_buff *skb = alloc_skb(0, GFP_KERNEL | __GFP_NOFAIL);
 
 	cxgbit_get_csk(csk);
 	cxgbit_init_wr_wait(&csk->com.wr_wait);
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	if (csk->lock_owner) {
 		cxgbit_skcb_rx_backlog_fn(skb) = __cxgbit_abort_conn;
 		__skb_queue_tail(&csk->backlogq, skb);
 	} else {
 		__cxgbit_abort_conn(csk, skb);
 	}
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 
 	cxgbit_wait_for_reply(csk->com.cdev, &csk->com.wr_wait,
 			      csk->tid, 600, __func__);
@@ -707,13 +709,14 @@ void cxgbit_abort_conn(struct cxgbit_sock *csk)
 
 void cxgbit_free_conn(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct cxgbit_sock *csk = conn->context;
 	bool release = false;
 
 	pr_debug("%s: state %d\n",
 		 __func__, csk->com.state);
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	switch (csk->com.state) {
 	case CSK_STATE_ESTABLISHED:
 		if (conn->conn_state == TARG_CONN_STATE_IN_LOGOUT) {
@@ -735,7 +738,7 @@ void cxgbit_free_conn(struct iscsi_conn *conn)
 		pr_err("%s: csk %p; state %d\n",
 		       __func__, csk, csk->com.state);
 	}
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 
 	if (release)
 		cxgbit_put_csk(csk);
@@ -777,6 +780,7 @@ static void cxgbit_free_skb(struct cxgbit_sock *csk)
 
 void _cxgbit_free_csk(struct kref *kref)
 {
+	unsigned int bh;
 	struct cxgbit_sock *csk;
 	struct cxgbit_device *cdev;
 
@@ -798,9 +802,9 @@ void _cxgbit_free_csk(struct kref *kref)
 	cxgb4_l2t_release(csk->l2t);
 
 	cdev = csk->com.cdev;
-	spin_lock_bh(&cdev->cskq.lock);
+	bh = spin_lock_bh(&cdev->cskq.lock, SOFTIRQ_ALL_MASK);
 	list_del(&csk->list);
-	spin_unlock_bh(&cdev->cskq.lock);
+	spin_unlock_bh(&cdev->cskq.lock, bh);
 
 	cxgbit_free_skb(csk);
 	cxgbit_put_cdev(cdev);
@@ -1039,6 +1043,7 @@ static void cxgbit_send_rx_credits(struct cxgbit_sock *csk, struct sk_buff *skb)
  */
 int cxgbit_rx_data_ack(struct cxgbit_sock *csk)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	u32 len = roundup(sizeof(struct cpl_rx_data_ack), 16);
 	u32 credit_dack;
@@ -1055,16 +1060,16 @@ int cxgbit_rx_data_ack(struct cxgbit_sock *csk)
 
 	csk->rx_credits = 0;
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	if (csk->lock_owner) {
 		cxgbit_skcb_rx_backlog_fn(skb) = cxgbit_send_rx_credits;
 		__skb_queue_tail(&csk->backlogq, skb);
-		spin_unlock_bh(&csk->lock);
+		spin_unlock_bh(&csk->lock, bh);
 		return 0;
 	}
 
 	cxgbit_send_rx_credits(csk, skb);
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 
 	return 0;
 }
@@ -1587,6 +1592,7 @@ rel_skb:
 static void
 cxgbit_pass_establish(struct cxgbit_device *cdev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cpl_pass_establish *req = cplhdr(skb);
 	struct tid_info *t = cdev->lldi.tids;
 	unsigned int tid = GET_TID(req);
@@ -1619,9 +1625,9 @@ cxgbit_pass_establish(struct cxgbit_device *cdev, struct sk_buff *skb)
 	cxgbit_set_emss(csk, tcp_opt);
 	dst_confirm(csk->dst);
 	csk->com.state = CSK_STATE_ESTABLISHED;
-	spin_lock_bh(&cnp->np_accept_lock);
+	bh = spin_lock_bh(&cnp->np_accept_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&csk->accept_node, &cnp->np_accept_list);
-	spin_unlock_bh(&cnp->np_accept_lock);
+	spin_unlock_bh(&cnp->np_accept_lock, bh);
 	complete(&cnp->accept_comp);
 rel_skb:
 	__kfree_skb(skb);
@@ -1629,10 +1635,11 @@ rel_skb:
 
 static void cxgbit_queue_rx_skb(struct cxgbit_sock *csk, struct sk_buff *skb)
 {
+	unsigned int bh;
 	cxgbit_skcb_flags(skb) = 0;
-	spin_lock_bh(&csk->rxq.lock);
+	bh = spin_lock_bh(&csk->rxq.lock, SOFTIRQ_ALL_MASK);
 	__skb_queue_tail(&csk->rxq, skb);
-	spin_unlock_bh(&csk->rxq.lock);
+	spin_unlock_bh(&csk->rxq.lock, bh);
 	wake_up(&csk->waitq);
 }
 

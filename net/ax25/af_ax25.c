@@ -65,10 +65,11 @@ static void ax25_free_sock(struct sock *sk)
  */
 static void ax25_cb_del(ax25_cb *ax25)
 {
+	unsigned int bh;
 	if (!hlist_unhashed(&ax25->ax25_node)) {
-		spin_lock_bh(&ax25_list_lock);
+		bh = spin_lock_bh(&ax25_list_lock, SOFTIRQ_ALL_MASK);
 		hlist_del_init(&ax25->ax25_node);
-		spin_unlock_bh(&ax25_list_lock);
+		spin_unlock_bh(&ax25_list_lock, bh);
 		ax25_cb_put(ax25);
 	}
 }
@@ -78,20 +79,21 @@ static void ax25_cb_del(ax25_cb *ax25)
  */
 static void ax25_kill_by_device(struct net_device *dev)
 {
+	unsigned int bh;
 	ax25_dev *ax25_dev;
 	ax25_cb *s;
 
 	if ((ax25_dev = ax25_dev_ax25dev(dev)) == NULL)
 		return;
 
-	spin_lock_bh(&ax25_list_lock);
+	bh = spin_lock_bh(&ax25_list_lock, SOFTIRQ_ALL_MASK);
 again:
 	ax25_for_each(s, &ax25_list) {
 		if (s->ax25_dev == ax25_dev) {
 			s->ax25_dev = NULL;
 			spin_unlock_bh(&ax25_list_lock);
 			ax25_disconnect(s, ENETUNREACH);
-			spin_lock_bh(&ax25_list_lock);
+			spin_lock_bh(&ax25_list_lock, SOFTIRQ_ALL_MASK);
 
 			/* The entry could have been deleted from the
 			 * list meanwhile and thus the next pointer is
@@ -103,7 +105,7 @@ again:
 			goto again;
 		}
 	}
-	spin_unlock_bh(&ax25_list_lock);
+	spin_unlock_bh(&ax25_list_lock, bh);
 }
 
 /*
@@ -142,10 +144,11 @@ static int ax25_device_event(struct notifier_block *this, unsigned long event,
  */
 void ax25_cb_add(ax25_cb *ax25)
 {
-	spin_lock_bh(&ax25_list_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&ax25_list_lock, SOFTIRQ_ALL_MASK);
 	ax25_cb_hold(ax25);
 	hlist_add_head(&ax25->ax25_node, &ax25_list);
-	spin_unlock_bh(&ax25_list_lock);
+	spin_unlock_bh(&ax25_list_lock, bh);
 }
 
 /*
@@ -208,9 +211,10 @@ struct sock *ax25_get_socket(ax25_address *my_addr, ax25_address *dest_addr,
 ax25_cb *ax25_find_cb(ax25_address *src_addr, ax25_address *dest_addr,
 	ax25_digi *digi, struct net_device *dev)
 {
+	unsigned int bh;
 	ax25_cb *s;
 
-	spin_lock_bh(&ax25_list_lock);
+	bh = spin_lock_bh(&ax25_list_lock, SOFTIRQ_ALL_MASK);
 	ax25_for_each(s, &ax25_list) {
 		if (s->sk && s->sk->sk_type != SOCK_SEQPACKET)
 			continue;
@@ -227,12 +231,12 @@ ax25_cb *ax25_find_cb(ax25_address *src_addr, ax25_address *dest_addr,
 					continue;
 			}
 			ax25_cb_hold(s);
-			spin_unlock_bh(&ax25_list_lock);
+			spin_unlock_bh(&ax25_list_lock, bh);
 
 			return s;
 		}
 	}
-	spin_unlock_bh(&ax25_list_lock);
+	spin_unlock_bh(&ax25_list_lock, bh);
 
 	return NULL;
 }
@@ -1854,7 +1858,7 @@ static int ax25_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 static void *ax25_info_start(struct seq_file *seq, loff_t *pos)
 	__acquires(ax25_list_lock)
 {
-	spin_lock_bh(&ax25_list_lock);
+	spin_lock_bh(&ax25_list_lock, SOFTIRQ_ALL_MASK);
 	return seq_hlist_start(&ax25_list, *pos);
 }
 

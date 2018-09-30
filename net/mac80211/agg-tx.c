@@ -192,6 +192,7 @@ ieee80211_wake_queue_agg(struct ieee80211_sub_if_data *sdata, int tid)
 static void
 ieee80211_agg_stop_txq(struct sta_info *sta, int tid)
 {
+	unsigned int bh;
 	struct ieee80211_txq *txq = sta->sta.txq[tid];
 	struct ieee80211_sub_if_data *sdata;
 	struct fq *fq;
@@ -205,9 +206,9 @@ ieee80211_agg_stop_txq(struct sta_info *sta, int tid)
 	fq = &sdata->local->fq;
 
 	/* Lock here to protect against further seqno updates on dequeue */
-	spin_lock_bh(&fq->lock);
+	bh = spin_lock_bh(&fq->lock, SOFTIRQ_ALL_MASK);
 	set_bit(IEEE80211_TXQ_STOP, &txqi->flags);
-	spin_unlock_bh(&fq->lock);
+	spin_unlock_bh(&fq->lock, bh);
 }
 
 static void
@@ -302,6 +303,7 @@ static void ieee80211_remove_tid_tx(struct sta_info *sta, int tid)
 int ___ieee80211_stop_tx_ba_session(struct sta_info *sta, u16 tid,
 				    enum ieee80211_agg_stop_reason reason)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = sta->local;
 	struct tid_ampdu_tx *tid_tx;
 	struct ieee80211_ampdu_params params = {
@@ -330,7 +332,7 @@ int ___ieee80211_stop_tx_ba_session(struct sta_info *sta, u16 tid,
 		return -EINVAL;
 	}
 
-	spin_lock_bh(&sta->lock);
+	bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 
 	/* free struct pending for start, if present */
 	tid_tx = sta->ampdu_mlme.tid_start_tx[tid];
@@ -339,7 +341,7 @@ int ___ieee80211_stop_tx_ba_session(struct sta_info *sta, u16 tid,
 
 	tid_tx = rcu_dereference_protected_tid_tx(sta, tid);
 	if (!tid_tx) {
-		spin_unlock_bh(&sta->lock);
+		spin_unlock_bh(&sta->lock, bh);
 		return -ENOENT;
 	}
 
@@ -348,7 +350,7 @@ int ___ieee80211_stop_tx_ba_session(struct sta_info *sta, u16 tid,
 	 * unless we're destroying it in which case notify the driver
 	 */
 	if (test_bit(HT_AGG_STATE_STOPPING, &tid_tx->state)) {
-		spin_unlock_bh(&sta->lock);
+		spin_unlock_bh(&sta->lock, bh);
 		if (reason != AGG_STOP_DESTROY_STA)
 			return -EALREADY;
 		params.action = IEEE80211_AMPDU_TX_STOP_FLUSH_CONT;
@@ -360,14 +362,14 @@ int ___ieee80211_stop_tx_ba_session(struct sta_info *sta, u16 tid,
 	if (test_bit(HT_AGG_STATE_WANT_START, &tid_tx->state)) {
 		/* not even started yet! */
 		ieee80211_assign_tid_tx(sta, tid, NULL);
-		spin_unlock_bh(&sta->lock);
+		spin_unlock_bh(&sta->lock, bh);
 		kfree_rcu(tid_tx, rcu_head);
 		return 0;
 	}
 
 	set_bit(HT_AGG_STATE_STOPPING, &tid_tx->state);
 
-	spin_unlock_bh(&sta->lock);
+	spin_unlock_bh(&sta->lock, bh);
 
 	ht_dbg(sta->sdata, "Tx BA session stop requested for %pM tid %u\n",
 	       sta->sta.addr, tid);
@@ -452,6 +454,7 @@ static void sta_addba_resp_timer_expired(struct timer_list *t)
 
 void ieee80211_tx_ba_session_handle_start(struct sta_info *sta, int tid)
 {
+	unsigned int bh;
 	struct tid_ampdu_tx *tid_tx;
 	struct ieee80211_local *local = sta->local;
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
@@ -491,11 +494,11 @@ void ieee80211_tx_ba_session_handle_start(struct sta_info *sta, int tid)
 		ht_dbg(sdata,
 		       "BA request denied - HW unavailable for %pM tid %d\n",
 		       sta->sta.addr, tid);
-		spin_lock_bh(&sta->lock);
+		bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 		ieee80211_agg_splice_packets(sdata, tid_tx, tid);
 		ieee80211_assign_tid_tx(sta, tid, NULL);
 		ieee80211_agg_splice_finish(sdata, tid);
-		spin_unlock_bh(&sta->lock);
+		spin_unlock_bh(&sta->lock, bh);
 
 		ieee80211_agg_start_txq(sta, tid, false);
 
@@ -508,10 +511,10 @@ void ieee80211_tx_ba_session_handle_start(struct sta_info *sta, int tid)
 	ht_dbg(sdata, "activated addBA response timer on %pM tid %d\n",
 	       sta->sta.addr, tid);
 
-	spin_lock_bh(&sta->lock);
+	bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 	sta->ampdu_mlme.last_addba_req_time[tid] = jiffies;
 	sta->ampdu_mlme.addba_req_num[tid]++;
-	spin_unlock_bh(&sta->lock);
+	spin_unlock_bh(&sta->lock, bh);
 
 	if (sta->sta.he_cap.has_he) {
 		buf_size = local->hw.max_tx_aggregation_subframes;
@@ -561,6 +564,7 @@ static void sta_tx_agg_session_timer_expired(struct timer_list *t)
 int ieee80211_start_tx_ba_session(struct ieee80211_sta *pubsta, u16 tid,
 				  u16 timeout)
 {
+	unsigned int bh;
 	struct sta_info *sta = container_of(pubsta, struct sta_info, sta);
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
 	struct ieee80211_local *local = sdata->local;
@@ -624,7 +628,7 @@ int ieee80211_start_tx_ba_session(struct ieee80211_sta *pubsta, u16 tid,
 		return -EINVAL;
 	}
 
-	spin_lock_bh(&sta->lock);
+	bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 
 	/* we have tried too many times, receiver does not want A-MPDU */
 	if (sta->ampdu_mlme.addba_req_num[tid] > HT_AGG_MAX_RETRIES) {
@@ -692,7 +696,7 @@ int ieee80211_start_tx_ba_session(struct ieee80211_sta *pubsta, u16 tid,
 
 	/* this flow continues off the work */
  err_unlock_sta:
-	spin_unlock_bh(&sta->lock);
+	spin_unlock_bh(&sta->lock, bh);
 	return ret;
 }
 EXPORT_SYMBOL(ieee80211_start_tx_ba_session);
@@ -700,6 +704,7 @@ EXPORT_SYMBOL(ieee80211_start_tx_ba_session);
 static void ieee80211_agg_tx_operational(struct ieee80211_local *local,
 					 struct sta_info *sta, u16 tid)
 {
+	unsigned int bh;
 	struct tid_ampdu_tx *tid_tx;
 	struct ieee80211_ampdu_params params = {
 		.sta = &sta->sta,
@@ -724,7 +729,7 @@ static void ieee80211_agg_tx_operational(struct ieee80211_local *local,
 	 * synchronize with TX path, while splicing the TX path
 	 * should block so it won't put more packets onto pending.
 	 */
-	spin_lock_bh(&sta->lock);
+	bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 
 	ieee80211_agg_splice_packets(sta->sdata, tid_tx, tid);
 	/*
@@ -735,7 +740,7 @@ static void ieee80211_agg_tx_operational(struct ieee80211_local *local,
 	set_bit(HT_AGG_STATE_OPERATIONAL, &tid_tx->state);
 	ieee80211_agg_splice_finish(sta->sdata, tid);
 
-	spin_unlock_bh(&sta->lock);
+	spin_unlock_bh(&sta->lock, bh);
 
 	ieee80211_agg_start_txq(sta, tid, true);
 }
@@ -817,6 +822,7 @@ int __ieee80211_stop_tx_ba_session(struct sta_info *sta, u16 tid,
 
 int ieee80211_stop_tx_ba_session(struct ieee80211_sta *pubsta, u16 tid)
 {
+	unsigned int bh;
 	struct sta_info *sta = container_of(pubsta, struct sta_info, sta);
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
 	struct ieee80211_local *local = sdata->local;
@@ -831,7 +837,7 @@ int ieee80211_stop_tx_ba_session(struct ieee80211_sta *pubsta, u16 tid)
 	if (tid >= IEEE80211_NUM_TIDS)
 		return -EINVAL;
 
-	spin_lock_bh(&sta->lock);
+	bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 	tid_tx = rcu_dereference_protected_tid_tx(sta, tid);
 
 	if (!tid_tx) {
@@ -852,7 +858,7 @@ int ieee80211_stop_tx_ba_session(struct ieee80211_sta *pubsta, u16 tid)
 	ieee80211_queue_work(&local->hw, &sta->ampdu_mlme.work);
 
  unlock:
-	spin_unlock_bh(&sta->lock);
+	spin_unlock_bh(&sta->lock, bh);
 	return ret;
 }
 EXPORT_SYMBOL(ieee80211_stop_tx_ba_session);
@@ -860,13 +866,14 @@ EXPORT_SYMBOL(ieee80211_stop_tx_ba_session);
 void ieee80211_stop_tx_ba_cb(struct sta_info *sta, int tid,
 			     struct tid_ampdu_tx *tid_tx)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
 	bool send_delba = false;
 
 	ht_dbg(sdata, "Stopping Tx BA session for %pM tid %d\n",
 	       sta->sta.addr, tid);
 
-	spin_lock_bh(&sta->lock);
+	bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 
 	if (!test_bit(HT_AGG_STATE_STOPPING, &tid_tx->state)) {
 		ht_dbg(sdata,
@@ -881,7 +888,7 @@ void ieee80211_stop_tx_ba_cb(struct sta_info *sta, int tid,
 	ieee80211_remove_tid_tx(sta, tid);
 
  unlock_sta:
-	spin_unlock_bh(&sta->lock);
+	spin_unlock_bh(&sta->lock, bh);
 
 	if (send_delba)
 		ieee80211_send_delba(sdata, sta->sta.addr, tid,

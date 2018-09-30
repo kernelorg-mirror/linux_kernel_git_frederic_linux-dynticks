@@ -893,6 +893,7 @@ void inet_diag_dump_icsk(struct inet_hashinfo *hashinfo, struct sk_buff *skb,
 			 struct netlink_callback *cb,
 			 const struct inet_diag_req_v2 *r, struct nlattr *bc)
 {
+	unsigned int bh;
 	bool net_admin = netlink_net_capable(cb->skb, CAP_NET_ADMIN);
 	struct net *net = sock_net(skb->sk);
 	u32 idiag_states = r->idiag_states;
@@ -972,7 +973,7 @@ skip_listen_ht:
 next_chunk:
 		num = 0;
 		accum = 0;
-		spin_lock_bh(lock);
+		bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 		sk_nulls_for_each(sk, node, &head->chain) {
 			int state;
 
@@ -1006,7 +1007,7 @@ next_chunk:
 next_normal:
 			++num;
 		}
-		spin_unlock_bh(lock);
+		spin_unlock_bh(lock, bh);
 		res = 0;
 		for (idx = 0; idx < accum; idx++) {
 			if (res >= 0) {

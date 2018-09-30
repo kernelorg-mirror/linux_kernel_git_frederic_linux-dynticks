@@ -78,12 +78,13 @@ err1:
 int rxe_mcast_add_grp_elem(struct rxe_dev *rxe, struct rxe_qp *qp,
 			   struct rxe_mc_grp *grp)
 {
+	unsigned int bh, bh2;
 	int err;
 	struct rxe_mc_elem *elem;
 
 	/* check to see of the qp is already a member of the group */
-	spin_lock_bh(&qp->grp_lock);
-	spin_lock_bh(&grp->mcg_lock);
+	bh = spin_lock_bh(&qp->grp_lock, SOFTIRQ_ALL_MASK);
+	bh2 = spin_lock_bh(&grp->mcg_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(elem, &grp->qp_list, qp_list) {
 		if (elem->qp == qp) {
 			err = 0;
@@ -114,14 +115,15 @@ int rxe_mcast_add_grp_elem(struct rxe_dev *rxe, struct rxe_qp *qp,
 
 	err = 0;
 out:
-	spin_unlock_bh(&grp->mcg_lock);
-	spin_unlock_bh(&qp->grp_lock);
+	spin_unlock_bh(&grp->mcg_lock, bh2);
+	spin_unlock_bh(&qp->grp_lock, bh);
 	return err;
 }
 
 int rxe_mcast_drop_grp_elem(struct rxe_dev *rxe, struct rxe_qp *qp,
 			    union ib_gid *mgid)
 {
+	unsigned int bh, bh2;
 	struct rxe_mc_grp *grp;
 	struct rxe_mc_elem *elem, *tmp;
 
@@ -129,8 +131,8 @@ int rxe_mcast_drop_grp_elem(struct rxe_dev *rxe, struct rxe_qp *qp,
 	if (!grp)
 		goto err1;
 
-	spin_lock_bh(&qp->grp_lock);
-	spin_lock_bh(&grp->mcg_lock);
+	bh = spin_lock_bh(&qp->grp_lock, SOFTIRQ_ALL_MASK);
+	bh2 = spin_lock_bh(&grp->mcg_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe(elem, tmp, &grp->qp_list, qp_list) {
 		if (elem->qp == qp) {
@@ -138,8 +140,8 @@ int rxe_mcast_drop_grp_elem(struct rxe_dev *rxe, struct rxe_qp *qp,
 			list_del(&elem->grp_list);
 			grp->num_qp--;
 
-			spin_unlock_bh(&grp->mcg_lock);
-			spin_unlock_bh(&qp->grp_lock);
+			spin_unlock_bh(&grp->mcg_lock, bh2);
+			spin_unlock_bh(&qp->grp_lock, bh);
 			rxe_drop_ref(elem);
 			rxe_drop_ref(grp);	/* ref held by QP */
 			rxe_drop_ref(grp);	/* ref from get_key */
@@ -147,8 +149,8 @@ int rxe_mcast_drop_grp_elem(struct rxe_dev *rxe, struct rxe_qp *qp,
 		}
 	}
 
-	spin_unlock_bh(&grp->mcg_lock);
-	spin_unlock_bh(&qp->grp_lock);
+	spin_unlock_bh(&grp->mcg_lock, bh2);
+	spin_unlock_bh(&qp->grp_lock, bh);
 	rxe_drop_ref(grp);			/* ref from get_key */
 err1:
 	return -EINVAL;
@@ -156,25 +158,26 @@ err1:
 
 void rxe_drop_all_mcast_groups(struct rxe_qp *qp)
 {
+	unsigned int bh;
 	struct rxe_mc_grp *grp;
 	struct rxe_mc_elem *elem;
 
 	while (1) {
-		spin_lock_bh(&qp->grp_lock);
+		bh = spin_lock_bh(&qp->grp_lock, SOFTIRQ_ALL_MASK);
 		if (list_empty(&qp->grp_list)) {
-			spin_unlock_bh(&qp->grp_lock);
+			spin_unlock_bh(&qp->grp_lock, bh);
 			break;
 		}
 		elem = list_first_entry(&qp->grp_list, struct rxe_mc_elem,
 					grp_list);
 		list_del(&elem->grp_list);
-		spin_unlock_bh(&qp->grp_lock);
+		spin_unlock_bh(&qp->grp_lock, bh);
 
 		grp = elem->grp;
-		spin_lock_bh(&grp->mcg_lock);
+		bh = spin_lock_bh(&grp->mcg_lock, SOFTIRQ_ALL_MASK);
 		list_del(&elem->qp_list);
 		grp->num_qp--;
-		spin_unlock_bh(&grp->mcg_lock);
+		spin_unlock_bh(&grp->mcg_lock, bh);
 		rxe_drop_ref(grp);
 		rxe_drop_ref(elem);
 	}

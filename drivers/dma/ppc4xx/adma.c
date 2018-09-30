@@ -1686,9 +1686,10 @@ static void ppc440spe_adma_tasklet(unsigned long data)
  */
 static void ppc440spe_adma_slot_cleanup(struct ppc440spe_adma_chan *chan)
 {
-	spin_lock_bh(&chan->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&chan->lock, SOFTIRQ_ALL_MASK);
 	__ppc440spe_adma_slot_cleanup(chan);
-	spin_unlock_bh(&chan->lock);
+	spin_unlock_bh(&chan->lock, bh);
 }
 
 /**
@@ -1777,6 +1778,7 @@ retry:
  */
 static int ppc440spe_adma_alloc_chan_resources(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct ppc440spe_adma_chan *ppc440spe_chan;
 	struct ppc440spe_adma_desc_slot *slot = NULL;
 	char *hw_desc;
@@ -1813,10 +1815,10 @@ static int ppc440spe_adma_alloc_chan_resources(struct dma_chan *chan)
 		slot->phys = ppc440spe_chan->device->dma_desc_pool + i * db_sz;
 		slot->idx = i;
 
-		spin_lock_bh(&ppc440spe_chan->lock);
+		bh = spin_lock_bh(&ppc440spe_chan->lock, SOFTIRQ_ALL_MASK);
 		ppc440spe_chan->slots_allocated++;
 		list_add_tail(&slot->slot_node, &ppc440spe_chan->all_slots);
-		spin_unlock_bh(&ppc440spe_chan->lock);
+		spin_unlock_bh(&ppc440spe_chan->lock, bh);
 	}
 
 	if (i && !ppc440spe_chan->last_used) {
@@ -1908,6 +1910,7 @@ static void ppc440spe_adma_check_threshold(struct ppc440spe_adma_chan *chan)
  */
 static dma_cookie_t ppc440spe_adma_tx_submit(struct dma_async_tx_descriptor *tx)
 {
+	unsigned int bh;
 	struct ppc440spe_adma_desc_slot *sw_desc;
 	struct ppc440spe_adma_chan *chan = to_ppc440spe_adma_chan(tx->chan);
 	struct ppc440spe_adma_desc_slot *group_start, *old_chain_tail;
@@ -1921,7 +1924,7 @@ static dma_cookie_t ppc440spe_adma_tx_submit(struct dma_async_tx_descriptor *tx)
 	slot_cnt = group_start->slot_cnt;
 	slots_per_op = group_start->slots_per_op;
 
-	spin_lock_bh(&chan->lock);
+	bh = spin_lock_bh(&chan->lock, SOFTIRQ_ALL_MASK);
 	cookie = dma_cookie_assign(tx);
 
 	if (unlikely(list_empty(&chan->chain))) {
@@ -1942,7 +1945,7 @@ static dma_cookie_t ppc440spe_adma_tx_submit(struct dma_async_tx_descriptor *tx)
 	/* increment the pending count by the number of operations */
 	chan->pending += slot_cnt / slots_per_op;
 	ppc440spe_adma_check_threshold(chan);
-	spin_unlock_bh(&chan->lock);
+	spin_unlock_bh(&chan->lock, bh);
 
 	dev_dbg(chan->device->common.dev,
 		"ppc440spe adma%d: %s cookie: %d slot: %d tx %p\n",
@@ -1958,6 +1961,7 @@ static dma_cookie_t ppc440spe_adma_tx_submit(struct dma_async_tx_descriptor *tx)
 static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_interrupt(
 		struct dma_chan *chan, unsigned long flags)
 {
+	unsigned int bh;
 	struct ppc440spe_adma_chan *ppc440spe_chan;
 	struct ppc440spe_adma_desc_slot *sw_desc, *group_start;
 	int slot_cnt, slots_per_op;
@@ -1968,7 +1972,7 @@ static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_interrupt(
 		"ppc440spe adma%d: %s\n", ppc440spe_chan->device->id,
 		__func__);
 
-	spin_lock_bh(&ppc440spe_chan->lock);
+	bh = spin_lock_bh(&ppc440spe_chan->lock, SOFTIRQ_ALL_MASK);
 	slot_cnt = slots_per_op = 1;
 	sw_desc = ppc440spe_adma_alloc_slots(ppc440spe_chan, slot_cnt,
 			slots_per_op);
@@ -1978,7 +1982,7 @@ static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_interrupt(
 		group_start->unmap_len = 0;
 		sw_desc->async_tx.flags = flags;
 	}
-	spin_unlock_bh(&ppc440spe_chan->lock);
+	spin_unlock_bh(&ppc440spe_chan->lock, bh);
 
 	return sw_desc ? &sw_desc->async_tx : NULL;
 }
@@ -1990,6 +1994,7 @@ static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_memcpy(
 		struct dma_chan *chan, dma_addr_t dma_dest,
 		dma_addr_t dma_src, size_t len, unsigned long flags)
 {
+	unsigned int bh;
 	struct ppc440spe_adma_chan *ppc440spe_chan;
 	struct ppc440spe_adma_desc_slot *sw_desc, *group_start;
 	int slot_cnt, slots_per_op;
@@ -2001,7 +2006,7 @@ static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_memcpy(
 
 	BUG_ON(len > PPC440SPE_ADMA_DMA_MAX_BYTE_COUNT);
 
-	spin_lock_bh(&ppc440spe_chan->lock);
+	bh = spin_lock_bh(&ppc440spe_chan->lock, SOFTIRQ_ALL_MASK);
 
 	dev_dbg(ppc440spe_chan->device->common.dev,
 		"ppc440spe adma%d: %s len: %u int_en %d\n",
@@ -2019,7 +2024,7 @@ static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_memcpy(
 		sw_desc->unmap_len = len;
 		sw_desc->async_tx.flags = flags;
 	}
-	spin_unlock_bh(&ppc440spe_chan->lock);
+	spin_unlock_bh(&ppc440spe_chan->lock, bh);
 
 	return sw_desc ? &sw_desc->async_tx : NULL;
 }
@@ -2032,6 +2037,7 @@ static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_xor(
 		dma_addr_t *dma_src, u32 src_cnt, size_t len,
 		unsigned long flags)
 {
+	unsigned int bh;
 	struct ppc440spe_adma_chan *ppc440spe_chan;
 	struct ppc440spe_adma_desc_slot *sw_desc, *group_start;
 	int slot_cnt, slots_per_op;
@@ -2049,7 +2055,7 @@ static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_xor(
 		ppc440spe_chan->device->id, __func__, src_cnt, len,
 		flags & DMA_PREP_INTERRUPT ? 1 : 0);
 
-	spin_lock_bh(&ppc440spe_chan->lock);
+	bh = spin_lock_bh(&ppc440spe_chan->lock, SOFTIRQ_ALL_MASK);
 	slot_cnt = ppc440spe_chan_xor_slot_count(len, src_cnt, &slots_per_op);
 	sw_desc = ppc440spe_adma_alloc_slots(ppc440spe_chan, slot_cnt,
 			slots_per_op);
@@ -2064,7 +2070,7 @@ static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_xor(
 		sw_desc->unmap_len = len;
 		sw_desc->async_tx.flags = flags;
 	}
-	spin_unlock_bh(&ppc440spe_chan->lock);
+	spin_unlock_bh(&ppc440spe_chan->lock, bh);
 
 	return sw_desc ? &sw_desc->async_tx : NULL;
 }
@@ -2099,6 +2105,7 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma01_prep_mult(
 		dma_addr_t *dst, int dst_cnt, dma_addr_t *src, int src_cnt,
 		const unsigned char *scf, size_t len, unsigned long flags)
 {
+	unsigned int bh;
 	struct ppc440spe_adma_desc_slot *sw_desc = NULL;
 	unsigned long op = 0;
 	int slot_cnt;
@@ -2106,7 +2113,7 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma01_prep_mult(
 	set_bit(PPC440SPE_DESC_WXOR, &op);
 	slot_cnt = 2;
 
-	spin_lock_bh(&ppc440spe_chan->lock);
+	bh = spin_lock_bh(&ppc440spe_chan->lock, SOFTIRQ_ALL_MASK);
 
 	/* use WXOR, each descriptor occupies one slot */
 	sw_desc = ppc440spe_adma_alloc_slots(ppc440spe_chan, slot_cnt, 1);
@@ -2170,7 +2177,7 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma01_prep_mult(
 		sw_desc->async_tx.flags = flags;
 	}
 
-	spin_unlock_bh(&ppc440spe_chan->lock);
+	spin_unlock_bh(&ppc440spe_chan->lock, bh);
 
 	return sw_desc;
 }
@@ -2185,6 +2192,7 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma01_prep_sum_product(
 		dma_addr_t *dst, dma_addr_t *src, int src_cnt,
 		const unsigned char *scf, size_t len, unsigned long flags)
 {
+	unsigned int bh;
 	struct ppc440spe_adma_desc_slot *sw_desc = NULL;
 	unsigned long op = 0;
 	int slot_cnt;
@@ -2192,7 +2200,7 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma01_prep_sum_product(
 	set_bit(PPC440SPE_DESC_WXOR, &op);
 	slot_cnt = 3;
 
-	spin_lock_bh(&ppc440spe_chan->lock);
+	bh = spin_lock_bh(&ppc440spe_chan->lock, SOFTIRQ_ALL_MASK);
 
 	/* WXOR, each descriptor occupies one slot */
 	sw_desc = ppc440spe_adma_alloc_slots(ppc440spe_chan, slot_cnt, 1);
@@ -2279,7 +2287,7 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma01_prep_sum_product(
 		sw_desc->async_tx.flags = flags;
 	}
 
-	spin_unlock_bh(&ppc440spe_chan->lock);
+	spin_unlock_bh(&ppc440spe_chan->lock, bh);
 
 	return sw_desc;
 }
@@ -2289,6 +2297,7 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma01_prep_pq(
 		dma_addr_t *dst, int dst_cnt, dma_addr_t *src, int src_cnt,
 		const unsigned char *scf, size_t len, unsigned long flags)
 {
+	unsigned int bh;
 	int slot_cnt;
 	struct ppc440spe_adma_desc_slot *sw_desc = NULL, *iter;
 	unsigned long op = 0;
@@ -2388,7 +2397,7 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma01_prep_pq(
 			clear_bit(PPC440SPE_DESC_WXOR, &op);
 	}
 
-	spin_lock_bh(&ppc440spe_chan->lock);
+	bh = spin_lock_bh(&ppc440spe_chan->lock, SOFTIRQ_ALL_MASK);
 	/* for both RXOR/WXOR each descriptor occupies one slot */
 	sw_desc = ppc440spe_adma_alloc_slots(ppc440spe_chan, slot_cnt, 1);
 	if (sw_desc) {
@@ -2424,7 +2433,7 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma01_prep_pq(
 			iter->unmap_len = len;
 		}
 	}
-	spin_unlock_bh(&ppc440spe_chan->lock);
+	spin_unlock_bh(&ppc440spe_chan->lock, bh);
 
 	return sw_desc;
 }
@@ -2434,6 +2443,7 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma2_prep_pq(
 		dma_addr_t *dst, int dst_cnt, dma_addr_t *src, int src_cnt,
 		const unsigned char *scf, size_t len, unsigned long flags)
 {
+	unsigned int bh;
 	int slot_cnt, descs_per_op;
 	struct ppc440spe_adma_desc_slot *sw_desc = NULL, *iter;
 	unsigned long op = 0;
@@ -2443,10 +2453,10 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma2_prep_pq(
 	/*pr_debug("%s: dst_cnt %d, src_cnt %d, len %d\n",
 		 __func__, dst_cnt, src_cnt, len);*/
 
-	spin_lock_bh(&ppc440spe_chan->lock);
+	bh = spin_lock_bh(&ppc440spe_chan->lock, SOFTIRQ_ALL_MASK);
 	descs_per_op = ppc440spe_dma2_pq_slot_count(src, src_cnt, len);
 	if (descs_per_op < 0) {
-		spin_unlock_bh(&ppc440spe_chan->lock);
+		spin_unlock_bh(&ppc440spe_chan->lock, bh);
 		return NULL;
 	}
 
@@ -2510,7 +2520,7 @@ static struct ppc440spe_adma_desc_slot *ppc440spe_dma2_prep_pq(
 					mult, src_cnt, dst_cnt - 1);
 		}
 	}
-	spin_unlock_bh(&ppc440spe_chan->lock);
+	spin_unlock_bh(&ppc440spe_chan->lock, bh);
 	ppc440spe_desc_set_rxor_block_size(len);
 	return sw_desc;
 }
@@ -2599,6 +2609,7 @@ static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_pqzero_sum(
 		unsigned int src_cnt, const unsigned char *scf, size_t len,
 		enum sum_check_flags *pqres, unsigned long flags)
 {
+	unsigned int bh;
 	struct ppc440spe_adma_chan *ppc440spe_chan;
 	struct ppc440spe_adma_desc_slot *sw_desc, *iter;
 	dma_addr_t pdest, qdest;
@@ -2630,7 +2641,7 @@ static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_pqzero_sum(
 	slot_cnt = src_cnt + dst_cnt * 2;
 	slots_per_op = 1;
 
-	spin_lock_bh(&ppc440spe_chan->lock);
+	bh = spin_lock_bh(&ppc440spe_chan->lock, SOFTIRQ_ALL_MASK);
 	sw_desc = ppc440spe_adma_alloc_slots(ppc440spe_chan, slot_cnt,
 					     slots_per_op);
 	if (sw_desc) {
@@ -2765,7 +2776,7 @@ static struct dma_async_tx_descriptor *ppc440spe_adma_prep_dma_pqzero_sum(
 				break;
 		}
 	}
-	spin_unlock_bh(&ppc440spe_chan->lock);
+	spin_unlock_bh(&ppc440spe_chan->lock, bh);
 	return sw_desc ? &sw_desc->async_tx : NULL;
 }
 
@@ -3546,6 +3557,7 @@ static void ppc440spe_adma_pq_set_src_mult(
  */
 static void ppc440spe_adma_free_chan_resources(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct ppc440spe_adma_chan *ppc440spe_chan;
 	struct ppc440spe_adma_desc_slot *iter, *_iter;
 	int in_use_descs = 0;
@@ -3553,7 +3565,7 @@ static void ppc440spe_adma_free_chan_resources(struct dma_chan *chan)
 	ppc440spe_chan = to_ppc440spe_adma_chan(chan);
 	ppc440spe_adma_slot_cleanup(ppc440spe_chan);
 
-	spin_lock_bh(&ppc440spe_chan->lock);
+	bh = spin_lock_bh(&ppc440spe_chan->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(iter, _iter, &ppc440spe_chan->chain,
 					chain_node) {
 		in_use_descs++;
@@ -3571,7 +3583,7 @@ static void ppc440spe_adma_free_chan_resources(struct dma_chan *chan)
 		"ppc440spe adma%d %s slots_allocated %d\n",
 		ppc440spe_chan->device->id,
 		__func__, ppc440spe_chan->slots_allocated);
-	spin_unlock_bh(&ppc440spe_chan->lock);
+	spin_unlock_bh(&ppc440spe_chan->lock, bh);
 
 	/* one is ok since we left it on there on purpose */
 	if (in_use_descs > 1)
@@ -3667,6 +3679,7 @@ static void ppc440spe_adma_issue_pending(struct dma_chan *chan)
  */
 static void ppc440spe_chan_start_null_xor(struct ppc440spe_adma_chan *chan)
 {
+	unsigned int bh;
 	struct ppc440spe_adma_desc_slot *sw_desc, *group_start;
 	dma_cookie_t cookie;
 	int slot_cnt, slots_per_op;
@@ -3674,7 +3687,7 @@ static void ppc440spe_chan_start_null_xor(struct ppc440spe_adma_chan *chan)
 	dev_dbg(chan->device->common.dev,
 		"ppc440spe adma%d: %s\n", chan->device->id, __func__);
 
-	spin_lock_bh(&chan->lock);
+	bh = spin_lock_bh(&chan->lock, SOFTIRQ_ALL_MASK);
 	slot_cnt = ppc440spe_chan_xor_slot_count(0, 2, &slots_per_op);
 	sw_desc = ppc440spe_adma_alloc_slots(chan, slot_cnt, slots_per_op);
 	if (sw_desc) {
@@ -3702,7 +3715,7 @@ static void ppc440spe_chan_start_null_xor(struct ppc440spe_adma_chan *chan)
 		printk(KERN_ERR "ppc440spe adma%d"
 			" failed to allocate null descriptor\n",
 			chan->device->id);
-	spin_unlock_bh(&chan->lock);
+	spin_unlock_bh(&chan->lock, bh);
 }
 
 /**
@@ -3713,6 +3726,7 @@ static void ppc440spe_chan_start_null_xor(struct ppc440spe_adma_chan *chan)
  */
 static int ppc440spe_test_raid6(struct ppc440spe_adma_chan *chan)
 {
+	unsigned int bh;
 	struct ppc440spe_adma_desc_slot *sw_desc, *iter;
 	struct page *pg;
 	char *a;
@@ -3726,7 +3740,7 @@ static int ppc440spe_test_raid6(struct ppc440spe_adma_chan *chan)
 	if (!pg)
 		return -ENOMEM;
 
-	spin_lock_bh(&chan->lock);
+	bh = spin_lock_bh(&chan->lock, SOFTIRQ_ALL_MASK);
 	sw_desc = ppc440spe_adma_alloc_slots(chan, 1, 1);
 	if (sw_desc) {
 		/* 1 src, 1 dsr, int_ena, WXOR */
@@ -3737,10 +3751,10 @@ static int ppc440spe_test_raid6(struct ppc440spe_adma_chan *chan)
 		}
 	} else {
 		rval = -EFAULT;
-		spin_unlock_bh(&chan->lock);
+		spin_unlock_bh(&chan->lock, bh);
 		goto exit;
 	}
-	spin_unlock_bh(&chan->lock);
+	spin_unlock_bh(&chan->lock, bh);
 
 	/* Fill the test page with ones */
 	memset(page_address(pg), 0xFF, PAGE_SIZE);

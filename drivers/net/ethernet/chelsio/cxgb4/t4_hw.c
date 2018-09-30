@@ -319,7 +319,7 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
 	 * wait [for a while] till we're at the front [or bail out with an
 	 * EBUSY] ...
 	 */
-	spin_lock_bh(&adap->mbox_lock);
+	spin_lock_bh(&adap->mbox_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&entry.list, &adap->mlist.list);
 	spin_unlock_bh(&adap->mbox_lock);
 
@@ -334,7 +334,7 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
 		 */
 		pcie_fw = t4_read_reg(adap, PCIE_FW_A);
 		if (i > FW_CMD_MAX_TIMEOUT || (pcie_fw & PCIE_FW_ERR_F)) {
-			spin_lock_bh(&adap->mbox_lock);
+			spin_lock_bh(&adap->mbox_lock, SOFTIRQ_ALL_MASK);
 			list_del(&entry.list);
 			spin_unlock_bh(&adap->mbox_lock);
 			ret = (pcie_fw & PCIE_FW_ERR_F) ? -ENXIO : -EBUSY;
@@ -367,7 +367,7 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
 	for (i = 0; v == MBOX_OWNER_NONE && i < 3; i++)
 		v = MBOWNER_G(t4_read_reg(adap, ctl_reg));
 	if (v != MBOX_OWNER_DRV) {
-		spin_lock_bh(&adap->mbox_lock);
+		spin_lock_bh(&adap->mbox_lock, SOFTIRQ_ALL_MASK);
 		list_del(&entry.list);
 		spin_unlock_bh(&adap->mbox_lock);
 		ret = (v == MBOX_OWNER_FW) ? -EBUSY : -ETIMEDOUT;
@@ -420,7 +420,7 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
 			execute = i + ms;
 			t4_record_mbox(adap, cmd_rpl,
 				       MBOX_LEN, access, execute);
-			spin_lock_bh(&adap->mbox_lock);
+			spin_lock_bh(&adap->mbox_lock, SOFTIRQ_ALL_MASK);
 			list_del(&entry.list);
 			spin_unlock_bh(&adap->mbox_lock);
 			return -FW_CMD_RETVAL_G((int)res);
@@ -432,7 +432,7 @@ int t4_wr_mbox_meat_timeout(struct adapter *adap, int mbox, const void *cmd,
 	dev_err(adap->pdev_dev, "command %#x in mailbox %d timed out\n",
 		*(const u8 *)cmd, mbox);
 	t4_report_fw_error(adap);
-	spin_lock_bh(&adap->mbox_lock);
+	spin_lock_bh(&adap->mbox_lock, SOFTIRQ_ALL_MASK);
 	list_del(&entry.list);
 	spin_unlock_bh(&adap->mbox_lock);
 	t4_fatal_err(adap);
@@ -3786,6 +3786,7 @@ int t4_load_phy_fw(struct adapter *adap,
 		   int (*phy_fw_version)(const u8 *, size_t),
 		   const u8 *phy_fw_data, size_t phy_fw_size)
 {
+	unsigned int bh;
 	unsigned long mtype = 0, maddr = 0;
 	u32 param, val;
 	int cur_phy_fw_ver = 0, new_phy_fw_vers = 0;
@@ -3829,12 +3830,12 @@ int t4_load_phy_fw(struct adapter *adap,
 	 * allocated by the adapter firmware.
 	 */
 	if (win_lock)
-		spin_lock_bh(win_lock);
+		bh = spin_lock_bh(win_lock, SOFTIRQ_ALL_MASK);
 	ret = t4_memory_rw(adap, win, mtype, maddr,
 			   phy_fw_size, (__be32 *)phy_fw_data,
 			   T4_MEMORY_WRITE);
 	if (win_lock)
-		spin_unlock_bh(win_lock);
+		spin_unlock_bh(win_lock, bh);
 	if (ret)
 		return ret;
 

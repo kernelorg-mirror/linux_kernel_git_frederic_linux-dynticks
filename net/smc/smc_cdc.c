@@ -130,12 +130,13 @@ static int smcr_cdc_get_slot_and_msg_send(struct smc_connection *conn)
 
 int smc_cdc_get_slot_and_msg_send(struct smc_connection *conn)
 {
+	unsigned int bh;
 	int rc;
 
 	if (conn->lgr->is_smcd) {
-		spin_lock_bh(&conn->send_lock);
+		bh = spin_lock_bh(&conn->send_lock, SOFTIRQ_ALL_MASK);
 		rc = smcd_cdc_msg_send(conn);
-		spin_unlock_bh(&conn->send_lock);
+		spin_unlock_bh(&conn->send_lock, bh);
 	} else {
 		rc = smcr_cdc_get_slot_and_msg_send(conn);
 	}

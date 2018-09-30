@@ -139,6 +139,7 @@ void ovs_flow_stats_get(const struct sw_flow *flow,
 			struct ovs_flow_stats *ovs_stats,
 			unsigned long *used, __be16 *tcp_flags)
 {
+	unsigned int bh;
 	int cpu;
 
 	*used = 0;
@@ -153,13 +154,13 @@ void ovs_flow_stats_get(const struct sw_flow *flow,
 			/* Local CPU may write on non-local stats, so we must
 			 * block bottom-halves here.
 			 */
-			spin_lock_bh(&stats->lock);
+			bh = spin_lock_bh(&stats->lock, SOFTIRQ_ALL_MASK);
 			if (!*used || time_after(stats->used, *used))
 				*used = stats->used;
 			*tcp_flags |= stats->tcp_flags;
 			ovs_stats->n_packets += stats->packet_count;
 			ovs_stats->n_bytes += stats->byte_count;
-			spin_unlock_bh(&stats->lock);
+			spin_unlock_bh(&stats->lock, bh);
 		}
 	}
 }
@@ -167,6 +168,7 @@ void ovs_flow_stats_get(const struct sw_flow *flow,
 /* Called with ovs_mutex. */
 void ovs_flow_stats_clear(struct sw_flow *flow)
 {
+	unsigned int bh;
 	int cpu;
 
 	/* We open code this to make sure cpu 0 is always considered */
@@ -174,12 +176,12 @@ void ovs_flow_stats_clear(struct sw_flow *flow)
 		struct flow_stats *stats = ovsl_dereference(flow->stats[cpu]);
 
 		if (stats) {
-			spin_lock_bh(&stats->lock);
+			bh = spin_lock_bh(&stats->lock, SOFTIRQ_ALL_MASK);
 			stats->used = 0;
 			stats->packet_count = 0;
 			stats->byte_count = 0;
 			stats->tcp_flags = 0;
-			spin_unlock_bh(&stats->lock);
+			spin_unlock_bh(&stats->lock, bh);
 		}
 	}
 }

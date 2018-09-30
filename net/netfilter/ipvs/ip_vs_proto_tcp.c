@@ -587,6 +587,7 @@ tcp_state_transition(struct ip_vs_conn *cp, int direction,
 		     const struct sk_buff *skb,
 		     struct ip_vs_proto_data *pd)
 {
+	unsigned int bh;
 	struct tcphdr _tcph, *th;
 
 #ifdef CONFIG_IP_VS_IPV6
@@ -599,9 +600,9 @@ tcp_state_transition(struct ip_vs_conn *cp, int direction,
 	if (th == NULL)
 		return;
 
-	spin_lock_bh(&cp->lock);
+	bh = spin_lock_bh(&cp->lock, SOFTIRQ_ALL_MASK);
 	set_tcp_state(pd, cp, direction, th);
-	spin_unlock_bh(&cp->lock);
+	spin_unlock_bh(&cp->lock, bh);
 }
 
 static inline __u16 tcp_app_hashkey(__be16 port)
@@ -690,13 +691,14 @@ tcp_app_conn_bind(struct ip_vs_conn *cp)
  */
 void ip_vs_tcp_conn_listen(struct ip_vs_conn *cp)
 {
+	unsigned int bh;
 	struct ip_vs_proto_data *pd = ip_vs_proto_data_get(cp->ipvs, IPPROTO_TCP);
 
-	spin_lock_bh(&cp->lock);
+	bh = spin_lock_bh(&cp->lock, SOFTIRQ_ALL_MASK);
 	cp->state = IP_VS_TCP_S_LISTEN;
 	cp->timeout = (pd ? pd->timeout_table[IP_VS_TCP_S_LISTEN]
 			   : tcp_timeouts[IP_VS_TCP_S_LISTEN]);
-	spin_unlock_bh(&cp->lock);
+	spin_unlock_bh(&cp->lock, bh);
 }
 
 /* ---------------------------------------------

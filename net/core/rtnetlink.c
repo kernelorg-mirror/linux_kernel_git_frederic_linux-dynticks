@@ -3715,14 +3715,15 @@ int ndo_dflt_fdb_dump(struct sk_buff *skb,
 		      int *idx)
 {
 	int err;
+	unsigned int bh;
 
-	netif_addr_lock_bh(dev);
+	bh = netif_addr_lock_bh(dev);
 	err = nlmsg_populate_fdb(skb, cb, dev, idx, &dev->uc);
 	if (err)
 		goto out;
 	err = nlmsg_populate_fdb(skb, cb, dev, idx, &dev->mc);
 out:
-	netif_addr_unlock_bh(dev);
+	netif_addr_unlock_bh(dev, bh);
 	return err;
 }
 EXPORT_SYMBOL(ndo_dflt_fdb_dump);

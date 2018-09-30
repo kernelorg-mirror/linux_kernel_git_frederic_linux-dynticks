@@ -98,9 +98,10 @@ static void adf_unreserve_ring(struct adf_etr_bank_data *bank, uint32_t ring)
 
 static void adf_enable_ring_irq(struct adf_etr_bank_data *bank, uint32_t ring)
 {
-	spin_lock_bh(&bank->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&bank->lock, SOFTIRQ_ALL_MASK);
 	bank->irq_mask |= (1 << ring);
-	spin_unlock_bh(&bank->lock);
+	spin_unlock_bh(&bank->lock, bh);
 	WRITE_CSR_INT_COL_EN(bank->csr_addr, bank->bank_number, bank->irq_mask);
 	WRITE_CSR_INT_COL_CTL(bank->csr_addr, bank->bank_number,
 			      bank->irq_coalesc_timer);
@@ -108,20 +109,22 @@ static void adf_enable_ring_irq(struct adf_etr_bank_data *bank, uint32_t ring)
 
 static void adf_disable_ring_irq(struct adf_etr_bank_data *bank, uint32_t ring)
 {
-	spin_lock_bh(&bank->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&bank->lock, SOFTIRQ_ALL_MASK);
 	bank->irq_mask &= ~(1 << ring);
-	spin_unlock_bh(&bank->lock);
+	spin_unlock_bh(&bank->lock, bh);
 	WRITE_CSR_INT_COL_EN(bank->csr_addr, bank->bank_number, bank->irq_mask);
 }
 
 int adf_send_message(struct adf_etr_ring_data *ring, uint32_t *msg)
 {
+	unsigned int bh;
 	if (atomic_add_return(1, ring->inflights) >
 	    ADF_MAX_INFLIGHTS(ring->ring_size, ring->msg_size)) {
 		atomic_dec(ring->inflights);
 		return -EAGAIN;
 	}
-	spin_lock_bh(&ring->lock);
+	bh = spin_lock_bh(&ring->lock, SOFTIRQ_ALL_MASK);
 	memcpy((void *)((uintptr_t)ring->base_addr + ring->tail), msg,
 	       ADF_MSG_SIZE_TO_BYTES(ring->msg_size));
 
@@ -130,7 +133,7 @@ int adf_send_message(struct adf_etr_ring_data *ring, uint32_t *msg)
 				ADF_RING_SIZE_MODULO(ring->ring_size));
 	WRITE_CSR_RING_TAIL(ring->bank->csr_addr, ring->bank->bank_number,
 			    ring->ring_number, ring->tail);
-	spin_unlock_bh(&ring->lock);
+	spin_unlock_bh(&ring->lock, bh);
 	return 0;
 }
 

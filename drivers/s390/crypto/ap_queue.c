@@ -442,15 +442,16 @@ enum ap_wait ap_sm_event_loop(struct ap_queue *aq, enum ap_event event)
  */
 void ap_queue_suspend(struct ap_device *ap_dev)
 {
+	unsigned int bh;
 	struct ap_queue *aq = to_ap_queue(&ap_dev->device);
 
 	/* Poll on the device until all requests are finished. */
-	spin_lock_bh(&aq->lock);
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	aq->state = AP_STATE_SUSPEND_WAIT;
 	while (ap_sm_event(aq, AP_EVENT_POLL) != AP_WAIT_NONE)
 		;
 	aq->state = AP_STATE_BORKED;
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 }
 EXPORT_SYMBOL(ap_queue_suspend);
 
@@ -466,12 +467,13 @@ static ssize_t request_count_show(struct device *dev,
 				  struct device_attribute *attr,
 				  char *buf)
 {
+	unsigned int bh;
 	struct ap_queue *aq = to_ap_queue(dev);
 	unsigned int req_cnt;
 
-	spin_lock_bh(&aq->lock);
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	req_cnt = aq->total_request_count;
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 	return snprintf(buf, PAGE_SIZE, "%d\n", req_cnt);
 }
 
@@ -479,11 +481,12 @@ static ssize_t request_count_store(struct device *dev,
 				   struct device_attribute *attr,
 				   const char *buf, size_t count)
 {
+	unsigned int bh;
 	struct ap_queue *aq = to_ap_queue(dev);
 
-	spin_lock_bh(&aq->lock);
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	aq->total_request_count = 0;
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 
 	return count;
 }
@@ -493,12 +496,13 @@ static DEVICE_ATTR_RW(request_count);
 static ssize_t requestq_count_show(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
+	unsigned int bh;
 	struct ap_queue *aq = to_ap_queue(dev);
 	unsigned int reqq_cnt = 0;
 
-	spin_lock_bh(&aq->lock);
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	reqq_cnt = aq->requestq_count;
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 	return snprintf(buf, PAGE_SIZE, "%d\n", reqq_cnt);
 }
 
@@ -507,12 +511,13 @@ static DEVICE_ATTR_RO(requestq_count);
 static ssize_t pendingq_count_show(struct device *dev,
 				   struct device_attribute *attr, char *buf)
 {
+	unsigned int bh;
 	struct ap_queue *aq = to_ap_queue(dev);
 	unsigned int penq_cnt = 0;
 
-	spin_lock_bh(&aq->lock);
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	penq_cnt = aq->pendingq_count;
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 	return snprintf(buf, PAGE_SIZE, "%d\n", penq_cnt);
 }
 
@@ -521,10 +526,11 @@ static DEVICE_ATTR_RO(pendingq_count);
 static ssize_t reset_show(struct device *dev,
 			  struct device_attribute *attr, char *buf)
 {
+	unsigned int bh;
 	struct ap_queue *aq = to_ap_queue(dev);
 	int rc = 0;
 
-	spin_lock_bh(&aq->lock);
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	switch (aq->state) {
 	case AP_STATE_RESET_START:
 	case AP_STATE_RESET_WAIT:
@@ -537,7 +543,7 @@ static ssize_t reset_show(struct device *dev,
 	default:
 		rc = snprintf(buf, PAGE_SIZE, "No Reset Timer set.\n");
 	}
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 	return rc;
 }
 
@@ -546,17 +552,18 @@ static DEVICE_ATTR_RO(reset);
 static ssize_t interrupt_show(struct device *dev,
 			      struct device_attribute *attr, char *buf)
 {
+	unsigned int bh;
 	struct ap_queue *aq = to_ap_queue(dev);
 	int rc = 0;
 
-	spin_lock_bh(&aq->lock);
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	if (aq->state == AP_STATE_SETIRQ_WAIT)
 		rc = snprintf(buf, PAGE_SIZE, "Enable Interrupt pending.\n");
 	else if (aq->interrupt == AP_INTR_ENABLED)
 		rc = snprintf(buf, PAGE_SIZE, "Interrupts enabled.\n");
 	else
 		rc = snprintf(buf, PAGE_SIZE, "Interrupts disabled.\n");
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 	return rc;
 }
 
@@ -587,12 +594,13 @@ static struct device_type ap_queue_type = {
 
 static void ap_queue_device_release(struct device *dev)
 {
+	unsigned int bh;
 	struct ap_queue *aq = to_ap_queue(dev);
 
 	if (!list_empty(&aq->list)) {
-		spin_lock_bh(&ap_list_lock);
+		bh = spin_lock_bh(&ap_list_lock, SOFTIRQ_ALL_MASK);
 		list_del_init(&aq->list);
-		spin_unlock_bh(&ap_list_lock);
+		spin_unlock_bh(&ap_list_lock, bh);
 	}
 	kfree(aq);
 }
@@ -621,11 +629,12 @@ struct ap_queue *ap_queue_create(ap_qid_t qid, int device_type)
 
 void ap_queue_init_reply(struct ap_queue *aq, struct ap_message *reply)
 {
+	unsigned int bh;
 	aq->reply = reply;
 
-	spin_lock_bh(&aq->lock);
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	ap_wait(ap_sm_event(aq, AP_EVENT_POLL));
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 }
 EXPORT_SYMBOL(ap_queue_init_reply);
 
@@ -636,12 +645,13 @@ EXPORT_SYMBOL(ap_queue_init_reply);
  */
 void ap_queue_message(struct ap_queue *aq, struct ap_message *ap_msg)
 {
+	unsigned int bh;
 	/* For asynchronous message handling a valid receive-callback
 	 * is required.
 	 */
 	BUG_ON(!ap_msg->receive);
 
-	spin_lock_bh(&aq->lock);
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	/* Queue the message. */
 	list_add_tail(&ap_msg->list, &aq->requestq);
 	aq->requestq_count++;
@@ -649,7 +659,7 @@ void ap_queue_message(struct ap_queue *aq, struct ap_message *ap_msg)
 	atomic_inc(&aq->card->total_request_count);
 	/* Send/receive as many request from the queue as possible. */
 	ap_wait(ap_sm_event_loop(aq, AP_EVENT_POLL));
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 }
 EXPORT_SYMBOL(ap_queue_message);
 
@@ -665,9 +675,10 @@ EXPORT_SYMBOL(ap_queue_message);
  */
 void ap_cancel_message(struct ap_queue *aq, struct ap_message *ap_msg)
 {
+	unsigned int bh;
 	struct ap_message *tmp;
 
-	spin_lock_bh(&aq->lock);
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&ap_msg->list)) {
 		list_for_each_entry(tmp, &aq->pendingq, list)
 			if (tmp->psmid == ap_msg->psmid) {
@@ -678,7 +689,7 @@ void ap_cancel_message(struct ap_queue *aq, struct ap_message *ap_msg)
 found:
 		list_del_init(&ap_msg->list);
 	}
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 }
 EXPORT_SYMBOL(ap_cancel_message);
 
@@ -708,9 +719,10 @@ static void __ap_flush_queue(struct ap_queue *aq)
 
 void ap_flush_queue(struct ap_queue *aq)
 {
-	spin_lock_bh(&aq->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	__ap_flush_queue(aq);
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 }
 EXPORT_SYMBOL(ap_flush_queue);
 

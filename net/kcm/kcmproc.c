@@ -185,6 +185,7 @@ static void kcm_format_psock(struct kcm_psock *psock, struct seq_file *seq,
 static void
 kcm_format_mux(struct kcm_mux *mux, loff_t idx, struct seq_file *seq)
 {
+	unsigned int bh;
 	int i, len;
 	struct kcm_sock *kcm;
 	struct kcm_psock *psock;
@@ -204,7 +205,7 @@ kcm_format_mux(struct kcm_mux *mux, loff_t idx, struct seq_file *seq)
 
 	/* kcm sock information */
 	i = 0;
-	spin_lock_bh(&mux->lock);
+	bh = spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(kcm, &mux->kcm_socks, kcm_sock_list) {
 		kcm_format_sock(kcm, seq, i, &len);
 		i++;
@@ -214,7 +215,7 @@ kcm_format_mux(struct kcm_mux *mux, loff_t idx, struct seq_file *seq)
 		kcm_format_psock(psock, seq, i, &len);
 		i++;
 	}
-	spin_unlock_bh(&mux->lock);
+	spin_unlock_bh(&mux->lock, bh);
 }
 
 static int kcm_seq_show(struct seq_file *seq, void *v)
@@ -241,6 +242,7 @@ static const struct seq_operations kcm_seq_ops = {
 
 static int kcm_stats_seq_show(struct seq_file *seq, void *v)
 {
+	unsigned int bh;
 	struct kcm_psock_stats psock_stats;
 	struct kcm_mux_stats mux_stats;
 	struct strp_aggr_stats strp_stats;
@@ -262,7 +264,7 @@ static int kcm_stats_seq_show(struct seq_file *seq, void *v)
 			     &strp_stats);
 
 	list_for_each_entry_rcu(mux, &knet->mux_list, kcm_mux_list) {
-		spin_lock_bh(&mux->lock);
+		bh = spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 		aggregate_mux_stats(&mux->stats, &mux_stats);
 		aggregate_psock_stats(&mux->aggregate_psock_stats,
 				      &psock_stats);
@@ -273,7 +275,7 @@ static int kcm_stats_seq_show(struct seq_file *seq, void *v)
 			save_strp_stats(&psock->strp, &strp_stats);
 		}
 
-		spin_unlock_bh(&mux->lock);
+		spin_unlock_bh(&mux->lock, bh);
 	}
 
 	mutex_unlock(&knet->mutex);

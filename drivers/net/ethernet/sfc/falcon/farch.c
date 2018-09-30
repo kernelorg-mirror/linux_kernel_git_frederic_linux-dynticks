@@ -2327,6 +2327,7 @@ s32 ef4_farch_filter_insert(struct ef4_nic *efx,
 			    struct ef4_filter_spec *gen_spec,
 			    bool replace_equal)
 {
+	unsigned int bh;
 	struct ef4_farch_filter_state *state = efx->filter_state;
 	struct ef4_farch_filter_table *table;
 	struct ef4_farch_filter_spec spec;
@@ -2355,7 +2356,7 @@ s32 ef4_farch_filter_insert(struct ef4_nic *efx,
 		rep_index = spec.type - EF4_FARCH_FILTER_UC_DEF;
 		ins_index = rep_index;
 
-		spin_lock_bh(&efx->filter_lock);
+		bh = spin_lock_bh(&efx->filter_lock, SOFTIRQ_ALL_MASK);
 	} else {
 		/* Search concurrently for
 		 * (1) a filter to be replaced (rep_index): any filter
@@ -2385,7 +2386,7 @@ s32 ef4_farch_filter_insert(struct ef4_nic *efx,
 		ins_index = -1;
 		depth = 1;
 
-		spin_lock_bh(&efx->filter_lock);
+		bh = spin_lock_bh(&efx->filter_lock, SOFTIRQ_ALL_MASK);
 
 		for (;;) {
 			if (!test_bit(i, table->used_bitmap)) {
@@ -2471,7 +2472,7 @@ s32 ef4_farch_filter_insert(struct ef4_nic *efx,
 	rc = ef4_farch_filter_make_id(&spec, ins_index);
 
 out:
-	spin_unlock_bh(&efx->filter_lock);
+	spin_unlock_bh(&efx->filter_lock, bh);
 	return rc;
 }
 
@@ -2531,6 +2532,7 @@ int ef4_farch_filter_remove_safe(struct ef4_nic *efx,
 				 enum ef4_filter_priority priority,
 				 u32 filter_id)
 {
+	unsigned int bh;
 	struct ef4_farch_filter_state *state = efx->filter_state;
 	enum ef4_farch_filter_table_id table_id;
 	struct ef4_farch_filter_table *table;
@@ -2548,9 +2550,9 @@ int ef4_farch_filter_remove_safe(struct ef4_nic *efx,
 		return -ENOENT;
 	spec = &table->spec[filter_idx];
 
-	spin_lock_bh(&efx->filter_lock);
+	bh = spin_lock_bh(&efx->filter_lock, SOFTIRQ_ALL_MASK);
 	rc = ef4_farch_filter_remove(efx, table, filter_idx, priority);
-	spin_unlock_bh(&efx->filter_lock);
+	spin_unlock_bh(&efx->filter_lock, bh);
 
 	return rc;
 }
@@ -2559,6 +2561,7 @@ int ef4_farch_filter_get_safe(struct ef4_nic *efx,
 			      enum ef4_filter_priority priority,
 			      u32 filter_id, struct ef4_filter_spec *spec_buf)
 {
+	unsigned int bh;
 	struct ef4_farch_filter_state *state = efx->filter_state;
 	enum ef4_farch_filter_table_id table_id;
 	struct ef4_farch_filter_table *table;
@@ -2576,7 +2579,7 @@ int ef4_farch_filter_get_safe(struct ef4_nic *efx,
 		return -ENOENT;
 	spec = &table->spec[filter_idx];
 
-	spin_lock_bh(&efx->filter_lock);
+	bh = spin_lock_bh(&efx->filter_lock, SOFTIRQ_ALL_MASK);
 
 	if (test_bit(filter_idx, table->used_bitmap) &&
 	    spec->priority == priority) {
@@ -2586,7 +2589,7 @@ int ef4_farch_filter_get_safe(struct ef4_nic *efx,
 		rc = -ENOENT;
 	}
 
-	spin_unlock_bh(&efx->filter_lock);
+	spin_unlock_bh(&efx->filter_lock, bh);
 
 	return rc;
 }
@@ -2596,17 +2599,18 @@ ef4_farch_filter_table_clear(struct ef4_nic *efx,
 			     enum ef4_farch_filter_table_id table_id,
 			     enum ef4_filter_priority priority)
 {
+	unsigned int bh;
 	struct ef4_farch_filter_state *state = efx->filter_state;
 	struct ef4_farch_filter_table *table = &state->table[table_id];
 	unsigned int filter_idx;
 
-	spin_lock_bh(&efx->filter_lock);
+	bh = spin_lock_bh(&efx->filter_lock, SOFTIRQ_ALL_MASK);
 	for (filter_idx = 0; filter_idx < table->size; ++filter_idx) {
 		if (table->spec[filter_idx].priority != EF4_FILTER_PRI_AUTO)
 			ef4_farch_filter_remove(efx, table,
 						filter_idx, priority);
 	}
-	spin_unlock_bh(&efx->filter_lock);
+	spin_unlock_bh(&efx->filter_lock, bh);
 }
 
 int ef4_farch_filter_clear_rx(struct ef4_nic *efx,
@@ -2624,13 +2628,14 @@ int ef4_farch_filter_clear_rx(struct ef4_nic *efx,
 u32 ef4_farch_filter_count_rx_used(struct ef4_nic *efx,
 				   enum ef4_filter_priority priority)
 {
+	unsigned int bh;
 	struct ef4_farch_filter_state *state = efx->filter_state;
 	enum ef4_farch_filter_table_id table_id;
 	struct ef4_farch_filter_table *table;
 	unsigned int filter_idx;
 	u32 count = 0;
 
-	spin_lock_bh(&efx->filter_lock);
+	bh = spin_lock_bh(&efx->filter_lock, SOFTIRQ_ALL_MASK);
 
 	for (table_id = EF4_FARCH_FILTER_TABLE_RX_IP;
 	     table_id <= EF4_FARCH_FILTER_TABLE_RX_DEF;
@@ -2643,7 +2648,7 @@ u32 ef4_farch_filter_count_rx_used(struct ef4_nic *efx,
 		}
 	}
 
-	spin_unlock_bh(&efx->filter_lock);
+	spin_unlock_bh(&efx->filter_lock, bh);
 
 	return count;
 }
@@ -2652,13 +2657,14 @@ s32 ef4_farch_filter_get_rx_ids(struct ef4_nic *efx,
 				enum ef4_filter_priority priority,
 				u32 *buf, u32 size)
 {
+	unsigned int bh;
 	struct ef4_farch_filter_state *state = efx->filter_state;
 	enum ef4_farch_filter_table_id table_id;
 	struct ef4_farch_filter_table *table;
 	unsigned int filter_idx;
 	s32 count = 0;
 
-	spin_lock_bh(&efx->filter_lock);
+	bh = spin_lock_bh(&efx->filter_lock, SOFTIRQ_ALL_MASK);
 
 	for (table_id = EF4_FARCH_FILTER_TABLE_RX_IP;
 	     table_id <= EF4_FARCH_FILTER_TABLE_RX_DEF;
@@ -2677,7 +2683,7 @@ s32 ef4_farch_filter_get_rx_ids(struct ef4_nic *efx,
 		}
 	}
 out:
-	spin_unlock_bh(&efx->filter_lock);
+	spin_unlock_bh(&efx->filter_lock, bh);
 
 	return count;
 }
@@ -2685,13 +2691,14 @@ out:
 /* Restore filter stater after reset */
 void ef4_farch_filter_table_restore(struct ef4_nic *efx)
 {
+	unsigned int bh;
 	struct ef4_farch_filter_state *state = efx->filter_state;
 	enum ef4_farch_filter_table_id table_id;
 	struct ef4_farch_filter_table *table;
 	ef4_oword_t filter;
 	unsigned int filter_idx;
 
-	spin_lock_bh(&efx->filter_lock);
+	bh = spin_lock_bh(&efx->filter_lock, SOFTIRQ_ALL_MASK);
 
 	for (table_id = 0; table_id < EF4_FARCH_FILTER_TABLE_COUNT; table_id++) {
 		table = &state->table[table_id];
@@ -2712,7 +2719,7 @@ void ef4_farch_filter_table_restore(struct ef4_nic *efx)
 	ef4_farch_filter_push_rx_config(efx);
 	ef4_farch_filter_push_tx_limits(efx);
 
-	spin_unlock_bh(&efx->filter_lock);
+	spin_unlock_bh(&efx->filter_lock, bh);
 }
 
 void ef4_farch_filter_table_remove(struct ef4_nic *efx)
@@ -2787,13 +2794,14 @@ fail:
 /* Update scatter enable flags for filters pointing to our own RX queues */
 void ef4_farch_filter_update_rx_scatter(struct ef4_nic *efx)
 {
+	unsigned int bh;
 	struct ef4_farch_filter_state *state = efx->filter_state;
 	enum ef4_farch_filter_table_id table_id;
 	struct ef4_farch_filter_table *table;
 	ef4_oword_t filter;
 	unsigned int filter_idx;
 
-	spin_lock_bh(&efx->filter_lock);
+	bh = spin_lock_bh(&efx->filter_lock, SOFTIRQ_ALL_MASK);
 
 	for (table_id = EF4_FARCH_FILTER_TABLE_RX_IP;
 	     table_id <= EF4_FARCH_FILTER_TABLE_RX_DEF;
@@ -2825,7 +2833,7 @@ void ef4_farch_filter_update_rx_scatter(struct ef4_nic *efx)
 
 	ef4_farch_filter_push_rx_config(efx);
 
-	spin_unlock_bh(&efx->filter_lock);
+	spin_unlock_bh(&efx->filter_lock, bh);
 }
 
 #ifdef CONFIG_RFS_ACCEL

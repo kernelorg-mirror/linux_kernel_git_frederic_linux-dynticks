@@ -923,13 +923,14 @@ static int omap_sham_update_dma_stop(struct omap_sham_dev *dd)
 
 static int omap_sham_init(struct ahash_request *req)
 {
+	unsigned int bh;
 	struct crypto_ahash *tfm = crypto_ahash_reqtfm(req);
 	struct omap_sham_ctx *tctx = crypto_ahash_ctx(tfm);
 	struct omap_sham_reqctx *ctx = ahash_request_ctx(req);
 	struct omap_sham_dev *dd = NULL, *tmp;
 	int bs = 0;
 
-	spin_lock_bh(&sham.lock);
+	bh = spin_lock_bh(&sham.lock, SOFTIRQ_ALL_MASK);
 	if (!tctx->dd) {
 		list_for_each_entry(tmp, &sham.dev_list, list) {
 			dd = tmp;
@@ -939,7 +940,7 @@ static int omap_sham_init(struct ahash_request *req)
 	} else {
 		dd = tctx->dd;
 	}
-	spin_unlock_bh(&sham.lock);
+	spin_unlock_bh(&sham.lock, bh);
 
 	ctx->dd = dd;
 
@@ -1303,6 +1304,7 @@ static int omap_sham_digest(struct ahash_request *req)
 static int omap_sham_setkey(struct crypto_ahash *tfm, const u8 *key,
 		      unsigned int keylen)
 {
+	unsigned int bh;
 	struct omap_sham_ctx *tctx = crypto_ahash_ctx(tfm);
 	struct omap_sham_hmac_ctx *bctx = tctx->base;
 	int bs = crypto_shash_blocksize(bctx->shash);
@@ -1310,7 +1312,7 @@ static int omap_sham_setkey(struct crypto_ahash *tfm, const u8 *key,
 	struct omap_sham_dev *dd = NULL, *tmp;
 	int err, i;
 
-	spin_lock_bh(&sham.lock);
+	bh = spin_lock_bh(&sham.lock, SOFTIRQ_ALL_MASK);
 	if (!tctx->dd) {
 		list_for_each_entry(tmp, &sham.dev_list, list) {
 			dd = tmp;
@@ -1320,7 +1322,7 @@ static int omap_sham_setkey(struct crypto_ahash *tfm, const u8 *key,
 	} else {
 		dd = tctx->dd;
 	}
-	spin_unlock_bh(&sham.lock);
+	spin_unlock_bh(&sham.lock, bh);
 
 	err = crypto_shash_setkey(tctx->fallback, key, keylen);
 	if (err)

@@ -39,6 +39,7 @@ void bnx2fc_cmd_timer_set(struct bnx2fc_cmd *io_req,
 
 static void bnx2fc_cmd_timeout(struct work_struct *work)
 {
+	unsigned int bh;
 	struct bnx2fc_cmd *io_req = container_of(work, struct bnx2fc_cmd,
 						 timeout_work.work);
 	u8 cmd_type = io_req->cmd_type;
@@ -48,14 +49,14 @@ static void bnx2fc_cmd_timeout(struct work_struct *work)
 	BNX2FC_IO_DBG(io_req, "cmd_timeout, cmd_type = %d,"
 		      "req_flags = %lx\n", cmd_type, io_req->req_flags);
 
-	spin_lock_bh(&tgt->tgt_lock);
+	bh = spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 	if (test_and_clear_bit(BNX2FC_FLAG_ISSUE_RRQ, &io_req->req_flags)) {
 		clear_bit(BNX2FC_FLAG_RETIRE_OXID, &io_req->req_flags);
 		/*
 		 * ideally we should hold the io_req until RRQ complets,
 		 * and release io_req from timeout hold.
 		 */
-		spin_unlock_bh(&tgt->tgt_lock);
+		spin_unlock_bh(&tgt->tgt_lock, bh);
 		bnx2fc_send_rrq(io_req);
 		return;
 	}
@@ -84,7 +85,7 @@ static void bnx2fc_cmd_timeout(struct work_struct *work)
 				 */
 				bnx2fc_initiate_cleanup(io_req);
 				kref_put(&io_req->refcount, bnx2fc_cmd_release);
-				spin_unlock_bh(&tgt->tgt_lock);
+				spin_unlock_bh(&tgt->tgt_lock, bh);
 
 				return;
 			}
@@ -105,7 +106,7 @@ static void bnx2fc_cmd_timeout(struct work_struct *work)
 					goto done;
 
 				kref_put(&io_req->refcount, bnx2fc_cmd_release);
-				spin_unlock_bh(&tgt->tgt_lock);
+				spin_unlock_bh(&tgt->tgt_lock, bh);
 
 				return;
 			} else {
@@ -122,7 +123,7 @@ static void bnx2fc_cmd_timeout(struct work_struct *work)
 			if (!test_and_set_bit(BNX2FC_FLAG_ABTS_DONE,
 					      &io_req->req_flags)) {
 				kref_put(&io_req->refcount, bnx2fc_cmd_release);
-				spin_unlock_bh(&tgt->tgt_lock);
+				spin_unlock_bh(&tgt->tgt_lock, bh);
 
 				return;
 			}
@@ -156,7 +157,7 @@ static void bnx2fc_cmd_timeout(struct work_struct *work)
 done:
 	/* release the cmd that was held when timer was set */
 	kref_put(&io_req->refcount, bnx2fc_cmd_release);
-	spin_unlock_bh(&tgt->tgt_lock);
+	spin_unlock_bh(&tgt->tgt_lock, bh);
 }
 
 static void bnx2fc_scsi_done(struct bnx2fc_cmd *io_req, int err_code)
@@ -393,6 +394,7 @@ free_cmgr:
 
 struct bnx2fc_cmd *bnx2fc_elstm_alloc(struct bnx2fc_rport *tgt, int type)
 {
+	unsigned int bh;
 	struct fcoe_port *port = tgt->port;
 	struct bnx2fc_interface *interface = port->priv;
 	struct bnx2fc_cmd_mgr *cmd_mgr = interface->hba->cmd_mgr;
@@ -420,7 +422,7 @@ struct bnx2fc_cmd *bnx2fc_elstm_alloc(struct bnx2fc_rport *tgt, int type)
 	 * NOTE: Free list insertions and deletions are protected with
 	 * cmgr lock
 	 */
-	spin_lock_bh(&cmd_mgr->free_list_lock[index]);
+	bh = spin_lock_bh(&cmd_mgr->free_list_lock[index], SOFTIRQ_ALL_MASK);
 	free_sqes = atomic_read(&tgt->free_sqes);
 	if ((list_empty(&(cmd_mgr->free_list[index]))) ||
 	    (tgt->num_active_ios.counter  >= max_sqes) ||
@@ -430,7 +432,7 @@ struct bnx2fc_cmd *bnx2fc_elstm_alloc(struct bnx2fc_rport *tgt, int type)
 			tgt->num_active_ios.counter, tgt->max_sqes);
 		if (list_empty(&(cmd_mgr->free_list[index])))
 			printk(KERN_ERR PFX "elstm_alloc: list_empty\n");
-		spin_unlock_bh(&cmd_mgr->free_list_lock[index]);
+		spin_unlock_bh(&cmd_mgr->free_list_lock[index], bh);
 		return NULL;
 	}
 
@@ -442,7 +444,7 @@ struct bnx2fc_cmd *bnx2fc_elstm_alloc(struct bnx2fc_rport *tgt, int type)
 	cmd_mgr->cmds[xid] = io_req;
 	atomic_inc(&tgt->num_active_ios);
 	atomic_dec(&tgt->free_sqes);
-	spin_unlock_bh(&cmd_mgr->free_list_lock[index]);
+	spin_unlock_bh(&cmd_mgr->free_list_lock[index], bh);
 
 	INIT_LIST_HEAD(&io_req->link);
 
@@ -463,6 +465,7 @@ struct bnx2fc_cmd *bnx2fc_elstm_alloc(struct bnx2fc_rport *tgt, int type)
 
 struct bnx2fc_cmd *bnx2fc_cmd_alloc(struct bnx2fc_rport *tgt)
 {
+	unsigned int bh;
 	struct fcoe_port *port = tgt->port;
 	struct bnx2fc_interface *interface = port->priv;
 	struct bnx2fc_cmd_mgr *cmd_mgr = interface->hba->cmd_mgr;
@@ -479,12 +482,12 @@ struct bnx2fc_cmd *bnx2fc_cmd_alloc(struct bnx2fc_rport *tgt)
 	 * NOTE: Free list insertions and deletions are protected with
 	 * cmgr lock
 	 */
-	spin_lock_bh(&cmd_mgr->free_list_lock[index]);
+	bh = spin_lock_bh(&cmd_mgr->free_list_lock[index], SOFTIRQ_ALL_MASK);
 	free_sqes = atomic_read(&tgt->free_sqes);
 	if ((list_empty(&cmd_mgr->free_list[index])) ||
 	    (tgt->num_active_ios.counter  >= max_sqes) ||
 	    (free_sqes + max_sqes <= BNX2FC_SQ_WQES_MAX)) {
-		spin_unlock_bh(&cmd_mgr->free_list_lock[index]);
+		spin_unlock_bh(&cmd_mgr->free_list_lock[index], bh);
 		put_cpu();
 		return NULL;
 	}
@@ -497,7 +500,7 @@ struct bnx2fc_cmd *bnx2fc_cmd_alloc(struct bnx2fc_rport *tgt)
 	cmd_mgr->cmds[xid] = io_req;
 	atomic_inc(&tgt->num_active_ios);
 	atomic_dec(&tgt->free_sqes);
-	spin_unlock_bh(&cmd_mgr->free_list_lock[index]);
+	spin_unlock_bh(&cmd_mgr->free_list_lock[index], bh);
 	put_cpu();
 
 	INIT_LIST_HEAD(&io_req->link);
@@ -518,6 +521,7 @@ struct bnx2fc_cmd *bnx2fc_cmd_alloc(struct bnx2fc_rport *tgt)
 
 void bnx2fc_cmd_release(struct kref *ref)
 {
+	unsigned int bh;
 	struct bnx2fc_cmd *io_req = container_of(ref,
 						struct bnx2fc_cmd, refcount);
 	struct bnx2fc_cmd_mgr *cmd_mgr = io_req->cmd_mgr;
@@ -529,7 +533,7 @@ void bnx2fc_cmd_release(struct kref *ref)
 		index = RESERVE_FREE_LIST_INDEX;
 
 
-	spin_lock_bh(&cmd_mgr->free_list_lock[index]);
+	bh = spin_lock_bh(&cmd_mgr->free_list_lock[index], SOFTIRQ_ALL_MASK);
 	if (io_req->cmd_type != BNX2FC_SCSI_CMD)
 		bnx2fc_free_mp_resc(io_req);
 	cmd_mgr->cmds[io_req->xid] = NULL;
@@ -539,7 +543,7 @@ void bnx2fc_cmd_release(struct kref *ref)
 	list_add(&io_req->link,
 			&cmd_mgr->free_list[index]);
 	atomic_dec(&io_req->tgt->num_active_ios);
-	spin_unlock_bh(&cmd_mgr->free_list_lock[index]);
+	spin_unlock_bh(&cmd_mgr->free_list_lock[index], bh);
 
 }
 
@@ -660,6 +664,7 @@ int bnx2fc_init_mp_req(struct bnx2fc_cmd *io_req)
 
 static int bnx2fc_initiate_tmf(struct scsi_cmnd *sc_cmd, u8 tm_flags)
 {
+	unsigned int bh;
 	struct fc_lport *lport;
 	struct fc_rport *rport;
 	struct fc_rport_libfc_priv *rp;
@@ -729,9 +734,9 @@ retry_tmf:
 	rc = bnx2fc_init_mp_req(io_req);
 	if (rc == FAILED) {
 		printk(KERN_ERR PFX "Task mgmt MP request init failed\n");
-		spin_lock_bh(&tgt->tgt_lock);
+		bh = spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		kref_put(&io_req->refcount, bnx2fc_cmd_release);
-		spin_unlock_bh(&tgt->tgt_lock);
+		spin_unlock_bh(&tgt->tgt_lock, bh);
 		goto tmf_err;
 	}
 
@@ -768,7 +773,7 @@ retry_tmf:
 	sc_cmd->SCp.ptr = (char *)io_req;
 
 	/* Obtain free SQ entry */
-	spin_lock_bh(&tgt->tgt_lock);
+	spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 	bnx2fc_add_2_sq(tgt, xid);
 
 	/* Enqueue the io_req to active_tm_queue */
@@ -784,7 +789,7 @@ retry_tmf:
 
 	rc = wait_for_completion_timeout(&io_req->tm_done,
 					 interface->tm_timeout * HZ);
-	spin_lock_bh(&tgt->tgt_lock);
+	spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 
 	io_req->wait_for_comp = 0;
 	if (!(test_bit(BNX2FC_FLAG_TM_COMPL, &io_req->req_flags))) {
@@ -798,7 +803,7 @@ retry_tmf:
 		spin_unlock_bh(&tgt->tgt_lock);
 		rc = wait_for_completion_timeout(&io_req->tm_done,
 						 BNX2FC_FW_TIMEOUT);
-		spin_lock_bh(&tgt->tgt_lock);
+		spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		io_req->wait_for_comp = 0;
 		if (!rc)
 			kref_put(&io_req->refcount, bnx2fc_cmd_release);
@@ -1109,7 +1114,7 @@ static int bnx2fc_abts_cleanup(struct bnx2fc_cmd *io_req)
 	 */
 	kref_put(&io_req->refcount, bnx2fc_cmd_release);
 
-	spin_lock_bh(&tgt->tgt_lock);
+	spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 	return rc;
 }
 
@@ -1123,6 +1128,7 @@ static int bnx2fc_abts_cleanup(struct bnx2fc_cmd *io_req)
  */
 int bnx2fc_eh_abort(struct scsi_cmnd *sc_cmd)
 {
+	unsigned int bh;
 	struct fc_rport *rport = starget_to_rport(scsi_target(sc_cmd->device));
 	struct fc_rport_libfc_priv *rp = rport->dd_data;
 	struct bnx2fc_cmd *io_req;
@@ -1145,12 +1151,12 @@ int bnx2fc_eh_abort(struct scsi_cmnd *sc_cmd)
 
 	BNX2FC_TGT_DBG(tgt, "Entered bnx2fc_eh_abort\n");
 
-	spin_lock_bh(&tgt->tgt_lock);
+	bh = spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 	io_req = (struct bnx2fc_cmd *)sc_cmd->SCp.ptr;
 	if (!io_req) {
 		/* Command might have just completed */
 		printk(KERN_ERR PFX "eh_abort: io_req is NULL\n");
-		spin_unlock_bh(&tgt->tgt_lock);
+		spin_unlock_bh(&tgt->tgt_lock, bh);
 		return SUCCESS;
 	}
 	BNX2FC_IO_DBG(io_req, "eh_abort - refcnt = %d\n",
@@ -1171,7 +1177,7 @@ int bnx2fc_eh_abort(struct scsi_cmnd *sc_cmd)
 		printk(KERN_ERR PFX "eh_abort: io_req (xid = 0x%x) "
 			"flush in progress\n", io_req->xid);
 		kref_put(&io_req->refcount, bnx2fc_cmd_release);
-		spin_unlock_bh(&tgt->tgt_lock);
+		spin_unlock_bh(&tgt->tgt_lock, bh);
 		return SUCCESS;
 	}
 
@@ -1182,7 +1188,7 @@ int bnx2fc_eh_abort(struct scsi_cmnd *sc_cmd)
 		 * The IO is still with the FW.
 		 * Return failure and let SCSI-ml retry eh_abort.
 		 */
-		spin_unlock_bh(&tgt->tgt_lock);
+		spin_unlock_bh(&tgt->tgt_lock, bh);
 		return FAILED;
 	}
 
@@ -1232,7 +1238,7 @@ int bnx2fc_eh_abort(struct scsi_cmnd *sc_cmd)
 		bnx2fc_initiate_cleanup(io_req);
 		spin_unlock_bh(&tgt->tgt_lock);
 		wait_for_completion(&io_req->tm_done);
-		spin_lock_bh(&tgt->tgt_lock);
+		spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		io_req->wait_for_comp = 0;
 		goto done;
 	}
@@ -1244,7 +1250,7 @@ int bnx2fc_eh_abort(struct scsi_cmnd *sc_cmd)
 	if (time_left)
 		BNX2FC_IO_DBG(io_req, "Timed out in eh_abort waiting for tm_done");
 
-	spin_lock_bh(&tgt->tgt_lock);
+	spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 	io_req->wait_for_comp = 0;
 	if (test_bit(BNX2FC_FLAG_IO_COMPL, &io_req->req_flags)) {
 		BNX2FC_IO_DBG(io_req, "IO completed in a different context\n");
@@ -1274,7 +1280,7 @@ int bnx2fc_eh_abort(struct scsi_cmnd *sc_cmd)
 done:
 	/* release the reference taken in eh_abort */
 	kref_put(&io_req->refcount, bnx2fc_cmd_release);
-	spin_unlock_bh(&tgt->tgt_lock);
+	spin_unlock_bh(&tgt->tgt_lock, bh);
 	return rc;
 }
 
@@ -1301,7 +1307,7 @@ void bnx2fc_process_seq_cleanup_compl(struct bnx2fc_cmd *seq_clnp_req,
 
 	spin_unlock_bh(&tgt->tgt_lock);
 	rc = bnx2fc_send_srr(orig_io_req, offset, r_ctl);
-	spin_lock_bh(&tgt->tgt_lock);
+	spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 
 	if (rc)
 		printk(KERN_ERR PFX "clnup_compl: Unable to send SRR"
@@ -1811,6 +1817,7 @@ static void bnx2fc_parse_fcp_rsp(struct bnx2fc_cmd *io_req,
 int bnx2fc_queuecommand(struct Scsi_Host *host,
 			struct scsi_cmnd *sc_cmd)
 {
+	unsigned int bh;
 	struct fc_lport *lport = shost_priv(host);
 	struct fc_rport *rport = starget_to_rport(scsi_target(sc_cmd->device));
 	struct fc_rport_libfc_priv *rp = rport->dd_data;
@@ -1852,7 +1859,7 @@ int bnx2fc_queuecommand(struct Scsi_Host *host,
 		}
 	}
 
-	spin_lock_bh(&tgt->tgt_lock);
+	bh = spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 
 	io_req = bnx2fc_cmd_alloc(tgt);
 	if (!io_req) {
@@ -1868,7 +1875,7 @@ int bnx2fc_queuecommand(struct Scsi_Host *host,
 	}
 
 exit_qcmd_tgtlock:
-	spin_unlock_bh(&tgt->tgt_lock);
+	spin_unlock_bh(&tgt->tgt_lock, bh);
 exit_qcmd:
 	return rc;
 }

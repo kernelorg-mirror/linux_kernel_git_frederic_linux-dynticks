@@ -135,6 +135,7 @@ static void sel_netif_destroy(struct sel_netif *netif)
  */
 static int sel_netif_sid_slow(struct net *ns, int ifindex, u32 *sid)
 {
+	unsigned int bh;
 	int ret;
 	struct sel_netif *netif;
 	struct sel_netif *new = NULL;
@@ -150,7 +151,7 @@ static int sel_netif_sid_slow(struct net *ns, int ifindex, u32 *sid)
 		return -ENOENT;
 	}
 
-	spin_lock_bh(&sel_netif_lock);
+	bh = spin_lock_bh(&sel_netif_lock, SOFTIRQ_ALL_MASK);
 	netif = sel_netif_find(ns, ifindex);
 	if (netif != NULL) {
 		*sid = netif->nsec.sid;
@@ -173,7 +174,7 @@ static int sel_netif_sid_slow(struct net *ns, int ifindex, u32 *sid)
 	*sid = new->nsec.sid;
 
 out:
-	spin_unlock_bh(&sel_netif_lock);
+	spin_unlock_bh(&sel_netif_lock, bh);
 	dev_put(dev);
 	if (unlikely(ret)) {
 		pr_warn("SELinux: failure in %s(), unable to determine network interface label (%d)\n",
@@ -225,14 +226,15 @@ int sel_netif_sid(struct net *ns, int ifindex, u32 *sid)
  */
 static void sel_netif_kill(const struct net *ns, int ifindex)
 {
+	unsigned int bh;
 	struct sel_netif *netif;
 
 	rcu_read_lock();
-	spin_lock_bh(&sel_netif_lock);
+	bh = spin_lock_bh(&sel_netif_lock, SOFTIRQ_ALL_MASK);
 	netif = sel_netif_find(ns, ifindex);
 	if (netif)
 		sel_netif_destroy(netif);
-	spin_unlock_bh(&sel_netif_lock);
+	spin_unlock_bh(&sel_netif_lock, bh);
 	rcu_read_unlock();
 }
 
@@ -245,14 +247,15 @@ static void sel_netif_kill(const struct net *ns, int ifindex)
  */
 void sel_netif_flush(void)
 {
+	unsigned int bh;
 	int idx;
 	struct sel_netif *netif;
 
-	spin_lock_bh(&sel_netif_lock);
+	bh = spin_lock_bh(&sel_netif_lock, SOFTIRQ_ALL_MASK);
 	for (idx = 0; idx < SEL_NETIF_HASH_SIZE; idx++)
 		list_for_each_entry(netif, &sel_netif_hash[idx], list)
 			sel_netif_destroy(netif);
-	spin_unlock_bh(&sel_netif_lock);
+	spin_unlock_bh(&sel_netif_lock, bh);
 }
 
 static int sel_netif_netdev_notifier_handler(struct notifier_block *this,

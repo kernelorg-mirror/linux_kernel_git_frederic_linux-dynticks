@@ -2641,6 +2641,7 @@ static void mac80211_hswim_he_capab(struct ieee80211_supported_band *sband)
 static int mac80211_hwsim_new_radio(struct genl_info *info,
 				    struct hwsim_new_radio_params *param)
 {
+	unsigned int bh;
 	int err;
 	u8 addr[ETH_ALEN];
 	struct mac80211_hwsim_data *data;
@@ -2653,9 +2654,9 @@ static int mac80211_hwsim_new_radio(struct genl_info *info,
 	if (WARN_ON(param->channels > 1 && !param->use_chanctx))
 		return -EINVAL;
 
-	spin_lock_bh(&hwsim_radio_lock);
+	bh = spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	idx = hwsim_radio_idx++;
-	spin_unlock_bh(&hwsim_radio_lock);
+	spin_unlock_bh(&hwsim_radio_lock, bh);
 
 	if (param->use_chanctx)
 		ops = &mac80211_hwsim_mchan_ops;
@@ -2920,7 +2921,7 @@ static int mac80211_hwsim_new_radio(struct genl_info *info,
 			     mac80211_hwsim_beacon,
 			     CLOCK_MONOTONIC, HRTIMER_MODE_ABS);
 
-	spin_lock_bh(&hwsim_radio_lock);
+	spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	err = rhashtable_insert_fast(&hwsim_radios_rht, &data->rht,
 				     hwsim_rht_params);
 	if (err < 0) {
@@ -3045,9 +3046,10 @@ out_err:
 
 static void mac80211_hwsim_free(void)
 {
+	unsigned int bh;
 	struct mac80211_hwsim_data *data;
 
-	spin_lock_bh(&hwsim_radio_lock);
+	bh = spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	while ((data = list_first_entry_or_null(&hwsim_radios,
 						struct mac80211_hwsim_data,
 						list))) {
@@ -3055,9 +3057,9 @@ static void mac80211_hwsim_free(void)
 		spin_unlock_bh(&hwsim_radio_lock);
 		mac80211_hwsim_del_radio(data, wiphy_name(data->hw->wiphy),
 					 NULL);
-		spin_lock_bh(&hwsim_radio_lock);
+		spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&hwsim_radio_lock);
+	spin_unlock_bh(&hwsim_radio_lock, bh);
 	class_destroy(hwsim_class);
 }
 
@@ -3087,16 +3089,17 @@ static struct mac80211_hwsim_data *get_hwsim_data_ref_from_addr(const u8 *addr)
 
 static void hwsim_register_wmediumd(struct net *net, u32 portid)
 {
+	unsigned int bh;
 	struct mac80211_hwsim_data *data;
 
 	hwsim_net_set_wmediumd(net, portid);
 
-	spin_lock_bh(&hwsim_radio_lock);
+	bh = spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(data, &hwsim_radios, list) {
 		if (data->netgroup == hwsim_net_get_netgroup(net))
 			data->wmediumd = portid;
 	}
-	spin_unlock_bh(&hwsim_radio_lock);
+	spin_unlock_bh(&hwsim_radio_lock, bh);
 }
 
 static int hwsim_tx_info_frame_received_nl(struct sk_buff *skb_2,
@@ -3274,14 +3277,15 @@ out:
 static int hwsim_register_received_nl(struct sk_buff *skb_2,
 				      struct genl_info *info)
 {
+	unsigned int bh;
 	struct net *net = genl_info_net(info);
 	struct mac80211_hwsim_data *data;
 	int chans = 1;
 
-	spin_lock_bh(&hwsim_radio_lock);
+	bh = spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(data, &hwsim_radios, list)
 		chans = max(chans, data->channels);
-	spin_unlock_bh(&hwsim_radio_lock);
+	spin_unlock_bh(&hwsim_radio_lock, bh);
 
 	/* In the future we should revise the userspace API and allow it
 	 * to set a flag that it does support multi-channel, then we can
@@ -3382,6 +3386,7 @@ static int hwsim_new_radio_nl(struct sk_buff *msg, struct genl_info *info)
 
 static int hwsim_del_radio_nl(struct sk_buff *msg, struct genl_info *info)
 {
+	unsigned int bh;
 	struct mac80211_hwsim_data *data;
 	s64 idx = -1;
 	const char *hwname = NULL;
@@ -3397,7 +3402,7 @@ static int hwsim_del_radio_nl(struct sk_buff *msg, struct genl_info *info)
 	} else
 		return -EINVAL;
 
-	spin_lock_bh(&hwsim_radio_lock);
+	bh = spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(data, &hwsim_radios, list) {
 		if (idx >= 0) {
 			if (data->idx != idx)
@@ -3415,13 +3420,13 @@ static int hwsim_del_radio_nl(struct sk_buff *msg, struct genl_info *info)
 		rhashtable_remove_fast(&hwsim_radios_rht, &data->rht,
 				       hwsim_rht_params);
 		hwsim_radios_generation++;
-		spin_unlock_bh(&hwsim_radio_lock);
+		spin_unlock_bh(&hwsim_radio_lock, bh);
 		mac80211_hwsim_del_radio(data, wiphy_name(data->hw->wiphy),
 					 info);
 		kfree(hwname);
 		return 0;
 	}
-	spin_unlock_bh(&hwsim_radio_lock);
+	spin_unlock_bh(&hwsim_radio_lock, bh);
 
 	kfree(hwname);
 	return -ENODEV;
@@ -3429,6 +3434,7 @@ static int hwsim_del_radio_nl(struct sk_buff *msg, struct genl_info *info)
 
 static int hwsim_get_radio_nl(struct sk_buff *msg, struct genl_info *info)
 {
+	unsigned int bh;
 	struct mac80211_hwsim_data *data;
 	struct sk_buff *skb;
 	int idx, res = -ENODEV;
@@ -3437,7 +3443,7 @@ static int hwsim_get_radio_nl(struct sk_buff *msg, struct genl_info *info)
 		return -EINVAL;
 	idx = nla_get_u32(info->attrs[HWSIM_ATTR_RADIO_ID]);
 
-	spin_lock_bh(&hwsim_radio_lock);
+	bh = spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(data, &hwsim_radios, list) {
 		if (data->idx != idx)
 			continue;
@@ -3463,7 +3469,7 @@ static int hwsim_get_radio_nl(struct sk_buff *msg, struct genl_info *info)
 	}
 
 out_err:
-	spin_unlock_bh(&hwsim_radio_lock);
+	spin_unlock_bh(&hwsim_radio_lock, bh);
 
 	return res;
 }
@@ -3471,12 +3477,13 @@ out_err:
 static int hwsim_dump_radio_nl(struct sk_buff *skb,
 			       struct netlink_callback *cb)
 {
+	unsigned int bh;
 	int last_idx = cb->args[0] - 1;
 	struct mac80211_hwsim_data *data = NULL;
 	int res = 0;
 	void *hdr;
 
-	spin_lock_bh(&hwsim_radio_lock);
+	bh = spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	cb->seq = hwsim_radios_generation;
 
 	if (last_idx >= hwsim_radio_idx-1)
@@ -3513,7 +3520,7 @@ static int hwsim_dump_radio_nl(struct sk_buff *skb,
 	}
 
 done:
-	spin_unlock_bh(&hwsim_radio_lock);
+	spin_unlock_bh(&hwsim_radio_lock, bh);
 	return res ?: skb->len;
 }
 
@@ -3578,9 +3585,10 @@ static void destroy_radio(struct work_struct *work)
 
 static void remove_user_radios(u32 portid)
 {
+	unsigned int bh;
 	struct mac80211_hwsim_data *entry, *tmp;
 
-	spin_lock_bh(&hwsim_radio_lock);
+	bh = spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(entry, tmp, &hwsim_radios, list) {
 		if (entry->destroy_on_close && entry->portid == portid) {
 			list_del(&entry->list);
@@ -3590,7 +3598,7 @@ static void remove_user_radios(u32 portid)
 			queue_work(hwsim_wq, &entry->destroy_work);
 		}
 	}
-	spin_unlock_bh(&hwsim_radio_lock);
+	spin_unlock_bh(&hwsim_radio_lock, bh);
 }
 
 static int mac80211_hwsim_netlink_notify(struct notifier_block *nb,
@@ -3647,9 +3655,10 @@ static __net_init int hwsim_init_net(struct net *net)
 
 static void __net_exit hwsim_exit_net(struct net *net)
 {
+	unsigned int bh;
 	struct mac80211_hwsim_data *data, *tmp;
 
-	spin_lock_bh(&hwsim_radio_lock);
+	bh = spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(data, tmp, &hwsim_radios, list) {
 		if (!net_eq(wiphy_net(data->hw->wiphy), net))
 			continue;
@@ -3666,9 +3675,9 @@ static void __net_exit hwsim_exit_net(struct net *net)
 		mac80211_hwsim_del_radio(data,
 					 wiphy_name(data->hw->wiphy),
 					 NULL);
-		spin_lock_bh(&hwsim_radio_lock);
+		spin_lock_bh(&hwsim_radio_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&hwsim_radio_lock);
+	spin_unlock_bh(&hwsim_radio_lock, bh);
 
 	ida_simple_remove(&hwsim_netgroup_ida, hwsim_net_get_netgroup(net));
 }

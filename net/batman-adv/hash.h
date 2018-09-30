@@ -100,7 +100,7 @@ static inline int batadv_hash_add(struct batadv_hashtable *hash,
 	head = &hash->table[index];
 	list_lock = &hash->list_locks[index];
 
-	spin_lock_bh(list_lock);
+	spin_lock_bh(list_lock, SOFTIRQ_ALL_MASK);
 
 	hlist_for_each(node, head) {
 		if (!compare(node, data))
@@ -147,7 +147,7 @@ static inline void *batadv_hash_remove(struct batadv_hashtable *hash,
 	index = choose(data, hash->size);
 	head = &hash->table[index];
 
-	spin_lock_bh(&hash->list_locks[index]);
+	spin_lock_bh(&hash->list_locks[index], SOFTIRQ_ALL_MASK);
 	hlist_for_each(node, head) {
 		if (!compare(node, data))
 			continue;

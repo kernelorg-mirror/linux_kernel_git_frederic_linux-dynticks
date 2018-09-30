@@ -376,13 +376,14 @@ static void qed_rdma_resc_free(struct qed_hwfn *p_hwfn)
 
 static void qed_rdma_free_tid(void *rdma_cxt, u32 itid)
 {
+	unsigned int bh;
 	struct qed_hwfn *p_hwfn = (struct qed_hwfn *)rdma_cxt;
 
 	DP_VERBOSE(p_hwfn, QED_MSG_RDMA, "itid = %08x\n", itid);
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	qed_bmap_release_id(p_hwfn, &p_hwfn->p_rdma_info->tid_map, itid);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 }
 
 static void qed_rdma_free_reserved_lkey(struct qed_hwfn *p_hwfn)
@@ -635,15 +636,16 @@ static int qed_rdma_start_fw(struct qed_hwfn *p_hwfn,
 
 static int qed_rdma_alloc_tid(void *rdma_cxt, u32 *itid)
 {
+	unsigned int bh;
 	struct qed_hwfn *p_hwfn = (struct qed_hwfn *)rdma_cxt;
 	int rc;
 
 	DP_VERBOSE(p_hwfn, QED_MSG_RDMA, "Allocate TID\n");
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	rc = qed_rdma_bmap_alloc_id(p_hwfn,
 				    &p_hwfn->p_rdma_info->tid_map, itid);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 	if (rc)
 		goto out;
 
@@ -775,6 +777,7 @@ out:
 static int qed_rdma_add_user(void *rdma_cxt,
 			     struct qed_rdma_add_user_out_params *out_params)
 {
+	unsigned int bh;
 	struct qed_hwfn *p_hwfn = (struct qed_hwfn *)rdma_cxt;
 	u32 dpi_start_offset;
 	u32 returned_id = 0;
@@ -783,10 +786,10 @@ static int qed_rdma_add_user(void *rdma_cxt,
 	DP_VERBOSE(p_hwfn, QED_MSG_RDMA, "Adding User\n");
 
 	/* Allocate DPI */
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	rc = qed_rdma_bmap_alloc_id(p_hwfn, &p_hwfn->p_rdma_info->dpi_map,
 				    &returned_id);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 
 	out_params->dpi = (u16)returned_id;
 
@@ -946,6 +949,7 @@ static int qed_rdma_get_int(struct qed_dev *cdev, struct qed_int_info *info)
 
 static int qed_rdma_alloc_pd(void *rdma_cxt, u16 *pd)
 {
+	unsigned int bh;
 	struct qed_hwfn *p_hwfn = (struct qed_hwfn *)rdma_cxt;
 	u32 returned_id;
 	int rc;
@@ -953,10 +957,10 @@ static int qed_rdma_alloc_pd(void *rdma_cxt, u16 *pd)
 	DP_VERBOSE(p_hwfn, QED_MSG_RDMA, "Alloc PD\n");
 
 	/* Allocates an unused protection domain */
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	rc = qed_rdma_bmap_alloc_id(p_hwfn,
 				    &p_hwfn->p_rdma_info->pd_map, &returned_id);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 
 	*pd = (u16)returned_id;
 
@@ -966,19 +970,21 @@ static int qed_rdma_alloc_pd(void *rdma_cxt, u16 *pd)
 
 static void qed_rdma_free_pd(void *rdma_cxt, u16 pd)
 {
+	unsigned int bh;
 	struct qed_hwfn *p_hwfn = (struct qed_hwfn *)rdma_cxt;
 
 	DP_VERBOSE(p_hwfn, QED_MSG_RDMA, "pd = %08x\n", pd);
 
 	/* Returns a previously allocated protection domain for reuse */
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	qed_bmap_release_id(p_hwfn, &p_hwfn->p_rdma_info->pd_map, pd);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 }
 
 static enum qed_rdma_toggle_bit
 qed_rdma_toggle_bit_create_resize_cq(struct qed_hwfn *p_hwfn, u16 icid)
 {
+	unsigned int bh;
 	struct qed_rdma_info *p_info = p_hwfn->p_rdma_info;
 	enum qed_rdma_toggle_bit toggle_bit;
 	u32 bmap_id;
@@ -990,10 +996,10 @@ qed_rdma_toggle_bit_create_resize_cq(struct qed_hwfn *p_hwfn, u16 icid)
 	 */
 	bmap_id = icid - qed_cxt_get_proto_cid_start(p_hwfn, p_info->proto);
 
-	spin_lock_bh(&p_info->lock);
+	bh = spin_lock_bh(&p_info->lock, SOFTIRQ_ALL_MASK);
 	toggle_bit = !test_and_change_bit(bmap_id,
 					  p_info->toggle_bits.bitmap);
-	spin_unlock_bh(&p_info->lock);
+	spin_unlock_bh(&p_info->lock, bh);
 
 	DP_VERBOSE(p_hwfn, QED_MSG_RDMA, "QED_RDMA_TOGGLE_BIT_= %d\n",
 		   toggle_bit);
@@ -1005,6 +1011,7 @@ static int qed_rdma_create_cq(void *rdma_cxt,
 			      struct qed_rdma_create_cq_in_params *params,
 			      u16 *icid)
 {
+	unsigned int bh;
 	struct qed_hwfn *p_hwfn = (struct qed_hwfn *)rdma_cxt;
 	struct qed_rdma_info *p_info = p_hwfn->p_rdma_info;
 	struct rdma_create_cq_ramrod_data *p_ramrod;
@@ -1018,9 +1025,9 @@ static int qed_rdma_create_cq(void *rdma_cxt,
 		   params->cq_handle_hi, params->cq_handle_lo);
 
 	/* Allocate icid */
-	spin_lock_bh(&p_info->lock);
+	bh = spin_lock_bh(&p_info->lock, SOFTIRQ_ALL_MASK);
 	rc = qed_rdma_bmap_alloc_id(p_hwfn, &p_info->cq_map, &returned_id);
-	spin_unlock_bh(&p_info->lock);
+	spin_unlock_bh(&p_info->lock, bh);
 
 	if (rc) {
 		DP_NOTICE(p_hwfn, "Can't create CQ, rc = %d\n", rc);
@@ -1079,7 +1086,7 @@ static int qed_rdma_create_cq(void *rdma_cxt,
 
 err:
 	/* release allocated icid */
-	spin_lock_bh(&p_info->lock);
+	spin_lock_bh(&p_info->lock, SOFTIRQ_ALL_MASK);
 	qed_bmap_release_id(p_hwfn, &p_info->cq_map, returned_id);
 	spin_unlock_bh(&p_info->lock);
 	DP_NOTICE(p_hwfn, "Create CQ failed, rc = %d\n", rc);
@@ -1092,6 +1099,7 @@ qed_rdma_destroy_cq(void *rdma_cxt,
 		    struct qed_rdma_destroy_cq_in_params *in_params,
 		    struct qed_rdma_destroy_cq_out_params *out_params)
 {
+	unsigned int bh;
 	struct qed_hwfn *p_hwfn = (struct qed_hwfn *)rdma_cxt;
 	struct rdma_destroy_cq_output_params *p_ramrod_res;
 	struct rdma_destroy_cq_ramrod_data *p_ramrod;
@@ -1141,14 +1149,14 @@ qed_rdma_destroy_cq(void *rdma_cxt,
 			  p_ramrod_res, ramrod_res_phys);
 
 	/* Free icid */
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 
 	qed_bmap_release_id(p_hwfn,
 			    &p_hwfn->p_rdma_info->cq_map,
 			    (in_params->icid -
 			     qed_cxt_get_proto_cid_start(p_hwfn, proto)));
 
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 
 	DP_VERBOSE(p_hwfn, QED_MSG_RDMA, "Destroyed CQ, rc = %d\n", rc);
 	return rc;
@@ -1687,6 +1695,7 @@ static int
 qed_rdma_destroy_srq(void *rdma_cxt,
 		     struct qed_rdma_destroy_srq_in_params *in_params)
 {
+	unsigned int bh;
 	struct rdma_srq_destroy_ramrod_data *p_ramrod;
 	struct qed_sp_init_data init_data = {};
 	struct qed_hwfn *p_hwfn = rdma_cxt;
@@ -1716,9 +1725,9 @@ qed_rdma_destroy_srq(void *rdma_cxt,
 
 	bmap = &p_hwfn->p_rdma_info->srq_map;
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	qed_bmap_release_id(p_hwfn, bmap, in_params->srq_id);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 
 	DP_VERBOSE(p_hwfn, QED_MSG_RDMA, "SRQ destroyed Id = %x",
 		   in_params->srq_id);
@@ -1731,6 +1740,7 @@ qed_rdma_create_srq(void *rdma_cxt,
 		    struct qed_rdma_create_srq_in_params *in_params,
 		    struct qed_rdma_create_srq_out_params *out_params)
 {
+	unsigned int bh;
 	struct rdma_srq_create_ramrod_data *p_ramrod;
 	struct qed_sp_init_data init_data = {};
 	struct qed_hwfn *p_hwfn = rdma_cxt;
@@ -1742,9 +1752,9 @@ qed_rdma_create_srq(void *rdma_cxt,
 	int rc;
 
 	bmap = &p_hwfn->p_rdma_info->srq_map;
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	rc = qed_rdma_bmap_alloc_id(p_hwfn, bmap, &returned_id);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 
 	if (rc) {
 		DP_NOTICE(p_hwfn, "failed to allocate srq id\n");
@@ -1790,7 +1800,7 @@ qed_rdma_create_srq(void *rdma_cxt,
 	return rc;
 
 err:
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	qed_bmap_release_id(p_hwfn, bmap, returned_id);
 	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
 
@@ -1799,18 +1809,19 @@ err:
 
 bool qed_rdma_allocated_qps(struct qed_hwfn *p_hwfn)
 {
+	unsigned int bh;
 	bool result;
 
 	/* if rdma info has not been allocated, naturally there are no qps */
 	if (!p_hwfn->p_rdma_info)
 		return false;
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	if (!p_hwfn->p_rdma_info->cid_map.bitmap)
 		result = false;
 	else
 		result = !qed_bmap_is_empty(&p_hwfn->p_rdma_info->cid_map);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 	return result;
 }
 
@@ -1877,13 +1888,14 @@ static int qed_rdma_init(struct qed_dev *cdev,
 
 static void qed_rdma_remove_user(void *rdma_cxt, u16 dpi)
 {
+	unsigned int bh;
 	struct qed_hwfn *p_hwfn = (struct qed_hwfn *)rdma_cxt;
 
 	DP_VERBOSE(p_hwfn, QED_MSG_RDMA, "dpi = %08x\n", dpi);
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	qed_bmap_release_id(p_hwfn, &p_hwfn->p_rdma_info->dpi_map, dpi);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 }
 
 static int qed_roce_ll2_set_mac_filter(struct qed_dev *cdev,

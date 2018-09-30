@@ -71,11 +71,12 @@ static struct vhost_vsock *__vhost_vsock_get(u32 guest_cid)
 
 static struct vhost_vsock *vhost_vsock_get(u32 guest_cid)
 {
+	unsigned int bh;
 	struct vhost_vsock *vsock;
 
-	spin_lock_bh(&vhost_vsock_lock);
+	bh = spin_lock_bh(&vhost_vsock_lock, SOFTIRQ_ALL_MASK);
 	vsock = __vhost_vsock_get(guest_cid);
-	spin_unlock_bh(&vhost_vsock_lock);
+	spin_unlock_bh(&vhost_vsock_lock, bh);
 
 	return vsock;
 }
@@ -84,6 +85,7 @@ static void
 vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 			    struct vhost_virtqueue *vq)
 {
+	unsigned int bh;
 	struct vhost_virtqueue *tx_vq = &vsock->vqs[VSOCK_VQ_TX];
 	bool added = false;
 	bool restart_tx = false;
@@ -104,9 +106,9 @@ vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 		size_t len;
 		int head;
 
-		spin_lock_bh(&vsock->send_pkt_list_lock);
+		bh = spin_lock_bh(&vsock->send_pkt_list_lock, SOFTIRQ_ALL_MASK);
 		if (list_empty(&vsock->send_pkt_list)) {
-			spin_unlock_bh(&vsock->send_pkt_list_lock);
+			spin_unlock_bh(&vsock->send_pkt_list_lock, bh);
 			vhost_enable_notify(&vsock->dev, vq);
 			break;
 		}
@@ -114,19 +116,19 @@ vhost_transport_do_send_pkt(struct vhost_vsock *vsock,
 		pkt = list_first_entry(&vsock->send_pkt_list,
 				       struct virtio_vsock_pkt, list);
 		list_del_init(&pkt->list);
-		spin_unlock_bh(&vsock->send_pkt_list_lock);
+		spin_unlock_bh(&vsock->send_pkt_list_lock, bh);
 
 		head = vhost_get_vq_desc(vq, vq->iov, ARRAY_SIZE(vq->iov),
 					 &out, &in, NULL, NULL);
 		if (head < 0) {
-			spin_lock_bh(&vsock->send_pkt_list_lock);
+			spin_lock_bh(&vsock->send_pkt_list_lock, SOFTIRQ_ALL_MASK);
 			list_add(&pkt->list, &vsock->send_pkt_list);
 			spin_unlock_bh(&vsock->send_pkt_list_lock);
 			break;
 		}
 
 		if (head == vq->num) {
-			spin_lock_bh(&vsock->send_pkt_list_lock);
+			spin_lock_bh(&vsock->send_pkt_list_lock, SOFTIRQ_ALL_MASK);
 			list_add(&pkt->list, &vsock->send_pkt_list);
 			spin_unlock_bh(&vsock->send_pkt_list_lock);
 
@@ -207,6 +209,7 @@ static void vhost_transport_send_pkt_work(struct vhost_work *work)
 static int
 vhost_transport_send_pkt(struct virtio_vsock_pkt *pkt)
 {
+	unsigned int bh;
 	struct vhost_vsock *vsock;
 	int len = pkt->len;
 
@@ -220,9 +223,9 @@ vhost_transport_send_pkt(struct virtio_vsock_pkt *pkt)
 	if (pkt->reply)
 		atomic_inc(&vsock->queued_replies);
 
-	spin_lock_bh(&vsock->send_pkt_list_lock);
+	bh = spin_lock_bh(&vsock->send_pkt_list_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&pkt->list, &vsock->send_pkt_list);
-	spin_unlock_bh(&vsock->send_pkt_list_lock);
+	spin_unlock_bh(&vsock->send_pkt_list_lock, bh);
 
 	vhost_work_queue(&vsock->dev, &vsock->send_pkt_work);
 	return len;
@@ -231,6 +234,7 @@ vhost_transport_send_pkt(struct virtio_vsock_pkt *pkt)
 static int
 vhost_transport_cancel_pkt(struct vsock_sock *vsk)
 {
+	unsigned int bh;
 	struct vhost_vsock *vsock;
 	struct virtio_vsock_pkt *pkt, *n;
 	int cnt = 0;
@@ -241,13 +245,13 @@ vhost_transport_cancel_pkt(struct vsock_sock *vsk)
 	if (!vsock)
 		return -ENODEV;
 
-	spin_lock_bh(&vsock->send_pkt_list_lock);
+	bh = spin_lock_bh(&vsock->send_pkt_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(pkt, n, &vsock->send_pkt_list, list) {
 		if (pkt->vsk != vsk)
 			continue;
 		list_move(&pkt->list, &freeme);
 	}
-	spin_unlock_bh(&vsock->send_pkt_list_lock);
+	spin_unlock_bh(&vsock->send_pkt_list_lock, bh);
 
 	list_for_each_entry_safe(pkt, n, &freeme, list) {
 		if (pkt->reply)
@@ -501,6 +505,7 @@ static void vhost_vsock_free(struct vhost_vsock *vsock)
 
 static int vhost_vsock_dev_open(struct inode *inode, struct file *file)
 {
+	unsigned int bh;
 	struct vhost_virtqueue **vqs;
 	struct vhost_vsock *vsock;
 	int ret;
@@ -534,9 +539,9 @@ static int vhost_vsock_dev_open(struct inode *inode, struct file *file)
 	INIT_LIST_HEAD(&vsock->send_pkt_list);
 	vhost_work_init(&vsock->send_pkt_work, vhost_transport_send_pkt_work);
 
-	spin_lock_bh(&vhost_vsock_lock);
+	bh = spin_lock_bh(&vhost_vsock_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&vsock->list, &vhost_vsock_list);
-	spin_unlock_bh(&vhost_vsock_lock);
+	spin_unlock_bh(&vhost_vsock_lock, bh);
 	return 0;
 
 out:
@@ -574,11 +579,12 @@ static void vhost_vsock_reset_orphans(struct sock *sk)
 
 static int vhost_vsock_dev_release(struct inode *inode, struct file *file)
 {
+	unsigned int bh;
 	struct vhost_vsock *vsock = file->private_data;
 
-	spin_lock_bh(&vhost_vsock_lock);
+	bh = spin_lock_bh(&vhost_vsock_lock, SOFTIRQ_ALL_MASK);
 	list_del(&vsock->list);
-	spin_unlock_bh(&vhost_vsock_lock);
+	spin_unlock_bh(&vhost_vsock_lock, bh);
 
 	/* Iterating over all connections for all CIDs to find orphans is
 	 * inefficient.  Room for improvement here. */
@@ -588,7 +594,7 @@ static int vhost_vsock_dev_release(struct inode *inode, struct file *file)
 	vhost_vsock_flush(vsock);
 	vhost_dev_stop(&vsock->dev);
 
-	spin_lock_bh(&vsock->send_pkt_list_lock);
+	spin_lock_bh(&vsock->send_pkt_list_lock, SOFTIRQ_ALL_MASK);
 	while (!list_empty(&vsock->send_pkt_list)) {
 		struct virtio_vsock_pkt *pkt;
 
@@ -607,6 +613,7 @@ static int vhost_vsock_dev_release(struct inode *inode, struct file *file)
 
 static int vhost_vsock_set_cid(struct vhost_vsock *vsock, u64 guest_cid)
 {
+	unsigned int bh;
 	struct vhost_vsock *other;
 
 	/* Refuse reserved CIDs */
@@ -619,14 +626,14 @@ static int vhost_vsock_set_cid(struct vhost_vsock *vsock, u64 guest_cid)
 		return -EINVAL;
 
 	/* Refuse if CID is already in use */
-	spin_lock_bh(&vhost_vsock_lock);
+	bh = spin_lock_bh(&vhost_vsock_lock, SOFTIRQ_ALL_MASK);
 	other = __vhost_vsock_get(guest_cid);
 	if (other && other != vsock) {
-		spin_unlock_bh(&vhost_vsock_lock);
+		spin_unlock_bh(&vhost_vsock_lock, bh);
 		return -EADDRINUSE;
 	}
 	vsock->guest_cid = guest_cid;
-	spin_unlock_bh(&vhost_vsock_lock);
+	spin_unlock_bh(&vhost_vsock_lock, bh);
 
 	return 0;
 }

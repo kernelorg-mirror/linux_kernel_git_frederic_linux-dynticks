@@ -1119,12 +1119,13 @@ static struct inet_protosw inetsw_array[] =
 
 void inet_register_protosw(struct inet_protosw *p)
 {
+	unsigned int bh;
 	struct list_head *lh;
 	struct inet_protosw *answer;
 	int protocol = p->protocol;
 	struct list_head *last_perm;
 
-	spin_lock_bh(&inetsw_lock);
+	bh = spin_lock_bh(&inetsw_lock, SOFTIRQ_ALL_MASK);
 
 	if (p->type >= SOCK_MAX)
 		goto out_illegal;
@@ -1149,7 +1150,7 @@ void inet_register_protosw(struct inet_protosw *p)
 	 */
 	list_add_rcu(&p->list, last_perm);
 out:
-	spin_unlock_bh(&inetsw_lock);
+	spin_unlock_bh(&inetsw_lock, bh);
 
 	return;
 
@@ -1166,13 +1167,14 @@ EXPORT_SYMBOL(inet_register_protosw);
 
 void inet_unregister_protosw(struct inet_protosw *p)
 {
+	unsigned int bh;
 	if (INET_PROTOSW_PERMANENT & p->flags) {
 		pr_err("Attempt to unregister permanent protocol %d\n",
 		       p->protocol);
 	} else {
-		spin_lock_bh(&inetsw_lock);
+		bh = spin_lock_bh(&inetsw_lock, SOFTIRQ_ALL_MASK);
 		list_del_rcu(&p->list);
-		spin_unlock_bh(&inetsw_lock);
+		spin_unlock_bh(&inetsw_lock, bh);
 
 		synchronize_net();
 	}

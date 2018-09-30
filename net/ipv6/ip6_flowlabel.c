@@ -108,7 +108,8 @@ static void fl_free(struct ip6_flowlabel *fl)
 
 static void fl_release(struct ip6_flowlabel *fl)
 {
-	spin_lock_bh(&ip6_fl_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&ip6_fl_lock, SOFTIRQ_ALL_MASK);
 
 	fl->lastuse = jiffies;
 	if (atomic_dec_and_test(&fl->users)) {
@@ -125,7 +126,7 @@ static void fl_release(struct ip6_flowlabel *fl)
 		    time_after(ip6_fl_gc_timer.expires, ttd))
 			mod_timer(&ip6_fl_gc_timer, ttd);
 	}
-	spin_unlock_bh(&ip6_fl_lock);
+	spin_unlock_bh(&ip6_fl_lock, bh);
 }
 
 static void ip6_fl_gc(struct timer_list *unused)
@@ -170,9 +171,10 @@ static void ip6_fl_gc(struct timer_list *unused)
 
 static void __net_exit ip6_fl_purge(struct net *net)
 {
+	unsigned int bh;
 	int i;
 
-	spin_lock_bh(&ip6_fl_lock);
+	bh = spin_lock_bh(&ip6_fl_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i <= FL_HASH_MASK; i++) {
 		struct ip6_flowlabel *fl;
 		struct ip6_flowlabel __rcu **flp;
@@ -190,17 +192,18 @@ static void __net_exit ip6_fl_purge(struct net *net)
 			flp = &fl->next;
 		}
 	}
-	spin_unlock_bh(&ip6_fl_lock);
+	spin_unlock_bh(&ip6_fl_lock, bh);
 }
 
 static struct ip6_flowlabel *fl_intern(struct net *net,
 				       struct ip6_flowlabel *fl, __be32 label)
 {
+	unsigned int bh;
 	struct ip6_flowlabel *lfl;
 
 	fl->label = label & IPV6_FLOWLABEL_MASK;
 
-	spin_lock_bh(&ip6_fl_lock);
+	bh = spin_lock_bh(&ip6_fl_lock, SOFTIRQ_ALL_MASK);
 	if (label == 0) {
 		for (;;) {
 			fl->label = htonl(prandom_u32())&IPV6_FLOWLABEL_MASK;
@@ -222,7 +225,7 @@ static struct ip6_flowlabel *fl_intern(struct net *net,
 		lfl = __fl_lookup(net, fl->label);
 		if (lfl) {
 			atomic_inc(&lfl->users);
-			spin_unlock_bh(&ip6_fl_lock);
+			spin_unlock_bh(&ip6_fl_lock, bh);
 			return lfl;
 		}
 	}
@@ -231,7 +234,7 @@ static struct ip6_flowlabel *fl_intern(struct net *net,
 	fl->next = fl_ht[FL_HASH(fl->label)];
 	rcu_assign_pointer(fl_ht[FL_HASH(fl->label)], fl);
 	atomic_inc(&fl_size);
-	spin_unlock_bh(&ip6_fl_lock);
+	spin_unlock_bh(&ip6_fl_lock, bh);
 	return NULL;
 }
 
@@ -264,13 +267,14 @@ EXPORT_SYMBOL_GPL(fl6_sock_lookup);
 
 void fl6_free_socklist(struct sock *sk)
 {
+	unsigned int bh;
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct ipv6_fl_socklist *sfl;
 
 	if (!rcu_access_pointer(np->ipv6_fl_list))
 		return;
 
-	spin_lock_bh(&ip6_sk_fl_lock);
+	bh = spin_lock_bh(&ip6_sk_fl_lock, SOFTIRQ_ALL_MASK);
 	while ((sfl = rcu_dereference_protected(np->ipv6_fl_list,
 						lockdep_is_held(&ip6_sk_fl_lock))) != NULL) {
 		np->ipv6_fl_list = sfl->next;
@@ -279,9 +283,9 @@ void fl6_free_socklist(struct sock *sk)
 		fl_release(sfl->fl);
 		kfree_rcu(sfl, rcu);
 
-		spin_lock_bh(&ip6_sk_fl_lock);
+		spin_lock_bh(&ip6_sk_fl_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&ip6_sk_fl_lock);
+	spin_unlock_bh(&ip6_sk_fl_lock, bh);
 }
 
 /* Service routines */
@@ -333,6 +337,7 @@ static unsigned long check_linger(unsigned long ttl)
 
 static int fl6_renew(struct ip6_flowlabel *fl, unsigned long linger, unsigned long expires)
 {
+	unsigned int bh;
 	linger = check_linger(linger);
 	if (!linger)
 		return -EPERM;
@@ -340,7 +345,7 @@ static int fl6_renew(struct ip6_flowlabel *fl, unsigned long linger, unsigned lo
 	if (!expires)
 		return -EPERM;
 
-	spin_lock_bh(&ip6_fl_lock);
+	bh = spin_lock_bh(&ip6_fl_lock, SOFTIRQ_ALL_MASK);
 	fl->lastuse = jiffies;
 	if (time_before(fl->linger, linger))
 		fl->linger = linger;
@@ -348,7 +353,7 @@ static int fl6_renew(struct ip6_flowlabel *fl, unsigned long linger, unsigned lo
 		expires = fl->linger;
 	if (time_before(fl->expires, fl->lastuse + expires))
 		fl->expires = fl->lastuse + expires;
-	spin_unlock_bh(&ip6_fl_lock);
+	spin_unlock_bh(&ip6_fl_lock, bh);
 
 	return 0;
 }
@@ -469,17 +474,18 @@ static int mem_check(struct sock *sk)
 static inline void fl_link(struct ipv6_pinfo *np, struct ipv6_fl_socklist *sfl,
 		struct ip6_flowlabel *fl)
 {
-	spin_lock_bh(&ip6_sk_fl_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&ip6_sk_fl_lock, SOFTIRQ_ALL_MASK);
 	sfl->fl = fl;
 	sfl->next = np->ipv6_fl_list;
 	rcu_assign_pointer(np->ipv6_fl_list, sfl);
-	spin_unlock_bh(&ip6_sk_fl_lock);
+	spin_unlock_bh(&ip6_sk_fl_lock, bh);
 }
 
 int ipv6_flowlabel_opt_get(struct sock *sk, struct in6_flowlabel_req *freq,
 			   int flags)
 {
-	unsigned int bh;
+	unsigned int bh, bh2;
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct ipv6_fl_socklist *sfl;
 
@@ -497,14 +503,13 @@ int ipv6_flowlabel_opt_get(struct sock *sk, struct in6_flowlabel_req *freq,
 
 	for_each_sk_fl_rcu(np, sfl) {
 		if (sfl->fl->label == (np->flow_label & IPV6_FLOWLABEL_MASK)) {
-			spin_lock_bh(&ip6_fl_lock);
+			bh2 = spin_lock_bh(&ip6_fl_lock, SOFTIRQ_ALL_MASK);
 			freq->flr_label = sfl->fl->label;
 			freq->flr_dst = sfl->fl->dst;
 			freq->flr_share = sfl->fl->share;
 			freq->flr_expires = (sfl->fl->expires - jiffies) / HZ;
 			freq->flr_linger = sfl->fl->linger / HZ;
-
-			spin_unlock_bh(&ip6_fl_lock);
+			spin_unlock_bh(&ip6_fl_lock, bh2);
 			rcu_read_unlock_bh(bh);
 			return 0;
 		}
@@ -544,7 +549,7 @@ int ipv6_flowlabel_opt(struct sock *sk, char __user *optval, int optlen)
 			np->repflow = 0;
 			return 0;
 		}
-		spin_lock_bh(&ip6_sk_fl_lock);
+		bh = spin_lock_bh(&ip6_sk_fl_lock, SOFTIRQ_ALL_MASK);
 		for (sflp = &np->ipv6_fl_list;
 		     (sfl = rcu_dereference_protected(*sflp,
 						      lockdep_is_held(&ip6_sk_fl_lock))) != NULL;
@@ -553,13 +558,13 @@ int ipv6_flowlabel_opt(struct sock *sk, char __user *optval, int optlen)
 				if (freq.flr_label == (np->flow_label&IPV6_FLOWLABEL_MASK))
 					np->flow_label &= ~IPV6_FLOWLABEL_MASK;
 				*sflp = sfl->next;
-				spin_unlock_bh(&ip6_sk_fl_lock);
+				spin_unlock_bh(&ip6_sk_fl_lock, bh);
 				fl_release(sfl->fl);
 				kfree_rcu(sfl, rcu);
 				return 0;
 			}
 		}
-		spin_unlock_bh(&ip6_sk_fl_lock);
+		spin_unlock_bh(&ip6_sk_fl_lock, bh);
 		return -ESRCH;
 
 	case IPV6_FL_A_RENEW:

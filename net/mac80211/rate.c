@@ -32,6 +32,7 @@ MODULE_PARM_DESC(ieee80211_default_rc_algo,
 
 void rate_control_rate_init(struct sta_info *sta)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = sta->sdata->local;
 	struct rate_control_ref *ref = sta->rate_ctrl;
 	struct ieee80211_sta *ista = &sta->sta;
@@ -54,10 +55,10 @@ void rate_control_rate_init(struct sta_info *sta)
 
 	sband = local->hw.wiphy->bands[chanctx_conf->def.chan->band];
 
-	spin_lock_bh(&sta->rate_ctrl_lock);
+	bh = spin_lock_bh(&sta->rate_ctrl_lock, SOFTIRQ_ALL_MASK);
 	ref->ops->rate_init(ref->priv, sband, &chanctx_conf->def, ista,
 			    priv_sta);
-	spin_unlock_bh(&sta->rate_ctrl_lock);
+	spin_unlock_bh(&sta->rate_ctrl_lock, bh);
 	rcu_read_unlock();
 	set_sta_flag(sta, WLAN_STA_RATE_CONTROL);
 }
@@ -66,6 +67,7 @@ void rate_control_tx_status(struct ieee80211_local *local,
 			    struct ieee80211_supported_band *sband,
 			    struct ieee80211_tx_status *st)
 {
+	unsigned int bh;
 	struct rate_control_ref *ref = local->rate_ctrl;
 	struct sta_info *sta = container_of(st->sta, struct sta_info, sta);
 	void *priv_sta = sta->rate_ctrl_priv;
@@ -73,7 +75,7 @@ void rate_control_tx_status(struct ieee80211_local *local,
 	if (!ref || !test_sta_flag(sta, WLAN_STA_RATE_CONTROL))
 		return;
 
-	spin_lock_bh(&sta->rate_ctrl_lock);
+	bh = spin_lock_bh(&sta->rate_ctrl_lock, SOFTIRQ_ALL_MASK);
 	if (ref->ops->tx_status_ext)
 		ref->ops->tx_status_ext(ref->priv, sband, priv_sta, st);
 	else if (st->skb)
@@ -81,13 +83,14 @@ void rate_control_tx_status(struct ieee80211_local *local,
 	else
 		WARN_ON_ONCE(1);
 
-	spin_unlock_bh(&sta->rate_ctrl_lock);
+	spin_unlock_bh(&sta->rate_ctrl_lock, bh);
 }
 
 void rate_control_rate_update(struct ieee80211_local *local,
 				    struct ieee80211_supported_band *sband,
 				    struct sta_info *sta, u32 changed)
 {
+	unsigned int bh;
 	struct rate_control_ref *ref = local->rate_ctrl;
 	struct ieee80211_sta *ista = &sta->sta;
 	void *priv_sta = sta->rate_ctrl_priv;
@@ -102,10 +105,10 @@ void rate_control_rate_update(struct ieee80211_local *local,
 			return;
 		}
 
-		spin_lock_bh(&sta->rate_ctrl_lock);
+		bh = spin_lock_bh(&sta->rate_ctrl_lock, SOFTIRQ_ALL_MASK);
 		ref->ops->rate_update(ref->priv, sband, &chanctx_conf->def,
 				      ista, priv_sta, changed);
-		spin_unlock_bh(&sta->rate_ctrl_lock);
+		spin_unlock_bh(&sta->rate_ctrl_lock, bh);
 		rcu_read_unlock();
 	}
 	drv_sta_rc_update(local, sta->sdata, &sta->sta, changed);
@@ -882,6 +885,7 @@ void rate_control_get_rate(struct ieee80211_sub_if_data *sdata,
 			   struct sta_info *sta,
 			   struct ieee80211_tx_rate_control *txrc)
 {
+	unsigned int bh;
 	struct rate_control_ref *ref = sdata->local->rate_ctrl;
 	void *priv_sta = NULL;
 	struct ieee80211_sta *ista = NULL;
@@ -903,9 +907,9 @@ void rate_control_get_rate(struct ieee80211_sub_if_data *sdata,
 		return;
 
 	if (ista) {
-		spin_lock_bh(&sta->rate_ctrl_lock);
+		bh = spin_lock_bh(&sta->rate_ctrl_lock, SOFTIRQ_ALL_MASK);
 		ref->ops->get_rate(ref->priv, ista, priv_sta, txrc);
-		spin_unlock_bh(&sta->rate_ctrl_lock);
+		spin_unlock_bh(&sta->rate_ctrl_lock, bh);
 	} else {
 		ref->ops->get_rate(ref->priv, NULL, NULL, txrc);
 	}

@@ -635,6 +635,7 @@ static void fill_route_from_fnhe(struct rtable *rt, struct fib_nh_exception *fnh
 static void update_or_create_fnhe(struct fib_nh *nh, __be32 daddr, __be32 gw,
 				  u32 pmtu, bool lock, unsigned long expires)
 {
+	unsigned int bh;
 	struct fnhe_hash_bucket *hash;
 	struct fib_nh_exception *fnhe;
 	struct rtable *rt;
@@ -645,7 +646,7 @@ static void update_or_create_fnhe(struct fib_nh *nh, __be32 daddr, __be32 gw,
 	genid = fnhe_genid(dev_net(nh->nh_dev));
 	hval = fnhe_hashfun(daddr);
 
-	spin_lock_bh(&fnhe_lock);
+	bh = spin_lock_bh(&fnhe_lock, SOFTIRQ_ALL_MASK);
 
 	hash = rcu_dereference(nh->nh_exceptions);
 	if (!hash) {
@@ -720,7 +721,7 @@ static void update_or_create_fnhe(struct fib_nh *nh, __be32 daddr, __be32 gw,
 	fnhe->fnhe_stamp = jiffies;
 
 out_unlock:
-	spin_unlock_bh(&fnhe_lock);
+	spin_unlock_bh(&fnhe_lock, bh);
 }
 
 static void __ip_do_redirect(struct rtable *rt, struct sk_buff *skb, struct flowi4 *fl4,
@@ -1288,11 +1289,12 @@ static unsigned int ipv4_mtu(const struct dst_entry *dst)
 
 static void ip_del_fnhe(struct fib_nh *nh, __be32 daddr)
 {
+	unsigned int bh;
 	struct fnhe_hash_bucket *hash;
 	struct fib_nh_exception *fnhe, __rcu **fnhe_p;
 	u32 hval = fnhe_hashfun(daddr);
 
-	spin_lock_bh(&fnhe_lock);
+	bh = spin_lock_bh(&fnhe_lock, SOFTIRQ_ALL_MASK);
 
 	hash = rcu_dereference_protected(nh->nh_exceptions,
 					 lockdep_is_held(&fnhe_lock));
@@ -1313,7 +1315,7 @@ static void ip_del_fnhe(struct fib_nh *nh, __be32 daddr)
 						 lockdep_is_held(&fnhe_lock));
 	}
 
-	spin_unlock_bh(&fnhe_lock);
+	spin_unlock_bh(&fnhe_lock, bh);
 }
 
 static struct fib_nh_exception *find_exception(struct fib_nh *nh, __be32 daddr)
@@ -1375,9 +1377,10 @@ u32 ip_mtu_from_fib_result(struct fib_result *res, __be32 daddr)
 static bool rt_bind_exception(struct rtable *rt, struct fib_nh_exception *fnhe,
 			      __be32 daddr, const bool do_cache)
 {
+	unsigned int bh;
 	bool ret = false;
 
-	spin_lock_bh(&fnhe_lock);
+	bh = spin_lock_bh(&fnhe_lock, SOFTIRQ_ALL_MASK);
 
 	if (daddr == fnhe->fnhe_daddr) {
 		struct rtable __rcu **porig;
@@ -1415,7 +1418,7 @@ static bool rt_bind_exception(struct rtable *rt, struct fib_nh_exception *fnhe,
 
 		fnhe->fnhe_stamp = jiffies;
 	}
-	spin_unlock_bh(&fnhe_lock);
+	spin_unlock_bh(&fnhe_lock, bh);
 
 	return ret;
 }
@@ -1459,23 +1462,25 @@ static DEFINE_PER_CPU_ALIGNED(struct uncached_list, rt_uncached_list);
 
 void rt_add_uncached_list(struct rtable *rt)
 {
+	unsigned int bh;
 	struct uncached_list *ul = raw_cpu_ptr(&rt_uncached_list);
 
 	rt->rt_uncached_list = ul;
 
-	spin_lock_bh(&ul->lock);
+	bh = spin_lock_bh(&ul->lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&rt->rt_uncached, &ul->head);
-	spin_unlock_bh(&ul->lock);
+	spin_unlock_bh(&ul->lock, bh);
 }
 
 void rt_del_uncached_list(struct rtable *rt)
 {
+	unsigned int bh;
 	if (!list_empty(&rt->rt_uncached)) {
 		struct uncached_list *ul = rt->rt_uncached_list;
 
-		spin_lock_bh(&ul->lock);
+		bh = spin_lock_bh(&ul->lock, SOFTIRQ_ALL_MASK);
 		list_del(&rt->rt_uncached);
-		spin_unlock_bh(&ul->lock);
+		spin_unlock_bh(&ul->lock, bh);
 	}
 }
 
@@ -1492,6 +1497,7 @@ static void ipv4_dst_destroy(struct dst_entry *dst)
 
 void rt_flush_dev(struct net_device *dev)
 {
+	unsigned int bh;
 	struct net *net = dev_net(dev);
 	struct rtable *rt;
 	int cpu;
@@ -1499,7 +1505,7 @@ void rt_flush_dev(struct net_device *dev)
 	for_each_possible_cpu(cpu) {
 		struct uncached_list *ul = &per_cpu(rt_uncached_list, cpu);
 
-		spin_lock_bh(&ul->lock);
+		bh = spin_lock_bh(&ul->lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(rt, &ul->head, rt_uncached) {
 			if (rt->dst.dev != dev)
 				continue;
@@ -1507,7 +1513,7 @@ void rt_flush_dev(struct net_device *dev)
 			dev_hold(rt->dst.dev);
 			dev_put(dev);
 		}
-		spin_unlock_bh(&ul->lock);
+		spin_unlock_bh(&ul->lock, bh);
 	}
 }
 

@@ -1979,6 +1979,7 @@ static void ixgbevf_set_rx_buffer_len(struct ixgbevf_adapter *adapter,
  **/
 static void ixgbevf_configure_rx(struct ixgbevf_adapter *adapter)
 {
+	unsigned int bh;
 	struct ixgbe_hw *hw = &adapter->hw;
 	struct net_device *netdev = adapter->netdev;
 	int i, ret;
@@ -1987,10 +1988,10 @@ static void ixgbevf_configure_rx(struct ixgbevf_adapter *adapter)
 	if (hw->mac.type >= ixgbe_mac_X550_vf)
 		ixgbevf_setup_vfmrqc(adapter);
 
-	spin_lock_bh(&adapter->mbx_lock);
+	bh = spin_lock_bh(&adapter->mbx_lock, SOFTIRQ_ALL_MASK);
 	/* notify the PF of our intent to use this size of frame */
 	ret = hw->mac.ops.set_rlpml(hw, netdev->mtu + ETH_HLEN + ETH_FCS_LEN);
-	spin_unlock_bh(&adapter->mbx_lock);
+	spin_unlock_bh(&adapter->mbx_lock, bh);
 	if (ret)
 		dev_err(&adapter->pdev->dev,
 			"Failed to set MTU at %d\n", netdev->mtu);
@@ -2009,16 +2010,17 @@ static void ixgbevf_configure_rx(struct ixgbevf_adapter *adapter)
 static int ixgbevf_vlan_rx_add_vid(struct net_device *netdev,
 				   __be16 proto, u16 vid)
 {
+	unsigned int bh;
 	struct ixgbevf_adapter *adapter = netdev_priv(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	int err;
 
-	spin_lock_bh(&adapter->mbx_lock);
+	bh = spin_lock_bh(&adapter->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	/* add VID to filter table */
 	err = hw->mac.ops.set_vfta(hw, vid, 0, true);
 
-	spin_unlock_bh(&adapter->mbx_lock);
+	spin_unlock_bh(&adapter->mbx_lock, bh);
 
 	/* translate error return types so error makes sense */
 	if (err == IXGBE_ERR_MBX)
@@ -2035,16 +2037,17 @@ static int ixgbevf_vlan_rx_add_vid(struct net_device *netdev,
 static int ixgbevf_vlan_rx_kill_vid(struct net_device *netdev,
 				    __be16 proto, u16 vid)
 {
+	unsigned int bh;
 	struct ixgbevf_adapter *adapter = netdev_priv(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	int err;
 
-	spin_lock_bh(&adapter->mbx_lock);
+	bh = spin_lock_bh(&adapter->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	/* remove VID from filter table */
 	err = hw->mac.ops.set_vfta(hw, vid, 0, false);
 
-	spin_unlock_bh(&adapter->mbx_lock);
+	spin_unlock_bh(&adapter->mbx_lock, bh);
 
 	clear_bit(vid, adapter->active_vlans);
 
@@ -2099,6 +2102,7 @@ static int ixgbevf_write_uc_addr_list(struct net_device *netdev)
  **/
 static void ixgbevf_set_rx_mode(struct net_device *netdev)
 {
+	unsigned int bh;
 	struct ixgbevf_adapter *adapter = netdev_priv(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	unsigned int flags = netdev->flags;
@@ -2114,7 +2118,7 @@ static void ixgbevf_set_rx_mode(struct net_device *netdev)
 	else
 		xcast_mode = IXGBEVF_XCAST_MODE_NONE;
 
-	spin_lock_bh(&adapter->mbx_lock);
+	bh = spin_lock_bh(&adapter->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	hw->mac.ops.update_xcast_mode(hw, xcast_mode);
 
@@ -2123,7 +2127,7 @@ static void ixgbevf_set_rx_mode(struct net_device *netdev)
 
 	ixgbevf_write_uc_addr_list(netdev);
 
-	spin_unlock_bh(&adapter->mbx_lock);
+	spin_unlock_bh(&adapter->mbx_lock, bh);
 }
 
 static void ixgbevf_napi_enable_all(struct ixgbevf_adapter *adapter)
@@ -2152,6 +2156,7 @@ static void ixgbevf_napi_disable_all(struct ixgbevf_adapter *adapter)
 
 static int ixgbevf_configure_dcb(struct ixgbevf_adapter *adapter)
 {
+	unsigned int bh;
 	struct ixgbe_hw *hw = &adapter->hw;
 	unsigned int def_q = 0;
 	unsigned int num_tcs = 0;
@@ -2159,12 +2164,12 @@ static int ixgbevf_configure_dcb(struct ixgbevf_adapter *adapter)
 	unsigned int num_tx_queues = adapter->num_tx_queues;
 	int err;
 
-	spin_lock_bh(&adapter->mbx_lock);
+	bh = spin_lock_bh(&adapter->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	/* fetch queue configuration from the PF */
 	err = ixgbevf_get_queues(hw, &num_tcs, &def_q);
 
-	spin_unlock_bh(&adapter->mbx_lock);
+	spin_unlock_bh(&adapter->mbx_lock, bh);
 
 	if (err)
 		return err;
@@ -2245,6 +2250,7 @@ static void ixgbevf_init_last_counter_stats(struct ixgbevf_adapter *adapter)
 
 static void ixgbevf_negotiate_api(struct ixgbevf_adapter *adapter)
 {
+	unsigned int bh;
 	struct ixgbe_hw *hw = &adapter->hw;
 	int api[] = { ixgbe_mbox_api_13,
 		      ixgbe_mbox_api_12,
@@ -2253,7 +2259,7 @@ static void ixgbevf_negotiate_api(struct ixgbevf_adapter *adapter)
 		      ixgbe_mbox_api_unknown };
 	int err, idx = 0;
 
-	spin_lock_bh(&adapter->mbx_lock);
+	bh = spin_lock_bh(&adapter->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	while (api[idx] != ixgbe_mbox_api_unknown) {
 		err = hw->mac.ops.negotiate_api_version(hw, api[idx]);
@@ -2262,24 +2268,25 @@ static void ixgbevf_negotiate_api(struct ixgbevf_adapter *adapter)
 		idx++;
 	}
 
-	spin_unlock_bh(&adapter->mbx_lock);
+	spin_unlock_bh(&adapter->mbx_lock, bh);
 }
 
 static void ixgbevf_up_complete(struct ixgbevf_adapter *adapter)
 {
+	unsigned int bh;
 	struct net_device *netdev = adapter->netdev;
 	struct ixgbe_hw *hw = &adapter->hw;
 
 	ixgbevf_configure_msix(adapter);
 
-	spin_lock_bh(&adapter->mbx_lock);
+	bh = spin_lock_bh(&adapter->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	if (is_valid_ether_addr(hw->mac.addr))
 		hw->mac.ops.set_rar(hw, 0, hw->mac.addr, 0);
 	else
 		hw->mac.ops.set_rar(hw, 0, hw->mac.perm_addr, 0);
 
-	spin_unlock_bh(&adapter->mbx_lock);
+	spin_unlock_bh(&adapter->mbx_lock, bh);
 
 	smp_mb__before_atomic();
 	clear_bit(__IXGBEVF_DOWN, &adapter->state);
@@ -2575,6 +2582,7 @@ static int ixgbevf_acquire_msix_vectors(struct ixgbevf_adapter *adapter,
  **/
 static void ixgbevf_set_num_queues(struct ixgbevf_adapter *adapter)
 {
+	unsigned int bh;
 	struct ixgbe_hw *hw = &adapter->hw;
 	unsigned int def_q = 0;
 	unsigned int num_tcs = 0;
@@ -2585,12 +2593,12 @@ static void ixgbevf_set_num_queues(struct ixgbevf_adapter *adapter)
 	adapter->num_tx_queues = 1;
 	adapter->num_xdp_queues = 0;
 
-	spin_lock_bh(&adapter->mbx_lock);
+	bh = spin_lock_bh(&adapter->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	/* fetch queue configuration from the PF */
 	err = ixgbevf_get_queues(hw, &num_tcs, &def_q);
 
-	spin_unlock_bh(&adapter->mbx_lock);
+	spin_unlock_bh(&adapter->mbx_lock, bh);
 
 	if (err)
 		return;
@@ -3202,16 +3210,17 @@ static void ixgbevf_check_hang_subtask(struct ixgbevf_adapter *adapter)
  **/
 static void ixgbevf_watchdog_update_link(struct ixgbevf_adapter *adapter)
 {
+	unsigned int bh;
 	struct ixgbe_hw *hw = &adapter->hw;
 	u32 link_speed = adapter->link_speed;
 	bool link_up = adapter->link_up;
 	s32 err;
 
-	spin_lock_bh(&adapter->mbx_lock);
+	bh = spin_lock_bh(&adapter->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	err = hw->mac.ops.check_link(hw, &link_speed, &link_up, false);
 
-	spin_unlock_bh(&adapter->mbx_lock);
+	spin_unlock_bh(&adapter->mbx_lock, bh);
 
 	/* if check for link returns error we will need to reset */
 	if (err && time_after(jiffies, adapter->last_reset + (10 * HZ))) {
@@ -4170,6 +4179,7 @@ static netdev_tx_t ixgbevf_xmit_frame(struct sk_buff *skb, struct net_device *ne
  **/
 static int ixgbevf_set_mac(struct net_device *netdev, void *p)
 {
+	unsigned int bh;
 	struct ixgbevf_adapter *adapter = netdev_priv(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	struct sockaddr *addr = p;
@@ -4178,11 +4188,11 @@ static int ixgbevf_set_mac(struct net_device *netdev, void *p)
 	if (!is_valid_ether_addr(addr->sa_data))
 		return -EADDRNOTAVAIL;
 
-	spin_lock_bh(&adapter->mbx_lock);
+	bh = spin_lock_bh(&adapter->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	err = hw->mac.ops.set_rar(hw, 0, addr->sa_data, 0);
 
-	spin_unlock_bh(&adapter->mbx_lock);
+	spin_unlock_bh(&adapter->mbx_lock, bh);
 
 	if (err)
 		return -EPERM;
@@ -4203,6 +4213,7 @@ static int ixgbevf_set_mac(struct net_device *netdev, void *p)
  **/
 static int ixgbevf_change_mtu(struct net_device *netdev, int new_mtu)
 {
+	unsigned int bh;
 	struct ixgbevf_adapter *adapter = netdev_priv(netdev);
 	struct ixgbe_hw *hw = &adapter->hw;
 	int max_frame = new_mtu + ETH_HLEN + ETH_FCS_LEN;
@@ -4214,10 +4225,10 @@ static int ixgbevf_change_mtu(struct net_device *netdev, int new_mtu)
 		return -EPERM;
 	}
 
-	spin_lock_bh(&adapter->mbx_lock);
+	bh = spin_lock_bh(&adapter->mbx_lock, SOFTIRQ_ALL_MASK);
 	/* notify the PF of our intent to use this size of frame */
 	ret = hw->mac.ops.set_rlpml(hw, max_frame);
-	spin_unlock_bh(&adapter->mbx_lock);
+	spin_unlock_bh(&adapter->mbx_lock, bh);
 	if (ret)
 		return -EINVAL;
 

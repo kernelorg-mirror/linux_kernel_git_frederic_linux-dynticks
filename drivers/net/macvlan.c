@@ -297,6 +297,7 @@ static void macvlan_broadcast(struct sk_buff *skb,
 
 static void macvlan_process_broadcast(struct work_struct *w)
 {
+	unsigned int bh;
 	struct macvlan_port *port = container_of(w, struct macvlan_port,
 						 bc_work);
 	struct sk_buff *skb;
@@ -304,9 +305,9 @@ static void macvlan_process_broadcast(struct work_struct *w)
 
 	__skb_queue_head_init(&list);
 
-	spin_lock_bh(&port->bc_queue.lock);
+	bh = spin_lock_bh(&port->bc_queue.lock, SOFTIRQ_ALL_MASK);
 	skb_queue_splice_tail_init(&port->bc_queue, &list);
-	spin_unlock_bh(&port->bc_queue.lock);
+	spin_unlock_bh(&port->bc_queue.lock, bh);
 
 	while ((skb = __skb_dequeue(&list))) {
 		const struct macvlan_dev *src = MACVLAN_SKB_CB(skb)->src;

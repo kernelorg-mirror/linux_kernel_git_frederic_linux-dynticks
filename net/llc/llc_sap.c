@@ -395,13 +395,14 @@ static void llc_sap_mcast(struct llc_sap *sap,
 			  const struct llc_addr *laddr,
 			  struct sk_buff *skb)
 {
+	unsigned int bh;
 	int i = 0;
 	struct sock *sk;
 	struct sock *stack[256 / sizeof(struct sock *)];
 	struct llc_sock *llc;
 	struct hlist_head *dev_hb = llc_sk_dev_hash(sap, skb->dev->ifindex);
 
-	spin_lock_bh(&sap->sk_lock);
+	bh = spin_lock_bh(&sap->sk_lock, SOFTIRQ_ALL_MASK);
 	hlist_for_each_entry(llc, dev_hb, dev_hash_node) {
 
 		sk = &llc->sk;
@@ -417,7 +418,7 @@ static void llc_sap_mcast(struct llc_sap *sap,
 			i = 0;
 		}
 	}
-	spin_unlock_bh(&sap->sk_lock);
+	spin_unlock_bh(&sap->sk_lock, bh);
 
 	llc_do_mcast(sap, skb, stack, i);
 }

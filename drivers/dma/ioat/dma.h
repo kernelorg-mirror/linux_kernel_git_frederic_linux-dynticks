@@ -103,6 +103,7 @@ struct ioatdma_chan {
 	void __iomem *reg_base;
 	dma_addr_t last_completion;
 	spinlock_t cleanup_lock;
+	unsigned long bh;
 	unsigned long state;
 	#define IOAT_CHAN_DOWN 0
 	#define IOAT_COMPLETION_ACK 1

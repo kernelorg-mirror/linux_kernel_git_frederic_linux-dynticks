@@ -220,6 +220,7 @@ static bool is_ip_proto(__be16 proto)
 
 static struct sk_buff *cdc_mbim_tx_fixup(struct usbnet *dev, struct sk_buff *skb, gfp_t flags)
 {
+	unsigned int bh;
 	struct sk_buff *skb_out;
 	struct cdc_mbim_state *info = (void *)&dev->data;
 	struct cdc_ncm_ctx *ctx = info->ctx;
@@ -290,9 +291,9 @@ static struct sk_buff *cdc_mbim_tx_fixup(struct usbnet *dev, struct sk_buff *skb
 		}
 	}
 
-	spin_lock_bh(&ctx->mtx);
+	bh = spin_lock_bh(&ctx->mtx, SOFTIRQ_ALL_MASK);
 	skb_out = cdc_ncm_fill_tx_frame(dev, skb, sign);
-	spin_unlock_bh(&ctx->mtx);
+	spin_unlock_bh(&ctx->mtx, bh);
 	return skb_out;
 
 error:

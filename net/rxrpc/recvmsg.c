@@ -26,6 +26,7 @@
  */
 void rxrpc_notify_socket(struct rxrpc_call *call)
 {
+	unsigned int bh;
 	struct rxrpc_sock *rx;
 	struct sock *sk;
 
@@ -40,9 +41,9 @@ void rxrpc_notify_socket(struct rxrpc_call *call)
 	sk = &rx->sk;
 	if (rx && sk->sk_state < RXRPC_CLOSE) {
 		if (call->notify_rx) {
-			spin_lock_bh(&call->notify_lock);
+			bh = spin_lock_bh(&call->notify_lock, SOFTIRQ_ALL_MASK);
 			call->notify_rx(sk, call, call->user_call_ID);
-			spin_unlock_bh(&call->notify_lock);
+			spin_unlock_bh(&call->notify_lock, bh);
 		} else {
 			write_lock_bh(&rx->recvmsg_lock);
 			if (list_empty(&call->recvmsg_link)) {

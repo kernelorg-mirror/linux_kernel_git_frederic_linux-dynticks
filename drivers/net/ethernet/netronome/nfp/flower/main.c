@@ -614,11 +614,12 @@ static void nfp_flower_clean(struct nfp_app *app)
 
 static bool nfp_flower_check_ack(struct nfp_flower_priv *app_priv)
 {
+	unsigned int bh;
 	bool ret;
 
-	spin_lock_bh(&app_priv->mtu_conf.lock);
+	bh = spin_lock_bh(&app_priv->mtu_conf.lock, SOFTIRQ_ALL_MASK);
 	ret = app_priv->mtu_conf.ack;
-	spin_unlock_bh(&app_priv->mtu_conf.lock);
+	spin_unlock_bh(&app_priv->mtu_conf.lock, bh);
 
 	return ret;
 }
@@ -627,6 +628,7 @@ static int
 nfp_flower_repr_change_mtu(struct nfp_app *app, struct net_device *netdev,
 			   int new_mtu)
 {
+	unsigned int bh;
 	struct nfp_flower_priv *app_priv = app->priv;
 	struct nfp_repr *repr = netdev_priv(netdev);
 	int err, ack;
@@ -640,16 +642,16 @@ nfp_flower_repr_change_mtu(struct nfp_app *app, struct net_device *netdev,
 		return -EINVAL;
 	}
 
-	spin_lock_bh(&app_priv->mtu_conf.lock);
+	bh = spin_lock_bh(&app_priv->mtu_conf.lock, SOFTIRQ_ALL_MASK);
 	app_priv->mtu_conf.ack = false;
 	app_priv->mtu_conf.requested_val = new_mtu;
 	app_priv->mtu_conf.portnum = repr->dst->u.port_info.port_id;
-	spin_unlock_bh(&app_priv->mtu_conf.lock);
+	spin_unlock_bh(&app_priv->mtu_conf.lock, bh);
 
 	err = nfp_flower_cmsg_portmod(repr, netif_carrier_ok(netdev), new_mtu,
 				      true);
 	if (err) {
-		spin_lock_bh(&app_priv->mtu_conf.lock);
+		spin_lock_bh(&app_priv->mtu_conf.lock, SOFTIRQ_ALL_MASK);
 		app_priv->mtu_conf.requested_val = 0;
 		spin_unlock_bh(&app_priv->mtu_conf.lock);
 		return err;
@@ -661,7 +663,7 @@ nfp_flower_repr_change_mtu(struct nfp_app *app, struct net_device *netdev,
 				 msecs_to_jiffies(10));
 
 	if (!ack) {
-		spin_lock_bh(&app_priv->mtu_conf.lock);
+		spin_lock_bh(&app_priv->mtu_conf.lock, SOFTIRQ_ALL_MASK);
 		app_priv->mtu_conf.requested_val = 0;
 		spin_unlock_bh(&app_priv->mtu_conf.lock);
 		nfp_warn(app->cpp, "MTU change not verified with fw\n");

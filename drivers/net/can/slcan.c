@@ -311,13 +311,14 @@ static void slc_encaps(struct slcan *sl, struct can_frame *cf)
 /* Write out any remaining transmit buffer. Scheduled when tty is writable */
 static void slcan_transmit(struct work_struct *work)
 {
+	unsigned int bh;
 	struct slcan *sl = container_of(work, struct slcan, tx_work);
 	int actual;
 
-	spin_lock_bh(&sl->lock);
+	bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 	/* First make sure we're connected. */
 	if (!sl->tty || sl->magic != SLCAN_MAGIC || !netif_running(sl->dev)) {
-		spin_unlock_bh(&sl->lock);
+		spin_unlock_bh(&sl->lock, bh);
 		return;
 	}
 
@@ -326,7 +327,7 @@ static void slcan_transmit(struct work_struct *work)
 		 * transmission of another packet */
 		sl->dev->stats.tx_packets++;
 		clear_bit(TTY_DO_WRITE_WAKEUP, &sl->tty->flags);
-		spin_unlock_bh(&sl->lock);
+		spin_unlock_bh(&sl->lock, bh);
 		netif_wake_queue(sl->dev);
 		return;
 	}
@@ -334,7 +335,7 @@ static void slcan_transmit(struct work_struct *work)
 	actual = sl->tty->ops->write(sl->tty, sl->xhead, sl->xleft);
 	sl->xleft -= actual;
 	sl->xhead += actual;
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, bh);
 }
 
 /*
@@ -384,9 +385,10 @@ out:
 /* Netdevice UP -> DOWN routine */
 static int slc_close(struct net_device *dev)
 {
+	unsigned int bh;
 	struct slcan *sl = netdev_priv(dev);
 
-	spin_lock_bh(&sl->lock);
+	bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 	if (sl->tty) {
 		/* TTY discipline is running. */
 		clear_bit(TTY_DO_WRITE_WAKEUP, &sl->tty->flags);
@@ -394,7 +396,7 @@ static int slc_close(struct net_device *dev)
 	netif_stop_queue(dev);
 	sl->rcount   = 0;
 	sl->xleft    = 0;
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, bh);
 
 	return 0;
 }
@@ -631,16 +633,17 @@ err_exit:
 
 static void slcan_close(struct tty_struct *tty)
 {
+	unsigned int bh;
 	struct slcan *sl = (struct slcan *) tty->disc_data;
 
 	/* First make sure we're connected. */
 	if (!sl || sl->magic != SLCAN_MAGIC || sl->tty != tty)
 		return;
 
-	spin_lock_bh(&sl->lock);
+	bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 	tty->disc_data = NULL;
 	sl->tty = NULL;
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, bh);
 
 	flush_work(&sl->tx_work);
 
@@ -718,6 +721,7 @@ static int __init slcan_init(void)
 
 static void __exit slcan_exit(void)
 {
+	unsigned int bh;
 	int i;
 	struct net_device *dev;
 	struct slcan *sl;
@@ -739,12 +743,12 @@ static void __exit slcan_exit(void)
 			if (!dev)
 				continue;
 			sl = netdev_priv(dev);
-			spin_lock_bh(&sl->lock);
+			bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 			if (sl->tty) {
 				busy++;
 				tty_hangup(sl->tty);
 			}
-			spin_unlock_bh(&sl->lock);
+			spin_unlock_bh(&sl->lock, bh);
 		}
 	} while (busy && time_before(jiffies, timeout));
 

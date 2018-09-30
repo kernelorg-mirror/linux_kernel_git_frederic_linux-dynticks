@@ -338,6 +338,7 @@ struct publication *tipc_nametbl_insert_publ(struct net *net, u32 type,
 					     u32 scope, u32 node,
 					     u32 port, u32 key)
 {
+	unsigned int bh;
 	struct name_table *nt = tipc_name_table(net);
 	struct tipc_service *sc;
 	struct publication *p;
@@ -353,10 +354,10 @@ struct publication *tipc_nametbl_insert_publ(struct net *net, u32 type,
 	if (!sc)
 		return NULL;
 
-	spin_lock_bh(&sc->lock);
+	bh = spin_lock_bh(&sc->lock, SOFTIRQ_ALL_MASK);
 	p = tipc_service_insert_publ(net, sc, type, lower, upper,
 				     scope, node, port, key);
-	spin_unlock_bh(&sc->lock);
+	spin_unlock_bh(&sc->lock, bh);
 	return p;
 }
 
@@ -364,6 +365,7 @@ struct publication *tipc_nametbl_remove_publ(struct net *net, u32 type,
 					     u32 lower, u32 upper,
 					     u32 node, u32 key)
 {
+	unsigned int bh;
 	struct tipc_service *sc = tipc_service_find(net, type);
 	struct tipc_subscription *sub, *tmp;
 	struct service_range *sr = NULL;
@@ -373,7 +375,7 @@ struct publication *tipc_nametbl_remove_publ(struct net *net, u32 type,
 	if (!sc)
 		return NULL;
 
-	spin_lock_bh(&sc->lock);
+	bh = spin_lock_bh(&sc->lock, SOFTIRQ_ALL_MASK);
 	sr = tipc_service_find_range(sc, lower, upper);
 	if (!sr)
 		goto exit;
@@ -400,7 +402,7 @@ struct publication *tipc_nametbl_remove_publ(struct net *net, u32 type,
 		kfree_rcu(sc, rcu);
 	}
 exit:
-	spin_unlock_bh(&sc->lock);
+	spin_unlock_bh(&sc->lock, bh);
 	return p;
 }
 
@@ -422,6 +424,7 @@ exit:
  */
 u32 tipc_nametbl_translate(struct net *net, u32 type, u32 instance, u32 *dnode)
 {
+	unsigned int bh;
 	struct tipc_net *tn = tipc_net(net);
 	bool legacy = tn->legacy_addr_format;
 	u32 self = tipc_own_addr(net);
@@ -440,7 +443,7 @@ u32 tipc_nametbl_translate(struct net *net, u32 type, u32 instance, u32 *dnode)
 	if (unlikely(!sc))
 		goto not_found;
 
-	spin_lock_bh(&sc->lock);
+	bh = spin_lock_bh(&sc->lock, SOFTIRQ_ALL_MASK);
 	sr = tipc_service_first_range(sc, instance);
 	if (unlikely(!sr))
 		goto no_match;
@@ -464,7 +467,7 @@ u32 tipc_nametbl_translate(struct net *net, u32 type, u32 instance, u32 *dnode)
 	port = p->port;
 	node = p->node;
 no_match:
-	spin_unlock_bh(&sc->lock);
+	spin_unlock_bh(&sc->lock, bh);
 not_found:
 	rcu_read_unlock();
 	*dnode = node;
@@ -475,6 +478,7 @@ bool tipc_nametbl_lookup(struct net *net, u32 type, u32 instance, u32 scope,
 			 struct list_head *dsts, int *dstcnt, u32 exclude,
 			 bool all)
 {
+	unsigned int bh;
 	u32 self = tipc_own_addr(net);
 	struct service_range *sr;
 	struct tipc_service *sc;
@@ -486,7 +490,7 @@ bool tipc_nametbl_lookup(struct net *net, u32 type, u32 instance, u32 scope,
 	if (unlikely(!sc))
 		goto exit;
 
-	spin_lock_bh(&sc->lock);
+	bh = spin_lock_bh(&sc->lock, SOFTIRQ_ALL_MASK);
 
 	sr = tipc_service_first_range(sc, instance);
 	if (!sr)
@@ -505,7 +509,7 @@ bool tipc_nametbl_lookup(struct net *net, u32 type, u32 instance, u32 scope,
 		break;
 	}
 no_match:
-	spin_unlock_bh(&sc->lock);
+	spin_unlock_bh(&sc->lock, bh);
 exit:
 	rcu_read_unlock();
 	return !list_empty(dsts);
@@ -514,6 +518,7 @@ exit:
 void tipc_nametbl_mc_lookup(struct net *net, u32 type, u32 lower, u32 upper,
 			    u32 scope, bool exact, struct list_head *dports)
 {
+	unsigned int bh;
 	struct service_range *sr;
 	struct tipc_service *sc;
 	struct publication *p;
@@ -524,7 +529,7 @@ void tipc_nametbl_mc_lookup(struct net *net, u32 type, u32 lower, u32 upper,
 	if (!sc)
 		goto exit;
 
-	spin_lock_bh(&sc->lock);
+	bh = spin_lock_bh(&sc->lock, SOFTIRQ_ALL_MASK);
 
 	for (n = rb_first(&sc->ranges); n; n = rb_next(n)) {
 		sr = container_of(n, struct service_range, tree_node);
@@ -537,7 +542,7 @@ void tipc_nametbl_mc_lookup(struct net *net, u32 type, u32 lower, u32 upper,
 				tipc_dest_push(dports, 0, p->port);
 		}
 	}
-	spin_unlock_bh(&sc->lock);
+	spin_unlock_bh(&sc->lock, bh);
 exit:
 	rcu_read_unlock();
 }
@@ -549,6 +554,7 @@ exit:
 void tipc_nametbl_lookup_dst_nodes(struct net *net, u32 type, u32 lower,
 				   u32 upper, struct tipc_nlist *nodes)
 {
+	unsigned int bh;
 	struct service_range *sr;
 	struct tipc_service *sc;
 	struct publication *p;
@@ -559,7 +565,7 @@ void tipc_nametbl_lookup_dst_nodes(struct net *net, u32 type, u32 lower,
 	if (!sc)
 		goto exit;
 
-	spin_lock_bh(&sc->lock);
+	bh = spin_lock_bh(&sc->lock, SOFTIRQ_ALL_MASK);
 
 	for (n = rb_first(&sc->ranges); n; n = rb_next(n)) {
 		sr = container_of(n, struct service_range, tree_node);
@@ -571,7 +577,7 @@ void tipc_nametbl_lookup_dst_nodes(struct net *net, u32 type, u32 lower,
 			tipc_nlist_add(nodes, p->node);
 		}
 	}
-	spin_unlock_bh(&sc->lock);
+	spin_unlock_bh(&sc->lock, bh);
 exit:
 	rcu_read_unlock();
 }
@@ -581,6 +587,7 @@ exit:
 void tipc_nametbl_build_group(struct net *net, struct tipc_group *grp,
 			      u32 type, u32 scope)
 {
+	unsigned int bh;
 	struct service_range *sr;
 	struct tipc_service *sc;
 	struct publication *p;
@@ -591,7 +598,7 @@ void tipc_nametbl_build_group(struct net *net, struct tipc_group *grp,
 	if (!sc)
 		goto exit;
 
-	spin_lock_bh(&sc->lock);
+	bh = spin_lock_bh(&sc->lock, SOFTIRQ_ALL_MASK);
 	for (n = rb_first(&sc->ranges); n; n = rb_next(n)) {
 		sr = container_of(n, struct service_range, tree_node);
 		list_for_each_entry(p, &sr->all_publ, all_publ) {
@@ -600,7 +607,7 @@ void tipc_nametbl_build_group(struct net *net, struct tipc_group *grp,
 			tipc_group_add_member(grp, p->node, p->port, p->lower);
 		}
 	}
-	spin_unlock_bh(&sc->lock);
+	spin_unlock_bh(&sc->lock, bh);
 exit:
 	rcu_read_unlock();
 }
@@ -611,12 +618,13 @@ struct publication *tipc_nametbl_publish(struct net *net, u32 type, u32 lower,
 					 u32 upper, u32 scope, u32 port,
 					 u32 key)
 {
+	unsigned int bh;
 	struct name_table *nt = tipc_name_table(net);
 	struct tipc_net *tn = tipc_net(net);
 	struct publication *p = NULL;
 	struct sk_buff *skb = NULL;
 
-	spin_lock_bh(&tn->nametbl_lock);
+	bh = spin_lock_bh(&tn->nametbl_lock, SOFTIRQ_ALL_MASK);
 
 	if (nt->local_publ_count >= TIPC_MAX_PUBL) {
 		pr_warn("Bind failed, max limit %u reached\n", TIPC_MAX_PUBL);
@@ -630,7 +638,7 @@ struct publication *tipc_nametbl_publish(struct net *net, u32 type, u32 lower,
 		skb = tipc_named_publish(net, p);
 	}
 exit:
-	spin_unlock_bh(&tn->nametbl_lock);
+	spin_unlock_bh(&tn->nametbl_lock, bh);
 
 	if (skb)
 		tipc_node_broadcast(net, skb);
@@ -643,13 +651,14 @@ exit:
 int tipc_nametbl_withdraw(struct net *net, u32 type, u32 lower,
 			  u32 upper, u32 key)
 {
+	unsigned int bh;
 	struct name_table *nt = tipc_name_table(net);
 	struct tipc_net *tn = tipc_net(net);
 	u32 self = tipc_own_addr(net);
 	struct sk_buff *skb = NULL;
 	struct publication *p;
 
-	spin_lock_bh(&tn->nametbl_lock);
+	bh = spin_lock_bh(&tn->nametbl_lock, SOFTIRQ_ALL_MASK);
 
 	p = tipc_nametbl_remove_publ(net, type, lower, upper, self, key);
 	if (p) {
@@ -661,7 +670,7 @@ int tipc_nametbl_withdraw(struct net *net, u32 type, u32 lower,
 		pr_err("Failed to remove local publication {%u,%u,%u}/%u\n",
 		       type, lower, upper, key);
 	}
-	spin_unlock_bh(&tn->nametbl_lock);
+	spin_unlock_bh(&tn->nametbl_lock, bh);
 
 	if (skb) {
 		tipc_node_broadcast(net, skb);
@@ -675,6 +684,7 @@ int tipc_nametbl_withdraw(struct net *net, u32 type, u32 lower,
  */
 bool tipc_nametbl_subscribe(struct tipc_subscription *sub)
 {
+	unsigned int bh;
 	struct name_table *nt = tipc_name_table(sub->net);
 	struct tipc_net *tn = tipc_net(sub->net);
 	struct tipc_subscr *s = &sub->evt.s;
@@ -682,12 +692,12 @@ bool tipc_nametbl_subscribe(struct tipc_subscription *sub)
 	struct tipc_service *sc;
 	bool res = true;
 
-	spin_lock_bh(&tn->nametbl_lock);
+	bh = spin_lock_bh(&tn->nametbl_lock, SOFTIRQ_ALL_MASK);
 	sc = tipc_service_find(sub->net, type);
 	if (!sc)
 		sc = tipc_service_create(type, &nt->services[hash(type)]);
 	if (sc) {
-		spin_lock_bh(&sc->lock);
+		spin_lock_bh(&sc->lock, SOFTIRQ_ALL_MASK);
 		tipc_service_subscribe(sc, sub);
 		spin_unlock_bh(&sc->lock);
 	} else {
@@ -696,7 +706,7 @@ bool tipc_nametbl_subscribe(struct tipc_subscription *sub)
 			tipc_sub_read(s, seq.upper));
 		res = false;
 	}
-	spin_unlock_bh(&tn->nametbl_lock);
+	spin_unlock_bh(&tn->nametbl_lock, bh);
 	return res;
 }
 
@@ -705,17 +715,18 @@ bool tipc_nametbl_subscribe(struct tipc_subscription *sub)
  */
 void tipc_nametbl_unsubscribe(struct tipc_subscription *sub)
 {
+	unsigned int bh;
 	struct tipc_net *tn = tipc_net(sub->net);
 	struct tipc_subscr *s = &sub->evt.s;
 	u32 type = tipc_sub_read(s, seq.type);
 	struct tipc_service *sc;
 
-	spin_lock_bh(&tn->nametbl_lock);
+	bh = spin_lock_bh(&tn->nametbl_lock, SOFTIRQ_ALL_MASK);
 	sc = tipc_service_find(sub->net, type);
 	if (!sc)
 		goto exit;
 
-	spin_lock_bh(&sc->lock);
+	spin_lock_bh(&sc->lock, SOFTIRQ_ALL_MASK);
 	list_del_init(&sub->service_list);
 	tipc_sub_put(sub);
 
@@ -726,7 +737,7 @@ void tipc_nametbl_unsubscribe(struct tipc_subscription *sub)
 	}
 	spin_unlock_bh(&sc->lock);
 exit:
-	spin_unlock_bh(&tn->nametbl_lock);
+	spin_unlock_bh(&tn->nametbl_lock, bh);
 }
 
 int tipc_nametbl_init(struct net *net)
@@ -754,10 +765,11 @@ int tipc_nametbl_init(struct net *net)
  */
 static void tipc_service_delete(struct net *net, struct tipc_service *sc)
 {
+	unsigned int bh;
 	struct service_range *sr, *tmpr;
 	struct publication *p, *tmp;
 
-	spin_lock_bh(&sc->lock);
+	bh = spin_lock_bh(&sc->lock, SOFTIRQ_ALL_MASK);
 	rbtree_postorder_for_each_entry_safe(sr, tmpr, &sc->ranges, tree_node) {
 		list_for_each_entry_safe(p, tmp, &sr->all_publ, all_publ) {
 			tipc_service_remove_publ(sr, p->node, p->key);
@@ -767,12 +779,13 @@ static void tipc_service_delete(struct net *net, struct tipc_service *sc)
 		kfree(sr);
 	}
 	hlist_del_init_rcu(&sc->service_list);
-	spin_unlock_bh(&sc->lock);
+	spin_unlock_bh(&sc->lock, bh);
 	kfree_rcu(sc, rcu);
 }
 
 void tipc_nametbl_stop(struct net *net)
 {
+	unsigned int bh;
 	struct name_table *nt = tipc_name_table(net);
 	struct tipc_net *tn = tipc_net(net);
 	struct hlist_head *service_head;
@@ -782,7 +795,7 @@ void tipc_nametbl_stop(struct net *net)
 	/* Verify name table is empty and purge any lingering
 	 * publications, then release the name table
 	 */
-	spin_lock_bh(&tn->nametbl_lock);
+	bh = spin_lock_bh(&tn->nametbl_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < TIPC_NAMETBL_SIZE; i++) {
 		if (hlist_empty(&nt->services[i]))
 			continue;
@@ -791,7 +804,7 @@ void tipc_nametbl_stop(struct net *net)
 			tipc_service_delete(net, service);
 		}
 	}
-	spin_unlock_bh(&tn->nametbl_lock);
+	spin_unlock_bh(&tn->nametbl_lock, bh);
 
 	synchronize_net();
 	kfree(nt);
@@ -920,7 +933,7 @@ static int tipc_nl_service_list(struct net *net, struct tipc_nl_msg *msg,
 		}
 
 		hlist_for_each_entry_from_rcu(service, service_list) {
-			spin_lock_bh(&service->lock);
+			spin_lock_bh(&service->lock, SOFTIRQ_ALL_MASK);
 			err = __tipc_nl_service_range_list(msg, service,
 							   last_lower,
 							   last_key);

@@ -64,9 +64,10 @@ static void lan743x_ptp_tx_ts_enqueue_ts(struct lan743x_adapter *adapter,
 					 u32 seconds, u32 nano_seconds,
 					 u32 header)
 {
+	unsigned int bh;
 	struct lan743x_ptp *ptp = &adapter->ptp;
 
-	spin_lock_bh(&ptp->tx_ts_lock);
+	bh = spin_lock_bh(&ptp->tx_ts_lock, SOFTIRQ_ALL_MASK);
 	if (ptp->tx_ts_queue_size < LAN743X_PTP_NUMBER_OF_TX_TIMESTAMPS) {
 		ptp->tx_ts_seconds_queue[ptp->tx_ts_queue_size] = seconds;
 		ptp->tx_ts_nseconds_queue[ptp->tx_ts_queue_size] = nano_seconds;
@@ -76,11 +77,12 @@ static void lan743x_ptp_tx_ts_enqueue_ts(struct lan743x_adapter *adapter,
 		netif_err(adapter, drv, adapter->netdev,
 			  "tx ts queue overflow\n");
 	}
-	spin_unlock_bh(&ptp->tx_ts_lock);
+	spin_unlock_bh(&ptp->tx_ts_lock, bh);
 }
 
 static void lan743x_ptp_tx_ts_complete(struct lan743x_adapter *adapter)
 {
+	unsigned int bh;
 	struct lan743x_ptp *ptp = &adapter->ptp;
 	struct skb_shared_hwtstamps tstamps;
 	u32 header, nseconds, seconds;
@@ -88,7 +90,7 @@ static void lan743x_ptp_tx_ts_complete(struct lan743x_adapter *adapter)
 	struct sk_buff *skb;
 	int c, i;
 
-	spin_lock_bh(&ptp->tx_ts_lock);
+	bh = spin_lock_bh(&ptp->tx_ts_lock, SOFTIRQ_ALL_MASK);
 	c = ptp->tx_ts_skb_queue_size;
 
 	if (c > ptp->tx_ts_queue_size)
@@ -136,7 +138,7 @@ static void lan743x_ptp_tx_ts_complete(struct lan743x_adapter *adapter)
 	ptp->tx_ts_queue_size -= c;
 done:
 	ptp->pending_tx_timestamps -= c;
-	spin_unlock_bh(&ptp->tx_ts_lock);
+	spin_unlock_bh(&ptp->tx_ts_lock, bh);
 }
 
 static int lan743x_ptp_reserve_event_ch(struct lan743x_adapter *adapter)
@@ -806,9 +808,10 @@ void lan743x_ptp_isr(void *context)
 static void lan743x_ptp_tx_ts_enqueue_skb(struct lan743x_adapter *adapter,
 					  struct sk_buff *skb, bool ignore_sync)
 {
+	unsigned int bh;
 	struct lan743x_ptp *ptp = &adapter->ptp;
 
-	spin_lock_bh(&ptp->tx_ts_lock);
+	bh = spin_lock_bh(&ptp->tx_ts_lock, SOFTIRQ_ALL_MASK);
 	if (ptp->tx_ts_skb_queue_size < LAN743X_PTP_NUMBER_OF_TX_TIMESTAMPS) {
 		ptp->tx_ts_skb_queue[ptp->tx_ts_skb_queue_size] = skb;
 		if (ignore_sync)
@@ -824,7 +827,7 @@ static void lan743x_ptp_tx_ts_enqueue_skb(struct lan743x_adapter *adapter,
 			  "tx ts skb queue overflow\n");
 		dev_kfree_skb(skb);
 	}
-	spin_unlock_bh(&ptp->tx_ts_lock);
+	spin_unlock_bh(&ptp->tx_ts_lock, bh);
 }
 
 static void lan743x_ptp_sync_to_system_clock(struct lan743x_adapter *adapter)
@@ -935,6 +938,7 @@ done:
 
 void lan743x_ptp_close(struct lan743x_adapter *adapter)
 {
+	unsigned int bh;
 	struct lan743x_ptp *ptp = &adapter->ptp;
 	int index;
 
@@ -957,7 +961,7 @@ void lan743x_ptp_close(struct lan743x_adapter *adapter)
 
 	/* clean up pending timestamp requests */
 	lan743x_ptp_tx_ts_complete(adapter);
-	spin_lock_bh(&ptp->tx_ts_lock);
+	bh = spin_lock_bh(&ptp->tx_ts_lock, SOFTIRQ_ALL_MASK);
 	for (index = 0;
 		index < LAN743X_PTP_NUMBER_OF_TX_TIMESTAMPS;
 		index++) {
@@ -972,7 +976,7 @@ void lan743x_ptp_close(struct lan743x_adapter *adapter)
 	ptp->tx_ts_skb_queue_size = 0;
 	ptp->tx_ts_queue_size = 0;
 	ptp->pending_tx_timestamps = 0;
-	spin_unlock_bh(&ptp->tx_ts_lock);
+	spin_unlock_bh(&ptp->tx_ts_lock, bh);
 
 	lan743x_ptp_disable(adapter);
 }
@@ -1066,30 +1070,32 @@ static void lan743x_ptp_clock_set(struct lan743x_adapter *adapter,
 
 bool lan743x_ptp_request_tx_timestamp(struct lan743x_adapter *adapter)
 {
+	unsigned int bh;
 	struct lan743x_ptp *ptp = &adapter->ptp;
 	bool result = false;
 
-	spin_lock_bh(&ptp->tx_ts_lock);
+	bh = spin_lock_bh(&ptp->tx_ts_lock, SOFTIRQ_ALL_MASK);
 	if (ptp->pending_tx_timestamps < LAN743X_PTP_NUMBER_OF_TX_TIMESTAMPS) {
 		/* request granted */
 		ptp->pending_tx_timestamps++;
 		result = true;
 	}
-	spin_unlock_bh(&ptp->tx_ts_lock);
+	spin_unlock_bh(&ptp->tx_ts_lock, bh);
 	return result;
 }
 
 void lan743x_ptp_unrequest_tx_timestamp(struct lan743x_adapter *adapter)
 {
+	unsigned int bh;
 	struct lan743x_ptp *ptp = &adapter->ptp;
 
-	spin_lock_bh(&ptp->tx_ts_lock);
+	bh = spin_lock_bh(&ptp->tx_ts_lock, SOFTIRQ_ALL_MASK);
 	if (ptp->pending_tx_timestamps > 0)
 		ptp->pending_tx_timestamps--;
 	else
 		netif_err(adapter, drv, adapter->netdev,
 			  "unrequest failed, pending_tx_timestamps==0\n");
-	spin_unlock_bh(&ptp->tx_ts_lock);
+	spin_unlock_bh(&ptp->tx_ts_lock, bh);
 }
 
 void lan743x_ptp_tx_timestamp_skb(struct lan743x_adapter *adapter,

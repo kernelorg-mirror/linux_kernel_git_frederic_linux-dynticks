@@ -733,6 +733,7 @@ ath5k_txbuf_setup(struct ath5k_hw *ah, struct ath5k_buf *bf,
 		  struct ath5k_txq *txq, int padsize,
 		  struct ieee80211_tx_control *control)
 {
+	unsigned int bh;
 	struct ath5k_desc *ds = bf->desc;
 	struct sk_buff *skb = bf->skb;
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
@@ -827,7 +828,7 @@ ath5k_txbuf_setup(struct ath5k_hw *ah, struct ath5k_buf *bf,
 	ds->ds_link = 0;
 	ds->ds_data = bf->skbaddr;
 
-	spin_lock_bh(&txq->lock);
+	bh = spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&bf->list, &txq->q);
 	txq->txq_len++;
 	if (txq->link == NULL) /* is this first packet? */
@@ -838,7 +839,7 @@ ath5k_txbuf_setup(struct ath5k_hw *ah, struct ath5k_buf *bf,
 	txq->link = &ds->ds_link;
 	ath5k_hw_start_tx_dma(ah, txq->qnum);
 	mmiowb();
-	spin_unlock_bh(&txq->lock);
+	spin_unlock_bh(&txq->lock, bh);
 
 	return 0;
 err_unmap:
@@ -1110,6 +1111,7 @@ err:
 static void
 ath5k_drain_tx_buffs(struct ath5k_hw *ah)
 {
+	unsigned int bh;
 	struct ath5k_txq *txq;
 	struct ath5k_buf *bf, *bf0;
 	int i;
@@ -1117,7 +1119,7 @@ ath5k_drain_tx_buffs(struct ath5k_hw *ah)
 	for (i = 0; i < ARRAY_SIZE(ah->txqs); i++) {
 		if (ah->txqs[i].setup) {
 			txq = &ah->txqs[i];
-			spin_lock_bh(&txq->lock);
+			bh = spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 			list_for_each_entry_safe(bf, bf0, &txq->q, list) {
 				ath5k_debug_printtxbuf(ah, bf);
 
@@ -1131,7 +1133,7 @@ ath5k_drain_tx_buffs(struct ath5k_hw *ah)
 			}
 			txq->link = NULL;
 			txq->txq_poll_mark = false;
-			spin_unlock_bh(&txq->lock);
+			spin_unlock_bh(&txq->lock, bh);
 		}
 	}
 }
@@ -1160,6 +1162,7 @@ ath5k_txq_release(struct ath5k_hw *ah)
 static int
 ath5k_rx_start(struct ath5k_hw *ah)
 {
+	unsigned int bh;
 	struct ath_common *common = ath5k_hw_common(ah);
 	struct ath5k_buf *bf;
 	int ret;
@@ -1169,18 +1172,18 @@ ath5k_rx_start(struct ath5k_hw *ah)
 	ATH5K_DBG(ah, ATH5K_DEBUG_RESET, "cachelsz %u rx_bufsize %u\n",
 		  common->cachelsz, common->rx_bufsize);
 
-	spin_lock_bh(&ah->rxbuflock);
+	bh = spin_lock_bh(&ah->rxbuflock, SOFTIRQ_ALL_MASK);
 	ah->rxlink = NULL;
 	list_for_each_entry(bf, &ah->rxbuf, list) {
 		ret = ath5k_rxbuf_setup(ah, bf);
 		if (ret != 0) {
-			spin_unlock_bh(&ah->rxbuflock);
+			spin_unlock_bh(&ah->rxbuflock, bh);
 			goto err;
 		}
 	}
 	bf = list_first_entry(&ah->rxbuf, struct ath5k_buf, list);
 	ath5k_hw_set_rxdp(ah, bf->daddr);
-	spin_unlock_bh(&ah->rxbuflock);
+	spin_unlock_bh(&ah->rxbuflock, bh);
 
 	ath5k_hw_start_rx_dma(ah);	/* enable recv descriptors */
 	ath5k_update_bssid_mask_and_opmode(ah, NULL); /* set filters, etc. */
@@ -2148,7 +2151,8 @@ ath5k_beacon_update_timers(struct ath5k_hw *ah, u64 bc_tsf)
 void
 ath5k_beacon_config(struct ath5k_hw *ah)
 {
-	spin_lock_bh(&ah->block);
+	unsigned int bh;
+	bh = spin_lock_bh(&ah->block, SOFTIRQ_ALL_MASK);
 	ah->bmisscount = 0;
 	ah->imask &= ~(AR5K_INT_BMISS | AR5K_INT_SWBA);
 
@@ -2175,7 +2179,7 @@ ath5k_beacon_config(struct ath5k_hw *ah)
 
 	ath5k_hw_set_imr(ah, ah->imask);
 	mmiowb();
-	spin_unlock_bh(&ah->block);
+	spin_unlock_bh(&ah->block, bh);
 }
 
 static void ath5k_tasklet_beacon(unsigned long data)
@@ -2462,6 +2466,7 @@ ath5k_tasklet_ani(unsigned long data)
 static void
 ath5k_tx_complete_poll_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct ath5k_hw *ah = container_of(work, struct ath5k_hw,
 			tx_complete_work.work);
 	struct ath5k_txq *txq;
@@ -2476,7 +2481,7 @@ ath5k_tx_complete_poll_work(struct work_struct *work)
 	for (i = 0; i < ARRAY_SIZE(ah->txqs); i++) {
 		if (ah->txqs[i].setup) {
 			txq = &ah->txqs[i];
-			spin_lock_bh(&txq->lock);
+			bh = spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 			if (txq->txq_len > 1) {
 				if (txq->txq_poll_mark) {
 					ATH5K_DBG(ah, ATH5K_DEBUG_XMIT,
@@ -2484,13 +2489,13 @@ ath5k_tx_complete_poll_work(struct work_struct *work)
 						  txq->qnum);
 					needreset = true;
 					txq->txq_stuck++;
-					spin_unlock_bh(&txq->lock);
+					spin_unlock_bh(&txq->lock, bh);
 					break;
 				} else {
 					txq->txq_poll_mark = true;
 				}
 			}
-			spin_unlock_bh(&txq->lock);
+			spin_unlock_bh(&txq->lock, bh);
 		}
 	}
 
@@ -2861,6 +2866,7 @@ static int
 ath5k_reset(struct ath5k_hw *ah, struct ieee80211_channel *chan,
 							bool skip_pcu)
 {
+	unsigned int bh;
 	struct ath_common *common = ath5k_hw_common(ah);
 	int ret, ani_mode;
 	bool fast = chan && modparam_fastchanswitch ? 1 : 0;
@@ -2942,11 +2948,11 @@ ath5k_reset(struct ath5k_hw *ah, struct ieee80211_channel *chan,
 
 	/* clear survey data and cycle counters */
 	memset(&ah->survey, 0, sizeof(ah->survey));
-	spin_lock_bh(&common->cc_lock);
+	bh = spin_lock_bh(&common->cc_lock, SOFTIRQ_ALL_MASK);
 	ath_hw_cycle_counters_update(common);
 	memset(&common->cc_survey, 0, sizeof(common->cc_survey));
 	memset(&common->cc_ani, 0, sizeof(common->cc_ani));
-	spin_unlock_bh(&common->cc_lock);
+	spin_unlock_bh(&common->cc_lock, bh);
 
 	/*
 	 * Change channels and update the h/w rate map if we're switching;

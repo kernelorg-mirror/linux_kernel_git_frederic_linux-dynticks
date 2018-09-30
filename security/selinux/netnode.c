@@ -199,15 +199,16 @@ static void sel_netnode_insert(struct sel_netnode *node)
  */
 static int sel_netnode_sid_slow(void *addr, u16 family, u32 *sid)
 {
+	unsigned int bh;
 	int ret = -ENOMEM;
 	struct sel_netnode *node;
 	struct sel_netnode *new = NULL;
 
-	spin_lock_bh(&sel_netnode_lock);
+	bh = spin_lock_bh(&sel_netnode_lock, SOFTIRQ_ALL_MASK);
 	node = sel_netnode_find(addr, family);
 	if (node != NULL) {
 		*sid = node->nsec.sid;
-		spin_unlock_bh(&sel_netnode_lock);
+		spin_unlock_bh(&sel_netnode_lock, bh);
 		return 0;
 	}
 	new = kzalloc(sizeof(*new), GFP_ATOMIC);
@@ -236,7 +237,7 @@ static int sel_netnode_sid_slow(void *addr, u16 family, u32 *sid)
 	sel_netnode_insert(new);
 
 out:
-	spin_unlock_bh(&sel_netnode_lock);
+	spin_unlock_bh(&sel_netnode_lock, bh);
 	if (unlikely(ret)) {
 		pr_warn("SELinux: failure in %s(), unable to determine network node label\n",
 			__func__);
@@ -284,10 +285,11 @@ int sel_netnode_sid(void *addr, u16 family, u32 *sid)
  */
 void sel_netnode_flush(void)
 {
+	unsigned int bh;
 	unsigned int idx;
 	struct sel_netnode *node, *node_tmp;
 
-	spin_lock_bh(&sel_netnode_lock);
+	bh = spin_lock_bh(&sel_netnode_lock, SOFTIRQ_ALL_MASK);
 	for (idx = 0; idx < SEL_NETNODE_HASH_SIZE; idx++) {
 		list_for_each_entry_safe(node, node_tmp,
 					 &sel_netnode_hash[idx].list, list) {
@@ -296,7 +298,7 @@ void sel_netnode_flush(void)
 		}
 		sel_netnode_hash[idx].size = 0;
 	}
-	spin_unlock_bh(&sel_netnode_lock);
+	spin_unlock_bh(&sel_netnode_lock, bh);
 }
 
 static __init int sel_netnode_init(void)

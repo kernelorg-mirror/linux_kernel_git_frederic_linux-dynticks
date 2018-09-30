@@ -1432,11 +1432,12 @@ static unsigned int __bcmgenet_tx_reclaim(struct net_device *dev,
 static unsigned int bcmgenet_tx_reclaim(struct net_device *dev,
 				struct bcmgenet_tx_ring *ring)
 {
+	unsigned int bh;
 	unsigned int released;
 
-	spin_lock_bh(&ring->lock);
+	bh = spin_lock_bh(&ring->lock, SOFTIRQ_ALL_MASK);
 	released = __bcmgenet_tx_reclaim(dev, ring);
-	spin_unlock_bh(&ring->lock);
+	spin_unlock_bh(&ring->lock, bh);
 
 	return released;
 }

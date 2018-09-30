@@ -591,10 +591,11 @@ batadv_forw_packet_was_stolen(struct batadv_forw_packet *forw_packet)
 bool batadv_forw_packet_steal(struct batadv_forw_packet *forw_packet,
 			      spinlock_t *lock)
 {
+	unsigned int bh;
 	/* did purging routine steal it earlier? */
-	spin_lock_bh(lock);
+	bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 	if (batadv_forw_packet_was_stolen(forw_packet)) {
-		spin_unlock_bh(lock);
+		spin_unlock_bh(lock, bh);
 		return false;
 	}
 
@@ -603,7 +604,7 @@ bool batadv_forw_packet_steal(struct batadv_forw_packet *forw_packet,
 	/* Just to spot misuse of this function */
 	hlist_add_fake(&forw_packet->cleanup_list);
 
-	spin_unlock_bh(lock);
+	spin_unlock_bh(lock, bh);
 	return true;
 }
 
@@ -688,7 +689,8 @@ static void batadv_forw_packet_queue(struct batadv_forw_packet *forw_packet,
 				     spinlock_t *lock, struct hlist_head *head,
 				     unsigned long send_time)
 {
-	spin_lock_bh(lock);
+	unsigned int bh;
+	bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 
 	/* did purging routine steal it from us? */
 	if (batadv_forw_packet_was_stolen(forw_packet)) {
@@ -698,7 +700,7 @@ static void batadv_forw_packet_queue(struct batadv_forw_packet *forw_packet,
 		WARN_ONCE(hlist_fake(&forw_packet->cleanup_list),
 			  "Requeuing after batadv_forw_packet_steal() not allowed!\n");
 
-		spin_unlock_bh(lock);
+		spin_unlock_bh(lock, bh);
 		return;
 	}
 
@@ -708,7 +710,7 @@ static void batadv_forw_packet_queue(struct batadv_forw_packet *forw_packet,
 	queue_delayed_work(batadv_event_workqueue,
 			   &forw_packet->delayed_work,
 			   send_time - jiffies);
-	spin_unlock_bh(lock);
+	spin_unlock_bh(lock, bh);
 }
 
 /**
@@ -987,6 +989,7 @@ void
 batadv_purge_outstanding_packets(struct batadv_priv *bat_priv,
 				 const struct batadv_hard_iface *hard_iface)
 {
+	unsigned int bh;
 	struct hlist_head head = HLIST_HEAD_INIT;
 
 	if (hard_iface)
@@ -998,13 +1001,13 @@ batadv_purge_outstanding_packets(struct batadv_priv *bat_priv,
 			   "%s()\n", __func__);
 
 	/* claim bcast list for free() */
-	spin_lock_bh(&bat_priv->forw_bcast_list_lock);
+	bh = spin_lock_bh(&bat_priv->forw_bcast_list_lock, SOFTIRQ_ALL_MASK);
 	batadv_forw_packet_list_steal(&bat_priv->forw_bcast_list, &head,
 				      hard_iface);
-	spin_unlock_bh(&bat_priv->forw_bcast_list_lock);
+	spin_unlock_bh(&bat_priv->forw_bcast_list_lock, bh);
 
 	/* claim batman packet list for free() */
-	spin_lock_bh(&bat_priv->forw_bat_list_lock);
+	spin_lock_bh(&bat_priv->forw_bat_list_lock, SOFTIRQ_ALL_MASK);
 	batadv_forw_packet_list_steal(&bat_priv->forw_bat_list, &head,
 				      hard_iface);
 	spin_unlock_bh(&bat_priv->forw_bat_list_lock);

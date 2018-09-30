@@ -98,6 +98,7 @@ static void udp_dump(struct udp_table *table, struct sk_buff *skb,
 		     struct netlink_callback *cb,
 		     const struct inet_diag_req_v2 *r, struct nlattr *bc)
 {
+	unsigned int bh;
 	bool net_admin = netlink_net_capable(cb->skb, CAP_NET_ADMIN);
 	struct net *net = sock_net(skb->sk);
 	int num, s_num, slot, s_slot;
@@ -114,7 +115,7 @@ static void udp_dump(struct udp_table *table, struct sk_buff *skb,
 		if (hlist_empty(&hslot->head))
 			continue;
 
-		spin_lock_bh(&hslot->lock);
+		bh = spin_lock_bh(&hslot->lock, SOFTIRQ_ALL_MASK);
 		sk_for_each(sk, &hslot->head) {
 			struct inet_sock *inet = inet_sk(sk);
 
@@ -135,13 +136,13 @@ static void udp_dump(struct udp_table *table, struct sk_buff *skb,
 				goto next;
 
 			if (sk_diag_dump(sk, skb, cb, r, bc, net_admin) < 0) {
-				spin_unlock_bh(&hslot->lock);
+				spin_unlock_bh(&hslot->lock, bh);
 				goto done;
 			}
 next:
 			num++;
 		}
-		spin_unlock_bh(&hslot->lock);
+		spin_unlock_bh(&hslot->lock, bh);
 	}
 done:
 	cb->args[0] = slot;

@@ -348,6 +348,7 @@ static void rxrpc_dummy_notify_rx(struct sock *sk, struct rxrpc_call *rxcall,
  */
 void rxrpc_kernel_end_call(struct socket *sock, struct rxrpc_call *call)
 {
+	unsigned int bh;
 	_enter("%d{%d}", call->debug_id, atomic_read(&call->usage));
 
 	mutex_lock(&call->user_mutex);
@@ -355,9 +356,9 @@ void rxrpc_kernel_end_call(struct socket *sock, struct rxrpc_call *call)
 
 	/* Make sure we're not going to call back into a kernel service */
 	if (call->notify_rx) {
-		spin_lock_bh(&call->notify_lock);
+		bh = spin_lock_bh(&call->notify_lock, SOFTIRQ_ALL_MASK);
 		call->notify_rx = rxrpc_dummy_notify_rx;
-		spin_unlock_bh(&call->notify_lock);
+		spin_unlock_bh(&call->notify_lock, bh);
 	}
 
 	mutex_unlock(&call->user_mutex);
@@ -816,6 +817,7 @@ static int rxrpc_create(struct net *net, struct socket *sock, int protocol,
  */
 static int rxrpc_shutdown(struct socket *sock, int flags)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 	struct rxrpc_sock *rx = rxrpc_sk(sk);
 	int ret = 0;
@@ -829,14 +831,14 @@ static int rxrpc_shutdown(struct socket *sock, int flags)
 
 	lock_sock(sk);
 
-	spin_lock_bh(&sk->sk_receive_queue.lock);
+	bh = spin_lock_bh(&sk->sk_receive_queue.lock, SOFTIRQ_ALL_MASK);
 	if (sk->sk_state < RXRPC_CLOSE) {
 		sk->sk_state = RXRPC_CLOSE;
 		sk->sk_shutdown = SHUTDOWN_MASK;
 	} else {
 		ret = -ESHUTDOWN;
 	}
-	spin_unlock_bh(&sk->sk_receive_queue.lock);
+	spin_unlock_bh(&sk->sk_receive_queue.lock, bh);
 
 	rxrpc_discard_prealloc(rx);
 
@@ -868,6 +870,7 @@ static void rxrpc_sock_destructor(struct sock *sk)
  */
 static int rxrpc_release_sock(struct sock *sk)
 {
+	unsigned int bh;
 	struct rxrpc_sock *rx = rxrpc_sk(sk);
 	struct rxrpc_net *rxnet = rxrpc_net(sock_net(&rx->sk));
 
@@ -890,9 +893,9 @@ static int rxrpc_release_sock(struct sock *sk)
 		break;
 	}
 
-	spin_lock_bh(&sk->sk_receive_queue.lock);
+	bh = spin_lock_bh(&sk->sk_receive_queue.lock, SOFTIRQ_ALL_MASK);
 	sk->sk_state = RXRPC_CLOSE;
-	spin_unlock_bh(&sk->sk_receive_queue.lock);
+	spin_unlock_bh(&sk->sk_receive_queue.lock, bh);
 
 	if (rx->local && rcu_access_pointer(rx->local->service) == rx) {
 		write_lock(&rx->local->services_lock);

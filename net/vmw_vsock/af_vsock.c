@@ -262,48 +262,53 @@ static struct sock *__vsock_find_connected_socket(struct sockaddr_vm *src,
 
 static void vsock_insert_unbound(struct vsock_sock *vsk)
 {
-	spin_lock_bh(&vsock_table_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&vsock_table_lock, SOFTIRQ_ALL_MASK);
 	__vsock_insert_bound(vsock_unbound_sockets, vsk);
-	spin_unlock_bh(&vsock_table_lock);
+	spin_unlock_bh(&vsock_table_lock, bh);
 }
 
 void vsock_insert_connected(struct vsock_sock *vsk)
 {
+	unsigned int bh;
 	struct list_head *list = vsock_connected_sockets(
 		&vsk->remote_addr, &vsk->local_addr);
 
-	spin_lock_bh(&vsock_table_lock);
+	bh = spin_lock_bh(&vsock_table_lock, SOFTIRQ_ALL_MASK);
 	__vsock_insert_connected(list, vsk);
-	spin_unlock_bh(&vsock_table_lock);
+	spin_unlock_bh(&vsock_table_lock, bh);
 }
 EXPORT_SYMBOL_GPL(vsock_insert_connected);
 
 void vsock_remove_bound(struct vsock_sock *vsk)
 {
-	spin_lock_bh(&vsock_table_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&vsock_table_lock, SOFTIRQ_ALL_MASK);
 	__vsock_remove_bound(vsk);
-	spin_unlock_bh(&vsock_table_lock);
+	spin_unlock_bh(&vsock_table_lock, bh);
 }
 EXPORT_SYMBOL_GPL(vsock_remove_bound);
 
 void vsock_remove_connected(struct vsock_sock *vsk)
 {
-	spin_lock_bh(&vsock_table_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&vsock_table_lock, SOFTIRQ_ALL_MASK);
 	__vsock_remove_connected(vsk);
-	spin_unlock_bh(&vsock_table_lock);
+	spin_unlock_bh(&vsock_table_lock, bh);
 }
 EXPORT_SYMBOL_GPL(vsock_remove_connected);
 
 struct sock *vsock_find_bound_socket(struct sockaddr_vm *addr)
 {
+	unsigned int bh;
 	struct sock *sk;
 
-	spin_lock_bh(&vsock_table_lock);
+	bh = spin_lock_bh(&vsock_table_lock, SOFTIRQ_ALL_MASK);
 	sk = __vsock_find_bound_socket(addr);
 	if (sk)
 		sock_hold(sk);
 
-	spin_unlock_bh(&vsock_table_lock);
+	spin_unlock_bh(&vsock_table_lock, bh);
 
 	return sk;
 }
@@ -312,14 +317,15 @@ EXPORT_SYMBOL_GPL(vsock_find_bound_socket);
 struct sock *vsock_find_connected_socket(struct sockaddr_vm *src,
 					 struct sockaddr_vm *dst)
 {
+	unsigned int bh;
 	struct sock *sk;
 
-	spin_lock_bh(&vsock_table_lock);
+	bh = spin_lock_bh(&vsock_table_lock, SOFTIRQ_ALL_MASK);
 	sk = __vsock_find_connected_socket(src, dst);
 	if (sk)
 		sock_hold(sk);
 
-	spin_unlock_bh(&vsock_table_lock);
+	spin_unlock_bh(&vsock_table_lock, bh);
 
 	return sk;
 }
@@ -327,22 +333,24 @@ EXPORT_SYMBOL_GPL(vsock_find_connected_socket);
 
 static bool vsock_in_bound_table(struct vsock_sock *vsk)
 {
+	unsigned int bh;
 	bool ret;
 
-	spin_lock_bh(&vsock_table_lock);
+	bh = spin_lock_bh(&vsock_table_lock, SOFTIRQ_ALL_MASK);
 	ret = __vsock_in_bound_table(vsk);
-	spin_unlock_bh(&vsock_table_lock);
+	spin_unlock_bh(&vsock_table_lock, bh);
 
 	return ret;
 }
 
 static bool vsock_in_connected_table(struct vsock_sock *vsk)
 {
+	unsigned int bh;
 	bool ret;
 
-	spin_lock_bh(&vsock_table_lock);
+	bh = spin_lock_bh(&vsock_table_lock, SOFTIRQ_ALL_MASK);
 	ret = __vsock_in_connected_table(vsk);
-	spin_unlock_bh(&vsock_table_lock);
+	spin_unlock_bh(&vsock_table_lock, bh);
 
 	return ret;
 }
@@ -359,9 +367,10 @@ EXPORT_SYMBOL_GPL(vsock_remove_sock);
 
 void vsock_for_each_connected_socket(void (*fn)(struct sock *sk))
 {
+	unsigned int bh;
 	int i;
 
-	spin_lock_bh(&vsock_table_lock);
+	bh = spin_lock_bh(&vsock_table_lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < ARRAY_SIZE(vsock_connected_table); i++) {
 		struct vsock_sock *vsk;
@@ -370,7 +379,7 @@ void vsock_for_each_connected_socket(void (*fn)(struct sock *sk))
 			fn(sk_vsock(vsk));
 	}
 
-	spin_unlock_bh(&vsock_table_lock);
+	spin_unlock_bh(&vsock_table_lock, bh);
 }
 EXPORT_SYMBOL_GPL(vsock_for_each_connected_socket);
 
@@ -560,6 +569,7 @@ static int __vsock_bind_dgram(struct vsock_sock *vsk,
 
 static int __vsock_bind(struct sock *sk, struct sockaddr_vm *addr)
 {
+	unsigned int bh;
 	struct vsock_sock *vsk = vsock_sk(sk);
 	u32 cid;
 	int retval;
@@ -579,9 +589,9 @@ static int __vsock_bind(struct sock *sk, struct sockaddr_vm *addr)
 
 	switch (sk->sk_socket->type) {
 	case SOCK_STREAM:
-		spin_lock_bh(&vsock_table_lock);
+		bh = spin_lock_bh(&vsock_table_lock, SOFTIRQ_ALL_MASK);
 		retval = __vsock_bind_stream(vsk, addr);
-		spin_unlock_bh(&vsock_table_lock);
+		spin_unlock_bh(&vsock_table_lock, bh);
 		break;
 
 	case SOCK_DGRAM:

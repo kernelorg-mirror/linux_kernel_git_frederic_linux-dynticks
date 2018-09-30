@@ -1122,11 +1122,12 @@ static int ip6mr_cache_report(struct mr_table *mrt, struct sk_buff *pkt,
 static int ip6mr_cache_unresolved(struct mr_table *mrt, mifi_t mifi,
 				  struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct mfc6_cache *c;
 	bool found = false;
 	int err;
 
-	spin_lock_bh(&mfc_unres_lock);
+	bh = spin_lock_bh(&mfc_unres_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(c, &mrt->mfc_unres_queue, _c.list) {
 		if (ipv6_addr_equal(&c->mf6c_mcastgrp, &ipv6_hdr(skb)->daddr) &&
 		    ipv6_addr_equal(&c->mf6c_origin, &ipv6_hdr(skb)->saddr)) {
@@ -1142,7 +1143,7 @@ static int ip6mr_cache_unresolved(struct mr_table *mrt, mifi_t mifi,
 
 		if (atomic_read(&mrt->cache_resolve_queue_len) >= 10 ||
 		    (c = ip6mr_cache_alloc_unres()) == NULL) {
-			spin_unlock_bh(&mfc_unres_lock);
+			spin_unlock_bh(&mfc_unres_lock, bh);
 
 			kfree_skb(skb);
 			return -ENOBUFS;
@@ -1161,7 +1162,7 @@ static int ip6mr_cache_unresolved(struct mr_table *mrt, mifi_t mifi,
 			/* If the report failed throw the cache entry
 			   out - Brad Parker
 			 */
-			spin_unlock_bh(&mfc_unres_lock);
+			spin_unlock_bh(&mfc_unres_lock, bh);
 
 			ip6mr_cache_free(c);
 			kfree_skb(skb);
@@ -1184,7 +1185,7 @@ static int ip6mr_cache_unresolved(struct mr_table *mrt, mifi_t mifi,
 		err = 0;
 	}
 
-	spin_unlock_bh(&mfc_unres_lock);
+	spin_unlock_bh(&mfc_unres_lock, bh);
 	return err;
 }
 
@@ -1389,6 +1390,7 @@ void ip6_mr_cleanup(void)
 static int ip6mr_mfc_add(struct net *net, struct mr_table *mrt,
 			 struct mf6cctl *mfc, int mrtsock, int parent)
 {
+	unsigned int bh;
 	unsigned char ttls[MAXMIFS];
 	struct mfc6_cache *uc, *c;
 	struct mr_mfc *_uc;
@@ -1450,7 +1452,7 @@ static int ip6mr_mfc_add(struct net *net, struct mr_table *mrt,
 	 * need to send on the frames and tidy up.
 	 */
 	found = false;
-	spin_lock_bh(&mfc_unres_lock);
+	bh = spin_lock_bh(&mfc_unres_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(_uc, &mrt->mfc_unres_queue, list) {
 		uc = (struct mfc6_cache *)_uc;
 		if (ipv6_addr_equal(&uc->mf6c_origin, &c->mf6c_origin) &&
@@ -1463,7 +1465,7 @@ static int ip6mr_mfc_add(struct net *net, struct mr_table *mrt,
 	}
 	if (list_empty(&mrt->mfc_unres_queue))
 		del_timer(&mrt->ipmr_expire_timer);
-	spin_unlock_bh(&mfc_unres_lock);
+	spin_unlock_bh(&mfc_unres_lock, bh);
 
 	if (found) {
 		ip6mr_cache_resolve(net, mrt, uc, c);
@@ -1481,6 +1483,7 @@ static int ip6mr_mfc_add(struct net *net, struct mr_table *mrt,
 
 static void mroute_clean_tables(struct mr_table *mrt, bool all)
 {
+	unsigned int bh;
 	struct mr_mfc *c, *tmp;
 	LIST_HEAD(list);
 	int i;
@@ -1504,7 +1507,7 @@ static void mroute_clean_tables(struct mr_table *mrt, bool all)
 	}
 
 	if (atomic_read(&mrt->cache_resolve_queue_len) != 0) {
-		spin_lock_bh(&mfc_unres_lock);
+		bh = spin_lock_bh(&mfc_unres_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry_safe(c, tmp, &mrt->mfc_unres_queue, list) {
 			list_del(&c->list);
 			call_ip6mr_mfc_entry_notifiers(read_pnet(&mrt->net),
@@ -1515,7 +1518,7 @@ static void mroute_clean_tables(struct mr_table *mrt, bool all)
 					  RTM_DELROUTE);
 			ip6mr_destroy_unres(mrt, (struct mfc6_cache *)c);
 		}
-		spin_unlock_bh(&mfc_unres_lock);
+		spin_unlock_bh(&mfc_unres_lock, bh);
 	}
 }
 

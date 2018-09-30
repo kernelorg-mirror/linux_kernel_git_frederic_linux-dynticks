@@ -242,18 +242,19 @@ static DECLARE_WAIT_QUEUE_HEAD(barrier_wq);
 static struct rcu_torture *
 rcu_torture_alloc(void)
 {
+	unsigned int bh;
 	struct list_head *p;
 
-	spin_lock_bh(&rcu_torture_lock);
+	bh = spin_lock_bh(&rcu_torture_lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&rcu_torture_freelist)) {
 		atomic_inc(&n_rcu_torture_alloc_fail);
-		spin_unlock_bh(&rcu_torture_lock);
+		spin_unlock_bh(&rcu_torture_lock, bh);
 		return NULL;
 	}
 	atomic_inc(&n_rcu_torture_alloc);
 	p = rcu_torture_freelist.next;
 	list_del_init(p);
-	spin_unlock_bh(&rcu_torture_lock);
+	spin_unlock_bh(&rcu_torture_lock, bh);
 	return container_of(p, struct rcu_torture, rtort_free);
 }
 
@@ -263,10 +264,11 @@ rcu_torture_alloc(void)
 static void
 rcu_torture_free(struct rcu_torture *p)
 {
+	unsigned int bh;
 	atomic_inc(&n_rcu_torture_free);
-	spin_lock_bh(&rcu_torture_lock);
+	bh = spin_lock_bh(&rcu_torture_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&p->rtort_free, &rcu_torture_freelist);
-	spin_unlock_bh(&rcu_torture_lock);
+	spin_unlock_bh(&rcu_torture_lock, bh);
 }
 
 /*

@@ -319,6 +319,7 @@ static enum resp_states check_op_valid(struct rxe_qp *qp,
 
 static enum resp_states get_srq_wqe(struct rxe_qp *qp)
 {
+	unsigned int bh;
 	struct rxe_srq *srq = qp->srq;
 	struct rxe_queue *q = srq->rq.queue;
 	struct rxe_recv_wqe *wqe;
@@ -327,11 +328,11 @@ static enum resp_states get_srq_wqe(struct rxe_qp *qp)
 	if (srq->error)
 		return RESPST_ERR_RNR;
 
-	spin_lock_bh(&srq->rq.consumer_lock);
+	bh = spin_lock_bh(&srq->rq.consumer_lock, SOFTIRQ_ALL_MASK);
 
 	wqe = queue_head(q);
 	if (!wqe) {
-		spin_unlock_bh(&srq->rq.consumer_lock);
+		spin_unlock_bh(&srq->rq.consumer_lock, bh);
 		return RESPST_ERR_RNR;
 	}
 
@@ -347,11 +348,11 @@ static enum resp_states get_srq_wqe(struct rxe_qp *qp)
 		goto event;
 	}
 
-	spin_unlock_bh(&srq->rq.consumer_lock);
+	spin_unlock_bh(&srq->rq.consumer_lock, bh);
 	return RESPST_CHK_LENGTH;
 
 event:
-	spin_unlock_bh(&srq->rq.consumer_lock);
+	spin_unlock_bh(&srq->rq.consumer_lock, bh);
 	ev.device = qp->ibqp.device;
 	ev.element.srq = qp->ibqp.srq;
 	ev.event = IB_EVENT_SRQ_LIMIT_REACHED;
@@ -548,6 +549,7 @@ static DEFINE_SPINLOCK(atomic_ops_lock);
 static enum resp_states process_atomic(struct rxe_qp *qp,
 				       struct rxe_pkt_info *pkt)
 {
+	unsigned int bh;
 	u64 iova = atmeth_va(pkt);
 	u64 *vaddr;
 	enum resp_states ret;
@@ -566,7 +568,7 @@ static enum resp_states process_atomic(struct rxe_qp *qp,
 		goto out;
 	}
 
-	spin_lock_bh(&atomic_ops_lock);
+	bh = spin_lock_bh(&atomic_ops_lock, SOFTIRQ_ALL_MASK);
 
 	qp->resp.atomic_orig = *vaddr;
 
@@ -578,7 +580,7 @@ static enum resp_states process_atomic(struct rxe_qp *qp,
 		*vaddr += atmeth_swap_add(pkt);
 	}
 
-	spin_unlock_bh(&atomic_ops_lock);
+	spin_unlock_bh(&atomic_ops_lock, bh);
 
 	ret = RESPST_NONE;
 out:

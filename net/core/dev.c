@@ -7376,9 +7376,10 @@ void __dev_set_rx_mode(struct net_device *dev)
 
 void dev_set_rx_mode(struct net_device *dev)
 {
-	netif_addr_lock_bh(dev);
+	unsigned int bh;
+	bh = netif_addr_lock_bh(dev);
 	__dev_set_rx_mode(dev);
-	netif_addr_unlock_bh(dev);
+	netif_addr_unlock_bh(dev, bh);
 }
 
 /**

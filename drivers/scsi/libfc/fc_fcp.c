@@ -225,9 +225,10 @@ static void fc_fcp_pkt_destroy(struct fc_seq *seq, void *fsp)
  */
 static inline int fc_fcp_lock_pkt(struct fc_fcp_pkt *fsp)
 {
-	spin_lock_bh(&fsp->scsi_pkt_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&fsp->scsi_pkt_lock, SOFTIRQ_ALL_MASK);
 	if (fsp->state & FC_SRB_COMPL) {
-		spin_unlock_bh(&fsp->scsi_pkt_lock);
+		spin_unlock_bh(&fsp->scsi_pkt_lock, bh);
 		return -EPERM;
 	}
 
@@ -1075,6 +1076,7 @@ static void fc_fcp_cleanup_cmd(struct fc_fcp_pkt *fsp, int error)
 static void fc_fcp_cleanup_each_cmd(struct fc_lport *lport, unsigned int id,
 				    unsigned int lun, int error)
 {
+	unsigned int bh;
 	struct fc_fcp_internal *si = fc_get_scsi_internal(lport);
 	struct fc_fcp_pkt *fsp;
 	struct scsi_cmnd *sc_cmd;
@@ -1093,7 +1095,7 @@ restart:
 		fc_fcp_pkt_hold(fsp);
 		spin_unlock_irqrestore(&si->scsi_queue_lock, flags);
 
-		spin_lock_bh(&fsp->scsi_pkt_lock);
+		bh = spin_lock_bh(&fsp->scsi_pkt_lock, SOFTIRQ_ALL_MASK);
 		if (!(fsp->state & FC_SRB_COMPL)) {
 			fsp->state |= FC_SRB_COMPL;
 			/*
@@ -1109,10 +1111,10 @@ restart:
 
 			fc_fcp_cleanup_cmd(fsp, error);
 
-			spin_lock_bh(&fsp->scsi_pkt_lock);
+			spin_lock_bh(&fsp->scsi_pkt_lock, SOFTIRQ_ALL_MASK);
 			fc_io_compl(fsp);
 		}
-		spin_unlock_bh(&fsp->scsi_pkt_lock);
+		spin_unlock_bh(&fsp->scsi_pkt_lock, bh);
 
 		fc_fcp_pkt_release(fsp);
 		spin_lock_irqsave(&si->scsi_queue_lock, flags);
@@ -1279,7 +1281,7 @@ static int fc_fcp_pkt_abort(struct fc_fcp_pkt *fsp)
 	spin_unlock_bh(&fsp->scsi_pkt_lock);
 	ticks_left = wait_for_completion_timeout(&fsp->tm_done,
 							FC_SCSI_TM_TOV);
-	spin_lock_bh(&fsp->scsi_pkt_lock);
+	spin_lock_bh(&fsp->scsi_pkt_lock, SOFTIRQ_ALL_MASK);
 	fsp->wait_for_comp = 0;
 
 	if (!ticks_left) {
@@ -1341,13 +1343,13 @@ static int fc_lun_reset(struct fc_lport *lport, struct fc_fcp_pkt *fsp,
 	 */
 	rc = wait_for_completion_timeout(&fsp->tm_done, FC_SCSI_TM_TOV);
 
-	spin_lock_bh(&fsp->scsi_pkt_lock);
+	spin_lock_bh(&fsp->scsi_pkt_lock, SOFTIRQ_ALL_MASK);
 	fsp->state |= FC_SRB_COMPL;
 	spin_unlock_bh(&fsp->scsi_pkt_lock);
 
 	del_timer_sync(&fsp->timer);
 
-	spin_lock_bh(&fsp->scsi_pkt_lock);
+	spin_lock_bh(&fsp->scsi_pkt_lock, SOFTIRQ_ALL_MASK);
 	if (fsp->seq_ptr) {
 		fc_exch_done(fsp->seq_ptr);
 		fsp->seq_ptr = NULL;
@@ -1981,7 +1983,7 @@ static void fc_io_compl(struct fc_fcp_pkt *fsp)
 	if (!(fsp->state & FC_SRB_FCP_PROCESSING_TMO)) {
 		spin_unlock_bh(&fsp->scsi_pkt_lock);
 		del_timer_sync(&fsp->timer);
-		spin_lock_bh(&fsp->scsi_pkt_lock);
+		spin_lock_bh(&fsp->scsi_pkt_lock, SOFTIRQ_ALL_MASK);
 	}
 
 	lport = fsp->lp;

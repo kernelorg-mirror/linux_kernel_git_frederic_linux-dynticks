@@ -240,18 +240,19 @@ static int br_change_mtu(struct net_device *dev, int new_mtu)
 /* Allow setting mac address to any valid ethernet address. */
 static int br_set_mac_address(struct net_device *dev, void *p)
 {
+	unsigned int bh;
 	struct net_bridge *br = netdev_priv(dev);
 	struct sockaddr *addr = p;
 
 	if (!is_valid_ether_addr(addr->sa_data))
 		return -EADDRNOTAVAIL;
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	if (!ether_addr_equal(dev->dev_addr, addr->sa_data)) {
 		/* Mac address will be changed in br_stp_change_bridge_id(). */
 		br_stp_change_bridge_id(br, addr->sa_data);
 	}
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 
 	return 0;
 }

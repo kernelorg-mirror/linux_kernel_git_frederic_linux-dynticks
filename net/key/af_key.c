@@ -1429,6 +1429,7 @@ static int pfkey_getspi(struct sock *sk, struct sk_buff *skb, const struct sadb_
 
 static int pfkey_acquire(struct sock *sk, struct sk_buff *skb, const struct sadb_msg *hdr, void * const *ext_hdrs)
 {
+	unsigned int bh;
 	struct net *net = sock_net(sk);
 	struct xfrm_state *x;
 
@@ -1442,11 +1443,11 @@ static int pfkey_acquire(struct sock *sk, struct sk_buff *skb, const struct sadb
 	if (x == NULL)
 		return 0;
 
-	spin_lock_bh(&x->lock);
+	bh = spin_lock_bh(&x->lock, SOFTIRQ_ALL_MASK);
 	if (x->km.state == XFRM_STATE_ACQ)
 		x->km.state = XFRM_STATE_ERROR;
 
-	spin_unlock_bh(&x->lock);
+	spin_unlock_bh(&x->lock, bh);
 	xfrm_state_put(x);
 	return 0;
 }

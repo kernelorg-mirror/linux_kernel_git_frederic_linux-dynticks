@@ -1031,12 +1031,13 @@ int octeon_init_dispatch_list(struct octeon_device *oct)
 
 void octeon_delete_dispatch_list(struct octeon_device *oct)
 {
+	unsigned int bh;
 	u32 i;
 	struct list_head freelist, *temp, *tmp2;
 
 	INIT_LIST_HEAD(&freelist);
 
-	spin_lock_bh(&oct->dispatch.lock);
+	bh = spin_lock_bh(&oct->dispatch.lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < DISPATCH_LIST_SIZE; i++) {
 		struct list_head *dispatch;
@@ -1053,7 +1054,7 @@ void octeon_delete_dispatch_list(struct octeon_device *oct)
 
 	oct->dispatch.count = 0;
 
-	spin_unlock_bh(&oct->dispatch.lock);
+	spin_unlock_bh(&oct->dispatch.lock, bh);
 
 	list_for_each_safe(temp, tmp2, &freelist) {
 		list_del(temp);
@@ -1065,6 +1066,7 @@ octeon_dispatch_fn_t
 octeon_get_dispatch(struct octeon_device *octeon_dev, u16 opcode,
 		    u16 subcode)
 {
+	unsigned int bh;
 	u32 idx;
 	struct list_head *dispatch;
 	octeon_dispatch_fn_t fn = NULL;
@@ -1072,15 +1074,15 @@ octeon_get_dispatch(struct octeon_device *octeon_dev, u16 opcode,
 
 	idx = combined_opcode & OCTEON_OPCODE_MASK;
 
-	spin_lock_bh(&octeon_dev->dispatch.lock);
+	bh = spin_lock_bh(&octeon_dev->dispatch.lock, SOFTIRQ_ALL_MASK);
 
 	if (octeon_dev->dispatch.count == 0) {
-		spin_unlock_bh(&octeon_dev->dispatch.lock);
+		spin_unlock_bh(&octeon_dev->dispatch.lock, bh);
 		return NULL;
 	}
 
 	if (!(octeon_dev->dispatch.dlist[idx].opcode)) {
-		spin_unlock_bh(&octeon_dev->dispatch.lock);
+		spin_unlock_bh(&octeon_dev->dispatch.lock, bh);
 		return NULL;
 	}
 
@@ -1098,7 +1100,7 @@ octeon_get_dispatch(struct octeon_device *octeon_dev, u16 opcode,
 		}
 	}
 
-	spin_unlock_bh(&octeon_dev->dispatch.lock);
+	spin_unlock_bh(&octeon_dev->dispatch.lock, bh);
 	return fn;
 }
 
@@ -1125,24 +1127,25 @@ octeon_register_dispatch_fn(struct octeon_device *oct,
 			    u16 subcode,
 			    octeon_dispatch_fn_t fn, void *fn_arg)
 {
+	unsigned int bh;
 	u32 idx;
 	octeon_dispatch_fn_t pfn;
 	u16 combined_opcode = OPCODE_SUBCODE(opcode, subcode);
 
 	idx = combined_opcode & OCTEON_OPCODE_MASK;
 
-	spin_lock_bh(&oct->dispatch.lock);
+	bh = spin_lock_bh(&oct->dispatch.lock, SOFTIRQ_ALL_MASK);
 	/* Add dispatch function to first level of lookup table */
 	if (oct->dispatch.dlist[idx].opcode == 0) {
 		oct->dispatch.dlist[idx].opcode = combined_opcode;
 		oct->dispatch.dlist[idx].dispatch_fn = fn;
 		oct->dispatch.dlist[idx].arg = fn_arg;
 		oct->dispatch.count++;
-		spin_unlock_bh(&oct->dispatch.lock);
+		spin_unlock_bh(&oct->dispatch.lock, bh);
 		return 0;
 	}
 
-	spin_unlock_bh(&oct->dispatch.lock);
+	spin_unlock_bh(&oct->dispatch.lock, bh);
 
 	/* Check if there was a function already registered for this
 	 * opcode/subcode.
@@ -1167,7 +1170,7 @@ octeon_register_dispatch_fn(struct octeon_device *oct,
 		/* Add dispatch function to linked list of fn ptrs
 		 * at the hashed index.
 		 */
-		spin_lock_bh(&oct->dispatch.lock);
+		spin_lock_bh(&oct->dispatch.lock, SOFTIRQ_ALL_MASK);
 		list_add(&dispatch->list, &oct->dispatch.dlist[idx].list);
 		oct->dispatch.count++;
 		spin_unlock_bh(&oct->dispatch.lock);
@@ -1433,6 +1436,7 @@ int lio_get_device_id(void *dev)
 
 void lio_enable_irq(struct octeon_droq *droq, struct octeon_instr_queue *iq)
 {
+	unsigned int bh;
 	u64 instr_cnt;
 	u32 pkts_pend;
 	struct octeon_device *oct = NULL;
@@ -1440,21 +1444,21 @@ void lio_enable_irq(struct octeon_droq *droq, struct octeon_instr_queue *iq)
 	/* the whole thing needs to be atomic, ideally */
 	if (droq) {
 		pkts_pend = (u32)atomic_read(&droq->pkts_pending);
-		spin_lock_bh(&droq->lock);
+		bh = spin_lock_bh(&droq->lock, SOFTIRQ_ALL_MASK);
 		writel(droq->pkt_count - pkts_pend, droq->pkts_sent_reg);
 		droq->pkt_count = pkts_pend;
 		/* this write needs to be flushed before we release the lock */
 		mmiowb();
-		spin_unlock_bh(&droq->lock);
+		spin_unlock_bh(&droq->lock, bh);
 		oct = droq->oct_dev;
 	}
 	if (iq) {
-		spin_lock_bh(&iq->lock);
+		bh = spin_lock_bh(&iq->lock, SOFTIRQ_ALL_MASK);
 		writel(iq->pkt_in_done, iq->inst_cnt_reg);
 		iq->pkt_in_done = 0;
 		/* this write needs to be flushed before we release the lock */
 		mmiowb();
-		spin_unlock_bh(&iq->lock);
+		spin_unlock_bh(&iq->lock, bh);
 		oct = iq->oct_dev;
 	}
 	/*write resend. Writing RESEND in SLI_PKTX_CNTS should be enough

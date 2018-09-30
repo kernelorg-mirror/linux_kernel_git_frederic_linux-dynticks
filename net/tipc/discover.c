@@ -255,18 +255,20 @@ void tipc_disc_rcv(struct net *net, struct sk_buff *skb,
  */
 void tipc_disc_add_dest(struct tipc_discoverer *d)
 {
-	spin_lock_bh(&d->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&d->lock, SOFTIRQ_ALL_MASK);
 	d->num_nodes++;
-	spin_unlock_bh(&d->lock);
+	spin_unlock_bh(&d->lock, bh);
 }
 
 /* tipc_disc_remove_dest - decrement set of discovered nodes
  */
 void tipc_disc_remove_dest(struct tipc_discoverer *d)
 {
+	unsigned int bh;
 	int intv, num;
 
-	spin_lock_bh(&d->lock);
+	bh = spin_lock_bh(&d->lock, SOFTIRQ_ALL_MASK);
 	d->num_nodes--;
 	num = d->num_nodes;
 	intv = d->timer_intv;
@@ -274,7 +276,7 @@ void tipc_disc_remove_dest(struct tipc_discoverer *d)
 		d->timer_intv = TIPC_DISC_INIT;
 		mod_timer(&d->timer, jiffies + d->timer_intv);
 	}
-	spin_unlock_bh(&d->lock);
+	spin_unlock_bh(&d->lock, bh);
 }
 
 /* tipc_disc_timeout - send a periodic link setup request
@@ -285,6 +287,7 @@ void tipc_disc_remove_dest(struct tipc_discoverer *d)
  */
 static void tipc_disc_timeout(struct timer_list *t)
 {
+	unsigned int bh;
 	struct tipc_discoverer *d = from_timer(d, t, timer);
 	struct tipc_net *tn = tipc_net(d->net);
 	struct tipc_media_addr maddr;
@@ -292,7 +295,7 @@ static void tipc_disc_timeout(struct timer_list *t)
 	struct net *net = d->net;
 	u32 bearer_id;
 
-	spin_lock_bh(&d->lock);
+	bh = spin_lock_bh(&d->lock, SOFTIRQ_ALL_MASK);
 
 	/* Stop searching if only desired node has been found */
 	if (tipc_node(d->domain) && d->num_nodes) {
@@ -326,7 +329,7 @@ static void tipc_disc_timeout(struct timer_list *t)
 	skb = skb_clone(d->skb, GFP_ATOMIC);
 	bearer_id = d->bearer_id;
 exit:
-	spin_unlock_bh(&d->lock);
+	spin_unlock_bh(&d->lock, bh);
 	if (skb)
 		tipc_bearer_xmit_skb(net, bearer_id, skb, &maddr);
 }
@@ -394,11 +397,12 @@ void tipc_disc_delete(struct tipc_discoverer *d)
  */
 void tipc_disc_reset(struct net *net, struct tipc_bearer *b)
 {
+	unsigned int bh;
 	struct tipc_discoverer *d = b->disc;
 	struct tipc_media_addr maddr;
 	struct sk_buff *skb;
 
-	spin_lock_bh(&d->lock);
+	bh = spin_lock_bh(&d->lock, SOFTIRQ_ALL_MASK);
 	tipc_disc_init_msg(net, d->skb, DSC_REQ_MSG, b);
 	d->net = net;
 	d->bearer_id = b->identity;
@@ -408,7 +412,7 @@ void tipc_disc_reset(struct net *net, struct tipc_bearer *b)
 	memcpy(&maddr, &d->dest, sizeof(maddr));
 	mod_timer(&d->timer, jiffies + d->timer_intv);
 	skb = skb_clone(d->skb, GFP_ATOMIC);
-	spin_unlock_bh(&d->lock);
+	spin_unlock_bh(&d->lock, bh);
 	if (skb)
 		tipc_bearer_xmit_skb(net, b->identity, skb, &maddr);
 }

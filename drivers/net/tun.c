@@ -452,9 +452,10 @@ static void tun_flow_delete(struct tun_struct *tun, struct tun_flow_entry *e)
 
 static void tun_flow_flush(struct tun_struct *tun)
 {
+	unsigned int bh;
 	int i;
 
-	spin_lock_bh(&tun->lock);
+	bh = spin_lock_bh(&tun->lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < TUN_NUM_FLOW_ENTRIES; i++) {
 		struct tun_flow_entry *e;
 		struct hlist_node *n;
@@ -462,14 +463,15 @@ static void tun_flow_flush(struct tun_struct *tun)
 		hlist_for_each_entry_safe(e, n, &tun->flows[i], hash_link)
 			tun_flow_delete(tun, e);
 	}
-	spin_unlock_bh(&tun->lock);
+	spin_unlock_bh(&tun->lock, bh);
 }
 
 static void tun_flow_delete_by_queue(struct tun_struct *tun, u16 queue_index)
 {
+	unsigned int bh;
 	int i;
 
-	spin_lock_bh(&tun->lock);
+	bh = spin_lock_bh(&tun->lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < TUN_NUM_FLOW_ENTRIES; i++) {
 		struct tun_flow_entry *e;
 		struct hlist_node *n;
@@ -479,7 +481,7 @@ static void tun_flow_delete_by_queue(struct tun_struct *tun, u16 queue_index)
 				tun_flow_delete(tun, e);
 		}
 	}
-	spin_unlock_bh(&tun->lock);
+	spin_unlock_bh(&tun->lock, bh);
 }
 
 static void tun_flow_cleanup(struct timer_list *t)
@@ -519,6 +521,7 @@ static void tun_flow_cleanup(struct timer_list *t)
 static void tun_flow_update(struct tun_struct *tun, u32 rxhash,
 			    struct tun_file *tfile)
 {
+	unsigned int bh;
 	struct hlist_head *head;
 	struct tun_flow_entry *e;
 	unsigned long delay = tun->ageing_time;
@@ -538,7 +541,7 @@ static void tun_flow_update(struct tun_struct *tun, u32 rxhash,
 		e->updated = jiffies;
 		sock_rps_record_flow_hash(e->rps_rxhash);
 	} else {
-		spin_lock_bh(&tun->lock);
+		bh = spin_lock_bh(&tun->lock, SOFTIRQ_ALL_MASK);
 		if (!tun_flow_find(head, rxhash) &&
 		    tun->flow_count < MAX_TAP_FLOWS)
 			tun_flow_create(tun, head, rxhash, queue_index);
@@ -546,7 +549,7 @@ static void tun_flow_update(struct tun_struct *tun, u32 rxhash,
 		if (!timer_pending(&tun->flow_gc_timer))
 			mod_timer(&tun->flow_gc_timer,
 				  round_jiffies_up(jiffies + delay));
-		spin_unlock_bh(&tun->lock);
+		spin_unlock_bh(&tun->lock, bh);
 	}
 
 	rcu_read_unlock();
@@ -1973,7 +1976,7 @@ static ssize_t tun_get_user(struct tun_struct *tun, struct tun_file *tfile,
 		struct sk_buff_head *queue = &tfile->sk.sk_write_queue;
 		int queue_len;
 
-		spin_lock_bh(&queue->lock);
+		spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 		__skb_queue_tail(queue, skb);
 		queue_len = skb_queue_len(queue);
 		spin_unlock(&queue->lock);
@@ -2256,6 +2259,7 @@ static int __tun_set_ebpf(struct tun_struct *tun,
 			  struct tun_prog __rcu **prog_p,
 			  struct bpf_prog *prog)
 {
+	unsigned int bh;
 	struct tun_prog *old, *new = NULL;
 
 	if (prog) {
@@ -2265,11 +2269,11 @@ static int __tun_set_ebpf(struct tun_struct *tun,
 		new->prog = prog;
 	}
 
-	spin_lock_bh(&tun->lock);
+	bh = spin_lock_bh(&tun->lock, SOFTIRQ_ALL_MASK);
 	old = rcu_dereference_protected(*prog_p,
 					lockdep_is_held(&tun->lock));
 	rcu_assign_pointer(*prog_p, new);
-	spin_unlock_bh(&tun->lock);
+	spin_unlock_bh(&tun->lock, bh);
 
 	if (old)
 		call_rcu(&old->rcu, tun_prog_free);

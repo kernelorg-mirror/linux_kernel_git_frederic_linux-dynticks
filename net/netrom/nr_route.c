@@ -46,27 +46,29 @@ static DEFINE_SPINLOCK(nr_neigh_list_lock);
 
 static struct nr_node *nr_node_get(ax25_address *callsign)
 {
+	unsigned int bh;
 	struct nr_node *found = NULL;
 	struct nr_node *nr_node;
 
-	spin_lock_bh(&nr_node_list_lock);
+	bh = spin_lock_bh(&nr_node_list_lock, SOFTIRQ_ALL_MASK);
 	nr_node_for_each(nr_node, &nr_node_list)
 		if (ax25cmp(callsign, &nr_node->callsign) == 0) {
 			nr_node_hold(nr_node);
 			found = nr_node;
 			break;
 		}
-	spin_unlock_bh(&nr_node_list_lock);
+	spin_unlock_bh(&nr_node_list_lock, bh);
 	return found;
 }
 
 static struct nr_neigh *nr_neigh_get_dev(ax25_address *callsign,
 					 struct net_device *dev)
 {
+	unsigned int bh;
 	struct nr_neigh *found = NULL;
 	struct nr_neigh *nr_neigh;
 
-	spin_lock_bh(&nr_neigh_list_lock);
+	bh = spin_lock_bh(&nr_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	nr_neigh_for_each(nr_neigh, &nr_neigh_list)
 		if (ax25cmp(callsign, &nr_neigh->callsign) == 0 &&
 		    nr_neigh->dev == dev) {
@@ -74,7 +76,7 @@ static struct nr_neigh *nr_neigh_get_dev(ax25_address *callsign,
 			found = nr_neigh;
 			break;
 		}
-	spin_unlock_bh(&nr_neigh_list_lock);
+	spin_unlock_bh(&nr_neigh_list_lock, bh);
 	return found;
 }
 
@@ -124,7 +126,7 @@ static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 	if (nr_neigh != NULL && nr_neigh->failed != 0 && quality == 0) {
 		struct nr_node *nr_nodet;
 
-		spin_lock_bh(&nr_node_list_lock);
+		spin_lock_bh(&nr_node_list_lock, SOFTIRQ_ALL_MASK);
 		nr_node_for_each(nr_nodet, &nr_node_list) {
 			nr_node_lock(nr_nodet);
 			for (i = 0; i < nr_nodet->count; i++)
@@ -175,7 +177,7 @@ static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 			}
 		}
 
-		spin_lock_bh(&nr_neigh_list_lock);
+		spin_lock_bh(&nr_neigh_list_lock, SOFTIRQ_ALL_MASK);
 		hlist_add_head(&nr_neigh->neigh_node, &nr_neigh_list);
 		nr_neigh_hold(nr_neigh);
 		spin_unlock_bh(&nr_neigh_list_lock);
@@ -206,7 +208,7 @@ static int __must_check nr_add_node(ax25_address *nr, const char *mnemonic,
 		nr_neigh_hold(nr_neigh);
 		nr_neigh->count++;
 
-		spin_lock_bh(&nr_node_list_lock);
+		spin_lock_bh(&nr_node_list_lock, SOFTIRQ_ALL_MASK);
 		hlist_add_head(&nr_node->node_node, &nr_node_list);
 		/* refcount initialized at 1 */
 		spin_unlock_bh(&nr_node_list_lock);
@@ -297,9 +299,10 @@ static inline void __nr_remove_node(struct nr_node *nr_node)
 
 static void nr_remove_node(struct nr_node *nr_node)
 {
-	spin_lock_bh(&nr_node_list_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&nr_node_list_lock, SOFTIRQ_ALL_MASK);
 	__nr_remove_node(nr_node);
-	spin_unlock_bh(&nr_node_list_lock);
+	spin_unlock_bh(&nr_node_list_lock, bh);
 }
 
 static inline void __nr_remove_neigh(struct nr_neigh *nr_neigh)
@@ -313,9 +316,10 @@ static inline void __nr_remove_neigh(struct nr_neigh *nr_neigh)
 
 static void nr_remove_neigh(struct nr_neigh *nr_neigh)
 {
-	spin_lock_bh(&nr_neigh_list_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&nr_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	__nr_remove_neigh(nr_neigh);
-	spin_unlock_bh(&nr_neigh_list_lock);
+	spin_unlock_bh(&nr_neigh_list_lock, bh);
 }
 
 /*
@@ -417,7 +421,7 @@ static int __must_check nr_add_neigh(ax25_address *callsign,
 		}
 	}
 
-	spin_lock_bh(&nr_neigh_list_lock);
+	spin_lock_bh(&nr_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	hlist_add_head(&nr_neigh->neigh_node, &nr_neigh_list);
 	/* refcount is initialized at 1 */
 	spin_unlock_bh(&nr_neigh_list_lock);
@@ -454,12 +458,13 @@ static int nr_del_neigh(ax25_address *callsign, struct net_device *dev, unsigned
  */
 static int nr_dec_obs(void)
 {
+	unsigned int bh;
 	struct nr_neigh *nr_neigh;
 	struct nr_node  *s;
 	struct hlist_node *nodet;
 	int i;
 
-	spin_lock_bh(&nr_node_list_lock);
+	bh = spin_lock_bh(&nr_node_list_lock, SOFTIRQ_ALL_MASK);
 	nr_node_for_each_safe(s, nodet, &nr_node_list) {
 		nr_node_lock(s);
 		for (i = 0; i < s->count; i++) {
@@ -500,7 +505,7 @@ static int nr_dec_obs(void)
 			nr_remove_node_locked(s);
 		nr_node_unlock(s);
 	}
-	spin_unlock_bh(&nr_node_list_lock);
+	spin_unlock_bh(&nr_node_list_lock, bh);
 
 	return 0;
 }
@@ -510,15 +515,16 @@ static int nr_dec_obs(void)
  */
 void nr_rt_device_down(struct net_device *dev)
 {
+	unsigned int bh;
 	struct nr_neigh *s;
 	struct hlist_node *nodet, *node2t;
 	struct nr_node  *t;
 	int i;
 
-	spin_lock_bh(&nr_neigh_list_lock);
+	bh = spin_lock_bh(&nr_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	nr_neigh_for_each_safe(s, nodet, &nr_neigh_list) {
 		if (s->dev == dev) {
-			spin_lock_bh(&nr_node_list_lock);
+			spin_lock_bh(&nr_node_list_lock, SOFTIRQ_ALL_MASK);
 			nr_node_for_each_safe(t, node2t, &nr_node_list) {
 				nr_node_lock(t);
 				for (i = 0; i < t->count; i++) {
@@ -546,7 +552,7 @@ void nr_rt_device_down(struct net_device *dev)
 			nr_remove_neigh_locked(s);
 		}
 	}
-	spin_unlock_bh(&nr_neigh_list_lock);
+	spin_unlock_bh(&nr_neigh_list_lock, bh);
 }
 
 /*
@@ -708,10 +714,11 @@ int nr_rt_ioctl(unsigned int cmd, void __user *arg)
  */
 void nr_link_failed(ax25_cb *ax25, int reason)
 {
+	unsigned int bh;
 	struct nr_neigh *s, *nr_neigh = NULL;
 	struct nr_node  *nr_node = NULL;
 
-	spin_lock_bh(&nr_neigh_list_lock);
+	bh = spin_lock_bh(&nr_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	nr_neigh_for_each(s, &nr_neigh_list) {
 		if (s->ax25 == ax25) {
 			nr_neigh_hold(s);
@@ -719,7 +726,7 @@ void nr_link_failed(ax25_cb *ax25, int reason)
 			break;
 		}
 	}
-	spin_unlock_bh(&nr_neigh_list_lock);
+	spin_unlock_bh(&nr_neigh_list_lock, bh);
 
 	if (nr_neigh == NULL)
 		return;
@@ -731,7 +738,7 @@ void nr_link_failed(ax25_cb *ax25, int reason)
 		nr_neigh_put(nr_neigh);
 		return;
 	}
-	spin_lock_bh(&nr_node_list_lock);
+	spin_lock_bh(&nr_node_list_lock, SOFTIRQ_ALL_MASK);
 	nr_node_for_each(nr_node, &nr_node_list) {
 		nr_node_lock(nr_node);
 		if (nr_node->which < nr_node->count &&
@@ -842,7 +849,7 @@ int nr_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 
 static void *nr_node_start(struct seq_file *seq, loff_t *pos)
 {
-	spin_lock_bh(&nr_node_list_lock);
+	spin_lock_bh(&nr_node_list_lock, SOFTIRQ_ALL_MASK);
 	return seq_hlist_start_head(&nr_node_list, *pos);
 }
 
@@ -897,7 +904,7 @@ const struct seq_operations nr_node_seqops = {
 
 static void *nr_neigh_start(struct seq_file *seq, loff_t *pos)
 {
-	spin_lock_bh(&nr_neigh_list_lock);
+	spin_lock_bh(&nr_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	return seq_hlist_start_head(&nr_neigh_list, *pos);
 }
 
@@ -955,12 +962,13 @@ const struct seq_operations nr_neigh_seqops = {
  */
 void __exit nr_rt_free(void)
 {
+	unsigned int bh;
 	struct nr_neigh *s = NULL;
 	struct nr_node  *t = NULL;
 	struct hlist_node *nodet;
 
-	spin_lock_bh(&nr_neigh_list_lock);
-	spin_lock_bh(&nr_node_list_lock);
+	bh = spin_lock_bh(&nr_neigh_list_lock, SOFTIRQ_ALL_MASK);
+	spin_lock_bh(&nr_node_list_lock, SOFTIRQ_ALL_MASK);
 	nr_node_for_each_safe(t, nodet, &nr_node_list) {
 		nr_node_lock(t);
 		nr_remove_node_locked(t);
@@ -974,5 +982,5 @@ void __exit nr_rt_free(void)
 		nr_remove_neigh_locked(s);
 	}
 	spin_unlock_bh(&nr_node_list_lock);
-	spin_unlock_bh(&nr_neigh_list_lock);
+	spin_unlock_bh(&nr_neigh_list_lock, bh);
 }

@@ -190,6 +190,7 @@ static netdev_tx_t ipddp_xmit(struct sk_buff *skb, struct net_device *dev)
  */
 static int ipddp_create(struct ipddp_route *new_rt)
 {
+        unsigned int bh;
         struct ipddp_route *rt = kzalloc(sizeof(*rt), GFP_KERNEL);
 
         if (rt == NULL)
@@ -203,9 +204,9 @@ static int ipddp_create(struct ipddp_route *new_rt)
                 return -ENETUNREACH;
         }
 
-	spin_lock_bh(&ipddp_route_lock);
+	bh = spin_lock_bh(&ipddp_route_lock, SOFTIRQ_ALL_MASK);
 	if (__ipddp_find_route(rt)) {
-		spin_unlock_bh(&ipddp_route_lock);
+		spin_unlock_bh(&ipddp_route_lock, bh);
 		kfree(rt);
 		return -EEXIST;
 	}
@@ -213,7 +214,7 @@ static int ipddp_create(struct ipddp_route *new_rt)
         rt->next = ipddp_route_list;
         ipddp_route_list = rt;
 
-	spin_unlock_bh(&ipddp_route_lock);
+	spin_unlock_bh(&ipddp_route_lock, bh);
 
         return 0;
 }
@@ -224,10 +225,11 @@ static int ipddp_create(struct ipddp_route *new_rt)
  */
 static int ipddp_delete(struct ipddp_route *rt)
 {
+        unsigned int bh;
         struct ipddp_route **r = &ipddp_route_list;
         struct ipddp_route *tmp;
 
-	spin_lock_bh(&ipddp_route_lock);
+	bh = spin_lock_bh(&ipddp_route_lock, SOFTIRQ_ALL_MASK);
         while((tmp = *r) != NULL)
         {
                 if(tmp->ip == rt->ip &&
@@ -235,14 +237,14 @@ static int ipddp_delete(struct ipddp_route *rt)
 		   tmp->at.s_node == rt->at.s_node)
                 {
                         *r = tmp->next;
-			spin_unlock_bh(&ipddp_route_lock);
+			spin_unlock_bh(&ipddp_route_lock, bh);
                         kfree(tmp);
                         return 0;
                 }
                 r = &tmp->next;
         }
 
-	spin_unlock_bh(&ipddp_route_lock);
+	spin_unlock_bh(&ipddp_route_lock, bh);
         return -ENOENT;
 }
 
@@ -266,6 +268,7 @@ static struct ipddp_route* __ipddp_find_route(struct ipddp_route *rt)
 
 static int ipddp_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
+        unsigned int bh;
         struct ipddp_route __user *rt = ifr->ifr_data;
         struct ipddp_route rcp, rcp2, *rp;
 
@@ -281,7 +284,7 @@ static int ipddp_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
                         return ipddp_create(&rcp);
 
                 case SIOCFINDIPDDPRT:
-			spin_lock_bh(&ipddp_route_lock);
+			bh = spin_lock_bh(&ipddp_route_lock, SOFTIRQ_ALL_MASK);
 			rp = __ipddp_find_route(&rcp);
 			if (rp) {
 				memset(&rcp2, 0, sizeof(rcp2));
@@ -289,7 +292,7 @@ static int ipddp_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 				rcp2.at    = rp->at;
 				rcp2.flags = rp->flags;
 			}
-			spin_unlock_bh(&ipddp_route_lock);
+			spin_unlock_bh(&ipddp_route_lock, bh);
 
 			if (rp) {
 				if (copy_to_user(rt, &rcp2,

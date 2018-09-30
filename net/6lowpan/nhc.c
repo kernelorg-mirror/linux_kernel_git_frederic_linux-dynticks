@@ -97,16 +97,17 @@ static struct lowpan_nhc *lowpan_nhc_by_nhcid(const struct sk_buff *skb)
 int lowpan_nhc_check_compression(struct sk_buff *skb,
 				 const struct ipv6hdr *hdr, u8 **hc_ptr)
 {
+	unsigned int bh;
 	struct lowpan_nhc *nhc;
 	int ret = 0;
 
-	spin_lock_bh(&lowpan_nhc_lock);
+	bh = spin_lock_bh(&lowpan_nhc_lock, SOFTIRQ_ALL_MASK);
 
 	nhc = lowpan_nexthdr_nhcs[hdr->nexthdr];
 	if (!(nhc && nhc->compress))
 		ret = -ENOENT;
 
-	spin_unlock_bh(&lowpan_nhc_lock);
+	spin_unlock_bh(&lowpan_nhc_lock, bh);
 
 	return ret;
 }
@@ -114,10 +115,11 @@ int lowpan_nhc_check_compression(struct sk_buff *skb,
 int lowpan_nhc_do_compression(struct sk_buff *skb, const struct ipv6hdr *hdr,
 			      u8 **hc_ptr)
 {
+	unsigned int bh;
 	int ret;
 	struct lowpan_nhc *nhc;
 
-	spin_lock_bh(&lowpan_nhc_lock);
+	bh = spin_lock_bh(&lowpan_nhc_lock, SOFTIRQ_ALL_MASK);
 
 	nhc = lowpan_nexthdr_nhcs[hdr->nexthdr];
 	/* check if the nhc module was removed in unlocked part.
@@ -149,7 +151,7 @@ int lowpan_nhc_do_compression(struct sk_buff *skb, const struct ipv6hdr *hdr,
 	skb_pull(skb, nhc->nexthdrlen);
 
 out:
-	spin_unlock_bh(&lowpan_nhc_lock);
+	spin_unlock_bh(&lowpan_nhc_lock, bh);
 
 	return ret;
 }
@@ -158,10 +160,11 @@ int lowpan_nhc_do_uncompression(struct sk_buff *skb,
 				const struct net_device *dev,
 				struct ipv6hdr *hdr)
 {
+	unsigned int bh;
 	struct lowpan_nhc *nhc;
 	int ret;
 
-	spin_lock_bh(&lowpan_nhc_lock);
+	bh = spin_lock_bh(&lowpan_nhc_lock, SOFTIRQ_ALL_MASK);
 
 	nhc = lowpan_nhc_by_nhcid(skb);
 	if (nhc) {
@@ -169,17 +172,17 @@ int lowpan_nhc_do_uncompression(struct sk_buff *skb,
 			ret = nhc->uncompress(skb, sizeof(struct ipv6hdr) +
 					      nhc->nexthdrlen);
 			if (ret < 0) {
-				spin_unlock_bh(&lowpan_nhc_lock);
+				spin_unlock_bh(&lowpan_nhc_lock, bh);
 				return ret;
 			}
 		} else {
-			spin_unlock_bh(&lowpan_nhc_lock);
+			spin_unlock_bh(&lowpan_nhc_lock, bh);
 			netdev_warn(dev, "received nhc id for %s which is not implemented.\n",
 				    nhc->name);
 			return -ENOTSUPP;
 		}
 	} else {
-		spin_unlock_bh(&lowpan_nhc_lock);
+		spin_unlock_bh(&lowpan_nhc_lock, bh);
 		netdev_warn(dev, "received unknown nhc id which was not found.\n");
 		return -ENOENT;
 	}
@@ -189,13 +192,14 @@ int lowpan_nhc_do_uncompression(struct sk_buff *skb,
 	raw_dump_table(__func__, "raw transport header dump",
 		       skb_transport_header(skb), nhc->nexthdrlen);
 
-	spin_unlock_bh(&lowpan_nhc_lock);
+	spin_unlock_bh(&lowpan_nhc_lock, bh);
 
 	return 0;
 }
 
 int lowpan_nhc_add(struct lowpan_nhc *nhc)
 {
+	unsigned int bh;
 	int ret;
 
 	if (!nhc->idlen || !nhc->idsetup)
@@ -207,7 +211,7 @@ int lowpan_nhc_add(struct lowpan_nhc *nhc)
 
 	nhc->idsetup(nhc);
 
-	spin_lock_bh(&lowpan_nhc_lock);
+	bh = spin_lock_bh(&lowpan_nhc_lock, SOFTIRQ_ALL_MASK);
 
 	if (lowpan_nexthdr_nhcs[nhc->nexthdr]) {
 		ret = -EEXIST;
@@ -220,19 +224,20 @@ int lowpan_nhc_add(struct lowpan_nhc *nhc)
 
 	lowpan_nexthdr_nhcs[nhc->nexthdr] = nhc;
 out:
-	spin_unlock_bh(&lowpan_nhc_lock);
+	spin_unlock_bh(&lowpan_nhc_lock, bh);
 	return ret;
 }
 EXPORT_SYMBOL(lowpan_nhc_add);
 
 void lowpan_nhc_del(struct lowpan_nhc *nhc)
 {
-	spin_lock_bh(&lowpan_nhc_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&lowpan_nhc_lock, SOFTIRQ_ALL_MASK);
 
 	lowpan_nhc_remove(nhc);
 	lowpan_nexthdr_nhcs[nhc->nexthdr] = NULL;
 
-	spin_unlock_bh(&lowpan_nhc_lock);
+	spin_unlock_bh(&lowpan_nhc_lock, bh);
 
 	synchronize_net();
 }

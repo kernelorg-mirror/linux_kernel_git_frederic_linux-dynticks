@@ -880,10 +880,11 @@ int av7110_write_to_decoder(struct dvb_demux_feed *feed, const u8 *buf, size_t l
  ******************************************************************************/
 void dvb_video_add_event(struct av7110 *av7110, struct video_event *event)
 {
+	unsigned int bh;
 	struct dvb_video_events *events = &av7110->video_events;
 	int wp;
 
-	spin_lock_bh(&events->lock);
+	bh = spin_lock_bh(&events->lock, SOFTIRQ_ALL_MASK);
 
 	wp = (events->eventw + 1) % MAX_VIDEO_EVENT;
 	if (wp == events->eventr) {
@@ -895,7 +896,7 @@ void dvb_video_add_event(struct av7110 *av7110, struct video_event *event)
 	memcpy(&events->events[events->eventw], event, sizeof(struct video_event));
 	events->eventw = wp;
 
-	spin_unlock_bh(&events->lock);
+	spin_unlock_bh(&events->lock, bh);
 
 	wake_up_interruptible(&events->wait_queue);
 }
@@ -903,6 +904,7 @@ void dvb_video_add_event(struct av7110 *av7110, struct video_event *event)
 
 static int dvb_video_get_event (struct av7110 *av7110, struct video_event *event, int flags)
 {
+	unsigned int bh;
 	struct dvb_video_events *events = &av7110->video_events;
 
 	if (events->overflow) {
@@ -921,13 +923,13 @@ static int dvb_video_get_event (struct av7110 *av7110, struct video_event *event
 			return ret;
 	}
 
-	spin_lock_bh(&events->lock);
+	bh = spin_lock_bh(&events->lock, SOFTIRQ_ALL_MASK);
 
 	memcpy(event, &events->events[events->eventr],
 	       sizeof(struct video_event));
 	events->eventr = (events->eventr + 1) % MAX_VIDEO_EVENT;
 
-	spin_unlock_bh(&events->lock);
+	spin_unlock_bh(&events->lock, bh);
 
 	return 0;
 }

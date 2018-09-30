@@ -167,6 +167,7 @@ static int ath9k_wow_add_pattern(struct ath_softc *sc,
 int ath9k_suspend(struct ieee80211_hw *hw,
 		  struct cfg80211_wowlan *wowlan)
 {
+	unsigned int bh;
 	struct ath_softc *sc = hw->priv;
 	struct ath_hw *ah = sc->sc_ah;
 	struct ath_common *common = ath9k_hw_common(ah);
@@ -244,7 +245,7 @@ int ath9k_suspend(struct ieee80211_hw *hw,
 		}
 	}
 
-	spin_lock_bh(&sc->sc_pcu_lock);
+	bh = spin_lock_bh(&sc->sc_pcu_lock, SOFTIRQ_ALL_MASK);
 	/*
 	 * To avoid false wake, we enable beacon miss interrupt only
 	 * when we go to sleep. We save the current interrupt mask
@@ -257,7 +258,7 @@ int ath9k_suspend(struct ieee80211_hw *hw,
 	ath9k_hw_set_interrupts(ah);
 	ath9k_hw_enable_interrupts(ah);
 
-	spin_unlock_bh(&sc->sc_pcu_lock);
+	spin_unlock_bh(&sc->sc_pcu_lock, bh);
 
 	/*
 	 * we can now sync irq and kill any running tasklets, since we already
@@ -279,6 +280,7 @@ fail_wow:
 
 int ath9k_resume(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct ath_softc *sc = hw->priv;
 	struct ath_hw *ah = sc->sc_ah;
 	struct ath_common *common = ath9k_hw_common(ah);
@@ -288,14 +290,14 @@ int ath9k_resume(struct ieee80211_hw *hw)
 
 	ath9k_ps_wakeup(sc);
 
-	spin_lock_bh(&sc->sc_pcu_lock);
+	bh = spin_lock_bh(&sc->sc_pcu_lock, SOFTIRQ_ALL_MASK);
 
 	ath9k_hw_disable_interrupts(ah);
 	ah->imask = sc->wow_intr_before_sleep;
 	ath9k_hw_set_interrupts(ah);
 	ath9k_hw_enable_interrupts(ah);
 
-	spin_unlock_bh(&sc->sc_pcu_lock);
+	spin_unlock_bh(&sc->sc_pcu_lock, bh);
 
 	status = ath9k_hw_wow_wakeup(ah);
 	ath_dbg(common, WOW, "Resume with WoW status: 0x%x\n", status);

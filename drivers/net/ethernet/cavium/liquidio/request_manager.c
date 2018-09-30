@@ -469,6 +469,7 @@ int
 octeon_flush_iq(struct octeon_device *oct, struct octeon_instr_queue *iq,
 		u32 napi_budget)
 {
+	unsigned int bh;
 	u32 inst_processed = 0;
 	u32 tot_inst_processed = 0;
 	int tx_done = 1;
@@ -476,7 +477,7 @@ octeon_flush_iq(struct octeon_device *oct, struct octeon_instr_queue *iq,
 	if (!spin_trylock(&iq->iq_flush_running_lock))
 		return tx_done;
 
-	spin_lock_bh(&iq->lock);
+	bh = spin_lock_bh(&iq->lock, SOFTIRQ_ALL_MASK);
 
 	iq->octeon_read_index = oct->fn_list.update_iq_read_idx(iq);
 
@@ -507,7 +508,7 @@ octeon_flush_iq(struct octeon_device *oct, struct octeon_instr_queue *iq,
 
 	iq->last_db_time = jiffies;
 
-	spin_unlock_bh(&iq->lock);
+	spin_unlock_bh(&iq->lock, bh);
 
 	spin_unlock(&iq->iq_flush_running_lock);
 
@@ -564,6 +565,7 @@ octeon_send_command(struct octeon_device *oct, u32 iq_no,
 		    u32 force_db, void *cmd, void *buf,
 		    u32 datasize, u32 reqtype)
 {
+	unsigned int bh;
 	int xmit_stopped;
 	struct iq_post_status st;
 	struct octeon_instr_queue *iq = oct->instr_queue[iq_no];
@@ -572,7 +574,7 @@ octeon_send_command(struct octeon_device *oct, u32 iq_no,
 	 * running.
 	 */
 	if (iq->allow_soft_cmds)
-		spin_lock_bh(&iq->post_lock);
+		bh = spin_lock_bh(&iq->post_lock, SOFTIRQ_ALL_MASK);
 
 	st = __post_command2(iq, cmd);
 
@@ -590,7 +592,7 @@ octeon_send_command(struct octeon_device *oct, u32 iq_no,
 	}
 
 	if (iq->allow_soft_cmds)
-		spin_unlock_bh(&iq->post_lock);
+		spin_unlock_bh(&iq->post_lock, bh);
 
 	/* This is only done here to expedite packets being flushed
 	 * for cases where there are no IQ completion interrupts.
@@ -791,10 +793,11 @@ int octeon_setup_sc_buffer_pool(struct octeon_device *oct)
 
 int octeon_free_sc_buffer_pool(struct octeon_device *oct)
 {
+	unsigned int bh;
 	struct list_head *tmp, *tmp2;
 	struct octeon_soft_command *sc;
 
-	spin_lock_bh(&oct->sc_buf_pool.lock);
+	bh = spin_lock_bh(&oct->sc_buf_pool.lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_safe(tmp, tmp2, &oct->sc_buf_pool.head) {
 		list_del(tmp);
@@ -806,7 +809,7 @@ int octeon_free_sc_buffer_pool(struct octeon_device *oct)
 
 	INIT_LIST_HEAD(&oct->sc_buf_pool.head);
 
-	spin_unlock_bh(&oct->sc_buf_pool.lock);
+	spin_unlock_bh(&oct->sc_buf_pool.lock, bh);
 
 	return 0;
 }
@@ -825,7 +828,7 @@ struct octeon_soft_command *octeon_alloc_soft_command(struct octeon_device *oct,
 	WARN_ON((offset + datasize + rdatasize + ctxsize) >
 	       SOFT_COMMAND_BUFFER_SIZE);
 
-	spin_lock_bh(&oct->sc_buf_pool.lock);
+	spin_lock_bh(&oct->sc_buf_pool.lock, SOFTIRQ_ALL_MASK);
 
 	if (list_empty(&oct->sc_buf_pool.head)) {
 		spin_unlock_bh(&oct->sc_buf_pool.lock);
@@ -882,11 +885,12 @@ struct octeon_soft_command *octeon_alloc_soft_command(struct octeon_device *oct,
 void octeon_free_soft_command(struct octeon_device *oct,
 			      struct octeon_soft_command *sc)
 {
-	spin_lock_bh(&oct->sc_buf_pool.lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&oct->sc_buf_pool.lock, SOFTIRQ_ALL_MASK);
 
 	list_add_tail(&sc->node, &oct->sc_buf_pool.head);
 
 	atomic_dec(&oct->sc_buf_pool.alloc_buf_count);
 
-	spin_unlock_bh(&oct->sc_buf_pool.lock);
+	spin_unlock_bh(&oct->sc_buf_pool.lock, bh);
 }

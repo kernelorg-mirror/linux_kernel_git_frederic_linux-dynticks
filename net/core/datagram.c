@@ -357,11 +357,12 @@ int __sk_queue_drop_skb(struct sock *sk, struct sk_buff_head *sk_queue,
 			void (*destructor)(struct sock *sk,
 					   struct sk_buff *skb))
 {
+	unsigned int bh;
 	int err = 0;
 
 	if (flags & MSG_PEEK) {
 		err = -ENOENT;
-		spin_lock_bh(&sk_queue->lock);
+		bh = spin_lock_bh(&sk_queue->lock, SOFTIRQ_ALL_MASK);
 		if (skb->next) {
 			__skb_unlink(skb, sk_queue);
 			refcount_dec(&skb->users);
@@ -369,7 +370,7 @@ int __sk_queue_drop_skb(struct sock *sk, struct sk_buff_head *sk_queue,
 				destructor(sk, skb);
 			err = 0;
 		}
-		spin_unlock_bh(&sk_queue->lock);
+		spin_unlock_bh(&sk_queue->lock, bh);
 	}
 
 	atomic_inc(&sk->sk_drops);

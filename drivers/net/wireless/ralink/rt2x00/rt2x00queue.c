@@ -565,6 +565,7 @@ static void rt2x00queue_kick_tx_queue(struct data_queue *queue,
 
 static void rt2x00queue_bar_check(struct queue_entry *entry)
 {
+	unsigned int bh;
 	struct rt2x00_dev *rt2x00dev = entry->queue->rt2x00dev;
 	struct ieee80211_bar *bar = (void *) (entry->skb->data +
 				    rt2x00dev->extra_tx_headroom);
@@ -600,9 +601,9 @@ static void rt2x00queue_bar_check(struct queue_entry *entry)
 	/*
 	 * Insert BAR into our BAR check list.
 	 */
-	spin_lock_bh(&rt2x00dev->bar_list_lock);
+	bh = spin_lock_bh(&rt2x00dev->bar_list_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail_rcu(&bar_entry->list, &rt2x00dev->bar_list);
-	spin_unlock_bh(&rt2x00dev->bar_list_lock);
+	spin_unlock_bh(&rt2x00dev->bar_list_lock, bh);
 }
 
 int rt2x00queue_write_tx_frame(struct data_queue *queue, struct sk_buff *skb,

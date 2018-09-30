@@ -1687,6 +1687,7 @@ has_keys:
 static int wil_sta_debugfs_show(struct seq_file *s, void *data)
 __acquires(&p->tid_rx_lock) __releases(&p->tid_rx_lock)
 {
+	unsigned int bh;
 	struct wil6210_priv *wil = s->private;
 	int i, tid, mcs;
 
@@ -1713,7 +1714,7 @@ __acquires(&p->tid_rx_lock) __releases(&p->tid_rx_lock)
 			   mid, aid);
 
 		if (p->status == wil_sta_connected) {
-			spin_lock_bh(&p->tid_rx_lock);
+			bh = spin_lock_bh(&p->tid_rx_lock, SOFTIRQ_ALL_MASK);
 			for (tid = 0; tid < WIL_STA_TID_NUM; tid++) {
 				struct wil_tid_ampdu_rx *r = p->tid_rx[tid];
 				struct wil_tid_crypto_rx *c =
@@ -1728,7 +1729,7 @@ __acquires(&p->tid_rx_lock) __releases(&p->tid_rx_lock)
 			}
 			wil_print_rxtid_crypto(s, WIL_STA_TID_NUM,
 					       &p->group_crypto_rx);
-			spin_unlock_bh(&p->tid_rx_lock);
+			spin_unlock_bh(&p->tid_rx_lock, bh);
 			seq_printf(s,
 				   "Rx invalid frame: non-data %lu, short %lu, large %lu, replay %lu\n",
 				   p->stats.rx_non_data_frame,

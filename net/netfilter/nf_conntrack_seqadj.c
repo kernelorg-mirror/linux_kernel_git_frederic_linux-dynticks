@@ -29,6 +29,7 @@ EXPORT_SYMBOL_GPL(nf_ct_seqadj_init);
 int nf_ct_seqadj_set(struct nf_conn *ct, enum ip_conntrack_info ctinfo,
 		     __be32 seq, s32 off)
 {
+	unsigned int bh;
 	struct nf_conn_seqadj *seqadj = nfct_seqadj(ct);
 	enum ip_conntrack_dir dir = CTINFO2DIR(ctinfo);
 	struct nf_ct_seqadj *this_way;
@@ -43,7 +44,7 @@ int nf_ct_seqadj_set(struct nf_conn *ct, enum ip_conntrack_info ctinfo,
 
 	set_bit(IPS_SEQ_ADJUST_BIT, &ct->status);
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	this_way = &seqadj->seq[dir];
 	if (this_way->offset_before == this_way->offset_after ||
 	    before(this_way->correction_pos, ntohl(seq))) {
@@ -51,7 +52,7 @@ int nf_ct_seqadj_set(struct nf_conn *ct, enum ip_conntrack_info ctinfo,
 		this_way->offset_before	 = this_way->offset_after;
 		this_way->offset_after	+= off;
 	}
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(nf_ct_seqadj_set);
@@ -163,6 +164,7 @@ int nf_ct_seq_adjust(struct sk_buff *skb,
 		     struct nf_conn *ct, enum ip_conntrack_info ctinfo,
 		     unsigned int protoff)
 {
+	unsigned int bh;
 	enum ip_conntrack_dir dir = CTINFO2DIR(ctinfo);
 	struct tcphdr *tcph;
 	__be32 newseq, newack;
@@ -178,7 +180,7 @@ int nf_ct_seq_adjust(struct sk_buff *skb,
 		return 0;
 
 	tcph = (void *)skb->data + protoff;
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	if (after(ntohl(tcph->seq), this_way->correction_pos))
 		seqoff = this_way->offset_after;
 	else
@@ -209,7 +211,7 @@ int nf_ct_seq_adjust(struct sk_buff *skb,
 
 	res = nf_ct_sack_adjust(skb, protoff, tcph, ct, ctinfo);
 out:
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 
 	return res;
 }

@@ -314,11 +314,12 @@ jme_reload_eeprom(struct jme_adapter *jme)
 static void
 jme_load_macaddr(struct net_device *netdev)
 {
+	unsigned int bh;
 	struct jme_adapter *jme = netdev_priv(netdev);
 	unsigned char macaddr[ETH_ALEN];
 	u32 val;
 
-	spin_lock_bh(&jme->macaddr_lock);
+	bh = spin_lock_bh(&jme->macaddr_lock, SOFTIRQ_ALL_MASK);
 	val = jread32(jme, JME_RXUMA_LO);
 	macaddr[0] = (val >>  0) & 0xFF;
 	macaddr[1] = (val >>  8) & 0xFF;
@@ -328,7 +329,7 @@ jme_load_macaddr(struct net_device *netdev)
 	macaddr[4] = (val >>  0) & 0xFF;
 	macaddr[5] = (val >>  8) & 0xFF;
 	memcpy(netdev->dev_addr, macaddr, ETH_ALEN);
-	spin_unlock_bh(&jme->macaddr_lock);
+	spin_unlock_bh(&jme->macaddr_lock, bh);
 }
 
 static inline void
@@ -1627,13 +1628,14 @@ jme_reset_link(struct jme_adapter *jme)
 static void
 jme_restart_an(struct jme_adapter *jme)
 {
+	unsigned int bh;
 	u32 bmcr;
 
-	spin_lock_bh(&jme->phy_lock);
+	bh = spin_lock_bh(&jme->phy_lock, SOFTIRQ_ALL_MASK);
 	bmcr = jme_mdio_read(jme->dev, jme->mii_if.phy_id, MII_BMCR);
 	bmcr |= (BMCR_ANENABLE | BMCR_ANRESTART);
 	jme_mdio_write(jme->dev, jme->mii_if.phy_id, MII_BMCR, bmcr);
-	spin_unlock_bh(&jme->phy_lock);
+	spin_unlock_bh(&jme->phy_lock, bh);
 }
 
 static int
@@ -2295,16 +2297,17 @@ jme_set_unicastaddr(struct net_device *netdev)
 static int
 jme_set_macaddr(struct net_device *netdev, void *p)
 {
+	unsigned int bh;
 	struct jme_adapter *jme = netdev_priv(netdev);
 	struct sockaddr *addr = p;
 
 	if (netif_running(netdev))
 		return -EBUSY;
 
-	spin_lock_bh(&jme->macaddr_lock);
+	bh = spin_lock_bh(&jme->macaddr_lock, SOFTIRQ_ALL_MASK);
 	memcpy(netdev->dev_addr, addr->sa_data, netdev->addr_len);
 	jme_set_unicastaddr(netdev);
-	spin_unlock_bh(&jme->macaddr_lock);
+	spin_unlock_bh(&jme->macaddr_lock, bh);
 
 	return 0;
 }
@@ -2312,10 +2315,11 @@ jme_set_macaddr(struct net_device *netdev, void *p)
 static void
 jme_set_multi(struct net_device *netdev)
 {
+	unsigned int bh;
 	struct jme_adapter *jme = netdev_priv(netdev);
 	u32 mc_hash[2] = {};
 
-	spin_lock_bh(&jme->rxmcs_lock);
+	bh = spin_lock_bh(&jme->rxmcs_lock, SOFTIRQ_ALL_MASK);
 
 	jme->reg_rxmcs |= RXMCS_BRDFRAME | RXMCS_UNIFRAME;
 
@@ -2340,7 +2344,7 @@ jme_set_multi(struct net_device *netdev)
 	wmb();
 	jwrite32(jme, JME_RXMCS, jme->reg_rxmcs);
 
-	spin_unlock_bh(&jme->rxmcs_lock);
+	spin_unlock_bh(&jme->rxmcs_lock, bh);
 }
 
 static int
@@ -2502,15 +2506,16 @@ static void
 jme_get_pauseparam(struct net_device *netdev,
 			struct ethtool_pauseparam *ecmd)
 {
+	unsigned int bh;
 	struct jme_adapter *jme = netdev_priv(netdev);
 	u32 val;
 
 	ecmd->tx_pause = (jme->reg_txpfc & TXPFC_PF_EN) != 0;
 	ecmd->rx_pause = (jme->reg_rxmcs & RXMCS_FLOWCTRL) != 0;
 
-	spin_lock_bh(&jme->phy_lock);
+	bh = spin_lock_bh(&jme->phy_lock, SOFTIRQ_ALL_MASK);
 	val = jme_mdio_read(jme->dev, jme->mii_if.phy_id, MII_ADVERTISE);
-	spin_unlock_bh(&jme->phy_lock);
+	spin_unlock_bh(&jme->phy_lock, bh);
 
 	ecmd->autoneg =
 		(val & (ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM)) != 0;
@@ -2520,6 +2525,7 @@ static int
 jme_set_pauseparam(struct net_device *netdev,
 			struct ethtool_pauseparam *ecmd)
 {
+	unsigned int bh;
 	struct jme_adapter *jme = netdev_priv(netdev);
 	u32 val;
 
@@ -2534,7 +2540,7 @@ jme_set_pauseparam(struct net_device *netdev,
 		jwrite32(jme, JME_TXPFC, jme->reg_txpfc);
 	}
 
-	spin_lock_bh(&jme->rxmcs_lock);
+	bh = spin_lock_bh(&jme->rxmcs_lock, SOFTIRQ_ALL_MASK);
 	if (((jme->reg_rxmcs & RXMCS_FLOWCTRL) != 0) ^
 		(ecmd->rx_pause != 0)) {
 
@@ -2545,9 +2551,9 @@ jme_set_pauseparam(struct net_device *netdev,
 
 		jwrite32(jme, JME_RXMCS, jme->reg_rxmcs);
 	}
-	spin_unlock_bh(&jme->rxmcs_lock);
+	spin_unlock_bh(&jme->rxmcs_lock, bh);
 
-	spin_lock_bh(&jme->phy_lock);
+	spin_lock_bh(&jme->phy_lock, SOFTIRQ_ALL_MASK);
 	val = jme_mdio_read(jme->dev, jme->mii_if.phy_id, MII_ADVERTISE);
 	if (((val & (ADVERTISE_PAUSE_CAP | ADVERTISE_PAUSE_ASYM)) != 0) ^
 		(ecmd->autoneg != 0)) {
@@ -2611,11 +2617,12 @@ static int
 jme_get_link_ksettings(struct net_device *netdev,
 		       struct ethtool_link_ksettings *cmd)
 {
+	unsigned int bh;
 	struct jme_adapter *jme = netdev_priv(netdev);
 
-	spin_lock_bh(&jme->phy_lock);
+	bh = spin_lock_bh(&jme->phy_lock, SOFTIRQ_ALL_MASK);
 	mii_ethtool_get_link_ksettings(&jme->mii_if, cmd);
-	spin_unlock_bh(&jme->phy_lock);
+	spin_unlock_bh(&jme->phy_lock, bh);
 	return 0;
 }
 
@@ -2623,6 +2630,7 @@ static int
 jme_set_link_ksettings(struct net_device *netdev,
 		       const struct ethtool_link_ksettings *cmd)
 {
+	unsigned int bh;
 	struct jme_adapter *jme = netdev_priv(netdev);
 	int rc, fdc = 0;
 
@@ -2639,9 +2647,9 @@ jme_set_link_ksettings(struct net_device *netdev,
 	    (jme->mii_if.full_duplex != cmd->base.duplex))
 		fdc = 1;
 
-	spin_lock_bh(&jme->phy_lock);
+	bh = spin_lock_bh(&jme->phy_lock, SOFTIRQ_ALL_MASK);
 	rc = mii_ethtool_set_link_ksettings(&jme->mii_if, cmd);
-	spin_unlock_bh(&jme->phy_lock);
+	spin_unlock_bh(&jme->phy_lock, bh);
 
 	if (!rc) {
 		if (fdc)
@@ -2656,6 +2664,7 @@ jme_set_link_ksettings(struct net_device *netdev,
 static int
 jme_ioctl(struct net_device *netdev, struct ifreq *rq, int cmd)
 {
+	unsigned int bh;
 	int rc;
 	struct jme_adapter *jme = netdev_priv(netdev);
 	struct mii_ioctl_data *mii_data = if_mii(rq);
@@ -2668,9 +2677,9 @@ jme_ioctl(struct net_device *netdev, struct ifreq *rq, int cmd)
 			return -EINVAL;
 	}
 
-	spin_lock_bh(&jme->phy_lock);
+	bh = spin_lock_bh(&jme->phy_lock, SOFTIRQ_ALL_MASK);
 	rc = generic_mii_ioctl(&jme->mii_if, mii_data, cmd, &duplex_chg);
-	spin_unlock_bh(&jme->phy_lock);
+	spin_unlock_bh(&jme->phy_lock, bh);
 
 	if (!rc && (cmd == SIOCSMIIREG)) {
 		if (duplex_chg)
@@ -2714,15 +2723,16 @@ jme_fix_features(struct net_device *netdev, netdev_features_t features)
 static int
 jme_set_features(struct net_device *netdev, netdev_features_t features)
 {
+	unsigned int bh;
 	struct jme_adapter *jme = netdev_priv(netdev);
 
-	spin_lock_bh(&jme->rxmcs_lock);
+	bh = spin_lock_bh(&jme->rxmcs_lock, SOFTIRQ_ALL_MASK);
 	if (features & NETIF_F_RXCSUM)
 		jme->reg_rxmcs |= RXMCS_CHECKSUM;
 	else
 		jme->reg_rxmcs &= ~RXMCS_CHECKSUM;
 	jwrite32(jme, JME_RXMCS, jme->reg_rxmcs);
-	spin_unlock_bh(&jme->rxmcs_lock);
+	spin_unlock_bh(&jme->rxmcs_lock, bh);
 
 	return 0;
 }

@@ -484,12 +484,13 @@ static int smc_tx_rdma_writes(struct smc_connection *conn)
  */
 static int smcr_tx_sndbuf_nonempty(struct smc_connection *conn)
 {
+	unsigned int bh;
 	struct smc_cdc_producer_flags *pflags;
 	struct smc_cdc_tx_pend *pend;
 	struct smc_wr_buf *wr_buf;
 	int rc;
 
-	spin_lock_bh(&conn->send_lock);
+	bh = spin_lock_bh(&conn->send_lock, SOFTIRQ_ALL_MASK);
 	rc = smc_cdc_get_free_slot(conn, &wr_buf, &pend);
 	if (rc < 0) {
 		if (rc == -EBUSY) {
@@ -525,16 +526,17 @@ static int smcr_tx_sndbuf_nonempty(struct smc_connection *conn)
 	}
 
 out_unlock:
-	spin_unlock_bh(&conn->send_lock);
+	spin_unlock_bh(&conn->send_lock, bh);
 	return rc;
 }
 
 static int smcd_tx_sndbuf_nonempty(struct smc_connection *conn)
 {
+	unsigned int bh;
 	struct smc_cdc_producer_flags *pflags = &conn->local_tx_ctrl.prod_flags;
 	int rc = 0;
 
-	spin_lock_bh(&conn->send_lock);
+	bh = spin_lock_bh(&conn->send_lock, SOFTIRQ_ALL_MASK);
 	if (!pflags->urg_data_present)
 		rc = smc_tx_rdma_writes(conn);
 	if (!rc)
@@ -544,7 +546,7 @@ static int smcd_tx_sndbuf_nonempty(struct smc_connection *conn)
 		pflags->urg_data_pending = 0;
 		pflags->urg_data_present = 0;
 	}
-	spin_unlock_bh(&conn->send_lock);
+	spin_unlock_bh(&conn->send_lock, bh);
 	return rc;
 }
 

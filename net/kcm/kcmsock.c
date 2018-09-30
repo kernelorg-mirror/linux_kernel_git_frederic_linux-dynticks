@@ -56,15 +56,16 @@ static void report_csk_error(struct sock *csk, int err)
 static void kcm_abort_tx_psock(struct kcm_psock *psock, int err,
 			       bool wakeup_kcm)
 {
+	unsigned int bh;
 	struct sock *csk = psock->sk;
 	struct kcm_mux *mux = psock->mux;
 
 	/* Unrecoverable error in transmit */
 
-	spin_lock_bh(&mux->lock);
+	bh = spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 
 	if (psock->tx_stopped) {
-		spin_unlock_bh(&mux->lock);
+		spin_unlock_bh(&mux->lock, bh);
 		return;
 	}
 
@@ -85,7 +86,7 @@ static void kcm_abort_tx_psock(struct kcm_psock *psock, int err,
 		queue_work(kcm_wq, &psock->tx_kcm->tx_work);
 	}
 
-	spin_unlock_bh(&mux->lock);
+	spin_unlock_bh(&mux->lock, bh);
 
 	/* Report error on lower socket */
 	report_csk_error(csk, err);
@@ -169,6 +170,7 @@ static void kcm_rcv_ready(struct kcm_sock *kcm)
 
 static void kcm_rfree(struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct sock *sk = skb->sk;
 	struct kcm_sock *kcm = kcm_sk(sk);
 	struct kcm_mux *mux = kcm->mux;
@@ -182,9 +184,9 @@ static void kcm_rfree(struct sk_buff *skb)
 
 	if (!kcm->rx_wait && !kcm->rx_psock &&
 	    sk_rmem_alloc_get(sk) < sk->sk_rcvlowat) {
-		spin_lock_bh(&mux->rx_lock);
+		bh = spin_lock_bh(&mux->rx_lock, SOFTIRQ_ALL_MASK);
 		kcm_rcv_ready(kcm);
-		spin_unlock_bh(&mux->rx_lock);
+		spin_unlock_bh(&mux->rx_lock, bh);
 	}
 }
 
@@ -253,6 +255,7 @@ try_again:
 static struct kcm_sock *reserve_rx_kcm(struct kcm_psock *psock,
 				       struct sk_buff *head)
 {
+	unsigned int bh;
 	struct kcm_mux *mux = psock->mux;
 	struct kcm_sock *kcm;
 
@@ -261,10 +264,10 @@ static struct kcm_sock *reserve_rx_kcm(struct kcm_psock *psock,
 	if (psock->rx_kcm)
 		return psock->rx_kcm;
 
-	spin_lock_bh(&mux->rx_lock);
+	bh = spin_lock_bh(&mux->rx_lock, SOFTIRQ_ALL_MASK);
 
 	if (psock->rx_kcm) {
-		spin_unlock_bh(&mux->rx_lock);
+		spin_unlock_bh(&mux->rx_lock, bh);
 		return psock->rx_kcm;
 	}
 
@@ -275,7 +278,7 @@ static struct kcm_sock *reserve_rx_kcm(struct kcm_psock *psock,
 		strp_pause(&psock->strp);
 		list_add_tail(&psock->psock_ready_list,
 			      &mux->psocks_ready);
-		spin_unlock_bh(&mux->rx_lock);
+		spin_unlock_bh(&mux->rx_lock, bh);
 		return NULL;
 	}
 
@@ -287,7 +290,7 @@ static struct kcm_sock *reserve_rx_kcm(struct kcm_psock *psock,
 	psock->rx_kcm = kcm;
 	kcm->rx_psock = psock;
 
-	spin_unlock_bh(&mux->rx_lock);
+	spin_unlock_bh(&mux->rx_lock, bh);
 
 	return kcm;
 }
@@ -303,13 +306,14 @@ static void kcm_done_work(struct work_struct *w)
 static void unreserve_rx_kcm(struct kcm_psock *psock,
 			     bool rcv_ready)
 {
+	unsigned int bh;
 	struct kcm_sock *kcm = psock->rx_kcm;
 	struct kcm_mux *mux = psock->mux;
 
 	if (!kcm)
 		return;
 
-	spin_lock_bh(&mux->rx_lock);
+	bh = spin_lock_bh(&mux->rx_lock, SOFTIRQ_ALL_MASK);
 
 	psock->rx_kcm = NULL;
 	kcm->rx_psock = NULL;
@@ -320,7 +324,7 @@ static void unreserve_rx_kcm(struct kcm_psock *psock,
 	smp_mb();
 
 	if (unlikely(kcm->done)) {
-		spin_unlock_bh(&mux->rx_lock);
+		spin_unlock_bh(&mux->rx_lock, bh);
 
 		/* Need to run kcm_done in a task since we need to qcquire
 		 * callback locks which may already be held here.
@@ -338,7 +342,7 @@ static void unreserve_rx_kcm(struct kcm_psock *psock,
 		 */
 		kcm_rcv_ready(kcm);
 	}
-	spin_unlock_bh(&mux->rx_lock);
+	spin_unlock_bh(&mux->rx_lock, bh);
 }
 
 /* Lower sock lock held */
@@ -406,6 +410,7 @@ static void psock_state_change(struct sock *sk)
 
 static void psock_write_space(struct sock *sk)
 {
+	unsigned int bh;
 	struct kcm_psock *psock;
 	struct kcm_mux *mux;
 	struct kcm_sock *kcm;
@@ -417,14 +422,14 @@ static void psock_write_space(struct sock *sk)
 		goto out;
 	mux = psock->mux;
 
-	spin_lock_bh(&mux->lock);
+	bh = spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 
 	/* Check if the socket is reserved so someone is waiting for sending. */
 	kcm = psock->tx_kcm;
 	if (kcm && !unlikely(kcm->tx_stopped))
 		queue_work(kcm_wq, &kcm->tx_work);
 
-	spin_unlock_bh(&mux->lock);
+	spin_unlock_bh(&mux->lock, bh);
 out:
 	read_unlock_bh(&sk->sk_callback_lock);
 }
@@ -434,6 +439,7 @@ static void unreserve_psock(struct kcm_sock *kcm);
 /* kcm sock is locked. */
 static struct kcm_psock *reserve_psock(struct kcm_sock *kcm)
 {
+	unsigned int bh;
 	struct kcm_mux *mux = kcm->mux;
 	struct kcm_psock *psock;
 
@@ -449,7 +455,7 @@ static struct kcm_psock *reserve_psock(struct kcm_sock *kcm)
 			return kcm->tx_psock;
 	}
 
-	spin_lock_bh(&mux->lock);
+	bh = spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 
 	/* Check again under lock to see if psock was reserved for this
 	 * psock via psock_unreserve.
@@ -457,7 +463,7 @@ static struct kcm_psock *reserve_psock(struct kcm_sock *kcm)
 	psock = kcm->tx_psock;
 	if (unlikely(psock)) {
 		WARN_ON(kcm->tx_wait);
-		spin_unlock_bh(&mux->lock);
+		spin_unlock_bh(&mux->lock, bh);
 		return kcm->tx_psock;
 	}
 
@@ -479,7 +485,7 @@ static struct kcm_psock *reserve_psock(struct kcm_sock *kcm)
 		kcm->tx_wait = true;
 	}
 
-	spin_unlock_bh(&mux->lock);
+	spin_unlock_bh(&mux->lock, bh);
 
 	return psock;
 }
@@ -515,15 +521,16 @@ static void psock_now_avail(struct kcm_psock *psock)
 /* kcm sock is locked. */
 static void unreserve_psock(struct kcm_sock *kcm)
 {
+	unsigned int bh;
 	struct kcm_psock *psock;
 	struct kcm_mux *mux = kcm->mux;
 
-	spin_lock_bh(&mux->lock);
+	bh = spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 
 	psock = kcm->tx_psock;
 
 	if (WARN_ON(!psock)) {
-		spin_unlock_bh(&mux->lock);
+		spin_unlock_bh(&mux->lock, bh);
 		return;
 	}
 
@@ -549,23 +556,24 @@ static void unreserve_psock(struct kcm_sock *kcm)
 
 		/* Don't put back on available list */
 
-		spin_unlock_bh(&mux->lock);
+		spin_unlock_bh(&mux->lock, bh);
 
 		return;
 	}
 
 	psock_now_avail(psock);
 
-	spin_unlock_bh(&mux->lock);
+	spin_unlock_bh(&mux->lock, bh);
 }
 
 static void kcm_report_tx_retry(struct kcm_sock *kcm)
 {
+	unsigned int bh;
 	struct kcm_mux *mux = kcm->mux;
 
-	spin_lock_bh(&mux->lock);
+	bh = spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 	KCM_STATS_INCR(mux->stats.tx_retries);
-	spin_unlock_bh(&mux->lock);
+	spin_unlock_bh(&mux->lock, bh);
 }
 
 /* Write any messages ready on the kcm socket.  Called with kcm sock lock
@@ -1227,12 +1235,13 @@ err_out:
 /* kcm sock lock held */
 static void kcm_recv_disable(struct kcm_sock *kcm)
 {
+	unsigned int bh;
 	struct kcm_mux *mux = kcm->mux;
 
 	if (kcm->rx_disabled)
 		return;
 
-	spin_lock_bh(&mux->rx_lock);
+	bh = spin_lock_bh(&mux->rx_lock, SOFTIRQ_ALL_MASK);
 
 	kcm->rx_disabled = 1;
 
@@ -1246,23 +1255,24 @@ static void kcm_recv_disable(struct kcm_sock *kcm)
 		requeue_rx_msgs(mux, &kcm->sk.sk_receive_queue);
 	}
 
-	spin_unlock_bh(&mux->rx_lock);
+	spin_unlock_bh(&mux->rx_lock, bh);
 }
 
 /* kcm sock lock held */
 static void kcm_recv_enable(struct kcm_sock *kcm)
 {
+	unsigned int bh;
 	struct kcm_mux *mux = kcm->mux;
 
 	if (!kcm->rx_disabled)
 		return;
 
-	spin_lock_bh(&mux->rx_lock);
+	bh = spin_lock_bh(&mux->rx_lock, SOFTIRQ_ALL_MASK);
 
 	kcm->rx_disabled = 0;
 	kcm_rcv_ready(kcm);
 
-	spin_unlock_bh(&mux->rx_lock);
+	spin_unlock_bh(&mux->rx_lock, bh);
 }
 
 static int kcm_setsockopt(struct socket *sock, int level, int optname,
@@ -1332,6 +1342,7 @@ static int kcm_getsockopt(struct socket *sock, int level, int optname,
 
 static void init_kcm_sock(struct kcm_sock *kcm, struct kcm_mux *mux)
 {
+	unsigned int bh;
 	struct kcm_sock *tkcm;
 	struct list_head *head;
 	int index = 0;
@@ -1344,7 +1355,7 @@ static void init_kcm_sock(struct kcm_sock *kcm, struct kcm_mux *mux)
 
 	/* Add to mux's kcm sockets list */
 	kcm->mux = mux;
-	spin_lock_bh(&mux->lock);
+	bh = spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 
 	head = &mux->kcm_socks;
 	list_for_each_entry(tkcm, &mux->kcm_socks, kcm_sock_list) {
@@ -1358,11 +1369,11 @@ static void init_kcm_sock(struct kcm_sock *kcm, struct kcm_mux *mux)
 	kcm->index = index;
 
 	mux->kcm_socks_cnt++;
-	spin_unlock_bh(&mux->lock);
+	spin_unlock_bh(&mux->lock, bh);
 
 	INIT_WORK(&kcm->tx_work, kcm_tx_work);
 
-	spin_lock_bh(&mux->rx_lock);
+	spin_lock_bh(&mux->rx_lock, SOFTIRQ_ALL_MASK);
 	kcm_rcv_ready(kcm);
 	spin_unlock_bh(&mux->rx_lock);
 }
@@ -1370,6 +1381,7 @@ static void init_kcm_sock(struct kcm_sock *kcm, struct kcm_mux *mux)
 static int kcm_attach(struct socket *sock, struct socket *csock,
 		      struct bpf_prog *prog)
 {
+	unsigned int bh;
 	struct kcm_sock *kcm = kcm_sk(sock->sk);
 	struct kcm_mux *mux = kcm->mux;
 	struct sock *csk;
@@ -1445,7 +1457,7 @@ static int kcm_attach(struct socket *sock, struct socket *csock,
 	sock_hold(csk);
 
 	/* Finished initialization, now add the psock to the MUX. */
-	spin_lock_bh(&mux->lock);
+	bh = spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 	head = &mux->psocks;
 	list_for_each_entry(tpsock, &mux->psocks, psock_list) {
 		if (tpsock->index != index)
@@ -1460,7 +1472,7 @@ static int kcm_attach(struct socket *sock, struct socket *csock,
 	KCM_STATS_INCR(mux->stats.psock_attach);
 	mux->psocks_cnt++;
 	psock_now_avail(psock);
-	spin_unlock_bh(&mux->lock);
+	spin_unlock_bh(&mux->lock, bh);
 
 	/* Schedule RX work in case there are already bytes queued */
 	strp_check_rcv(&psock->strp);
@@ -1503,6 +1515,7 @@ out:
 
 static void kcm_unattach(struct kcm_psock *psock)
 {
+	unsigned int bh;
 	struct sock *csk = psock->sk;
 	struct kcm_mux *mux = psock->mux;
 
@@ -1524,7 +1537,7 @@ static void kcm_unattach(struct kcm_psock *psock)
 		return;
 	}
 
-	spin_lock_bh(&mux->rx_lock);
+	bh = spin_lock_bh(&mux->rx_lock, SOFTIRQ_ALL_MASK);
 
 	/* Stop receiver activities. After this point psock should not be
 	 * able to get onto ready list either through callbacks or work.
@@ -1536,7 +1549,7 @@ static void kcm_unattach(struct kcm_psock *psock)
 		KCM_STATS_INCR(mux->stats.rx_ready_drops);
 	}
 
-	spin_unlock_bh(&mux->rx_lock);
+	spin_unlock_bh(&mux->rx_lock, bh);
 
 	write_unlock_bh(&csk->sk_callback_lock);
 
@@ -1547,7 +1560,7 @@ static void kcm_unattach(struct kcm_psock *psock)
 
 	bpf_prog_put(psock->bpf_prog);
 
-	spin_lock_bh(&mux->lock);
+	spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 
 	aggregate_psock_stats(&psock->stats, &mux->aggregate_psock_stats);
 	save_strp_stats(&psock->strp, &mux->aggregate_strp_stats);
@@ -1568,7 +1581,7 @@ static void kcm_unattach(struct kcm_psock *psock)
 		 */
 		kcm_abort_tx_psock(psock, EPIPE, false);
 
-		spin_lock_bh(&mux->lock);
+		spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 		if (!psock->tx_kcm) {
 			/* psock now unreserved in window mux was unlocked */
 			goto no_reserved;
@@ -1599,6 +1612,7 @@ no_reserved:
 
 static int kcm_unattach_ioctl(struct socket *sock, struct kcm_unattach *info)
 {
+	unsigned int bh;
 	struct kcm_sock *kcm = kcm_sk(sock->sk);
 	struct kcm_mux *mux = kcm->mux;
 	struct kcm_psock *psock;
@@ -1618,7 +1632,7 @@ static int kcm_unattach_ioctl(struct socket *sock, struct kcm_unattach *info)
 
 	err = -ENOENT;
 
-	spin_lock_bh(&mux->lock);
+	bh = spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(psock, &mux->psocks, psock_list) {
 		if (psock->sk != csk)
@@ -1633,7 +1647,7 @@ static int kcm_unattach_ioctl(struct socket *sock, struct kcm_unattach *info)
 
 		psock->unattaching = 1;
 
-		spin_unlock_bh(&mux->lock);
+		spin_unlock_bh(&mux->lock, bh);
 
 		/* Lower socket lock should already be held */
 		kcm_unattach(psock);
@@ -1642,7 +1656,7 @@ static int kcm_unattach_ioctl(struct socket *sock, struct kcm_unattach *info)
 		goto out;
 	}
 
-	spin_unlock_bh(&mux->lock);
+	spin_unlock_bh(&mux->lock, bh);
 
 out:
 	fput(csock->file);
@@ -1778,17 +1792,18 @@ static void release_mux(struct kcm_mux *mux)
 
 static void kcm_done(struct kcm_sock *kcm)
 {
+	unsigned int bh;
 	struct kcm_mux *mux = kcm->mux;
 	struct sock *sk = &kcm->sk;
 	int socks_cnt;
 
-	spin_lock_bh(&mux->rx_lock);
+	bh = spin_lock_bh(&mux->rx_lock, SOFTIRQ_ALL_MASK);
 	if (kcm->rx_psock) {
 		/* Cleanup in unreserve_rx_kcm */
 		WARN_ON(kcm->done);
 		kcm->rx_disabled = 1;
 		kcm->done = 1;
-		spin_unlock_bh(&mux->rx_lock);
+		spin_unlock_bh(&mux->rx_lock, bh);
 		return;
 	}
 
@@ -1799,13 +1814,13 @@ static void kcm_done(struct kcm_sock *kcm)
 	/* Move any pending receive messages to other kcm sockets */
 	requeue_rx_msgs(mux, &sk->sk_receive_queue);
 
-	spin_unlock_bh(&mux->rx_lock);
+	spin_unlock_bh(&mux->rx_lock, bh);
 
 	if (WARN_ON(sk_rmem_alloc_get(sk)))
 		return;
 
 	/* Detach from MUX */
-	spin_lock_bh(&mux->lock);
+	spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 
 	list_del(&kcm->kcm_sock_list);
 	mux->kcm_socks_cnt--;
@@ -1828,6 +1843,7 @@ static void kcm_done(struct kcm_sock *kcm)
  */
 static int kcm_release(struct socket *sock)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 	struct kcm_sock *kcm;
 	struct kcm_mux *mux;
@@ -1857,7 +1873,7 @@ static int kcm_release(struct socket *sock)
 
 	release_sock(sk);
 
-	spin_lock_bh(&mux->lock);
+	bh = spin_lock_bh(&mux->lock, SOFTIRQ_ALL_MASK);
 	if (kcm->tx_wait) {
 		/* Take of tx_wait list, after this point there should be no way
 		 * that a psock will be assigned to this kcm.
@@ -1865,7 +1881,7 @@ static int kcm_release(struct socket *sock)
 		list_del(&kcm->wait_psock_list);
 		kcm->tx_wait = false;
 	}
-	spin_unlock_bh(&mux->lock);
+	spin_unlock_bh(&mux->lock, bh);
 
 	/* Cancel work. After this point there should be no outside references
 	 * to the kcm socket.

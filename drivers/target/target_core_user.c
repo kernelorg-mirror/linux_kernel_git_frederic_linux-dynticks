@@ -1609,6 +1609,7 @@ static void tcmu_blocks_release(struct radix_tree_root *blocks,
 
 static void tcmu_dev_kref_release(struct kref *kref)
 {
+	unsigned int bh;
 	struct tcmu_dev *udev = container_of(kref, struct tcmu_dev, kref);
 	struct se_device *dev = &udev->se_dev;
 	struct tcmu_cmd *cmd;
@@ -1618,10 +1619,10 @@ static void tcmu_dev_kref_release(struct kref *kref)
 	vfree(udev->mb_addr);
 	udev->mb_addr = NULL;
 
-	spin_lock_bh(&timed_out_udevs_lock);
+	bh = spin_lock_bh(&timed_out_udevs_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&udev->timedout_entry))
 		list_del(&udev->timedout_entry);
-	spin_unlock_bh(&timed_out_udevs_lock);
+	spin_unlock_bh(&timed_out_udevs_lock, bh);
 
 	/* Upper layer should drain all requests before calling this */
 	mutex_lock(&udev->cmdr_lock);
@@ -2654,10 +2655,11 @@ static void find_free_blocks(void)
 
 static void check_timedout_devices(void)
 {
+	unsigned int bh;
 	struct tcmu_dev *udev, *tmp_dev;
 	LIST_HEAD(devs);
 
-	spin_lock_bh(&timed_out_udevs_lock);
+	bh = spin_lock_bh(&timed_out_udevs_lock, SOFTIRQ_ALL_MASK);
 	list_splice_init(&timed_out_udevs, &devs);
 
 	list_for_each_entry_safe(udev, tmp_dev, &devs, timedout_entry) {
@@ -2668,10 +2670,10 @@ static void check_timedout_devices(void)
 		idr_for_each(&udev->commands, tcmu_check_expired_cmd, NULL);
 		mutex_unlock(&udev->cmdr_lock);
 
-		spin_lock_bh(&timed_out_udevs_lock);
+		spin_lock_bh(&timed_out_udevs_lock, SOFTIRQ_ALL_MASK);
 	}
 
-	spin_unlock_bh(&timed_out_udevs_lock);
+	spin_unlock_bh(&timed_out_udevs_lock, bh);
 }
 
 static void tcmu_unmap_work_fn(struct work_struct *work)

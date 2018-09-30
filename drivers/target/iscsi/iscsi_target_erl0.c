@@ -487,6 +487,7 @@ static int iscsit_dataout_pre_datapduinorder_no(
 
 static int iscsit_dataout_update_r2t(struct iscsi_cmd *cmd, u32 offset, u32 length)
 {
+	unsigned int bh;
 	struct iscsi_r2t *r2t;
 
 	if (cmd->unsolicited_data)
@@ -496,10 +497,10 @@ static int iscsit_dataout_update_r2t(struct iscsi_cmd *cmd, u32 offset, u32 leng
 	if (!r2t)
 		return -1;
 
-	spin_lock_bh(&cmd->r2t_lock);
+	bh = spin_lock_bh(&cmd->r2t_lock, SOFTIRQ_ALL_MASK);
 	r2t->seq_complete = 1;
 	cmd->outstanding_r2ts--;
-	spin_unlock_bh(&cmd->r2t_lock);
+	spin_unlock_bh(&cmd->r2t_lock, bh);
 
 	return 0;
 }
@@ -751,19 +752,20 @@ int iscsit_check_post_dataout(
 
 void iscsit_handle_time2retain_timeout(struct timer_list *t)
 {
+	unsigned int bh;
 	struct iscsi_session *sess = from_timer(sess, t, time2retain_timer);
 	struct iscsi_portal_group *tpg = sess->tpg;
 	struct se_portal_group *se_tpg = &tpg->tpg_se_tpg;
 
-	spin_lock_bh(&se_tpg->session_lock);
+	bh = spin_lock_bh(&se_tpg->session_lock, SOFTIRQ_ALL_MASK);
 	if (sess->time2retain_timer_flags & ISCSI_TF_STOP) {
-		spin_unlock_bh(&se_tpg->session_lock);
+		spin_unlock_bh(&se_tpg->session_lock, bh);
 		return;
 	}
 	if (atomic_read(&sess->session_reinstatement)) {
 		pr_err("Exiting Time2Retain handler because"
 				" session_reinstatement=1\n");
-		spin_unlock_bh(&se_tpg->session_lock);
+		spin_unlock_bh(&se_tpg->session_lock, bh);
 		return;
 	}
 	sess->time2retain_timer_flags |= ISCSI_TF_EXPIRED;
@@ -785,7 +787,7 @@ void iscsit_handle_time2retain_timeout(struct timer_list *t)
 	}
 	}
 
-	spin_unlock_bh(&se_tpg->session_lock);
+	spin_unlock_bh(&se_tpg->session_lock, bh);
 	iscsit_close_session(sess);
 }
 
@@ -816,7 +818,7 @@ void iscsit_start_time2retain_handler(struct iscsi_session *sess)
 }
 
 /*
- *	Called with spin_lock_bh(&struct se_portal_group->session_lock) held
+ *	Called with spin_lock_bh(&struct se_portal_group->session_lock, SOFTIRQ_ALL_MASK) held
  */
 int iscsit_stop_time2retain_timer(struct iscsi_session *sess)
 {
@@ -843,17 +845,18 @@ int iscsit_stop_time2retain_timer(struct iscsi_session *sess)
 
 void iscsit_connection_reinstatement_rcfr(struct iscsi_conn *conn)
 {
-	spin_lock_bh(&conn->state_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&conn->state_lock, SOFTIRQ_ALL_MASK);
 	if (atomic_read(&conn->connection_exit)) {
-		spin_unlock_bh(&conn->state_lock);
+		spin_unlock_bh(&conn->state_lock, bh);
 		goto sleep;
 	}
 
 	if (atomic_read(&conn->transport_failed)) {
-		spin_unlock_bh(&conn->state_lock);
+		spin_unlock_bh(&conn->state_lock, bh);
 		goto sleep;
 	}
-	spin_unlock_bh(&conn->state_lock);
+	spin_unlock_bh(&conn->state_lock, bh);
 
 	if (conn->tx_thread && conn->tx_thread_active)
 		send_sig(SIGINT, conn->tx_thread, 1);
@@ -867,19 +870,20 @@ sleep:
 
 void iscsit_cause_connection_reinstatement(struct iscsi_conn *conn, int sleep)
 {
-	spin_lock_bh(&conn->state_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&conn->state_lock, SOFTIRQ_ALL_MASK);
 	if (atomic_read(&conn->connection_exit)) {
-		spin_unlock_bh(&conn->state_lock);
+		spin_unlock_bh(&conn->state_lock, bh);
 		return;
 	}
 
 	if (atomic_read(&conn->transport_failed)) {
-		spin_unlock_bh(&conn->state_lock);
+		spin_unlock_bh(&conn->state_lock, bh);
 		return;
 	}
 
 	if (atomic_read(&conn->connection_reinstatement)) {
-		spin_unlock_bh(&conn->state_lock);
+		spin_unlock_bh(&conn->state_lock, bh);
 		return;
 	}
 
@@ -890,12 +894,12 @@ void iscsit_cause_connection_reinstatement(struct iscsi_conn *conn, int sleep)
 
 	atomic_set(&conn->connection_reinstatement, 1);
 	if (!sleep) {
-		spin_unlock_bh(&conn->state_lock);
+		spin_unlock_bh(&conn->state_lock, bh);
 		return;
 	}
 
 	atomic_set(&conn->sleep_on_conn_wait_comp, 1);
-	spin_unlock_bh(&conn->state_lock);
+	spin_unlock_bh(&conn->state_lock, bh);
 
 	wait_for_completion(&conn->conn_wait_comp);
 	complete(&conn->conn_post_wait_comp);
@@ -928,30 +932,31 @@ static void iscsit_handle_connection_cleanup(struct iscsi_conn *conn)
 
 void iscsit_take_action_for_connection_exit(struct iscsi_conn *conn, bool *conn_freed)
 {
+	unsigned int bh;
 	*conn_freed = false;
 
-	spin_lock_bh(&conn->state_lock);
+	bh = spin_lock_bh(&conn->state_lock, SOFTIRQ_ALL_MASK);
 	if (atomic_read(&conn->connection_exit)) {
-		spin_unlock_bh(&conn->state_lock);
+		spin_unlock_bh(&conn->state_lock, bh);
 		return;
 	}
 	atomic_set(&conn->connection_exit, 1);
 
 	if (conn->conn_state == TARG_CONN_STATE_IN_LOGOUT) {
-		spin_unlock_bh(&conn->state_lock);
+		spin_unlock_bh(&conn->state_lock, bh);
 		iscsit_close_connection(conn);
 		*conn_freed = true;
 		return;
 	}
 
 	if (conn->conn_state == TARG_CONN_STATE_CLEANUP_WAIT) {
-		spin_unlock_bh(&conn->state_lock);
+		spin_unlock_bh(&conn->state_lock, bh);
 		return;
 	}
 
 	pr_debug("Moving to TARG_CONN_STATE_CLEANUP_WAIT.\n");
 	conn->conn_state = TARG_CONN_STATE_CLEANUP_WAIT;
-	spin_unlock_bh(&conn->state_lock);
+	spin_unlock_bh(&conn->state_lock, bh);
 
 	iscsit_handle_connection_cleanup(conn);
 	*conn_freed = true;

@@ -73,19 +73,20 @@ static void batadv_frag_clear_chain(struct hlist_head *head, bool dropped)
 void batadv_frag_purge_orig(struct batadv_orig_node *orig_node,
 			    bool (*check_cb)(struct batadv_frag_table_entry *))
 {
+	unsigned int bh;
 	struct batadv_frag_table_entry *chain;
 	u8 i;
 
 	for (i = 0; i < BATADV_FRAG_BUFFER_COUNT; i++) {
 		chain = &orig_node->fragments[i];
-		spin_lock_bh(&chain->lock);
+		bh = spin_lock_bh(&chain->lock, SOFTIRQ_ALL_MASK);
 
 		if (!check_cb || check_cb(chain)) {
 			batadv_frag_clear_chain(&chain->fragment_list, true);
 			chain->size = 0;
 		}
 
-		spin_unlock_bh(&chain->lock);
+		spin_unlock_bh(&chain->lock, bh);
 	}
 }
 
@@ -151,6 +152,7 @@ static bool batadv_frag_insert_packet(struct batadv_orig_node *orig_node,
 				      struct sk_buff *skb,
 				      struct hlist_head *chain_out)
 {
+	unsigned int bh;
 	struct batadv_frag_table_entry *chain;
 	struct batadv_frag_list_entry *frag_entry_new = NULL, *frag_entry_curr;
 	struct batadv_frag_list_entry *frag_entry_last = NULL;
@@ -182,7 +184,7 @@ static bool batadv_frag_insert_packet(struct batadv_orig_node *orig_node,
 	 * if the list is empty at return.
 	 */
 	chain = &orig_node->fragments[bucket];
-	spin_lock_bh(&chain->lock);
+	bh = spin_lock_bh(&chain->lock, SOFTIRQ_ALL_MASK);
 	if (batadv_frag_init_chain(chain, seqno)) {
 		hlist_add_head(&frag_entry_new->list, &chain->fragment_list);
 		chain->size = skb->len - hdr_size;
@@ -237,7 +239,7 @@ out:
 	}
 
 err_unlock:
-	spin_unlock_bh(&chain->lock);
+	spin_unlock_bh(&chain->lock, bh);
 
 err:
 	if (!ret) {

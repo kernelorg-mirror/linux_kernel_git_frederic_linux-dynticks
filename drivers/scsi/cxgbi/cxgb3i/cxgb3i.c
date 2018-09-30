@@ -474,6 +474,7 @@ static inline void free_atid(struct cxgbi_sock *csk)
 
 static int do_act_establish(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk = ctx;
 	struct cpl_act_establish *req = cplhdr(skb);
 	unsigned int tid = GET_TID(req);
@@ -493,7 +494,7 @@ static int do_act_establish(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 
 	csk->rss_qid = G_QNUM(ntohs(skb->csum));
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	if (csk->retry_timer.function) {
 		del_timer(&csk->retry_timer);
 		csk->retry_timer.function = NULL;
@@ -518,7 +519,7 @@ static int do_act_establish(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 		cxgbi_conn_tx_open(csk);
 	}
 
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	__kfree_skb(skb);
 	return 0;
 }
@@ -547,6 +548,7 @@ static int act_open_rpl_status_to_errno(int status)
 
 static void act_open_retry_timer(struct timer_list *t)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk = from_timer(csk, t, retry_timer);
 	struct sk_buff *skb;
 
@@ -555,7 +557,7 @@ static void act_open_retry_timer(struct timer_list *t)
 		csk, csk->state, csk->flags, csk->tid);
 
 	cxgbi_sock_get(csk);
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	skb = alloc_wr(sizeof(struct cpl_act_open_req), 0, GFP_ATOMIC);
 	if (!skb)
 		cxgbi_sock_fail_act_open(csk, -ENOMEM);
@@ -564,12 +566,13 @@ static void act_open_retry_timer(struct timer_list *t)
 		set_arp_failure_handler(skb, act_open_arp_failure);
 		send_act_open_req(csk, skb, csk->l2t);
 	}
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	cxgbi_sock_put(csk);
 }
 
 static int do_act_open_rpl(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk = ctx;
 	struct cpl_act_open_rpl *rpl = cplhdr(skb);
 
@@ -584,7 +587,7 @@ static int do_act_open_rpl(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 		cxgb3_queue_tid_release(tdev, GET_TID(rpl));
 
 	cxgbi_sock_get(csk);
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	if (rpl->status == CPL_ERR_CONN_EXIST &&
 	    csk->retry_timer.function != act_open_retry_timer) {
 		csk->retry_timer.function = act_open_retry_timer;
@@ -593,7 +596,7 @@ static int do_act_open_rpl(struct t3cdev *tdev, struct sk_buff *skb, void *ctx)
 		cxgbi_sock_fail_act_open(csk,
 				act_open_rpl_status_to_errno(rpl->status));
 
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	cxgbi_sock_put(csk);
 	__kfree_skb(skb);
 	return 0;
@@ -660,6 +663,7 @@ static int abort_status_to_errno(struct cxgbi_sock *csk, int abort_reason,
 
 static int do_abort_req(struct t3cdev *cdev, struct sk_buff *skb, void *ctx)
 {
+	unsigned int bh;
 	const struct cpl_abort_req_rss *req = cplhdr(skb);
 	struct cxgbi_sock *csk = ctx;
 	int rst_status = CPL_ABORT_NO_RST;
@@ -674,7 +678,7 @@ static int do_abort_req(struct t3cdev *cdev, struct sk_buff *skb, void *ctx)
 	}
 
 	cxgbi_sock_get(csk);
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	if (!cxgbi_sock_flag(csk, CTPF_ABORT_REQ_RCVD)) {
 		cxgbi_sock_set_flag(csk, CTPF_ABORT_REQ_RCVD);
@@ -691,7 +695,7 @@ static int do_abort_req(struct t3cdev *cdev, struct sk_buff *skb, void *ctx)
 	}
 
 out:
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	cxgbi_sock_put(csk);
 done:
 	__kfree_skb(skb);
@@ -743,6 +747,7 @@ rel_skb:
  */
 static int do_iscsi_hdr(struct t3cdev *t3dev, struct sk_buff *skb, void *ctx)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk = ctx;
 	struct cpl_iscsi_hdr *hdr_cpl = cplhdr(skb);
 	struct cpl_iscsi_hdr_norss data_cpl;
@@ -755,7 +760,7 @@ static int do_iscsi_hdr(struct t3cdev *t3dev, struct sk_buff *skb, void *ctx)
 		"csk 0x%p,%u,0x%lx,%u, skb 0x%p,%u.\n",
 		csk, csk->state, csk->flags, csk->tid, skb, skb->len);
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	if (unlikely(csk->state >= CTP_PASSIVE_CLOSE)) {
 		log_debug(1 << CXGBI_DBG_TOE | 1 << CXGBI_DBG_SOCK,
@@ -829,13 +834,13 @@ static int do_iscsi_hdr(struct t3cdev *t3dev, struct sk_buff *skb, void *ctx)
 	__skb_queue_tail(&csk->receive_queue, skb);
 	cxgbi_conn_pdu_ready(csk);
 
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	return 0;
 
 abort_conn:
 	send_abort_req(csk);
 discard:
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	__kfree_skb(skb);
 	return 0;
 }

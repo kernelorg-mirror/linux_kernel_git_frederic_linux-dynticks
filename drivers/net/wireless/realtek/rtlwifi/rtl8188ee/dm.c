@@ -729,6 +729,7 @@ void rtl88e_dm_write_dig(struct ieee80211_hw *hw)
 
 static void rtl88e_dm_pwdb_monitor(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_hal *rtlhal = rtl_hal(rtl_priv(hw));
 	struct rtl_sta_info *drv_priv;
@@ -753,7 +754,7 @@ static void rtl88e_dm_pwdb_monitor(struct ieee80211_hw *hw)
 	}
 
 	/* AP & ADHOC & MESH */
-	spin_lock_bh(&rtlpriv->locks.entry_list_lock);
+	bh = spin_lock_bh(&rtlpriv->locks.entry_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(drv_priv, &rtlpriv->entry_list, list) {
 		if (drv_priv->rssi_stat.undec_sm_pwdb <
 			tmp_entry_min_pwdb)
@@ -762,7 +763,7 @@ static void rtl88e_dm_pwdb_monitor(struct ieee80211_hw *hw)
 			tmp_entry_max_pwdb)
 			tmp_entry_max_pwdb = drv_priv->rssi_stat.undec_sm_pwdb;
 	}
-	spin_unlock_bh(&rtlpriv->locks.entry_list_lock);
+	spin_unlock_bh(&rtlpriv->locks.entry_list_lock, bh);
 
 	/* If associated entry is found */
 	if (tmp_entry_max_pwdb != 0) {
@@ -1471,6 +1472,7 @@ void rtl88e_dm_ant_sel_statistics(struct ieee80211_hw *hw,
 
 static void rtl88e_dm_hw_ant_div(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_efuse *rtlefuse = rtl_efuse(rtl_priv(hw));
 	struct rtl_dm *rtldm = rtl_dm(rtl_priv(hw));
@@ -1521,7 +1523,7 @@ static void rtl88e_dm_hw_ant_div(struct ieee80211_hw *hw)
 
 	if (rtlpriv->mac80211.opmode == NL80211_IFTYPE_AP ||
 	    rtlpriv->mac80211.opmode == NL80211_IFTYPE_ADHOC) {
-		spin_lock_bh(&rtlpriv->locks.entry_list_lock);
+		bh = spin_lock_bh(&rtlpriv->locks.entry_list_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(drv_priv, &rtlpriv->entry_list, list) {
 			i++;
 			main_rssi = (pfat_table->main_ant_cnt[i] != 0) ?
@@ -1558,7 +1560,7 @@ static void rtl88e_dm_hw_ant_div(struct ieee80211_hw *hw)
 			if (rtlefuse->antenna_div_type == CG_TRX_HW_ANTDIV)
 				rtl88e_dm_update_tx_ant(hw, target_ant, i);
 		}
-		spin_unlock_bh(&rtlpriv->locks.entry_list_lock);
+		spin_unlock_bh(&rtlpriv->locks.entry_list_lock, bh);
 	}
 
 	for (i = 0; i < ASSOCIATE_ENTRY_NUM; i++) {
@@ -1576,6 +1578,7 @@ static void rtl88e_dm_hw_ant_div(struct ieee80211_hw *hw)
 
 static void rtl88e_set_next_mac_address_target(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_mac *mac = rtl_mac(rtl_priv(hw));
 	struct rtl_dm *rtldm = rtl_dm(rtl_priv(hw));
@@ -1607,7 +1610,7 @@ static void rtl88e_set_next_mac_address_target(struct ieee80211_hw *hw)
 
 			if (rtlpriv->mac80211.opmode !=
 			    NL80211_IFTYPE_STATION) {
-				spin_lock_bh(&rtlpriv->locks.entry_list_lock);
+				bh = spin_lock_bh(&rtlpriv->locks.entry_list_lock, SOFTIRQ_ALL_MASK);
 				list_for_each_entry(drv_priv,
 						    &rtlpriv->entry_list, list) {
 					j++;
@@ -1629,7 +1632,8 @@ static void rtl88e_set_next_mac_address_target(struct ieee80211_hw *hw)
 						      MASKDWORD, value32);
 					break;
 				}
-				spin_unlock_bh(&rtlpriv->locks.entry_list_lock);
+				spin_unlock_bh(&rtlpriv->locks.entry_list_lock,
+					       bh);
 				/*find entry, break*/
 				if (j == pfat_table->train_idx)
 					break;

@@ -351,6 +351,7 @@ static int cmdq_sync_cmd_direct_resp(struct hinic_cmdq *cmdq,
 				     struct hinic_cmdq_buf *buf_in,
 				     u64 *resp)
 {
+	unsigned int bh;
 	struct hinic_cmdq_wqe *curr_cmdq_wqe, cmdq_wqe;
 	u16 curr_prod_idx, next_prod_idx;
 	int errcode, wrapped, num_wqebbs;
@@ -359,12 +360,12 @@ static int cmdq_sync_cmd_direct_resp(struct hinic_cmdq *cmdq,
 	struct completion done;
 
 	/* Keep doorbell index correct. bh - for tasklet(ceq). */
-	spin_lock_bh(&cmdq->cmdq_lock);
+	bh = spin_lock_bh(&cmdq->cmdq_lock, SOFTIRQ_ALL_MASK);
 
 	/* WQE_SIZE = WQEBB_SIZE, we will get the wq element and not shadow*/
 	hw_wqe = hinic_get_wqe(wq, WQE_LCMD_SIZE, &curr_prod_idx);
 	if (IS_ERR(hw_wqe)) {
-		spin_unlock_bh(&cmdq->cmdq_lock);
+		spin_unlock_bh(&cmdq->cmdq_lock, bh);
 		return -EBUSY;
 	}
 
@@ -396,10 +397,10 @@ static int cmdq_sync_cmd_direct_resp(struct hinic_cmdq *cmdq,
 
 	cmdq_set_db(cmdq, HINIC_CMDQ_SYNC, next_prod_idx);
 
-	spin_unlock_bh(&cmdq->cmdq_lock);
+	spin_unlock_bh(&cmdq->cmdq_lock, bh);
 
 	if (!wait_for_completion_timeout(&done, CMDQ_TIMEOUT)) {
-		spin_lock_bh(&cmdq->cmdq_lock);
+		spin_lock_bh(&cmdq->cmdq_lock, SOFTIRQ_ALL_MASK);
 
 		if (cmdq->errcode[curr_prod_idx] == &errcode)
 			cmdq->errcode[curr_prod_idx] = NULL;

@@ -126,6 +126,7 @@ static void rtw_check_xmit_resource(struct adapter *padapter, _pkt *pkt)
 
 static int rtw_mlcst2unicst(struct adapter *padapter, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct	sta_priv *pstapriv = &padapter->stapriv;
 	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
 	struct list_head	*phead, *plist;
@@ -141,7 +142,7 @@ static int rtw_mlcst2unicst(struct adapter *padapter, struct sk_buff *skb)
 
 	DBG_COUNTER(padapter->tx_logs.os_tx_m2u);
 
-	spin_lock_bh(&pstapriv->asoc_list_lock);
+	bh = spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 	phead = &pstapriv->asoc_list;
 	plist = get_next(phead);
 
@@ -156,7 +157,7 @@ static int rtw_mlcst2unicst(struct adapter *padapter, struct sk_buff *skb)
 			chk_alive_list[chk_alive_num++] = stainfo_offset;
 		}
 	}
-	spin_unlock_bh(&pstapriv->asoc_list_lock);
+	spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 
 	for (i = 0; i < chk_alive_num; i++) {
 		psta = rtw_get_stainfo_by_offset(pstapriv, chk_alive_list[i]);

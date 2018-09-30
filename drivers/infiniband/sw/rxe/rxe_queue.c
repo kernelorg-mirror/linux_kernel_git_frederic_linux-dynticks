@@ -43,6 +43,7 @@ int do_mmap_info(struct rxe_dev *rxe,
 		 size_t buf_size,
 		 struct rxe_mmap_info **ip_p)
 {
+	unsigned int bh;
 	int err;
 	struct rxe_mmap_info *ip = NULL;
 
@@ -55,9 +56,9 @@ int do_mmap_info(struct rxe_dev *rxe,
 		if (err)
 			goto err2;
 
-		spin_lock_bh(&rxe->pending_lock);
+		bh = spin_lock_bh(&rxe->pending_lock, SOFTIRQ_ALL_MASK);
 		list_add(&ip->pending_mmaps, &rxe->pending_mmaps);
-		spin_unlock_bh(&rxe->pending_lock);
+		spin_unlock_bh(&rxe->pending_lock, bh);
 	}
 
 	*ip_p = ip;

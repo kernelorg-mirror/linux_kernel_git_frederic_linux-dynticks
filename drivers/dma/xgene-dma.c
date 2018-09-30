@@ -465,6 +465,7 @@ static void xgene_dma_prep_xor_desc(struct xgene_dma_chan *chan,
 
 static dma_cookie_t xgene_dma_tx_submit(struct dma_async_tx_descriptor *tx)
 {
+	unsigned int bh;
 	struct xgene_dma_desc_sw *desc;
 	struct xgene_dma_chan *chan;
 	dma_cookie_t cookie;
@@ -475,14 +476,14 @@ static dma_cookie_t xgene_dma_tx_submit(struct dma_async_tx_descriptor *tx)
 	chan = to_dma_chan(tx->chan);
 	desc = to_dma_desc_sw(tx);
 
-	spin_lock_bh(&chan->lock);
+	bh = spin_lock_bh(&chan->lock, SOFTIRQ_ALL_MASK);
 
 	cookie = dma_cookie_assign(tx);
 
 	/* Add this transaction list onto the tail of the pending queue */
 	list_splice_tail_init(&desc->tx_list, &chan->ld_pending);
 
-	spin_unlock_bh(&chan->lock);
+	spin_unlock_bh(&chan->lock, bh);
 
 	return cookie;
 }
@@ -695,6 +696,7 @@ static void xgene_chan_xfer_ld_pending(struct xgene_dma_chan *chan)
  */
 static void xgene_dma_cleanup_descriptors(struct xgene_dma_chan *chan)
 {
+	unsigned int bh;
 	struct xgene_dma_ring *ring = &chan->rx_ring;
 	struct xgene_dma_desc_sw *desc_sw, *_desc_sw;
 	struct xgene_dma_desc_hw *desc_hw;
@@ -703,7 +705,7 @@ static void xgene_dma_cleanup_descriptors(struct xgene_dma_chan *chan)
 
 	INIT_LIST_HEAD(&ld_completed);
 
-	spin_lock_bh(&chan->lock);
+	bh = spin_lock_bh(&chan->lock, SOFTIRQ_ALL_MASK);
 
 	/* Clean already completed and acked descriptors */
 	xgene_dma_clean_completed_descriptor(chan);
@@ -772,7 +774,7 @@ static void xgene_dma_cleanup_descriptors(struct xgene_dma_chan *chan)
 	 */
 	xgene_chan_xfer_ld_pending(chan);
 
-	spin_unlock_bh(&chan->lock);
+	spin_unlock_bh(&chan->lock, bh);
 
 	/* Run the callback for each descriptor, in order */
 	list_for_each_entry_safe(desc_sw, _desc_sw, &ld_completed, node) {
@@ -820,6 +822,7 @@ static void xgene_dma_free_desc_list(struct xgene_dma_chan *chan,
 
 static void xgene_dma_free_chan_resources(struct dma_chan *dchan)
 {
+	unsigned int bh;
 	struct xgene_dma_chan *chan = to_dma_chan(dchan);
 
 	chan_dbg(chan, "Free all resources\n");
@@ -830,14 +833,14 @@ static void xgene_dma_free_chan_resources(struct dma_chan *dchan)
 	/* Process all running descriptor */
 	xgene_dma_cleanup_descriptors(chan);
 
-	spin_lock_bh(&chan->lock);
+	bh = spin_lock_bh(&chan->lock, SOFTIRQ_ALL_MASK);
 
 	/* Clean all link descriptor queues */
 	xgene_dma_free_desc_list(chan, &chan->ld_pending);
 	xgene_dma_free_desc_list(chan, &chan->ld_running);
 	xgene_dma_free_desc_list(chan, &chan->ld_completed);
 
-	spin_unlock_bh(&chan->lock);
+	spin_unlock_bh(&chan->lock, bh);
 
 	/* Delete this channel DMA pool */
 	dma_pool_destroy(chan->desc_pool);
@@ -971,11 +974,12 @@ fail:
 
 static void xgene_dma_issue_pending(struct dma_chan *dchan)
 {
+	unsigned int bh;
 	struct xgene_dma_chan *chan = to_dma_chan(dchan);
 
-	spin_lock_bh(&chan->lock);
+	bh = spin_lock_bh(&chan->lock, SOFTIRQ_ALL_MASK);
 	xgene_chan_xfer_ld_pending(chan);
-	spin_unlock_bh(&chan->lock);
+	spin_unlock_bh(&chan->lock, bh);
 }
 
 static enum dma_status xgene_dma_tx_status(struct dma_chan *dchan,

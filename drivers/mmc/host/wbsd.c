@@ -745,13 +745,14 @@ static void wbsd_finish_data(struct wbsd_host *host, struct mmc_data *data)
 
 static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
+	unsigned int bh;
 	struct wbsd_host *host = mmc_priv(mmc);
 	struct mmc_command *cmd;
 
 	/*
 	 * Disable tasklets to avoid a deadlock.
 	 */
-	spin_lock_bh(&host->lock);
+	bh = spin_lock_bh(&host->lock, SOFTIRQ_ALL_MASK);
 
 	BUG_ON(host->mrq != NULL);
 
@@ -826,7 +827,7 @@ static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		if (host->dma == -1)
 			tasklet_schedule(&host->fifo_tasklet);
 
-		spin_unlock_bh(&host->lock);
+		spin_unlock_bh(&host->lock, bh);
 
 		return;
 	}
@@ -834,15 +835,16 @@ static void wbsd_request(struct mmc_host *mmc, struct mmc_request *mrq)
 done:
 	wbsd_request_end(host, mrq);
 
-	spin_unlock_bh(&host->lock);
+	spin_unlock_bh(&host->lock, bh);
 }
 
 static void wbsd_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
+	unsigned int bh;
 	struct wbsd_host *host = mmc_priv(mmc);
 	u8 clk, setup, pwr;
 
-	spin_lock_bh(&host->lock);
+	bh = spin_lock_bh(&host->lock, SOFTIRQ_ALL_MASK);
 
 	/*
 	 * Reset the chip on each power off.
@@ -907,15 +909,16 @@ static void wbsd_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	 */
 	host->bus_width = ios->bus_width;
 
-	spin_unlock_bh(&host->lock);
+	spin_unlock_bh(&host->lock, bh);
 }
 
 static int wbsd_get_ro(struct mmc_host *mmc)
 {
+	unsigned int bh;
 	struct wbsd_host *host = mmc_priv(mmc);
 	u8 csr;
 
-	spin_lock_bh(&host->lock);
+	bh = spin_lock_bh(&host->lock, SOFTIRQ_ALL_MASK);
 
 	csr = inb(host->base + WBSD_CSR);
 	csr |= WBSD_MSLED;
@@ -927,7 +930,7 @@ static int wbsd_get_ro(struct mmc_host *mmc)
 	csr &= ~WBSD_MSLED;
 	outb(csr, host->base + WBSD_CSR);
 
-	spin_unlock_bh(&host->lock);
+	spin_unlock_bh(&host->lock, bh);
 
 	return !!(csr & WBSD_WRPT);
 }
@@ -950,13 +953,14 @@ static const struct mmc_host_ops wbsd_ops = {
 
 static void wbsd_reset_ignore(struct timer_list *t)
 {
+	unsigned int bh;
 	struct wbsd_host *host = from_timer(host, t, ignore_timer);
 
 	BUG_ON(host == NULL);
 
 	DBG("Resetting card detection ignore\n");
 
-	spin_lock_bh(&host->lock);
+	bh = spin_lock_bh(&host->lock, SOFTIRQ_ALL_MASK);
 
 	host->flags &= ~WBSD_FIGNORE_DETECT;
 
@@ -966,7 +970,7 @@ static void wbsd_reset_ignore(struct timer_list *t)
 	 */
 	tasklet_schedule(&host->card_tasklet);
 
-	spin_unlock_bh(&host->lock);
+	spin_unlock_bh(&host->lock, bh);
 }
 
 /*

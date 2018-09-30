@@ -204,6 +204,7 @@ static int htc_issue_packets(struct htc_target *target,
 			     struct htc_endpoint *ep,
 			     struct list_head *pkt_queue)
 {
+	unsigned int bh;
 	int status = 0;
 	u16 payload_len;
 	struct sk_buff *skb;
@@ -244,12 +245,12 @@ static int htc_issue_packets(struct htc_target *target,
 		htc_hdr->ctrl[0] = 0;
 		htc_hdr->ctrl[1] = (u8) packet->info.tx.seqno;
 
-		spin_lock_bh(&target->tx_lock);
+		bh = spin_lock_bh(&target->tx_lock, SOFTIRQ_ALL_MASK);
 
 		/* store in look up queue to match completions */
 		list_add_tail(&packet->list, &ep->pipe.tx_lookup_queue);
 		ep->ep_st.tx_issued += 1;
-		spin_unlock_bh(&target->tx_lock);
+		spin_unlock_bh(&target->tx_lock, bh);
 
 		status = ath6kl_hif_pipe_send(target->dev->ar,
 					      ep->pipe.pipeid_ul, NULL, skb);
@@ -265,7 +266,7 @@ static int htc_issue_packets(struct htc_target *target,
 					   "%s: failed status:%d\n",
 					   __func__, status);
 			}
-			spin_lock_bh(&target->tx_lock);
+			spin_lock_bh(&target->tx_lock, SOFTIRQ_ALL_MASK);
 			list_del(&packet->list);
 
 			/* reclaim credits */
@@ -301,6 +302,7 @@ static enum htc_send_queue_result htc_try_send(struct htc_target *target,
 					       struct htc_endpoint *ep,
 					       struct list_head *txq)
 {
+	unsigned int bh;
 	struct list_head send_queue;	/* temp queue to hold packets */
 	struct htc_packet *packet, *tmp_pkt;
 	struct ath6kl *ar = target->dev->ar;
@@ -326,9 +328,9 @@ static enum htc_send_queue_result htc_try_send(struct htc_target *target,
 			return HTC_SEND_QUEUE_DROP;
 		}
 
-		spin_lock_bh(&target->tx_lock);
+		bh = spin_lock_bh(&target->tx_lock, SOFTIRQ_ALL_MASK);
 		txqueue_depth = get_queue_depth(&ep->txq);
-		spin_unlock_bh(&target->tx_lock);
+		spin_unlock_bh(&target->tx_lock, bh);
 
 		if (txqueue_depth >= ep->max_txq_depth) {
 			/* we've already overflowed */
@@ -415,13 +417,13 @@ static enum htc_send_queue_result htc_try_send(struct htc_target *target,
 		tx_resources = 0;
 	}
 
-	spin_lock_bh(&target->tx_lock);
+	bh = spin_lock_bh(&target->tx_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&send_queue)) {
 		/* transfer packets to tail */
 		list_splice_tail_init(&send_queue, &ep->txq);
 		if (!list_empty(&send_queue)) {
 			WARN_ON_ONCE(1);
-			spin_unlock_bh(&target->tx_lock);
+			spin_unlock_bh(&target->tx_lock, bh);
 			return HTC_SEND_QUEUE_DROP;
 		}
 		INIT_LIST_HEAD(&send_queue);
@@ -437,7 +439,7 @@ static enum htc_send_queue_result htc_try_send(struct htc_target *target,
 		 * when the queue is drained.
 		 */
 		ep->tx_proc_cnt--;
-		spin_unlock_bh(&target->tx_lock);
+		spin_unlock_bh(&target->tx_lock, bh);
 		return HTC_SEND_QUEUE_OK;
 	}
 
@@ -487,12 +489,12 @@ static enum htc_send_queue_result htc_try_send(struct htc_target *target,
 			    ath6kl_hif_pipe_get_free_queue_number(ar, pipeid);
 		}
 
-		spin_lock_bh(&target->tx_lock);
+		spin_lock_bh(&target->tx_lock, SOFTIRQ_ALL_MASK);
 	}
 
 	/* done with this endpoint, we can clear the count */
 	ep->tx_proc_cnt = 0;
-	spin_unlock_bh(&target->tx_lock);
+	spin_unlock_bh(&target->tx_lock, bh);
 
 	return HTC_SEND_QUEUE_OK;
 }
@@ -656,16 +658,17 @@ static void htc_process_credit_report(struct htc_target *target,
 				      int num_entries,
 				      enum htc_endpoint_id from_ep)
 {
+	unsigned int bh;
 	int total_credits = 0, i;
 	struct htc_endpoint *ep;
 
 	/* lock out TX while we update credits */
-	spin_lock_bh(&target->tx_lock);
+	bh = spin_lock_bh(&target->tx_lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < num_entries; i++, rpt++) {
 		if (rpt->eid >= ENDPOINT_MAX) {
 			WARN_ON_ONCE(1);
-			spin_unlock_bh(&target->tx_lock);
+			spin_unlock_bh(&target->tx_lock, bh);
 			return;
 		}
 
@@ -675,7 +678,7 @@ static void htc_process_credit_report(struct htc_target *target,
 		if (ep->cred_dist.credits && get_queue_depth(&ep->txq)) {
 			spin_unlock_bh(&target->tx_lock);
 			htc_try_send(target, ep, NULL);
-			spin_lock_bh(&target->tx_lock);
+			spin_lock_bh(&target->tx_lock, SOFTIRQ_ALL_MASK);
 		}
 
 		total_credits += rpt->credits;
@@ -684,23 +687,24 @@ static void htc_process_credit_report(struct htc_target *target,
 		   "Report indicated %d credits to distribute\n",
 		   total_credits);
 
-	spin_unlock_bh(&target->tx_lock);
+	spin_unlock_bh(&target->tx_lock, bh);
 }
 
 /* flush endpoint TX queue */
 static void htc_flush_tx_endpoint(struct htc_target *target,
 				  struct htc_endpoint *ep, u16 tag)
 {
+	unsigned int bh;
 	struct htc_packet *packet;
 
-	spin_lock_bh(&target->tx_lock);
+	bh = spin_lock_bh(&target->tx_lock, SOFTIRQ_ALL_MASK);
 	while (get_queue_depth(&ep->txq)) {
 		packet = list_first_entry(&ep->txq, struct htc_packet, list);
 		list_del(&packet->list);
 		packet->status = 0;
 		send_packet_completion(target, packet);
 	}
-	spin_unlock_bh(&target->tx_lock);
+	spin_unlock_bh(&target->tx_lock, bh);
 }
 
 /*
@@ -714,9 +718,10 @@ static struct htc_packet *htc_lookup_tx_packet(struct htc_target *target,
 					       struct htc_endpoint *ep,
 					       struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct htc_packet *packet, *tmp_pkt, *found_packet = NULL;
 
-	spin_lock_bh(&target->tx_lock);
+	bh = spin_lock_bh(&target->tx_lock, SOFTIRQ_ALL_MASK);
 
 	/*
 	 * interate from the front of tx lookup queue
@@ -734,7 +739,7 @@ static struct htc_packet *htc_lookup_tx_packet(struct htc_target *target,
 		}
 	}
 
-	spin_unlock_bh(&target->tx_lock);
+	spin_unlock_bh(&target->tx_lock, bh);
 
 	return found_packet;
 }
@@ -812,18 +817,19 @@ static int htc_send_packets_multiple(struct htc_target *target,
 /* htc pipe rx path */
 static struct htc_packet *alloc_htc_packet_container(struct htc_target *target)
 {
+	unsigned int bh;
 	struct htc_packet *packet;
-	spin_lock_bh(&target->rx_lock);
+	bh = spin_lock_bh(&target->rx_lock, SOFTIRQ_ALL_MASK);
 
 	if (target->pipe.htc_packet_pool == NULL) {
-		spin_unlock_bh(&target->rx_lock);
+		spin_unlock_bh(&target->rx_lock, bh);
 		return NULL;
 	}
 
 	packet = target->pipe.htc_packet_pool;
 	target->pipe.htc_packet_pool = (struct htc_packet *) packet->list.next;
 
-	spin_unlock_bh(&target->rx_lock);
+	spin_unlock_bh(&target->rx_lock, bh);
 
 	packet->list.next = NULL;
 	return packet;
@@ -832,9 +838,10 @@ static struct htc_packet *alloc_htc_packet_container(struct htc_target *target)
 static void free_htc_packet_container(struct htc_target *target,
 				      struct htc_packet *packet)
 {
+	unsigned int bh;
 	struct list_head *lh;
 
-	spin_lock_bh(&target->rx_lock);
+	bh = spin_lock_bh(&target->rx_lock, SOFTIRQ_ALL_MASK);
 
 	if (target->pipe.htc_packet_pool == NULL) {
 		target->pipe.htc_packet_pool = packet;
@@ -845,7 +852,7 @@ static void free_htc_packet_container(struct htc_target *target,
 		target->pipe.htc_packet_pool = packet;
 	}
 
-	spin_unlock_bh(&target->rx_lock);
+	spin_unlock_bh(&target->rx_lock, bh);
 }
 
 static int htc_process_trailer(struct htc_target *target, u8 *buffer,
@@ -945,6 +952,7 @@ static void recv_packet_completion(struct htc_target *target,
 static int ath6kl_htc_pipe_rx_complete(struct ath6kl *ar, struct sk_buff *skb,
 				       u8 pipeid)
 {
+	unsigned int bh;
 	struct htc_target *target = ar->htc_target;
 	u8 *netdata, *trailer, hdr_info;
 	struct htc_frame_hdr *htc_hdr;
@@ -1042,7 +1050,7 @@ static int ath6kl_htc_pipe_rx_complete(struct ath6kl *ar, struct sk_buff *skb,
 		netdata = skb->data;
 		netlen = skb->len;
 
-		spin_lock_bh(&target->rx_lock);
+		bh = spin_lock_bh(&target->rx_lock, SOFTIRQ_ALL_MASK);
 
 		target->pipe.ctrl_response_valid = true;
 		target->pipe.ctrl_response_len = min_t(int, netlen,
@@ -1050,7 +1058,7 @@ static int ath6kl_htc_pipe_rx_complete(struct ath6kl *ar, struct sk_buff *skb,
 		memcpy(target->pipe.ctrl_response_buf, netdata,
 		       target->pipe.ctrl_response_len);
 
-		spin_unlock_bh(&target->rx_lock);
+		spin_unlock_bh(&target->rx_lock, bh);
 
 		dev_kfree_skb(skb);
 		skb = NULL;
@@ -1098,10 +1106,11 @@ free_skb:
 static void htc_flush_rx_queue(struct htc_target *target,
 			       struct htc_endpoint *ep)
 {
+	unsigned int bh;
 	struct list_head container;
 	struct htc_packet *packet;
 
-	spin_lock_bh(&target->rx_lock);
+	bh = spin_lock_bh(&target->rx_lock, SOFTIRQ_ALL_MASK);
 
 	while (1) {
 		if (list_empty(&ep->rx_bufq))
@@ -1125,27 +1134,28 @@ static void htc_flush_rx_queue(struct htc_target *target,
 
 		/* give the packet back */
 		do_recv_completion(ep, &container);
-		spin_lock_bh(&target->rx_lock);
+		spin_lock_bh(&target->rx_lock, SOFTIRQ_ALL_MASK);
 	}
 
-	spin_unlock_bh(&target->rx_lock);
+	spin_unlock_bh(&target->rx_lock, bh);
 }
 
 /* polling routine to wait for a control packet to be received */
 static int htc_wait_recv_ctrl_message(struct htc_target *target)
 {
+	unsigned int bh;
 	int count = HTC_TARGET_RESPONSE_POLL_COUNT;
 
 	while (count > 0) {
-		spin_lock_bh(&target->rx_lock);
+		bh = spin_lock_bh(&target->rx_lock, SOFTIRQ_ALL_MASK);
 
 		if (target->pipe.ctrl_response_valid) {
 			target->pipe.ctrl_response_valid = false;
-			spin_unlock_bh(&target->rx_lock);
+			spin_unlock_bh(&target->rx_lock, bh);
 			break;
 		}
 
-		spin_unlock_bh(&target->rx_lock);
+		spin_unlock_bh(&target->rx_lock, bh);
 
 		count--;
 
@@ -1530,11 +1540,12 @@ static void ath6kl_htc_pipe_stop(struct htc_target *target)
 static int ath6kl_htc_pipe_get_rxbuf_num(struct htc_target *target,
 					 enum htc_endpoint_id endpoint)
 {
+	unsigned int bh;
 	int num;
 
-	spin_lock_bh(&target->rx_lock);
+	bh = spin_lock_bh(&target->rx_lock, SOFTIRQ_ALL_MASK);
 	num = get_queue_depth(&(target->endpoint[endpoint].rx_bufq));
-	spin_unlock_bh(&target->rx_lock);
+	spin_unlock_bh(&target->rx_lock, bh);
 
 	return num;
 }
@@ -1625,6 +1636,7 @@ static void ath6kl_htc_pipe_flush_txep(struct htc_target *target,
 static int ath6kl_htc_pipe_add_rxbuf_multiple(struct htc_target *target,
 					      struct list_head *pkt_queue)
 {
+	unsigned int bh;
 	struct htc_packet *packet, *tmp_pkt, *first;
 	struct htc_endpoint *ep;
 	int status = 0;
@@ -1645,12 +1657,12 @@ static int ath6kl_htc_pipe_add_rxbuf_multiple(struct htc_target *target,
 
 	ep = &target->endpoint[first->endpoint];
 
-	spin_lock_bh(&target->rx_lock);
+	bh = spin_lock_bh(&target->rx_lock, SOFTIRQ_ALL_MASK);
 
 	/* store receive packets */
 	list_splice_tail_init(pkt_queue, &ep->rx_bufq);
 
-	spin_unlock_bh(&target->rx_lock);
+	spin_unlock_bh(&target->rx_lock, bh);
 
 	if (status != 0) {
 		/* walk through queue and mark each one canceled */
@@ -1673,6 +1685,7 @@ static void ath6kl_htc_pipe_activity_changed(struct htc_target *target,
 
 static void ath6kl_htc_pipe_flush_rx_buf(struct htc_target *target)
 {
+	unsigned int bh;
 	struct htc_endpoint *endpoint;
 	struct htc_packet *packet, *tmp_pkt;
 	int i;
@@ -1680,7 +1693,7 @@ static void ath6kl_htc_pipe_flush_rx_buf(struct htc_target *target)
 	for (i = ENDPOINT_0; i < ENDPOINT_MAX; i++) {
 		endpoint = &target->endpoint[i];
 
-		spin_lock_bh(&target->rx_lock);
+		bh = spin_lock_bh(&target->rx_lock, SOFTIRQ_ALL_MASK);
 
 		list_for_each_entry_safe(packet, tmp_pkt,
 					 &endpoint->rx_bufq, list) {
@@ -1691,10 +1704,10 @@ static void ath6kl_htc_pipe_flush_rx_buf(struct htc_target *target)
 				   packet, packet->buf_len,
 				   packet->endpoint);
 			dev_kfree_skb(packet->pkt_cntxt);
-			spin_lock_bh(&target->rx_lock);
+			spin_lock_bh(&target->rx_lock, SOFTIRQ_ALL_MASK);
 		}
 
-		spin_unlock_bh(&target->rx_lock);
+		spin_unlock_bh(&target->rx_lock, bh);
 	}
 }
 

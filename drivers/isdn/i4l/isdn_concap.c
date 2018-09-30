@@ -53,7 +53,7 @@ static int isdn_concap_dl_data_req(struct concap_proto *concap, struct sk_buff *
 	}
 	lp->huptimer = 0;
 	isdn_net_writebuf_skb(lp, skb);
-	spin_unlock_bh(&lp->xmit_lock);
+	spin_unlock_bh(&lp->xmit_lock, bh);
 	IX25DEBUG("isdn_concap_dl_data_req: %s : isdn_net_send_skb returned %d\n", concap->net_dev->name, 0);
 	return 0;
 }

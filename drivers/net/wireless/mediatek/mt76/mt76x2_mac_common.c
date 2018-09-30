@@ -361,10 +361,11 @@ mt76x2_mac_tx_rate_val(struct mt76x2_dev *dev,
 void mt76x2_mac_wcid_set_rate(struct mt76x2_dev *dev, struct mt76_wcid *wcid,
 			      const struct ieee80211_tx_rate *rate)
 {
-	spin_lock_bh(&dev->mt76.lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&dev->mt76.lock, SOFTIRQ_ALL_MASK);
 	wcid->tx_rate = mt76x2_mac_tx_rate_val(dev, rate, &wcid->tx_rate_nss);
 	wcid->tx_rate_set = true;
-	spin_unlock_bh(&dev->mt76.lock);
+	spin_unlock_bh(&dev->mt76.lock, bh);
 }
 EXPORT_SYMBOL_GPL(mt76x2_mac_wcid_set_rate);
 
@@ -372,6 +373,7 @@ void mt76x2_mac_write_txwi(struct mt76x2_dev *dev, struct mt76x2_txwi *txwi,
 			   struct sk_buff *skb, struct mt76_wcid *wcid,
 			   struct ieee80211_sta *sta, int len)
 {
+	unsigned int bh;
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct ieee80211_tx_rate *rate = &info->control.rates[0];
 	struct ieee80211_key_conf *key = info->control.hw_key;
@@ -405,7 +407,7 @@ void mt76x2_mac_write_txwi(struct mt76x2_dev *dev, struct mt76x2_txwi *txwi,
 		txwi->eiv = *((__le32 *)&ccmp_pn[1]);
 	}
 
-	spin_lock_bh(&dev->mt76.lock);
+	bh = spin_lock_bh(&dev->mt76.lock, SOFTIRQ_ALL_MASK);
 	if (wcid && (rate->idx < 0 || !rate->count)) {
 		txwi->rate = wcid->tx_rate;
 		max_txpwr_adj = wcid->max_txpwr_adj;
@@ -414,7 +416,7 @@ void mt76x2_mac_write_txwi(struct mt76x2_dev *dev, struct mt76x2_txwi *txwi,
 		txwi->rate = mt76x2_mac_tx_rate_val(dev, rate, &nss);
 		max_txpwr_adj = mt76x2_tx_get_max_txpwr_adj(dev, rate);
 	}
-	spin_unlock_bh(&dev->mt76.lock);
+	spin_unlock_bh(&dev->mt76.lock, bh);
 
 	txpwr_adj = mt76x2_tx_get_txpwr_adj(dev, dev->txpower_conf,
 					    max_txpwr_adj);

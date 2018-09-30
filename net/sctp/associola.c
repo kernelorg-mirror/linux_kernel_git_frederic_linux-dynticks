@@ -418,6 +418,7 @@ void sctp_association_free(struct sctp_association *asoc)
 /* Cleanup and free up an association. */
 static void sctp_association_destroy(struct sctp_association *asoc)
 {
+	unsigned int bh;
 	if (unlikely(!asoc->base.dead)) {
 		WARN(1, "Attempt to destroy undead association %p!\n", asoc);
 		return;
@@ -427,9 +428,9 @@ static void sctp_association_destroy(struct sctp_association *asoc)
 	sock_put(asoc->base.sk);
 
 	if (asoc->assoc_id != 0) {
-		spin_lock_bh(&sctp_assocs_id_lock);
+		bh = spin_lock_bh(&sctp_assocs_id_lock, SOFTIRQ_ALL_MASK);
 		idr_remove(&sctp_assocs_id, asoc->assoc_id);
-		spin_unlock_bh(&sctp_assocs_id_lock);
+		spin_unlock_bh(&sctp_assocs_id_lock, bh);
 	}
 
 	WARN_ON(atomic_read(&asoc->rmem_alloc));
@@ -1633,6 +1634,7 @@ int sctp_assoc_lookup_laddr(struct sctp_association *asoc,
 /* Set an association id for a given association */
 int sctp_assoc_set_id(struct sctp_association *asoc, gfp_t gfp)
 {
+	unsigned int bh;
 	bool preload = gfpflags_allow_blocking(gfp);
 	int ret;
 
@@ -1642,10 +1644,10 @@ int sctp_assoc_set_id(struct sctp_association *asoc, gfp_t gfp)
 
 	if (preload)
 		idr_preload(gfp);
-	spin_lock_bh(&sctp_assocs_id_lock);
+	bh = spin_lock_bh(&sctp_assocs_id_lock, SOFTIRQ_ALL_MASK);
 	/* 0 is not a valid assoc_id, must be >= 1 */
 	ret = idr_alloc_cyclic(&sctp_assocs_id, asoc, 1, 0, GFP_NOWAIT);
-	spin_unlock_bh(&sctp_assocs_id_lock);
+	spin_unlock_bh(&sctp_assocs_id_lock, bh);
 	if (preload)
 		idr_preload_end();
 	if (ret < 0)

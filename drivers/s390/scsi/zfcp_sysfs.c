@@ -382,7 +382,7 @@ zfcp_sysfs_unit_##_name##_latency_show(struct device *dev,		\
 	struct zfcp_adapter *adapter = zfcp_sdev->port->adapter;	\
 	unsigned long long fsum, fmin, fmax, csum, cmin, cmax, cc;	\
 									\
-	spin_lock_bh(&lat->lock);					\
+	spin_lock_bh(&lat->lock, SOFTIRQ_ALL_MASK);					\
 	fsum = lat->_name.fabric.sum * adapter->timer_ticks;		\
 	fmin = lat->_name.fabric.min * adapter->timer_ticks;		\
 	fmax = lat->_name.fabric.max * adapter->timer_ticks;		\
@@ -599,14 +599,15 @@ static ssize_t zfcp_sysfs_adapter_q_full_show(struct device *dev,
 					      struct device_attribute *attr,
 					      char *buf)
 {
+	unsigned int bh;
 	struct Scsi_Host *scsi_host = class_to_shost(dev);
 	struct zfcp_qdio *qdio =
 		((struct zfcp_adapter *) scsi_host->hostdata[0])->qdio;
 	u64 util;
 
-	spin_lock_bh(&qdio->stat_lock);
+	bh = spin_lock_bh(&qdio->stat_lock, SOFTIRQ_ALL_MASK);
 	util = qdio->req_q_util;
-	spin_unlock_bh(&qdio->stat_lock);
+	spin_unlock_bh(&qdio->stat_lock, bh);
 
 	return sprintf(buf, "%d %llu\n", atomic_read(&qdio->req_q_full),
 		       (unsigned long long)util);

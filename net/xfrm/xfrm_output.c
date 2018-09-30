@@ -52,6 +52,7 @@ static struct dst_entry *skb_dst_pop(struct sk_buff *skb)
 
 static int xfrm_output_one(struct sk_buff *skb, int err)
 {
+	unsigned int bh;
 	struct dst_entry *dst = skb_dst(skb);
 	struct xfrm_state *x = dst->xfrm;
 	struct net *net = xs_net(x);
@@ -74,7 +75,7 @@ static int xfrm_output_one(struct sk_buff *skb, int err)
 			goto error_nolock;
 		}
 
-		spin_lock_bh(&x->lock);
+		bh = spin_lock_bh(&x->lock, SOFTIRQ_ALL_MASK);
 
 		if (unlikely(x->km.state != XFRM_STATE_VALID)) {
 			XFRM_INC_STATS(net, LINUX_MIB_XFRMOUTSTATEINVALID);
@@ -97,7 +98,7 @@ static int xfrm_output_one(struct sk_buff *skb, int err)
 		x->curlft.bytes += skb->len;
 		x->curlft.packets++;
 
-		spin_unlock_bh(&x->lock);
+		spin_unlock_bh(&x->lock, bh);
 
 		skb_dst_force(skb);
 
@@ -131,7 +132,7 @@ resume:
 	return 0;
 
 error:
-	spin_unlock_bh(&x->lock);
+	spin_unlock_bh(&x->lock, bh);
 error_nolock:
 	kfree_skb(skb);
 out:

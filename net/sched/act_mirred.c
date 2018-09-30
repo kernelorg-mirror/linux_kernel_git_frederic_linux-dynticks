@@ -96,6 +96,7 @@ static int tcf_mirred_init(struct net *net, struct nlattr *nla,
 			   int ovr, int bind, bool rtnl_held,
 			   struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct tc_action_net *tn = net_generic(net, mirred_net_id);
 	struct nlattr *tb[TCA_MIRRED_MAX + 1];
 	bool mac_header_xmit = false;
@@ -159,14 +160,14 @@ static int tcf_mirred_init(struct net *net, struct nlattr *nla,
 	}
 	m = to_mirred(*a);
 
-	spin_lock_bh(&m->tcf_lock);
+	bh = spin_lock_bh(&m->tcf_lock, SOFTIRQ_ALL_MASK);
 	m->tcf_action = parm->action;
 	m->tcfm_eaction = parm->eaction;
 
 	if (parm->ifindex) {
 		dev = dev_get_by_index(net, parm->ifindex);
 		if (!dev) {
-			spin_unlock_bh(&m->tcf_lock);
+			spin_unlock_bh(&m->tcf_lock, bh);
 			tcf_idr_release(*a, bind);
 			return -ENODEV;
 		}
@@ -177,7 +178,7 @@ static int tcf_mirred_init(struct net *net, struct nlattr *nla,
 			dev_put(dev);
 		m->tcfm_mac_header_xmit = mac_header_xmit;
 	}
-	spin_unlock_bh(&m->tcf_lock);
+	spin_unlock_bh(&m->tcf_lock, bh);
 
 	if (ret == ACT_P_CREATED) {
 		spin_lock(&mirred_list_lock);
@@ -295,6 +296,7 @@ static void tcf_stats_update(struct tc_action *a, u64 bytes, u32 packets,
 static int tcf_mirred_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 			   int ref)
 {
+	unsigned int bh;
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tcf_mirred *m = to_mirred(a);
 	struct tc_mirred opt = {
@@ -305,7 +307,7 @@ static int tcf_mirred_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 	struct net_device *dev;
 	struct tcf_t t;
 
-	spin_lock_bh(&m->tcf_lock);
+	bh = spin_lock_bh(&m->tcf_lock, SOFTIRQ_ALL_MASK);
 	opt.action = m->tcf_action;
 	opt.eaction = m->tcfm_eaction;
 	dev = tcf_mirred_dev_dereference(m);
@@ -318,12 +320,12 @@ static int tcf_mirred_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 	tcf_tm_dump(&t, &m->tcf_tm);
 	if (nla_put_64bit(skb, TCA_MIRRED_TM, sizeof(t), &t, TCA_MIRRED_PAD))
 		goto nla_put_failure;
-	spin_unlock_bh(&m->tcf_lock);
+	spin_unlock_bh(&m->tcf_lock, bh);
 
 	return skb->len;
 
 nla_put_failure:
-	spin_unlock_bh(&m->tcf_lock);
+	spin_unlock_bh(&m->tcf_lock, bh);
 	nlmsg_trim(skb, b);
 	return -1;
 }
@@ -349,6 +351,7 @@ static int tcf_mirred_search(struct net *net, struct tc_action **a, u32 index,
 static int mirred_device_event(struct notifier_block *unused,
 			       unsigned long event, void *ptr)
 {
+	unsigned int bh;
 	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
 	struct tcf_mirred *m;
 
@@ -356,7 +359,7 @@ static int mirred_device_event(struct notifier_block *unused,
 	if (event == NETDEV_UNREGISTER) {
 		spin_lock(&mirred_list_lock);
 		list_for_each_entry(m, &mirred_list, tcfm_list) {
-			spin_lock_bh(&m->tcf_lock);
+			bh = spin_lock_bh(&m->tcf_lock, SOFTIRQ_ALL_MASK);
 			if (tcf_mirred_dev_dereference(m) == dev) {
 				dev_put(dev);
 				/* Note : no rcu grace period necessary, as
@@ -364,7 +367,7 @@ static int mirred_device_event(struct notifier_block *unused,
 				 */
 				RCU_INIT_POINTER(m->tcfm_dev, NULL);
 			}
-			spin_unlock_bh(&m->tcf_lock);
+			spin_unlock_bh(&m->tcf_lock, bh);
 		}
 		spin_unlock(&mirred_list_lock);
 	}

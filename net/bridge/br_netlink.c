@@ -852,6 +852,7 @@ static int br_setport(struct net_bridge_port *p, struct nlattr *tb[])
 /* Change state and parameters on port. */
 int br_setlink(struct net_device *dev, struct nlmsghdr *nlh, u16 flags)
 {
+	unsigned int bh;
 	struct net_bridge *br = (struct net_bridge *)netdev_priv(dev);
 	struct nlattr *tb[IFLA_BRPORT_MAX + 1];
 	struct net_bridge_port *p;
@@ -879,17 +880,17 @@ int br_setlink(struct net_device *dev, struct nlmsghdr *nlh, u16 flags)
 			if (err)
 				return err;
 
-			spin_lock_bh(&p->br->lock);
+			bh = spin_lock_bh(&p->br->lock, SOFTIRQ_ALL_MASK);
 			err = br_setport(p, tb);
-			spin_unlock_bh(&p->br->lock);
+			spin_unlock_bh(&p->br->lock, bh);
 		} else {
 			/* Binary compatibility with old RSTP */
 			if (nla_len(protinfo) < sizeof(u8))
 				return -EINVAL;
 
-			spin_lock_bh(&p->br->lock);
+			bh = spin_lock_bh(&p->br->lock, SOFTIRQ_ALL_MASK);
 			err = br_set_port_state(p, nla_get_u8(protinfo));
-			spin_unlock_bh(&p->br->lock);
+			spin_unlock_bh(&p->br->lock, bh);
 		}
 		if (err)
 			goto out;
@@ -974,15 +975,16 @@ static int br_port_slave_changelink(struct net_device *brdev,
 				    struct nlattr *data[],
 				    struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct net_bridge *br = netdev_priv(brdev);
 	int ret;
 
 	if (!data)
 		return 0;
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	ret = br_setport(br_port_get_rtnl(dev), data);
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 
 	return ret;
 }
@@ -1040,6 +1042,7 @@ static int br_changelink(struct net_device *brdev, struct nlattr *tb[],
 			 struct nlattr *data[],
 			 struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct net_bridge *br = netdev_priv(brdev);
 	int err;
 
@@ -1136,9 +1139,9 @@ static int br_changelink(struct net_device *brdev, struct nlattr *tb[],
 		    new_addr[5] == 2 ||		/* 802.3ad Slow protocols */
 		    new_addr[5] == 3)		/* 802.1X PAE address */
 			return -EINVAL;
-		spin_lock_bh(&br->lock);
+		bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 		memcpy(br->group_addr, new_addr, sizeof(br->group_addr));
-		spin_unlock_bh(&br->lock);
+		spin_unlock_bh(&br->lock, bh);
 		br->group_addr_set = true;
 		br_recalculate_fwd_mask(br);
 	}
@@ -1294,6 +1297,7 @@ static int br_dev_newlink(struct net *src_net, struct net_device *dev,
 			  struct nlattr *tb[], struct nlattr *data[],
 			  struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct net_bridge *br = netdev_priv(dev);
 	int err;
 
@@ -1302,9 +1306,9 @@ static int br_dev_newlink(struct net *src_net, struct net_device *dev,
 		return err;
 
 	if (tb[IFLA_ADDRESS]) {
-		spin_lock_bh(&br->lock);
+		bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 		br_stp_change_bridge_id(br, nla_data(tb[IFLA_ADDRESS]));
-		spin_unlock_bh(&br->lock);
+		spin_unlock_bh(&br->lock, bh);
 	}
 
 	err = br_changelink(dev, tb, data, extack);

@@ -15,13 +15,14 @@ extern void indicate_wx_scan_complete_event(struct adapter *padapter);
 
 u8 rtw_do_join(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct list_head *plist, *phead;
 	u8 *pibss = NULL;
 	struct	mlme_priv	*pmlmepriv = &(padapter->mlmepriv);
 	struct __queue *queue	= &(pmlmepriv->scanned_queue);
 	u8 ret = _SUCCESS;
 
-	spin_lock_bh(&(pmlmepriv->scanned_queue.lock));
+	bh = spin_lock_bh(&(pmlmepriv->scanned_queue.lock), SOFTIRQ_ALL_MASK);
 	phead = get_list_head(queue);
 	plist = phead->next;
 
@@ -36,7 +37,7 @@ u8 rtw_do_join(struct adapter *padapter)
 	pmlmepriv->to_join = true;
 
 	if (list_empty(&queue->queue)) {
-		spin_unlock_bh(&(pmlmepriv->scanned_queue.lock));
+		spin_unlock_bh(&(pmlmepriv->scanned_queue.lock), bh);
 		_clr_fwstate_(pmlmepriv, _FW_UNDER_LINKING);
 
 		/* when set_ssid/set_bssid for rtw_do_join(), but scanning queue is empty */
@@ -60,7 +61,7 @@ u8 rtw_do_join(struct adapter *padapter)
 	} else {
 		int select_ret;
 
-		spin_unlock_bh(&(pmlmepriv->scanned_queue.lock));
+		spin_unlock_bh(&(pmlmepriv->scanned_queue.lock), bh);
 		select_ret = rtw_select_and_join_from_scanned_queue(pmlmepriv);
 		if (select_ret == _SUCCESS) {
 			pmlmepriv->to_join = false;
@@ -119,6 +120,7 @@ exit:
 
 u8 rtw_set_802_11_bssid(struct adapter *padapter, u8 *bssid)
 {
+	unsigned int bh;
 	u8 status = _SUCCESS;
 	u32 cur_time = 0;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
@@ -133,7 +135,7 @@ u8 rtw_set_802_11_bssid(struct adapter *padapter, u8 *bssid)
 		goto exit;
 	}
 
-	spin_lock_bh(&pmlmepriv->lock);
+	bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 
 	DBG_88E("Set BSSID under fw_state = 0x%08x\n", get_fwstate(pmlmepriv));
 	if (check_fwstate(pmlmepriv, _FW_UNDER_SURVEY) == true)
@@ -190,7 +192,7 @@ handle_tkip_countermeasure:
 		status = rtw_do_join(padapter);
 
 release_mlme_lock:
-	spin_unlock_bh(&pmlmepriv->lock);
+	spin_unlock_bh(&pmlmepriv->lock, bh);
 
 exit:
 	RT_TRACE(_module_rtl871x_ioctl_set_c_, _drv_err_,
@@ -201,6 +203,7 @@ exit:
 
 u8 rtw_set_802_11_ssid(struct adapter *padapter, struct ndis_802_11_ssid *ssid)
 {
+	unsigned int bh;
 	u8 status = _SUCCESS;
 	u32 cur_time = 0;
 
@@ -217,7 +220,7 @@ u8 rtw_set_802_11_ssid(struct adapter *padapter, struct ndis_802_11_ssid *ssid)
 		goto exit;
 	}
 
-	spin_lock_bh(&pmlmepriv->lock);
+	bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 
 	DBG_88E("Set SSID under fw_state = 0x%08x\n", get_fwstate(pmlmepriv));
 	if (check_fwstate(pmlmepriv, _FW_UNDER_SURVEY) == true)
@@ -297,7 +300,7 @@ handle_tkip_countermeasure:
 		status = rtw_do_join(padapter);
 
 release_mlme_lock:
-	spin_unlock_bh(&pmlmepriv->lock);
+	spin_unlock_bh(&pmlmepriv->lock, bh);
 
 exit:
 	RT_TRACE(_module_rtl871x_ioctl_set_c_, _drv_err_,
@@ -308,6 +311,7 @@ exit:
 u8 rtw_set_802_11_infrastructure_mode(struct adapter *padapter,
 	enum ndis_802_11_network_infra networktype)
 {
+	unsigned int bh;
 	struct	mlme_priv	*pmlmepriv = &padapter->mlmepriv;
 	struct	wlan_network	*cur_network = &pmlmepriv->cur_network;
 	enum ndis_802_11_network_infra *pold_state = &(cur_network->network.InfrastructureMode);
@@ -317,7 +321,7 @@ u8 rtw_set_802_11_infrastructure_mode(struct adapter *padapter,
 		  *pold_state, networktype, get_fwstate(pmlmepriv)));
 
 	if (*pold_state != networktype) {
-		spin_lock_bh(&pmlmepriv->lock);
+		bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 
 		RT_TRACE(_module_rtl871x_ioctl_set_c_, _drv_info_, (" change mode!"));
 		/* DBG_88E("change mode, old_mode =%d, new_mode =%d, fw_state = 0x%x\n", *pold_state, networktype, get_fwstate(pmlmepriv)); */
@@ -365,7 +369,7 @@ u8 rtw_set_802_11_infrastructure_mode(struct adapter *padapter,
 		case Ndis802_11InfrastructureMax:
 			break;
 		}
-		spin_unlock_bh(&pmlmepriv->lock);
+		spin_unlock_bh(&pmlmepriv->lock, bh);
 	}
 
 	return true;
@@ -373,9 +377,10 @@ u8 rtw_set_802_11_infrastructure_mode(struct adapter *padapter,
 
 u8 rtw_set_802_11_disassociate(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 
-	spin_lock_bh(&pmlmepriv->lock);
+	bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 
 	if (check_fwstate(pmlmepriv, _FW_LINKED)) {
 		RT_TRACE(_module_rtl871x_ioctl_set_c_, _drv_info_,
@@ -387,13 +392,14 @@ u8 rtw_set_802_11_disassociate(struct adapter *padapter)
 		rtw_pwr_wakeup(padapter);
 	}
 
-	spin_unlock_bh(&pmlmepriv->lock);
+	spin_unlock_bh(&pmlmepriv->lock, bh);
 
 	return true;
 }
 
 u8 rtw_set_802_11_bssid_list_scan(struct adapter *padapter, struct ndis_802_11_ssid *pssid, int ssid_max_num)
 {
+	unsigned int bh;
 	struct	mlme_priv		*pmlmepriv = &padapter->mlmepriv;
 	u8	res = true;
 
@@ -428,11 +434,11 @@ u8 rtw_set_802_11_bssid_list_scan(struct adapter *padapter, struct ndis_802_11_s
 			return _SUCCESS;
 		}
 
-		spin_lock_bh(&pmlmepriv->lock);
+		bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 
 		res = rtw_sitesurvey_cmd(padapter, pssid, ssid_max_num, NULL, 0);
 
-		spin_unlock_bh(&pmlmepriv->lock);
+		spin_unlock_bh(&pmlmepriv->lock, bh);
 	}
 exit:
 	return res;

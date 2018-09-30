@@ -265,7 +265,7 @@ sint	_rtw_enqueue_cmd(struct __queue *queue, struct cmd_obj *obj)
 	if (obj == NULL)
 		goto exit;
 
-	/* spin_lock_bh(&queue->lock); */
+	/* spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK); */
 	spin_lock_irqsave(&queue->lock, irqL);
 
 	list_add_tail(&obj->list, &queue->queue);
@@ -282,7 +282,7 @@ struct	cmd_obj	*_rtw_dequeue_cmd(struct __queue *queue)
 	_irqL irqL;
 	struct cmd_obj *obj;
 
-	/* spin_lock_bh(&(queue->lock)); */
+	/* spin_lock_bh(&(queue->lock), SOFTIRQ_ALL_MASK); */
 	spin_lock_irqsave(&queue->lock, irqL);
 	if (list_empty(&(queue->queue)))
 		obj = NULL;
@@ -2068,12 +2068,13 @@ void rtw_survey_cmd_callback(struct adapter *padapter,  struct cmd_obj *pcmd)
 
 void rtw_disassoc_cmd_callback(struct adapter *padapter,  struct cmd_obj *pcmd)
 {
+	unsigned int bh;
 	struct	mlme_priv *pmlmepriv = &padapter->mlmepriv;
 
 	if (pcmd->res != H2C_SUCCESS) {
-		spin_lock_bh(&pmlmepriv->lock);
+		bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 		set_fwstate(pmlmepriv, _FW_LINKED);
-		spin_unlock_bh(&pmlmepriv->lock);
+		spin_unlock_bh(&pmlmepriv->lock, bh);
 
 		RT_TRACE(_module_rtl871x_cmd_c_, _drv_err_, ("\n ***Error: disconnect_cmd_callback Fail ***\n."));
 		return;
@@ -2099,6 +2100,7 @@ void rtw_joinbss_cmd_callback(struct adapter *padapter,  struct cmd_obj *pcmd)
 
 void rtw_createbss_cmd_callback(struct adapter *padapter, struct cmd_obj *pcmd)
 {
+	unsigned int bh;
 	u8 timer_cancelled;
 	struct sta_info *psta = NULL;
 	struct wlan_network *pwlan = NULL;
@@ -2116,7 +2118,7 @@ void rtw_createbss_cmd_callback(struct adapter *padapter, struct cmd_obj *pcmd)
 
 	_cancel_timer(&pmlmepriv->assoc_timer, &timer_cancelled);
 
-	spin_lock_bh(&pmlmepriv->lock);
+	bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 
 
 	if (check_fwstate(pmlmepriv, WIFI_AP_STATE)) {
@@ -2132,7 +2134,7 @@ void rtw_createbss_cmd_callback(struct adapter *padapter, struct cmd_obj *pcmd)
 		rtw_indicate_connect(padapter);
 	} else{
 		pwlan = _rtw_alloc_network(pmlmepriv);
-		spin_lock_bh(&(pmlmepriv->scanned_queue.lock));
+		spin_lock_bh(&(pmlmepriv->scanned_queue.lock), SOFTIRQ_ALL_MASK);
 		if (pwlan == NULL) {
 			pwlan = rtw_get_oldest_wlan_network(&pmlmepriv->scanned_queue);
 			if (pwlan == NULL) {
@@ -2166,7 +2168,7 @@ void rtw_createbss_cmd_callback(struct adapter *padapter, struct cmd_obj *pcmd)
 
 createbss_cmd_fail:
 
-	spin_unlock_bh(&pmlmepriv->lock);
+	spin_unlock_bh(&pmlmepriv->lock, bh);
 exit:
 	rtw_free_cmd_obj(pcmd);
 }
@@ -2190,6 +2192,7 @@ exit:
 
 void rtw_setassocsta_cmdrsp_callback(struct adapter *padapter,  struct cmd_obj *pcmd)
 {
+	unsigned int bh;
 	struct sta_priv *pstapriv = &padapter->stapriv;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct set_assocsta_parm *passocsta_parm = (struct set_assocsta_parm *)(pcmd->parmbuf);
@@ -2203,13 +2206,13 @@ void rtw_setassocsta_cmdrsp_callback(struct adapter *padapter,  struct cmd_obj *
 
 	psta->aid = psta->mac_id = passocsta_rsp->cam_id;
 
-	spin_lock_bh(&pmlmepriv->lock);
+	bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 
 	if ((check_fwstate(pmlmepriv, WIFI_MP_STATE) == true) && (check_fwstate(pmlmepriv, _FW_UNDER_LINKING) == true))
 		_clr_fwstate_(pmlmepriv, _FW_UNDER_LINKING);
 
 	set_fwstate(pmlmepriv, _FW_LINKED);
-	spin_unlock_bh(&pmlmepriv->lock);
+	spin_unlock_bh(&pmlmepriv->lock, bh);
 
 exit:
 	rtw_free_cmd_obj(pcmd);

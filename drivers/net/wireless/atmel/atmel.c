@@ -798,6 +798,7 @@ static void tx_update_descriptor(struct atmel_private *priv, int is_bcast,
 
 static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev)
 {
+	unsigned int bh;
 	static const u8 SNAP_RFC1024[6] = { 0xaa, 0xaa, 0x03, 0x00, 0x00, 0x00 };
 	struct atmel_private *priv = netdev_priv(dev);
 	struct ieee80211_hdr header;
@@ -818,7 +819,7 @@ static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev)
 	}
 
 	/* first ensure the timer func cannot run */
-	spin_lock_bh(&priv->timerlock);
+	bh = spin_lock_bh(&priv->timerlock, SOFTIRQ_ALL_MASK);
 	/* then stop the hardware ISR */
 	spin_lock_irqsave(&priv->irqlock, flags);
 	/* nb doing the above in the opposite order will deadlock */
@@ -831,7 +832,7 @@ static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev)
 	if (!(buff = find_tx_buff(priv, len + 18))) {
 		dev->stats.tx_dropped++;
 		spin_unlock_irqrestore(&priv->irqlock, flags);
-		spin_unlock_bh(&priv->timerlock);
+		spin_unlock_bh(&priv->timerlock, bh);
 		netif_stop_queue(dev);
 		return NETDEV_TX_BUSY;
 	}
@@ -867,7 +868,7 @@ static netdev_tx_t start_tx(struct sk_buff *skb, struct net_device *dev)
 	dev->stats.tx_bytes += len;
 
 	spin_unlock_irqrestore(&priv->irqlock, flags);
-	spin_unlock_bh(&priv->timerlock);
+	spin_unlock_bh(&priv->timerlock, bh);
 	dev_kfree_skb(skb);
 
 	return NETDEV_TX_OK;

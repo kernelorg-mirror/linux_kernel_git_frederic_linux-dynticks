@@ -779,6 +779,7 @@ static void iucv_cleanup_queue(void)
  */
 int iucv_register(struct iucv_handler *handler, int smp)
 {
+	unsigned int bh;
 	int rc;
 
 	if (!iucv_available)
@@ -794,9 +795,9 @@ int iucv_register(struct iucv_handler *handler, int smp)
 		iucv_setmask_up();
 	INIT_LIST_HEAD(&handler->paths);
 
-	spin_lock_bh(&iucv_table_lock);
+	bh = spin_lock_bh(&iucv_table_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&handler->list, &iucv_handler_list);
-	spin_unlock_bh(&iucv_table_lock);
+	spin_unlock_bh(&iucv_table_lock, bh);
 	rc = 0;
 out_mutex:
 	mutex_unlock(&iucv_register_mutex);
@@ -813,10 +814,11 @@ EXPORT_SYMBOL(iucv_register);
  */
 void iucv_unregister(struct iucv_handler *handler, int smp)
 {
+	unsigned int bh;
 	struct iucv_path *p, *n;
 
 	mutex_lock(&iucv_register_mutex);
-	spin_lock_bh(&iucv_table_lock);
+	bh = spin_lock_bh(&iucv_table_lock, SOFTIRQ_ALL_MASK);
 	/* Remove handler from the iucv_handler_list. */
 	list_del_init(&handler->list);
 	/* Sever all pathids still referring to the handler. */
@@ -826,7 +828,7 @@ void iucv_unregister(struct iucv_handler *handler, int smp)
 		list_del(&p->list);
 		iucv_path_free(p);
 	}
-	spin_unlock_bh(&iucv_table_lock);
+	spin_unlock_bh(&iucv_table_lock, bh);
 	if (!smp)
 		iucv_nonsmp_handler--;
 	if (list_empty(&iucv_handler_list))
@@ -926,10 +928,11 @@ int iucv_path_connect(struct iucv_path *path, struct iucv_handler *handler,
 		      u8 *userid, u8 *system, u8 *userdata,
 		      void *private)
 {
+	unsigned int bh;
 	union iucv_param *parm;
 	int rc;
 
-	spin_lock_bh(&iucv_table_lock);
+	bh = spin_lock_bh(&iucv_table_lock, SOFTIRQ_ALL_MASK);
 	iucv_cleanup_queue();
 	if (cpumask_empty(&iucv_buffer_cpumask)) {
 		rc = -EIO;
@@ -970,7 +973,7 @@ int iucv_path_connect(struct iucv_path *path, struct iucv_handler *handler,
 		}
 	}
 out:
-	spin_unlock_bh(&iucv_table_lock);
+	spin_unlock_bh(&iucv_table_lock, bh);
 	return rc;
 }
 EXPORT_SYMBOL(iucv_path_connect);
@@ -1051,6 +1054,7 @@ out:
  */
 int iucv_path_sever(struct iucv_path *path, u8 *userdata)
 {
+	unsigned int bh;
 	int rc;
 
 	preempt_disable();
@@ -1059,12 +1063,12 @@ int iucv_path_sever(struct iucv_path *path, u8 *userdata)
 		goto out;
 	}
 	if (iucv_active_cpu != smp_processor_id())
-		spin_lock_bh(&iucv_table_lock);
+		bh = spin_lock_bh(&iucv_table_lock, SOFTIRQ_ALL_MASK);
 	rc = iucv_sever_pathid(path->pathid, userdata);
 	iucv_path_table[path->pathid] = NULL;
 	list_del_init(&path->list);
 	if (iucv_active_cpu != smp_processor_id())
-		spin_unlock_bh(&iucv_table_lock);
+		spin_unlock_bh(&iucv_table_lock, bh);
 out:
 	preempt_enable();
 	return rc;
@@ -1794,11 +1798,12 @@ static void iucv_tasklet_fn(unsigned long ignored)
  */
 static void iucv_work_fn(struct work_struct *work)
 {
+	unsigned int bh;
 	LIST_HEAD(work_queue);
 	struct iucv_irq_list *p, *n;
 
 	/* Serialize tasklet, iucv_path_sever and iucv_path_connect. */
-	spin_lock_bh(&iucv_table_lock);
+	bh = spin_lock_bh(&iucv_table_lock, SOFTIRQ_ALL_MASK);
 	iucv_active_cpu = smp_processor_id();
 
 	spin_lock_irq(&iucv_queue_lock);
@@ -1813,7 +1818,7 @@ static void iucv_work_fn(struct work_struct *work)
 	}
 
 	iucv_active_cpu = -1;
-	spin_unlock_bh(&iucv_table_lock);
+	spin_unlock_bh(&iucv_table_lock, bh);
 }
 
 /**

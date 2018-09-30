@@ -461,6 +461,7 @@ int core_tpg_register(
 	struct se_portal_group *se_tpg,
 	int proto_id)
 {
+	unsigned int bh;
 	int ret;
 
 	if (!se_tpg)
@@ -507,9 +508,9 @@ int core_tpg_register(
 		}
 	}
 
-	spin_lock_bh(&tpg_lock);
+	bh = spin_lock_bh(&tpg_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&se_tpg->se_tpg_node, &tpg_list);
-	spin_unlock_bh(&tpg_lock);
+	spin_unlock_bh(&tpg_lock, bh);
 
 	pr_debug("TARGET_CORE[%s]: Allocated portal_group for endpoint: %s, "
 		 "Proto: %d, Portal Tag: %u\n", se_tpg->se_tpg_tfo->get_fabric_name(),
@@ -523,6 +524,7 @@ EXPORT_SYMBOL(core_tpg_register);
 
 int core_tpg_deregister(struct se_portal_group *se_tpg)
 {
+	unsigned int bh;
 	const struct target_core_fabric_ops *tfo = se_tpg->se_tpg_tfo;
 	struct se_node_acl *nacl, *nacl_tmp;
 	LIST_HEAD(node_list);
@@ -532,9 +534,9 @@ int core_tpg_deregister(struct se_portal_group *se_tpg)
 		tfo->tpg_get_wwn(se_tpg) ? tfo->tpg_get_wwn(se_tpg) : NULL,
 		se_tpg->proto_id, tfo->tpg_get_tag(se_tpg));
 
-	spin_lock_bh(&tpg_lock);
+	bh = spin_lock_bh(&tpg_lock, SOFTIRQ_ALL_MASK);
 	list_del(&se_tpg->se_tpg_node);
-	spin_unlock_bh(&tpg_lock);
+	spin_unlock_bh(&tpg_lock, bh);
 
 	while (atomic_read(&se_tpg->tpg_pr_ref_count) != 0)
 		cpu_relax();

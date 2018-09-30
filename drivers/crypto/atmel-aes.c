@@ -423,10 +423,11 @@ static inline size_t atmel_aes_padlen(size_t len, size_t block_size)
 
 static struct atmel_aes_dev *atmel_aes_find_dev(struct atmel_aes_base_ctx *ctx)
 {
+	unsigned int bh;
 	struct atmel_aes_dev *aes_dd = NULL;
 	struct atmel_aes_dev *tmp;
 
-	spin_lock_bh(&atmel_aes.lock);
+	bh = spin_lock_bh(&atmel_aes.lock, SOFTIRQ_ALL_MASK);
 	if (!ctx->dd) {
 		list_for_each_entry(tmp, &atmel_aes.dev_list, list) {
 			aes_dd = tmp;
@@ -437,7 +438,7 @@ static struct atmel_aes_dev *atmel_aes_find_dev(struct atmel_aes_base_ctx *ctx)
 		aes_dd = ctx->dd;
 	}
 
-	spin_unlock_bh(&atmel_aes.lock);
+	spin_unlock_bh(&atmel_aes.lock, bh);
 
 	return aes_dd;
 }

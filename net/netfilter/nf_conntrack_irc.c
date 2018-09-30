@@ -108,6 +108,7 @@ static int parse_dcc(char *data, const char *data_end, __be32 *ip,
 static int help(struct sk_buff *skb, unsigned int protoff,
 		struct nf_conn *ct, enum ip_conntrack_info ctinfo)
 {
+	unsigned int bh;
 	unsigned int dataoff;
 	const struct iphdr *iph;
 	const struct tcphdr *th;
@@ -142,7 +143,7 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 	if (dataoff >= skb->len)
 		return NF_ACCEPT;
 
-	spin_lock_bh(&irc_buffer_lock);
+	bh = spin_lock_bh(&irc_buffer_lock, SOFTIRQ_ALL_MASK);
 	ib_ptr = skb_header_pointer(skb, dataoff, skb->len - dataoff,
 				    irc_buffer);
 	BUG_ON(ib_ptr == NULL);
@@ -225,7 +226,7 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 		}
 	}
  out:
-	spin_unlock_bh(&irc_buffer_lock);
+	spin_unlock_bh(&irc_buffer_lock, bh);
 	return ret;
 }
 

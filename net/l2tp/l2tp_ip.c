@@ -558,6 +558,7 @@ out:
 
 int l2tp_ioctl(struct sock *sk, int cmd, unsigned long arg)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	int amount;
 
@@ -566,10 +567,10 @@ int l2tp_ioctl(struct sock *sk, int cmd, unsigned long arg)
 		amount = sk_wmem_alloc_get(sk);
 		break;
 	case SIOCINQ:
-		spin_lock_bh(&sk->sk_receive_queue.lock);
+		bh = spin_lock_bh(&sk->sk_receive_queue.lock, SOFTIRQ_ALL_MASK);
 		skb = skb_peek(&sk->sk_receive_queue);
 		amount = skb ? skb->len : 0;
-		spin_unlock_bh(&sk->sk_receive_queue.lock);
+		spin_unlock_bh(&sk->sk_receive_queue.lock, bh);
 		break;
 
 	default:

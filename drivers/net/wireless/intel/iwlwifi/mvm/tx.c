@@ -1374,6 +1374,7 @@ static inline u32 iwl_mvm_get_scd_ssn(struct iwl_mvm *mvm,
 static void iwl_mvm_rx_tx_cmd_single(struct iwl_mvm *mvm,
 				     struct iwl_rx_packet *pkt)
 {
+	unsigned int bh;
 	struct ieee80211_sta *sta;
 	u16 sequence = le16_to_cpu(pkt->hdr.sequence);
 	int txq_id = SEQ_TO_QUEUE(sequence);
@@ -1530,7 +1531,7 @@ static void iwl_mvm_rx_tx_cmd_single(struct iwl_mvm *mvm,
 				&mvmsta->tid_data[tid];
 			bool send_eosp_ndp = false;
 
-			spin_lock_bh(&mvmsta->lock);
+			bh = spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 
 			if (!is_ndp) {
 				tid_data->next_reclaimed = next_reclaimed;
@@ -1565,7 +1566,7 @@ static void iwl_mvm_rx_tx_cmd_single(struct iwl_mvm *mvm,
 				}
 			}
 
-			spin_unlock_bh(&mvmsta->lock);
+			spin_unlock_bh(&mvmsta->lock, bh);
 			if (send_eosp_ndp) {
 				iwl_mvm_sta_modify_sleep_tx_count(mvm, sta,
 					IEEE80211_FRAME_RELEASE_UAPSD,
@@ -1688,6 +1689,7 @@ static void iwl_mvm_tx_reclaim(struct iwl_mvm *mvm, int sta_id, int tid,
 			       int txq, int index,
 			       struct ieee80211_tx_info *ba_info, u32 rate)
 {
+	unsigned int bh;
 	struct sk_buff_head reclaimed_skbs;
 	struct iwl_mvm_tid_data *tid_data;
 	struct ieee80211_sta *sta;
@@ -1721,7 +1723,7 @@ static void iwl_mvm_tx_reclaim(struct iwl_mvm *mvm, int sta_id, int tid,
 		return;
 	}
 
-	spin_lock_bh(&mvmsta->lock);
+	bh = spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 
 	__skb_queue_head_init(&reclaimed_skbs);
 
@@ -1772,7 +1774,7 @@ static void iwl_mvm_tx_reclaim(struct iwl_mvm *mvm, int sta_id, int tid,
 		}
 	}
 
-	spin_unlock_bh(&mvmsta->lock);
+	spin_unlock_bh(&mvmsta->lock, bh);
 
 	/* We got a BA notif with 0 acked or scd_ssn didn't progress which is
 	 * possible (i.e. first MPDU in the aggregation wasn't acked)

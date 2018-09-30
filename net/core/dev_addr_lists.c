@@ -457,9 +457,10 @@ EXPORT_SYMBOL(dev_addr_del);
 int dev_uc_add_excl(struct net_device *dev, const unsigned char *addr)
 {
 	struct netdev_hw_addr *ha;
+	unsigned int bh;
 	int err;
 
-	netif_addr_lock_bh(dev);
+	bh = netif_addr_lock_bh(dev);
 	list_for_each_entry(ha, &dev->uc.list, list) {
 		if (!memcmp(ha->addr, addr, dev->addr_len) &&
 		    ha->type == NETDEV_HW_ADDR_T_UNICAST) {
@@ -472,7 +473,7 @@ int dev_uc_add_excl(struct net_device *dev, const unsigned char *addr)
 	if (!err)
 		__dev_set_rx_mode(dev);
 out:
-	netif_addr_unlock_bh(dev);
+	netif_addr_unlock_bh(dev, bh);
 	return err;
 }
 EXPORT_SYMBOL(dev_uc_add_excl);
@@ -488,13 +489,14 @@ EXPORT_SYMBOL(dev_uc_add_excl);
 int dev_uc_add(struct net_device *dev, const unsigned char *addr)
 {
 	int err;
+	unsigned int bh;
 
-	netif_addr_lock_bh(dev);
+	bh = netif_addr_lock_bh(dev);
 	err = __hw_addr_add(&dev->uc, addr, dev->addr_len,
 			    NETDEV_HW_ADDR_T_UNICAST);
 	if (!err)
 		__dev_set_rx_mode(dev);
-	netif_addr_unlock_bh(dev);
+	netif_addr_unlock_bh(dev, bh);
 	return err;
 }
 EXPORT_SYMBOL(dev_uc_add);
@@ -510,13 +512,15 @@ EXPORT_SYMBOL(dev_uc_add);
 int dev_uc_del(struct net_device *dev, const unsigned char *addr)
 {
 	int err;
+	unsigned int bh;
+	
 
-	netif_addr_lock_bh(dev);
+	bh = netif_addr_lock_bh(dev);
 	err = __hw_addr_del(&dev->uc, addr, dev->addr_len,
 			    NETDEV_HW_ADDR_T_UNICAST);
 	if (!err)
 		__dev_set_rx_mode(dev);
-	netif_addr_unlock_bh(dev);
+	netif_addr_unlock_bh(dev, bh);
 	return err;
 }
 EXPORT_SYMBOL(dev_uc_del);
@@ -591,15 +595,16 @@ EXPORT_SYMBOL(dev_uc_sync_multiple);
  */
 void dev_uc_unsync(struct net_device *to, struct net_device *from)
 {
+	unsigned int bh;
 	if (to->addr_len != from->addr_len)
 		return;
 
-	netif_addr_lock_bh(from);
+	bh = netif_addr_lock_bh(from);
 	netif_addr_lock_nested(to);
 	__hw_addr_unsync(&to->uc, &from->uc, to->addr_len);
 	__dev_set_rx_mode(to);
 	netif_addr_unlock(to);
-	netif_addr_unlock_bh(from);
+	netif_addr_unlock_bh(from, bh);
 }
 EXPORT_SYMBOL(dev_uc_unsync);
 
@@ -611,9 +616,10 @@ EXPORT_SYMBOL(dev_uc_unsync);
  */
 void dev_uc_flush(struct net_device *dev)
 {
-	netif_addr_lock_bh(dev);
+	unsigned int bh;
+	bh = netif_addr_lock_bh(dev);
 	__hw_addr_flush(&dev->uc);
-	netif_addr_unlock_bh(dev);
+	netif_addr_unlock_bh(dev, bh);
 }
 EXPORT_SYMBOL(dev_uc_flush);
 
@@ -641,9 +647,10 @@ EXPORT_SYMBOL(dev_uc_init);
 int dev_mc_add_excl(struct net_device *dev, const unsigned char *addr)
 {
 	struct netdev_hw_addr *ha;
+	unsigned int bh;
 	int err;
 
-	netif_addr_lock_bh(dev);
+	bh = netif_addr_lock_bh(dev);
 	list_for_each_entry(ha, &dev->mc.list, list) {
 		if (!memcmp(ha->addr, addr, dev->addr_len) &&
 		    ha->type == NETDEV_HW_ADDR_T_MULTICAST) {
@@ -656,7 +663,7 @@ int dev_mc_add_excl(struct net_device *dev, const unsigned char *addr)
 	if (!err)
 		__dev_set_rx_mode(dev);
 out:
-	netif_addr_unlock_bh(dev);
+	netif_addr_unlock_bh(dev, bh);
 	return err;
 }
 EXPORT_SYMBOL(dev_mc_add_excl);
@@ -665,13 +672,14 @@ static int __dev_mc_add(struct net_device *dev, const unsigned char *addr,
 			bool global)
 {
 	int err;
+	unsigned int bh;
 
-	netif_addr_lock_bh(dev);
+	bh = netif_addr_lock_bh(dev);
 	err = __hw_addr_add_ex(&dev->mc, addr, dev->addr_len,
 			       NETDEV_HW_ADDR_T_MULTICAST, global, false, 0);
 	if (!err)
 		__dev_set_rx_mode(dev);
-	netif_addr_unlock_bh(dev);
+	netif_addr_unlock_bh(dev, bh);
 	return err;
 }
 /**
@@ -705,13 +713,14 @@ static int __dev_mc_del(struct net_device *dev, const unsigned char *addr,
 			bool global)
 {
 	int err;
+	unsigned int bh;
 
-	netif_addr_lock_bh(dev);
+	bh = netif_addr_lock_bh(dev);
 	err = __hw_addr_del_ex(&dev->mc, addr, dev->addr_len,
 			       NETDEV_HW_ADDR_T_MULTICAST, global, false);
 	if (!err)
 		__dev_set_rx_mode(dev);
-	netif_addr_unlock_bh(dev);
+	netif_addr_unlock_bh(dev, bh);
 	return err;
 }
 
@@ -812,15 +821,16 @@ EXPORT_SYMBOL(dev_mc_sync_multiple);
  */
 void dev_mc_unsync(struct net_device *to, struct net_device *from)
 {
+	unsigned int bh;	
 	if (to->addr_len != from->addr_len)
 		return;
 
-	netif_addr_lock_bh(from);
+	bh = netif_addr_lock_bh(from);
 	netif_addr_lock_nested(to);
 	__hw_addr_unsync(&to->mc, &from->mc, to->addr_len);
 	__dev_set_rx_mode(to);
 	netif_addr_unlock(to);
-	netif_addr_unlock_bh(from);
+	netif_addr_unlock_bh(from, bh);
 }
 EXPORT_SYMBOL(dev_mc_unsync);
 
@@ -832,9 +842,10 @@ EXPORT_SYMBOL(dev_mc_unsync);
  */
 void dev_mc_flush(struct net_device *dev)
 {
-	netif_addr_lock_bh(dev);
+	unsigned int bh;
+	bh = netif_addr_lock_bh(dev);
 	__hw_addr_flush(&dev->mc);
-	netif_addr_unlock_bh(dev);
+	netif_addr_unlock_bh(dev, bh);
 }
 EXPORT_SYMBOL(dev_mc_flush);
 

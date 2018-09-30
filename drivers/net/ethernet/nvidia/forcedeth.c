@@ -1744,6 +1744,7 @@ nv_get_stats64(struct net_device *dev, struct rtnl_link_stats64 *storage)
 	__acquires(&netdev_priv(dev)->hwstats_lock)
 	__releases(&netdev_priv(dev)->hwstats_lock)
 {
+	unsigned int bh;
 	struct fe_priv *np = netdev_priv(dev);
 	unsigned int syncp_start;
 
@@ -1775,7 +1776,7 @@ nv_get_stats64(struct net_device *dev, struct rtnl_link_stats64 *storage)
 
 	/* If the nic supports hw counters then retrieve latest values */
 	if (np->driver_data & DEV_HAS_STATISTICS_V123) {
-		spin_lock_bh(&np->hwstats_lock);
+		bh = spin_lock_bh(&np->hwstats_lock, SOFTIRQ_ALL_MASK);
 
 		nv_update_stats(dev);
 
@@ -1797,7 +1798,7 @@ nv_get_stats64(struct net_device *dev, struct rtnl_link_stats64 *storage)
 		storage->tx_carrier_errors = np->estats.tx_carrier_errors;
 		storage->tx_fifo_errors    = np->estats.tx_fifo_errors;
 
-		spin_unlock_bh(&np->hwstats_lock);
+		spin_unlock_bh(&np->hwstats_lock, bh);
 	}
 }
 
@@ -4954,13 +4955,14 @@ static void nv_get_ethtool_stats(struct net_device *dev,
 	__acquires(&netdev_priv(dev)->hwstats_lock)
 	__releases(&netdev_priv(dev)->hwstats_lock)
 {
+	unsigned int bh;
 	struct fe_priv *np = netdev_priv(dev);
 
-	spin_lock_bh(&np->hwstats_lock);
+	bh = spin_lock_bh(&np->hwstats_lock, SOFTIRQ_ALL_MASK);
 	nv_update_stats(dev);
 	memcpy(buffer, &np->estats,
 	       nv_get_sset_count(dev, ETH_SS_STATS)*sizeof(u64));
-	spin_unlock_bh(&np->hwstats_lock);
+	spin_unlock_bh(&np->hwstats_lock, bh);
 }
 
 static int nv_link_test(struct net_device *dev)

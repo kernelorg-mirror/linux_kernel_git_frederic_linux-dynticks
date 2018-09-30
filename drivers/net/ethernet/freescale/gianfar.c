@@ -2336,6 +2336,7 @@ static inline bool gfar_csum_errata_76(struct gfar_private *priv,
  */
 static int gfar_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
+	unsigned int bh;
 	struct gfar_private *priv = netdev_priv(dev);
 	struct gfar_priv_tx_q *tx_queue = NULL;
 	struct netdev_queue *txq;
@@ -2543,10 +2544,10 @@ static int gfar_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	 * when we were reading the num_txbdfree and checking for available
 	 * space, that's because outside of this function it can only grow.
 	 */
-	spin_lock_bh(&tx_queue->txlock);
+	bh = spin_lock_bh(&tx_queue->txlock, SOFTIRQ_ALL_MASK);
 	/* reduce TxBD free count */
 	tx_queue->num_txbdfree -= (nr_txbds);
-	spin_unlock_bh(&tx_queue->txlock);
+	spin_unlock_bh(&tx_queue->txlock, bh);
 
 	/* If the next BD still needs to be cleaned up, then the bds
 	 * are full.  We need to tell the kernel to stop sending us stuff.

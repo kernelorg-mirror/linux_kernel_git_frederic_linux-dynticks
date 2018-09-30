@@ -74,6 +74,7 @@ void rtw_os_xmit_complete(struct adapter *padapter, struct xmit_frame *pxframe)
 
 void rtw_os_xmit_schedule(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct xmit_priv *pxmitpriv;
 
 	if (!padapter)
@@ -81,12 +82,12 @@ void rtw_os_xmit_schedule(struct adapter *padapter)
 
 	pxmitpriv = &padapter->xmitpriv;
 
-	spin_lock_bh(&pxmitpriv->lock);
+	bh = spin_lock_bh(&pxmitpriv->lock, SOFTIRQ_ALL_MASK);
 
 	if (rtw_txframes_pending(padapter))
 		tasklet_hi_schedule(&pxmitpriv->xmit_tasklet);
 
-	spin_unlock_bh(&pxmitpriv->lock);
+	spin_unlock_bh(&pxmitpriv->lock, bh);
 }
 
 static void rtw_check_xmit_resource(struct adapter *padapter, struct sk_buff *pkt)
@@ -109,6 +110,7 @@ static void rtw_check_xmit_resource(struct adapter *padapter, struct sk_buff *pk
 
 static int rtw_mlcst2unicst(struct adapter *padapter, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct	sta_priv *pstapriv = &padapter->stapriv;
 	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
 	struct list_head *phead, *plist;
@@ -116,7 +118,7 @@ static int rtw_mlcst2unicst(struct adapter *padapter, struct sk_buff *skb)
 	struct sta_info *psta = NULL;
 	s32	res;
 
-	spin_lock_bh(&pstapriv->asoc_list_lock);
+	bh = spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 	phead = &pstapriv->asoc_list;
 	plist = phead->next;
 
@@ -146,12 +148,12 @@ static int rtw_mlcst2unicst(struct adapter *padapter, struct sk_buff *skb)
 			DBG_88E("%s-%d: skb_copy() failed!\n", __func__, __LINE__);
 			pxmitpriv->tx_drop++;
 
-			spin_unlock_bh(&pstapriv->asoc_list_lock);
+			spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 			return false;	/*  Caller shall tx this multicast frame via normal way. */
 		}
 	}
 
-	spin_unlock_bh(&pstapriv->asoc_list_lock);
+	spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 	dev_kfree_skb_any(skb);
 	return true;
 }

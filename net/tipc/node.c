@@ -361,13 +361,14 @@ static void tipc_node_write_unlock(struct tipc_node *n)
 static struct tipc_node *tipc_node_create(struct net *net, u32 addr,
 					  u8 *peer_id, u16 capabilities)
 {
+	unsigned int bh;
 	struct tipc_net *tn = net_generic(net, tipc_net_id);
 	struct tipc_node *n, *temp_node;
 	struct tipc_link *l;
 	int bearer_id;
 	int i;
 
-	spin_lock_bh(&tn->node_list_lock);
+	bh = spin_lock_bh(&tn->node_list_lock, SOFTIRQ_ALL_MASK);
 	n = tipc_node_find(net, addr);
 	if (n) {
 		if (n->capabilities == capabilities)
@@ -432,7 +433,7 @@ static struct tipc_node *tipc_node_create(struct net *net, u32 addr,
 	}
 	list_add_tail_rcu(&n->list, &temp_node->list);
 exit:
-	spin_unlock_bh(&tn->node_list_lock);
+	spin_unlock_bh(&tn->node_list_lock, bh);
 	return n;
 }
 
@@ -466,13 +467,14 @@ static void tipc_node_delete(struct tipc_node *node)
 
 void tipc_node_stop(struct net *net)
 {
+	unsigned int bh;
 	struct tipc_net *tn = tipc_net(net);
 	struct tipc_node *node, *t_node;
 
-	spin_lock_bh(&tn->node_list_lock);
+	bh = spin_lock_bh(&tn->node_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(node, t_node, &tn->node_list, list)
 		tipc_node_delete(node);
-	spin_unlock_bh(&tn->node_list_lock);
+	spin_unlock_bh(&tn->node_list_lock, bh);
 }
 
 void tipc_node_subscribe(struct net *net, struct list_head *subscr, u32 addr)
@@ -585,10 +587,11 @@ static void  tipc_node_clear_links(struct tipc_node *node)
  */
 static int tipc_node_cleanup(struct tipc_node *peer)
 {
+	unsigned int bh;
 	struct tipc_net *tn = tipc_net(peer->net);
 	bool deleted = false;
 
-	spin_lock_bh(&tn->node_list_lock);
+	bh = spin_lock_bh(&tn->node_list_lock, SOFTIRQ_ALL_MASK);
 	tipc_node_write_lock(peer);
 
 	if (!node_is_up(peer) && time_after(jiffies, peer->delete_at)) {
@@ -597,7 +600,7 @@ static int tipc_node_cleanup(struct tipc_node *peer)
 		deleted = true;
 	}
 	tipc_node_write_unlock(peer);
-	spin_unlock_bh(&tn->node_list_lock);
+	spin_unlock_bh(&tn->node_list_lock, bh);
 	return deleted;
 }
 
@@ -605,6 +608,7 @@ static int tipc_node_cleanup(struct tipc_node *peer)
  */
 static void tipc_node_timeout(struct timer_list *t)
 {
+	unsigned int bh;
 	struct tipc_node *n = from_timer(n, t, timer);
 	struct tipc_link_entry *le;
 	struct sk_buff_head xmitq;
@@ -624,11 +628,11 @@ static void tipc_node_timeout(struct timer_list *t)
 		tipc_node_read_lock(n);
 		le = &n->links[bearer_id];
 		if (le->link) {
-			spin_lock_bh(&le->lock);
+			bh = spin_lock_bh(&le->lock, SOFTIRQ_ALL_MASK);
 			/* Link tolerance may change asynchronously: */
 			tipc_node_calculate_timer(n, le->link);
 			rc = tipc_link_timeout(le->link, &xmitq);
-			spin_unlock_bh(&le->lock);
+			spin_unlock_bh(&le->lock, bh);
 			remains--;
 		}
 		tipc_node_read_unlock(n);
@@ -1347,6 +1351,7 @@ msg_full:
 int tipc_node_xmit(struct net *net, struct sk_buff_head *list,
 		   u32 dnode, int selector)
 {
+	unsigned int bh;
 	struct tipc_link_entry *le = NULL;
 	struct tipc_node *n;
 	struct sk_buff_head xmitq;
@@ -1375,9 +1380,9 @@ int tipc_node_xmit(struct net *net, struct sk_buff_head *list,
 
 	__skb_queue_head_init(&xmitq);
 	le = &n->links[bearer_id];
-	spin_lock_bh(&le->lock);
+	bh = spin_lock_bh(&le->lock, SOFTIRQ_ALL_MASK);
 	rc = tipc_link_xmit(le->link, list, &xmitq);
-	spin_unlock_bh(&le->lock);
+	spin_unlock_bh(&le->lock, bh);
 	tipc_node_read_unlock(n);
 
 	if (unlikely(rc == -ENOBUFS))
@@ -1449,14 +1454,15 @@ void tipc_node_broadcast(struct net *net, struct sk_buff *skb)
 
 static void tipc_node_mcast_rcv(struct tipc_node *n)
 {
+	unsigned int bh;
 	struct tipc_bclink_entry *be = &n->bc_entry;
 
 	/* 'arrvq' is under inputq2's lock protection */
-	spin_lock_bh(&be->inputq2.lock);
-	spin_lock_bh(&be->inputq1.lock);
+	bh = spin_lock_bh(&be->inputq2.lock, SOFTIRQ_ALL_MASK);
+	spin_lock_bh(&be->inputq1.lock, SOFTIRQ_ALL_MASK);
 	skb_queue_splice_tail_init(&be->inputq1, &be->arrvq);
 	spin_unlock_bh(&be->inputq1.lock);
-	spin_unlock_bh(&be->inputq2.lock);
+	spin_unlock_bh(&be->inputq2.lock, bh);
 	tipc_sk_mcast_rcv(n->net, &be->arrvq, &be->inputq2);
 }
 
@@ -1683,6 +1689,7 @@ static bool tipc_node_check_state(struct tipc_node *n, struct sk_buff *skb,
  */
 void tipc_rcv(struct net *net, struct sk_buff *skb, struct tipc_bearer *b)
 {
+	unsigned int bh;
 	struct sk_buff_head xmitq;
 	struct tipc_node *n;
 	struct tipc_msg *hdr;
@@ -1728,12 +1735,12 @@ void tipc_rcv(struct net *net, struct sk_buff *skb, struct tipc_bearer *b)
 	/* Receive packet directly if conditions permit */
 	tipc_node_read_lock(n);
 	if (likely((n->state == SELF_UP_PEER_UP) && (usr != TUNNEL_PROTOCOL))) {
-		spin_lock_bh(&le->lock);
+		bh = spin_lock_bh(&le->lock, SOFTIRQ_ALL_MASK);
 		if (le->link) {
 			rc = tipc_link_rcv(le->link, skb, &xmitq);
 			skb = NULL;
 		}
-		spin_unlock_bh(&le->lock);
+		spin_unlock_bh(&le->lock, bh);
 	}
 	tipc_node_read_unlock(n);
 
@@ -1806,6 +1813,7 @@ void tipc_node_apply_property(struct net *net, struct tipc_bearer *b,
 
 int tipc_nl_peer_rm(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct tipc_net *tn = net_generic(net, tipc_net_id);
 	struct nlattr *attrs[TIPC_NLA_NET_MAX + 1];
@@ -1831,10 +1839,10 @@ int tipc_nl_peer_rm(struct sk_buff *skb, struct genl_info *info)
 	if (in_own_node(net, addr))
 		return -ENOTSUPP;
 
-	spin_lock_bh(&tn->node_list_lock);
+	bh = spin_lock_bh(&tn->node_list_lock, SOFTIRQ_ALL_MASK);
 	peer = tipc_node_find(net, addr);
 	if (!peer) {
-		spin_unlock_bh(&tn->node_list_lock);
+		spin_unlock_bh(&tn->node_list_lock, bh);
 		return -ENXIO;
 	}
 
@@ -1853,7 +1861,7 @@ int tipc_nl_peer_rm(struct sk_buff *skb, struct genl_info *info)
 	err = 0;
 err_out:
 	tipc_node_put(peer);
-	spin_unlock_bh(&tn->node_list_lock);
+	spin_unlock_bh(&tn->node_list_lock, bh);
 
 	return err;
 }
@@ -2104,6 +2112,7 @@ err_free:
 
 int tipc_nl_node_reset_link_stats(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	int err;
 	char *link_name;
 	unsigned int bearer_id;
@@ -2140,15 +2149,15 @@ int tipc_nl_node_reset_link_stats(struct sk_buff *skb, struct genl_info *info)
 
 	le = &node->links[bearer_id];
 	tipc_node_read_lock(node);
-	spin_lock_bh(&le->lock);
+	bh = spin_lock_bh(&le->lock, SOFTIRQ_ALL_MASK);
 	link = node->links[bearer_id].link;
 	if (!link) {
-		spin_unlock_bh(&le->lock);
+		spin_unlock_bh(&le->lock, bh);
 		tipc_node_read_unlock(node);
 		return -EINVAL;
 	}
 	tipc_link_reset_stats(link);
-	spin_unlock_bh(&le->lock);
+	spin_unlock_bh(&le->lock, bh);
 	tipc_node_read_unlock(node);
 	return 0;
 }

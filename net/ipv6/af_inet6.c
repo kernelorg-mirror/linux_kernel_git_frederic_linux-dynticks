@@ -626,13 +626,14 @@ static const struct net_proto_family inet6_family_ops = {
 
 int inet6_register_protosw(struct inet_protosw *p)
 {
+	unsigned int bh;
 	struct list_head *lh;
 	struct inet_protosw *answer;
 	struct list_head *last_perm;
 	int protocol = p->protocol;
 	int ret;
 
-	spin_lock_bh(&inetsw6_lock);
+	bh = spin_lock_bh(&inetsw6_lock, SOFTIRQ_ALL_MASK);
 
 	ret = -EINVAL;
 	if (p->type >= SOCK_MAX)
@@ -666,7 +667,7 @@ int inet6_register_protosw(struct inet_protosw *p)
 	list_add_rcu(&p->list, last_perm);
 	ret = 0;
 out:
-	spin_unlock_bh(&inetsw6_lock);
+	spin_unlock_bh(&inetsw6_lock, bh);
 	return ret;
 
 out_permanent:
@@ -683,13 +684,14 @@ EXPORT_SYMBOL(inet6_register_protosw);
 void
 inet6_unregister_protosw(struct inet_protosw *p)
 {
+	unsigned int bh;
 	if (INET_PROTOSW_PERMANENT & p->flags) {
 		pr_err("Attempt to unregister permanent protocol %d\n",
 		       p->protocol);
 	} else {
-		spin_lock_bh(&inetsw6_lock);
+		bh = spin_lock_bh(&inetsw6_lock, SOFTIRQ_ALL_MASK);
 		list_del_rcu(&p->list);
-		spin_unlock_bh(&inetsw6_lock);
+		spin_unlock_bh(&inetsw6_lock, bh);
 
 		synchronize_net();
 	}

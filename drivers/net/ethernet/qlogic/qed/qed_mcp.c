@@ -162,19 +162,20 @@ static struct qed_mcp_cmd_elem *qed_mcp_cmd_get_elem(struct qed_hwfn *p_hwfn,
 
 int qed_mcp_free(struct qed_hwfn *p_hwfn)
 {
+	unsigned int bh;
 	if (p_hwfn->mcp_info) {
 		struct qed_mcp_cmd_elem *p_cmd_elem, *p_tmp;
 
 		kfree(p_hwfn->mcp_info->mfw_mb_cur);
 		kfree(p_hwfn->mcp_info->mfw_mb_shadow);
 
-		spin_lock_bh(&p_hwfn->mcp_info->cmd_lock);
+		bh = spin_lock_bh(&p_hwfn->mcp_info->cmd_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry_safe(p_cmd_elem,
 					 p_tmp,
 					 &p_hwfn->mcp_info->cmd_list, list) {
 			qed_mcp_cmd_del_elem(p_hwfn, p_cmd_elem);
 		}
-		spin_unlock_bh(&p_hwfn->mcp_info->cmd_lock);
+		spin_unlock_bh(&p_hwfn->mcp_info->cmd_lock, bh);
 	}
 
 	kfree(p_hwfn->mcp_info);
@@ -317,6 +318,7 @@ static void qed_mcp_reread_offsets(struct qed_hwfn *p_hwfn,
 
 int qed_mcp_reset(struct qed_hwfn *p_hwfn, struct qed_ptt *p_ptt)
 {
+	unsigned int bh;
 	u32 org_mcp_reset_seq, seq, delay = QED_MCP_RESP_ITER_US, cnt = 0;
 	int rc = 0;
 
@@ -327,7 +329,7 @@ int qed_mcp_reset(struct qed_hwfn *p_hwfn, struct qed_ptt *p_ptt)
 	}
 
 	/* Ensure that only a single thread is accessing the mailbox */
-	spin_lock_bh(&p_hwfn->mcp_info->cmd_lock);
+	bh = spin_lock_bh(&p_hwfn->mcp_info->cmd_lock, SOFTIRQ_ALL_MASK);
 
 	org_mcp_reset_seq = qed_rd(p_hwfn, p_ptt, MISCS_REG_GENERIC_POR_0);
 
@@ -353,7 +355,7 @@ int qed_mcp_reset(struct qed_hwfn *p_hwfn, struct qed_ptt *p_ptt)
 		rc = -EAGAIN;
 	}
 
-	spin_unlock_bh(&p_hwfn->mcp_info->cmd_lock);
+	spin_unlock_bh(&p_hwfn->mcp_info->cmd_lock, bh);
 
 	return rc;
 }
@@ -484,6 +486,7 @@ _qed_mcp_cmd_and_union(struct qed_hwfn *p_hwfn,
 		       struct qed_mcp_mb_params *p_mb_params,
 		       u32 max_retries, u32 usecs)
 {
+	unsigned int bh;
 	u32 cnt = 0, msecs = DIV_ROUND_UP(usecs, 1000);
 	struct qed_mcp_cmd_elem *p_cmd_elem;
 	u16 seq_num;
@@ -496,7 +499,7 @@ _qed_mcp_cmd_and_union(struct qed_hwfn *p_hwfn,
 		 * The spinlock stays locked until the command is sent.
 		 */
 
-		spin_lock_bh(&p_hwfn->mcp_info->cmd_lock);
+		bh = spin_lock_bh(&p_hwfn->mcp_info->cmd_lock, SOFTIRQ_ALL_MASK);
 
 		if (!qed_mcp_has_pending_cmd(p_hwfn))
 			break;
@@ -507,7 +510,7 @@ _qed_mcp_cmd_and_union(struct qed_hwfn *p_hwfn,
 		else if (rc != -EAGAIN)
 			goto err;
 
-		spin_unlock_bh(&p_hwfn->mcp_info->cmd_lock);
+		spin_unlock_bh(&p_hwfn->mcp_info->cmd_lock, bh);
 
 		if (QED_MB_FLAGS_IS_SET(p_mb_params, CAN_SLEEP))
 			msleep(msecs);
@@ -546,7 +549,7 @@ _qed_mcp_cmd_and_union(struct qed_hwfn *p_hwfn,
 		else
 			udelay(usecs);
 
-		spin_lock_bh(&p_hwfn->mcp_info->cmd_lock);
+		spin_lock_bh(&p_hwfn->mcp_info->cmd_lock, SOFTIRQ_ALL_MASK);
 
 		if (p_cmd_elem->b_is_completed)
 			break;
@@ -566,7 +569,7 @@ _qed_mcp_cmd_and_union(struct qed_hwfn *p_hwfn,
 			  p_mb_params->cmd, p_mb_params->param);
 		qed_mcp_print_cpu_info(p_hwfn, p_ptt);
 
-		spin_lock_bh(&p_hwfn->mcp_info->cmd_lock);
+		spin_lock_bh(&p_hwfn->mcp_info->cmd_lock, SOFTIRQ_ALL_MASK);
 		qed_mcp_cmd_del_elem(p_hwfn, p_cmd_elem);
 		spin_unlock_bh(&p_hwfn->mcp_info->cmd_lock);
 
@@ -592,7 +595,7 @@ _qed_mcp_cmd_and_union(struct qed_hwfn *p_hwfn,
 	return 0;
 
 err:
-	spin_unlock_bh(&p_hwfn->mcp_info->cmd_lock);
+	spin_unlock_bh(&p_hwfn->mcp_info->cmd_lock, bh);
 	return rc;
 }
 
@@ -1250,12 +1253,13 @@ static void qed_mcp_read_eee_config(struct qed_hwfn *p_hwfn,
 static void qed_mcp_handle_link_change(struct qed_hwfn *p_hwfn,
 				       struct qed_ptt *p_ptt, bool b_reset)
 {
+	unsigned int bh;
 	struct qed_mcp_link_state *p_link;
 	u8 max_bw, min_bw;
 	u32 status = 0;
 
 	/* Prevent SW/attentions from doing this at the same time */
-	spin_lock_bh(&p_hwfn->mcp_info->link_lock);
+	bh = spin_lock_bh(&p_hwfn->mcp_info->link_lock, SOFTIRQ_ALL_MASK);
 
 	p_link = &p_hwfn->mcp_info->link_output;
 	memset(p_link, 0, sizeof(*p_link));
@@ -1384,7 +1388,7 @@ static void qed_mcp_handle_link_change(struct qed_hwfn *p_hwfn,
 
 	qed_link_update(p_hwfn);
 out:
-	spin_unlock_bh(&p_hwfn->mcp_info->link_lock);
+	spin_unlock_bh(&p_hwfn->mcp_info->link_lock, bh);
 }
 
 int qed_mcp_set_link(struct qed_hwfn *p_hwfn, struct qed_ptt *p_ptt, bool b_up)

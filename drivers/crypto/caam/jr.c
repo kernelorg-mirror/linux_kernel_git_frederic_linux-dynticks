@@ -327,6 +327,7 @@ int caam_jr_enqueue(struct device *dev, u32 *desc,
 				u32 status, void *areq),
 		    void *areq)
 {
+	unsigned int bh;
 	struct caam_drv_private_jr *jrp = dev_get_drvdata(dev);
 	struct caam_jrentry_info *head_entry;
 	int head, tail, desc_size;
@@ -339,14 +340,14 @@ int caam_jr_enqueue(struct device *dev, u32 *desc,
 		return -EIO;
 	}
 
-	spin_lock_bh(&jrp->inplock);
+	bh = spin_lock_bh(&jrp->inplock, SOFTIRQ_ALL_MASK);
 
 	head = jrp->head;
 	tail = READ_ONCE(jrp->tail);
 
 	if (!rd_reg32(&jrp->rregs->inpring_avail) ||
 	    CIRC_SPACE(head, tail, JOBR_DEPTH) <= 0) {
-		spin_unlock_bh(&jrp->inplock);
+		spin_unlock_bh(&jrp->inplock, bh);
 		dma_unmap_single(dev, desc_dma, desc_size, DMA_TO_DEVICE);
 		return -EBUSY;
 	}
@@ -379,7 +380,7 @@ int caam_jr_enqueue(struct device *dev, u32 *desc,
 
 	wr_reg32(&jrp->rregs->inpring_jobadd, 1);
 
-	spin_unlock_bh(&jrp->inplock);
+	spin_unlock_bh(&jrp->inplock, bh);
 
 	return 0;
 }

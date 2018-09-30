@@ -250,7 +250,7 @@ static int qeth_l3_add_ip(struct qeth_card *card, struct qeth_ipaddr *tmp_addr)
 			addr->in_progress = 1;
 			spin_unlock_bh(&card->ip_lock);
 			rc = qeth_l3_register_addr_entry(card, addr);
-			spin_lock_bh(&card->ip_lock);
+			spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 			addr->in_progress = 0;
 		} else
 			rc = qeth_l3_register_addr_entry(card, addr);
@@ -273,6 +273,7 @@ static int qeth_l3_add_ip(struct qeth_card *card, struct qeth_ipaddr *tmp_addr)
 
 static void qeth_l3_clear_ip_htable(struct qeth_card *card, int recover)
 {
+	unsigned int bh;
 	struct qeth_ipaddr *addr;
 	struct hlist_node *tmp;
 	int i;
@@ -282,7 +283,7 @@ static void qeth_l3_clear_ip_htable(struct qeth_card *card, int recover)
 	if (recover && card->options.sniffer)
 		return;
 
-	spin_lock_bh(&card->ip_lock);
+	bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 
 	hash_for_each_safe(card->ip_htable, i, tmp, addr, hnode) {
 		if (!recover) {
@@ -293,9 +294,9 @@ static void qeth_l3_clear_ip_htable(struct qeth_card *card, int recover)
 		addr->disp_flag = QETH_DISP_ADDR_ADD;
 	}
 
-	spin_unlock_bh(&card->ip_lock);
+	spin_unlock_bh(&card->ip_lock, bh);
 
-	spin_lock_bh(&card->mclock);
+	spin_lock_bh(&card->mclock, SOFTIRQ_ALL_MASK);
 
 	hash_for_each_safe(card->ip_mc_htable, i, tmp, addr, hnode) {
 		hash_del(&addr->hnode);
@@ -308,6 +309,7 @@ static void qeth_l3_clear_ip_htable(struct qeth_card *card, int recover)
 }
 static void qeth_l3_recover_ip(struct qeth_card *card)
 {
+	unsigned int bh;
 	struct qeth_ipaddr *addr;
 	struct hlist_node *tmp;
 	int i;
@@ -315,7 +317,7 @@ static void qeth_l3_recover_ip(struct qeth_card *card)
 
 	QETH_CARD_TEXT(card, 4, "recovrip");
 
-	spin_lock_bh(&card->ip_lock);
+	bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 
 	hash_for_each_safe(card->ip_htable, i, tmp, addr, hnode) {
 		if (addr->disp_flag == QETH_DISP_ADDR_ADD) {
@@ -323,7 +325,7 @@ static void qeth_l3_recover_ip(struct qeth_card *card)
 				addr->in_progress = 1;
 				spin_unlock_bh(&card->ip_lock);
 				rc = qeth_l3_register_addr_entry(card, addr);
-				spin_lock_bh(&card->ip_lock);
+				spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 				addr->in_progress = 0;
 			} else
 				rc = qeth_l3_register_addr_entry(card, addr);
@@ -339,7 +341,7 @@ static void qeth_l3_recover_ip(struct qeth_card *card)
 		}
 	}
 
-	spin_unlock_bh(&card->ip_lock);
+	spin_unlock_bh(&card->ip_lock, bh);
 
 }
 
@@ -549,9 +551,10 @@ void qeth_l3_update_ipato(struct qeth_card *card)
 
 static void qeth_l3_clear_ipato_list(struct qeth_card *card)
 {
+	unsigned int bh;
 	struct qeth_ipato_entry *ipatoe, *tmp;
 
-	spin_lock_bh(&card->ip_lock);
+	bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe(ipatoe, tmp, &card->ipato.entries, entry) {
 		list_del(&ipatoe->entry);
@@ -559,18 +562,19 @@ static void qeth_l3_clear_ipato_list(struct qeth_card *card)
 	}
 
 	qeth_l3_update_ipato(card);
-	spin_unlock_bh(&card->ip_lock);
+	spin_unlock_bh(&card->ip_lock, bh);
 }
 
 int qeth_l3_add_ipato_entry(struct qeth_card *card,
 				struct qeth_ipato_entry *new)
 {
+	unsigned int bh;
 	struct qeth_ipato_entry *ipatoe;
 	int rc = 0;
 
 	QETH_CARD_TEXT(card, 2, "addipato");
 
-	spin_lock_bh(&card->ip_lock);
+	bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(ipatoe, &card->ipato.entries, entry) {
 		if (ipatoe->proto != new->proto)
@@ -588,7 +592,7 @@ int qeth_l3_add_ipato_entry(struct qeth_card *card,
 		qeth_l3_update_ipato(card);
 	}
 
-	spin_unlock_bh(&card->ip_lock);
+	spin_unlock_bh(&card->ip_lock, bh);
 
 	return rc;
 }
@@ -597,12 +601,13 @@ int qeth_l3_del_ipato_entry(struct qeth_card *card,
 			    enum qeth_prot_versions proto, u8 *addr,
 			    int mask_bits)
 {
+	unsigned int bh;
 	struct qeth_ipato_entry *ipatoe, *tmp;
 	int rc = -ENOENT;
 
 	QETH_CARD_TEXT(card, 2, "delipato");
 
-	spin_lock_bh(&card->ip_lock);
+	bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe(ipatoe, tmp, &card->ipato.entries, entry) {
 		if (ipatoe->proto != proto)
@@ -617,7 +622,7 @@ int qeth_l3_del_ipato_entry(struct qeth_card *card,
 		}
 	}
 
-	spin_unlock_bh(&card->ip_lock);
+	spin_unlock_bh(&card->ip_lock, bh);
 	return rc;
 }
 
@@ -625,6 +630,7 @@ int qeth_l3_modify_rxip_vipa(struct qeth_card *card, bool add, const u8 *ip,
 			     enum qeth_ip_types type,
 			     enum qeth_prot_versions proto)
 {
+	unsigned int bh;
 	struct qeth_ipaddr addr;
 	int rc;
 
@@ -634,14 +640,15 @@ int qeth_l3_modify_rxip_vipa(struct qeth_card *card, bool add, const u8 *ip,
 	else
 		memcpy(&addr.u.a6.addr, ip, 16);
 
-	spin_lock_bh(&card->ip_lock);
+	bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 	rc = add ? qeth_l3_add_ip(card, &addr) : qeth_l3_delete_ip(card, &addr);
-	spin_unlock_bh(&card->ip_lock);
+	spin_unlock_bh(&card->ip_lock, bh);
 	return rc;
 }
 
 int qeth_l3_modify_hsuid(struct qeth_card *card, bool add)
 {
+	unsigned int bh;
 	struct qeth_ipaddr addr;
 	int rc, i;
 
@@ -651,9 +658,9 @@ int qeth_l3_modify_hsuid(struct qeth_card *card, bool add)
 	for (i = 0; i < 8; i++)
 		addr.u.a6.addr.s6_addr[8+i] = card->options.hsuid[i];
 
-	spin_lock_bh(&card->ip_lock);
+	bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 	rc = add ? qeth_l3_add_ip(card, &addr) : qeth_l3_delete_ip(card, &addr);
-	spin_unlock_bh(&card->ip_lock);
+	spin_unlock_bh(&card->ip_lock, bh);
 	return rc;
 }
 
@@ -1471,6 +1478,7 @@ qeth_l3_handle_promisc_mode(struct qeth_card *card)
 
 static void qeth_l3_set_rx_mode(struct net_device *dev)
 {
+	unsigned int bh;
 	struct qeth_card *card = dev->ml_priv;
 	struct qeth_ipaddr *addr;
 	struct hlist_node *tmp;
@@ -1481,7 +1489,7 @@ static void qeth_l3_set_rx_mode(struct net_device *dev)
 	    (card->state != CARD_STATE_UP))
 		return;
 	if (!card->options.sniffer) {
-		spin_lock_bh(&card->mclock);
+		bh = spin_lock_bh(&card->mclock, SOFTIRQ_ALL_MASK);
 
 		qeth_l3_add_multicast_ipv4(card);
 		qeth_l3_add_multicast_ipv6(card);
@@ -1510,7 +1518,7 @@ static void qeth_l3_set_rx_mode(struct net_device *dev)
 			}
 		}
 
-		spin_unlock_bh(&card->mclock);
+		spin_unlock_bh(&card->mclock, bh);
 
 		if (!qeth_adp_supported(card, IPA_SETADP_SET_PROMISC_MODE))
 			return;
@@ -2867,16 +2875,17 @@ static int qeth_l3_handle_ip_event(struct qeth_card *card,
 				   struct qeth_ipaddr *addr,
 				   unsigned long event)
 {
+	unsigned int bh;
 	switch (event) {
 	case NETDEV_UP:
-		spin_lock_bh(&card->ip_lock);
+		bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 		qeth_l3_add_ip(card, addr);
-		spin_unlock_bh(&card->ip_lock);
+		spin_unlock_bh(&card->ip_lock, bh);
 		return NOTIFY_OK;
 	case NETDEV_DOWN:
-		spin_lock_bh(&card->ip_lock);
+		bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 		qeth_l3_delete_ip(card, addr);
-		spin_unlock_bh(&card->ip_lock);
+		spin_unlock_bh(&card->ip_lock, bh);
 		return NOTIFY_OK;
 	default:
 		return NOTIFY_DONE;

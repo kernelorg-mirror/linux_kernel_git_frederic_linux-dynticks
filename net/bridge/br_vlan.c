@@ -695,10 +695,11 @@ struct net_bridge_vlan *br_vlan_find(struct net_bridge_vlan_group *vg, u16 vid)
 /* Must be protected by RTNL. */
 static void recalculate_group_addr(struct net_bridge *br)
 {
+	unsigned int bh;
 	if (br->group_addr_set)
 		return;
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	if (!br->vlan_enabled || br->vlan_proto == htons(ETH_P_8021Q)) {
 		/* Bridge Group Address */
 		br->group_addr[5] = 0x00;
@@ -706,7 +707,7 @@ static void recalculate_group_addr(struct net_bridge *br)
 		/* Provider Bridge Group Address */
 		br->group_addr[5] = 0x08;
 	}
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 }
 
 /* Must be protected by RTNL. */

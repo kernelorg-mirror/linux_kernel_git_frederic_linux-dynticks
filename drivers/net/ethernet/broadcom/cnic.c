@@ -1342,6 +1342,7 @@ static inline u32 cnic_kwq_avail(struct cnic_local *cp)
 static int cnic_submit_bnx2_kwqes(struct cnic_dev *dev, struct kwqe *wqes[],
 				  u32 num_wqes)
 {
+	unsigned int bh;
 	struct cnic_local *cp = dev->cnic_priv;
 	struct kwqe *prod_qe;
 	u16 prod, sw_prod, i;
@@ -1349,10 +1350,10 @@ static int cnic_submit_bnx2_kwqes(struct cnic_dev *dev, struct kwqe *wqes[],
 	if (!test_bit(CNIC_F_CNIC_UP, &dev->flags))
 		return -EAGAIN;		/* bnx2 is down */
 
-	spin_lock_bh(&cp->cnic_ulp_lock);
+	bh = spin_lock_bh(&cp->cnic_ulp_lock, SOFTIRQ_ALL_MASK);
 	if (num_wqes > cnic_kwq_avail(cp) &&
 	    !test_bit(CNIC_LCL_FL_KWQ_INIT, &cp->cnic_local_flags)) {
-		spin_unlock_bh(&cp->cnic_ulp_lock);
+		spin_unlock_bh(&cp->cnic_ulp_lock, bh);
 		return -EAGAIN;
 	}
 
@@ -1370,7 +1371,7 @@ static int cnic_submit_bnx2_kwqes(struct cnic_dev *dev, struct kwqe *wqes[],
 
 	CNIC_WR16(dev, cp->kwq_io_addr, cp->kwq_prod_idx);
 
-	spin_unlock_bh(&cp->cnic_ulp_lock);
+	spin_unlock_bh(&cp->cnic_ulp_lock, bh);
 	return 0;
 }
 
@@ -1389,6 +1390,7 @@ static void *cnic_get_kwqe_16_data(struct cnic_local *cp, u32 l5_cid,
 static int cnic_submit_kwqe_16(struct cnic_dev *dev, u32 cmd, u32 cid,
 				u32 type, union l5cm_specific_data *l5_data)
 {
+	unsigned int bh;
 	struct cnic_local *cp = dev->cnic_priv;
 	struct bnx2x *bp = netdev_priv(dev->netdev);
 	struct l5cm_spe kwqe;
@@ -1411,9 +1413,9 @@ static int cnic_submit_kwqe_16(struct cnic_dev *dev, u32 cmd, u32 cid,
 
 	kwq[0] = (struct kwqe_16 *) &kwqe;
 
-	spin_lock_bh(&cp->cnic_ulp_lock);
+	bh = spin_lock_bh(&cp->cnic_ulp_lock, SOFTIRQ_ALL_MASK);
 	ret = cp->ethdev->drv_submit_kwqes_16(dev->netdev, kwq, 1);
-	spin_unlock_bh(&cp->cnic_ulp_lock);
+	spin_unlock_bh(&cp->cnic_ulp_lock, bh);
 
 	if (ret == 1)
 		return 0;

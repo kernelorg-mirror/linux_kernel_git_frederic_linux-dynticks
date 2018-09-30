@@ -67,6 +67,7 @@ __printf(2, 3)
 static int batadv_fdebug_log(struct batadv_priv_debug_log *debug_log,
 			     const char *fmt, ...)
 {
+	unsigned int bh;
 	va_list args;
 	static char debug_log_buf[256];
 	char *p;
@@ -74,7 +75,7 @@ static int batadv_fdebug_log(struct batadv_priv_debug_log *debug_log,
 	if (!debug_log)
 		return 0;
 
-	spin_lock_bh(&debug_log->lock);
+	bh = spin_lock_bh(&debug_log->lock, SOFTIRQ_ALL_MASK);
 	va_start(args, fmt);
 	vscnprintf(debug_log_buf, sizeof(debug_log_buf), fmt, args);
 	va_end(args);
@@ -82,7 +83,7 @@ static int batadv_fdebug_log(struct batadv_priv_debug_log *debug_log,
 	for (p = debug_log_buf; *p != 0; p++)
 		batadv_emit_log_char(debug_log, *p);
 
-	spin_unlock_bh(&debug_log->lock);
+	spin_unlock_bh(&debug_log->lock, bh);
 
 	wake_up(&debug_log->queue_wait);
 
@@ -134,6 +135,7 @@ static bool batadv_log_empty(struct batadv_priv_debug_log *debug_log)
 static ssize_t batadv_log_read(struct file *file, char __user *buf,
 			       size_t count, loff_t *ppos)
 {
+	unsigned int bh;
 	struct batadv_priv *bat_priv = file->private_data;
 	struct batadv_priv_debug_log *debug_log = bat_priv->debug_log;
 	int error, i = 0;
@@ -158,7 +160,7 @@ static ssize_t batadv_log_read(struct file *file, char __user *buf,
 	if (error)
 		return error;
 
-	spin_lock_bh(&debug_log->lock);
+	bh = spin_lock_bh(&debug_log->lock, SOFTIRQ_ALL_MASK);
 
 	while ((!error) && (i < count) &&
 	       (debug_log->log_start != debug_log->log_end)) {
@@ -172,13 +174,13 @@ static ssize_t batadv_log_read(struct file *file, char __user *buf,
 
 		error = __put_user(c, buf);
 
-		spin_lock_bh(&debug_log->lock);
+		spin_lock_bh(&debug_log->lock, SOFTIRQ_ALL_MASK);
 
 		buf++;
 		i++;
 	}
 
-	spin_unlock_bh(&debug_log->lock);
+	spin_unlock_bh(&debug_log->lock, bh);
 
 	if (!error)
 		return i;

@@ -273,6 +273,7 @@ void iscsit_discard_cr_cmds_by_expstatsn(
 
 int iscsit_discard_unacknowledged_ooo_cmdsns_for_conn(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	u32 dropped_count = 0;
 	struct iscsi_cmd *cmd, *cmd_tmp;
 	struct iscsi_ooo_cmdsn *ooo_cmdsn, *ooo_cmdsn_tmp;
@@ -293,7 +294,7 @@ int iscsit_discard_unacknowledged_ooo_cmdsns_for_conn(struct iscsi_conn *conn)
 	}
 	mutex_unlock(&sess->cmdsn_mutex);
 
-	spin_lock_bh(&conn->cmd_lock);
+	bh = spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(cmd, cmd_tmp, &conn->conn_cmd_list, i_conn_node) {
 		if (!(cmd->cmd_flags & ICF_OOO_CMDSN))
 			continue;
@@ -302,9 +303,9 @@ int iscsit_discard_unacknowledged_ooo_cmdsns_for_conn(struct iscsi_conn *conn)
 
 		spin_unlock_bh(&conn->cmd_lock);
 		iscsit_free_cmd(cmd, true);
-		spin_lock_bh(&conn->cmd_lock);
+		spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&conn->cmd_lock);
+	spin_unlock_bh(&conn->cmd_lock, bh);
 
 	pr_debug("Dropped %u total unacknowledged commands on CID:"
 		" %hu for ExpCmdSN: 0x%08x.\n", dropped_count, conn->cid,
@@ -314,6 +315,7 @@ int iscsit_discard_unacknowledged_ooo_cmdsns_for_conn(struct iscsi_conn *conn)
 
 int iscsit_prepare_cmds_for_reallegiance(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	u32 cmd_count = 0;
 	struct iscsi_cmd *cmd, *cmd_tmp;
 	struct iscsi_conn_recovery *cr;
@@ -342,7 +344,7 @@ int iscsit_prepare_cmds_for_reallegiance(struct iscsi_conn *conn)
 	 * Also stop the DataOUT timer, which will be restarted after
 	 * sending the TMR response.
 	 */
-	spin_lock_bh(&conn->cmd_lock);
+	bh = spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(cmd, cmd_tmp, &conn->conn_cmd_list, i_conn_node) {
 
 		if ((cmd->iscsi_opcode != ISCSI_OP_SCSI_CMD) &&
@@ -355,7 +357,7 @@ int iscsit_prepare_cmds_for_reallegiance(struct iscsi_conn *conn)
 			list_del_init(&cmd->i_conn_node);
 			spin_unlock_bh(&conn->cmd_lock);
 			iscsit_free_cmd(cmd, true);
-			spin_lock_bh(&conn->cmd_lock);
+			spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 			continue;
 		}
 
@@ -375,7 +377,7 @@ int iscsit_prepare_cmds_for_reallegiance(struct iscsi_conn *conn)
 			list_del_init(&cmd->i_conn_node);
 			spin_unlock_bh(&conn->cmd_lock);
 			iscsit_free_cmd(cmd, true);
-			spin_lock_bh(&conn->cmd_lock);
+			spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 			continue;
 		}
 
@@ -407,11 +409,11 @@ int iscsit_prepare_cmds_for_reallegiance(struct iscsi_conn *conn)
 		list_add_tail(&cmd->i_conn_node, &cr->conn_recovery_cmd_list);
 		spin_unlock(&cr->conn_recovery_cmd_lock);
 
-		spin_lock_bh(&conn->cmd_lock);
+		spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 		cmd->cr = cr;
 		cmd->conn = NULL;
 	}
-	spin_unlock_bh(&conn->cmd_lock);
+	spin_unlock_bh(&conn->cmd_lock, bh);
 	/*
 	 * Fill in the various values in the preallocated struct iscsi_conn_recovery.
 	 */

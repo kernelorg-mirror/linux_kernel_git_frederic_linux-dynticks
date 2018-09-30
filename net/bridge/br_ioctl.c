@@ -112,6 +112,7 @@ static int add_del_if(struct net_bridge *br, int ifindex, int isadd)
  */
 static int old_dev_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
+	unsigned int bh;
 	struct net_bridge *br = netdev_priv(dev);
 	struct net_bridge_port *p = NULL;
 	unsigned long args[4];
@@ -263,12 +264,12 @@ static int old_dev_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 		if (!ns_capable(dev_net(dev)->user_ns, CAP_NET_ADMIN))
 			return -EPERM;
 
-		spin_lock_bh(&br->lock);
+		bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 		if ((p = br_get_port(br, args[1])) == NULL)
 			ret = -EINVAL;
 		else
 			ret = br_stp_set_port_priority(p, args[2]);
-		spin_unlock_bh(&br->lock);
+		spin_unlock_bh(&br->lock, bh);
 		break;
 	}
 
@@ -277,12 +278,12 @@ static int old_dev_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 		if (!ns_capable(dev_net(dev)->user_ns, CAP_NET_ADMIN))
 			return -EPERM;
 
-		spin_lock_bh(&br->lock);
+		bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 		if ((p = br_get_port(br, args[1])) == NULL)
 			ret = -EINVAL;
 		else
 			ret = br_stp_set_path_cost(p, args[2]);
-		spin_unlock_bh(&br->lock);
+		spin_unlock_bh(&br->lock, bh);
 		break;
 	}
 

@@ -79,7 +79,7 @@ case - see below.
 As the MTD API no longer permits erase-completion callback functions
 to be called from bottom-half (timer) context (on the basis that nobody
 ever actually implemented such a thing), it's now sufficient to use
-a simple spin_lock() rather than spin_lock_bh().
+a simple spin_lock() rather than spin_lock_bh(, SOFTIRQ_ALL_MASK).
 
 Note that the per-inode list of physical nodes (f->nodes) is a special
 case. Any changes to _valid_ nodes (i.e. ->flash_offset & 1 == 0) in

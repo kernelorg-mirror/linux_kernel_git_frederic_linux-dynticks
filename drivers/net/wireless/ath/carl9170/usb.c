@@ -650,6 +650,7 @@ err_free:
 int carl9170_exec_cmd(struct ar9170 *ar, const enum carl9170_cmd_oids cmd,
 	unsigned int plen, void *payload, unsigned int outlen, void *out)
 {
+	unsigned int bh;
 	int err = -ENOMEM;
 	unsigned long time_left;
 
@@ -665,10 +666,10 @@ int carl9170_exec_cmd(struct ar9170 *ar, const enum carl9170_cmd_oids cmd,
 	if (plen && payload != (u8 *)(ar->cmd.data))
 		memcpy(ar->cmd.data, payload, plen);
 
-	spin_lock_bh(&ar->cmd_lock);
+	bh = spin_lock_bh(&ar->cmd_lock, SOFTIRQ_ALL_MASK);
 	ar->readbuf = (u8 *)out;
 	ar->readlen = outlen;
-	spin_unlock_bh(&ar->cmd_lock);
+	spin_unlock_bh(&ar->cmd_lock, bh);
 
 	reinit_completion(&ar->cmd_wait);
 	err = __carl9170_exec_cmd(ar, &ar->cmd, false);
@@ -702,7 +703,7 @@ err_unbuf:
 	}
 
 	/* invalidate to avoid completing the next command prematurely */
-	spin_lock_bh(&ar->cmd_lock);
+	spin_lock_bh(&ar->cmd_lock, SOFTIRQ_ALL_MASK);
 	ar->readbuf = NULL;
 	ar->readlen = 0;
 	spin_unlock_bh(&ar->cmd_lock);
@@ -764,6 +765,7 @@ static void carl9170_release_firmware(struct ar9170 *ar)
 
 void carl9170_usb_stop(struct ar9170 *ar)
 {
+	unsigned int bh;
 	int ret;
 
 	carl9170_set_state_when(ar, CARL9170_IDLE, CARL9170_STOPPED);
@@ -776,9 +778,9 @@ void carl9170_usb_stop(struct ar9170 *ar)
 	carl9170_usb_handle_tx_err(ar);
 
 	/* kill any pending command */
-	spin_lock_bh(&ar->cmd_lock);
+	bh = spin_lock_bh(&ar->cmd_lock, SOFTIRQ_ALL_MASK);
 	ar->readlen = 0;
-	spin_unlock_bh(&ar->cmd_lock);
+	spin_unlock_bh(&ar->cmd_lock, bh);
 	complete(&ar->cmd_wait);
 
 	/*

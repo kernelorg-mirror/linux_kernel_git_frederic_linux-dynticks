@@ -775,6 +775,7 @@ static int tcp_packet(struct nf_conn *ct,
 		      unsigned int dataoff,
 		      enum ip_conntrack_info ctinfo)
 {
+	unsigned int bh;
 	struct net *net = nf_ct_net(ct);
 	struct nf_tcp_net *tn = tcp_pernet(net);
 	struct nf_conntrack_tuple *tuple;
@@ -788,7 +789,7 @@ static int tcp_packet(struct nf_conn *ct,
 	th = skb_header_pointer(skb, dataoff, sizeof(_tcph), &_tcph);
 	BUG_ON(th == NULL);
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	old_state = ct->proto.tcp.state;
 	dir = CTINFO2DIR(ctinfo);
 	index = get_conntrack_index(th);
@@ -818,7 +819,7 @@ static int tcp_packet(struct nf_conn *ct,
 		        && ct->proto.tcp.last_index == TCP_RST_SET)) {
 			/* Attempt to reopen a closed/aborted connection.
 			 * Delete this connection and look up again. */
-			spin_unlock_bh(&ct->lock);
+			spin_unlock_bh(&ct->lock, bh);
 
 			/* Only repeat if we can actually remove the timer.
 			 * Destruction may already be in progress in process
@@ -908,7 +909,7 @@ static int tcp_packet(struct nf_conn *ct,
 				ct->proto.tcp.last_flags |=
 					IP_CT_EXP_CHALLENGE_ACK;
 		}
-		spin_unlock_bh(&ct->lock);
+		spin_unlock_bh(&ct->lock, bh);
 		nf_ct_l4proto_log_invalid(skb, ct, "invalid packet ignored in "
 					  "state %s ", tcp_conntrack_names[old_state]);
 		return NF_ACCEPT;
@@ -924,14 +925,14 @@ static int tcp_packet(struct nf_conn *ct,
 		    ct->proto.tcp.last_dir == IP_CT_DIR_ORIGINAL &&
 		    ct->proto.tcp.seen[dir].td_end - 1 == ntohl(th->seq)) {
 			pr_debug("nf_ct_tcp: SYN proxy client keep alive\n");
-			spin_unlock_bh(&ct->lock);
+			spin_unlock_bh(&ct->lock, bh);
 			return NF_ACCEPT;
 		}
 
 		/* Invalid packet */
 		pr_debug("nf_ct_tcp: Invalid dir=%i index=%u ostate=%u\n",
 			 dir, get_conntrack_index(th), old_state);
-		spin_unlock_bh(&ct->lock);
+		spin_unlock_bh(&ct->lock, bh);
 		nf_ct_l4proto_log_invalid(skb, ct, "invalid state");
 		return -NF_ACCEPT;
 	case TCP_CONNTRACK_TIME_WAIT:
@@ -946,7 +947,7 @@ static int tcp_packet(struct nf_conn *ct,
 		    (ct->proto.tcp.last_flags & IP_CT_EXP_CHALLENGE_ACK)) {
 			/* Detected RFC5961 challenge ACK */
 			ct->proto.tcp.last_flags &= ~IP_CT_EXP_CHALLENGE_ACK;
-			spin_unlock_bh(&ct->lock);
+			spin_unlock_bh(&ct->lock, bh);
 			nf_ct_l4proto_log_invalid(skb, ct, "challenge-ack ignored");
 			return NF_ACCEPT; /* Don't change state */
 		}
@@ -967,7 +968,7 @@ static int tcp_packet(struct nf_conn *ct,
 		    && (ct->proto.tcp.seen[!dir].flags & IP_CT_TCP_FLAG_MAXACK_SET)
 		    && before(ntohl(th->seq), ct->proto.tcp.seen[!dir].td_maxack)) {
 			/* Invalid RST  */
-			spin_unlock_bh(&ct->lock);
+			spin_unlock_bh(&ct->lock, bh);
 			nf_ct_l4proto_log_invalid(skb, ct, "invalid rst");
 			return -NF_ACCEPT;
 		}
@@ -996,7 +997,7 @@ static int tcp_packet(struct nf_conn *ct,
 
 	if (!tcp_in_window(ct, &ct->proto.tcp, dir, index,
 			   skb, dataoff, th)) {
-		spin_unlock_bh(&ct->lock);
+		spin_unlock_bh(&ct->lock, bh);
 		return -NF_ACCEPT;
 	}
      in_window:
@@ -1032,7 +1033,7 @@ static int tcp_packet(struct nf_conn *ct,
 		timeout = timeouts[TCP_CONNTRACK_RETRANS];
 	else
 		timeout = timeouts[new_state];
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 
 	if (new_state != old_state)
 		nf_conntrack_event_cache(IPCT_PROTOINFO, ct);
@@ -1167,10 +1168,11 @@ static bool tcp_can_early_drop(const struct nf_conn *ct)
 static int tcp_to_nlattr(struct sk_buff *skb, struct nlattr *nla,
 			 struct nf_conn *ct)
 {
+	unsigned int bh;
 	struct nlattr *nest_parms;
 	struct nf_ct_tcp_flags tmp = {};
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	nest_parms = nla_nest_start(skb, CTA_PROTOINFO_TCP | NLA_F_NESTED);
 	if (!nest_parms)
 		goto nla_put_failure;
@@ -1191,14 +1193,14 @@ static int tcp_to_nlattr(struct sk_buff *skb, struct nlattr *nla,
 	if (nla_put(skb, CTA_PROTOINFO_TCP_FLAGS_REPLY,
 		    sizeof(struct nf_ct_tcp_flags), &tmp))
 		goto nla_put_failure;
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 
 	nla_nest_end(skb, nest_parms);
 
 	return 0;
 
 nla_put_failure:
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 	return -1;
 }
 
@@ -1218,6 +1220,7 @@ static const struct nla_policy tcp_nla_policy[CTA_PROTOINFO_TCP_MAX+1] = {
 
 static int nlattr_to_tcp(struct nlattr *cda[], struct nf_conn *ct)
 {
+	unsigned int bh;
 	struct nlattr *pattr = cda[CTA_PROTOINFO_TCP];
 	struct nlattr *tb[CTA_PROTOINFO_TCP_MAX+1];
 	int err;
@@ -1236,7 +1239,7 @@ static int nlattr_to_tcp(struct nlattr *cda[], struct nf_conn *ct)
 	    nla_get_u8(tb[CTA_PROTOINFO_TCP_STATE]) >= TCP_CONNTRACK_MAX)
 		return -EINVAL;
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	if (tb[CTA_PROTOINFO_TCP_STATE])
 		ct->proto.tcp.state = nla_get_u8(tb[CTA_PROTOINFO_TCP_STATE]);
 
@@ -1263,7 +1266,7 @@ static int nlattr_to_tcp(struct nlattr *cda[], struct nf_conn *ct)
 		ct->proto.tcp.seen[1].td_scale =
 			nla_get_u8(tb[CTA_PROTOINFO_TCP_WSCALE_REPLY]);
 	}
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 
 	return 0;
 }

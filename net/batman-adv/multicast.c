@@ -1044,6 +1044,7 @@ static void batadv_mcast_want_unsnoop_update(struct batadv_priv *bat_priv,
 					     struct batadv_orig_node *orig,
 					     u8 mcast_flags)
 {
+	unsigned int bh;
 	struct hlist_node *node = &orig->mcast_want_all_unsnoopables_node;
 	struct hlist_head *head = &bat_priv->mcast.want_all_unsnoopables_list;
 
@@ -1054,23 +1055,23 @@ static void batadv_mcast_want_unsnoop_update(struct batadv_priv *bat_priv,
 	    !(orig->mcast_flags & BATADV_MCAST_WANT_ALL_UNSNOOPABLES)) {
 		atomic_inc(&bat_priv->mcast.num_want_all_unsnoopables);
 
-		spin_lock_bh(&bat_priv->mcast.want_lists_lock);
+		bh = spin_lock_bh(&bat_priv->mcast.want_lists_lock, SOFTIRQ_ALL_MASK);
 		/* flag checks above + mcast_handler_lock prevents this */
 		WARN_ON(!hlist_unhashed(node));
 
 		hlist_add_head_rcu(node, head);
-		spin_unlock_bh(&bat_priv->mcast.want_lists_lock);
+		spin_unlock_bh(&bat_priv->mcast.want_lists_lock, bh);
 	/* switched from flag set to unset */
 	} else if (!(mcast_flags & BATADV_MCAST_WANT_ALL_UNSNOOPABLES) &&
 		   orig->mcast_flags & BATADV_MCAST_WANT_ALL_UNSNOOPABLES) {
 		atomic_dec(&bat_priv->mcast.num_want_all_unsnoopables);
 
-		spin_lock_bh(&bat_priv->mcast.want_lists_lock);
+		bh = spin_lock_bh(&bat_priv->mcast.want_lists_lock, SOFTIRQ_ALL_MASK);
 		/* flag checks above + mcast_handler_lock prevents this */
 		WARN_ON(hlist_unhashed(node));
 
 		hlist_del_init_rcu(node);
-		spin_unlock_bh(&bat_priv->mcast.want_lists_lock);
+		spin_unlock_bh(&bat_priv->mcast.want_lists_lock, bh);
 	}
 }
 
@@ -1089,6 +1090,7 @@ static void batadv_mcast_want_ipv4_update(struct batadv_priv *bat_priv,
 					  struct batadv_orig_node *orig,
 					  u8 mcast_flags)
 {
+	unsigned int bh;
 	struct hlist_node *node = &orig->mcast_want_all_ipv4_node;
 	struct hlist_head *head = &bat_priv->mcast.want_all_ipv4_list;
 
@@ -1099,23 +1101,23 @@ static void batadv_mcast_want_ipv4_update(struct batadv_priv *bat_priv,
 	    !(orig->mcast_flags & BATADV_MCAST_WANT_ALL_IPV4)) {
 		atomic_inc(&bat_priv->mcast.num_want_all_ipv4);
 
-		spin_lock_bh(&bat_priv->mcast.want_lists_lock);
+		bh = spin_lock_bh(&bat_priv->mcast.want_lists_lock, SOFTIRQ_ALL_MASK);
 		/* flag checks above + mcast_handler_lock prevents this */
 		WARN_ON(!hlist_unhashed(node));
 
 		hlist_add_head_rcu(node, head);
-		spin_unlock_bh(&bat_priv->mcast.want_lists_lock);
+		spin_unlock_bh(&bat_priv->mcast.want_lists_lock, bh);
 	/* switched from flag set to unset */
 	} else if (!(mcast_flags & BATADV_MCAST_WANT_ALL_IPV4) &&
 		   orig->mcast_flags & BATADV_MCAST_WANT_ALL_IPV4) {
 		atomic_dec(&bat_priv->mcast.num_want_all_ipv4);
 
-		spin_lock_bh(&bat_priv->mcast.want_lists_lock);
+		bh = spin_lock_bh(&bat_priv->mcast.want_lists_lock, SOFTIRQ_ALL_MASK);
 		/* flag checks above + mcast_handler_lock prevents this */
 		WARN_ON(hlist_unhashed(node));
 
 		hlist_del_init_rcu(node);
-		spin_unlock_bh(&bat_priv->mcast.want_lists_lock);
+		spin_unlock_bh(&bat_priv->mcast.want_lists_lock, bh);
 	}
 }
 
@@ -1134,6 +1136,7 @@ static void batadv_mcast_want_ipv6_update(struct batadv_priv *bat_priv,
 					  struct batadv_orig_node *orig,
 					  u8 mcast_flags)
 {
+	unsigned int bh;
 	struct hlist_node *node = &orig->mcast_want_all_ipv6_node;
 	struct hlist_head *head = &bat_priv->mcast.want_all_ipv6_list;
 
@@ -1144,23 +1147,23 @@ static void batadv_mcast_want_ipv6_update(struct batadv_priv *bat_priv,
 	    !(orig->mcast_flags & BATADV_MCAST_WANT_ALL_IPV6)) {
 		atomic_inc(&bat_priv->mcast.num_want_all_ipv6);
 
-		spin_lock_bh(&bat_priv->mcast.want_lists_lock);
+		bh = spin_lock_bh(&bat_priv->mcast.want_lists_lock, SOFTIRQ_ALL_MASK);
 		/* flag checks above + mcast_handler_lock prevents this */
 		WARN_ON(!hlist_unhashed(node));
 
 		hlist_add_head_rcu(node, head);
-		spin_unlock_bh(&bat_priv->mcast.want_lists_lock);
+		spin_unlock_bh(&bat_priv->mcast.want_lists_lock, bh);
 	/* switched from flag set to unset */
 	} else if (!(mcast_flags & BATADV_MCAST_WANT_ALL_IPV6) &&
 		   orig->mcast_flags & BATADV_MCAST_WANT_ALL_IPV6) {
 		atomic_dec(&bat_priv->mcast.num_want_all_ipv6);
 
-		spin_lock_bh(&bat_priv->mcast.want_lists_lock);
+		bh = spin_lock_bh(&bat_priv->mcast.want_lists_lock, SOFTIRQ_ALL_MASK);
 		/* flag checks above + mcast_handler_lock prevents this */
 		WARN_ON(hlist_unhashed(node));
 
 		hlist_del_init_rcu(node);
-		spin_unlock_bh(&bat_priv->mcast.want_lists_lock);
+		spin_unlock_bh(&bat_priv->mcast.want_lists_lock, bh);
 	}
 }
 
@@ -1178,6 +1181,7 @@ static void batadv_mcast_tvlv_ogm_handler(struct batadv_priv *bat_priv,
 					  void *tvlv_value,
 					  u16 tvlv_value_len)
 {
+	unsigned int bh;
 	bool orig_mcast_enabled = !(flags & BATADV_TVLV_HANDLER_OGM_CIFNOTFND);
 	u8 mcast_flags = BATADV_NO_FLAGS;
 
@@ -1190,7 +1194,7 @@ static void batadv_mcast_tvlv_ogm_handler(struct batadv_priv *bat_priv,
 		mcast_flags |= BATADV_MCAST_WANT_ALL_IPV6;
 	}
 
-	spin_lock_bh(&orig->mcast_handler_lock);
+	bh = spin_lock_bh(&orig->mcast_handler_lock, SOFTIRQ_ALL_MASK);
 
 	if (orig_mcast_enabled &&
 	    !test_bit(BATADV_ORIG_CAPA_HAS_MCAST, &orig->capabilities)) {
@@ -1207,7 +1211,7 @@ static void batadv_mcast_tvlv_ogm_handler(struct batadv_priv *bat_priv,
 	batadv_mcast_want_ipv6_update(bat_priv, orig, mcast_flags);
 
 	orig->mcast_flags = mcast_flags;
-	spin_unlock_bh(&orig->mcast_handler_lock);
+	spin_unlock_bh(&orig->mcast_handler_lock, bh);
 }
 
 /**
@@ -1578,13 +1582,14 @@ void batadv_mcast_free(struct batadv_priv *bat_priv)
  */
 void batadv_mcast_purge_orig(struct batadv_orig_node *orig)
 {
+	unsigned int bh;
 	struct batadv_priv *bat_priv = orig->bat_priv;
 
-	spin_lock_bh(&orig->mcast_handler_lock);
+	bh = spin_lock_bh(&orig->mcast_handler_lock, SOFTIRQ_ALL_MASK);
 
 	batadv_mcast_want_unsnoop_update(bat_priv, orig, BATADV_NO_FLAGS);
 	batadv_mcast_want_ipv4_update(bat_priv, orig, BATADV_NO_FLAGS);
 	batadv_mcast_want_ipv6_update(bat_priv, orig, BATADV_NO_FLAGS);
 
-	spin_unlock_bh(&orig->mcast_handler_lock);
+	spin_unlock_bh(&orig->mcast_handler_lock, bh);
 }

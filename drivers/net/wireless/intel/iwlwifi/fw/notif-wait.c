@@ -146,6 +146,7 @@ iwl_init_notification_wait(struct iwl_notif_wait_data *notif_wait,
 				      struct iwl_rx_packet *pkt, void *data),
 			   void *fn_data)
 {
+	unsigned int bh;
 	if (WARN_ON(n_cmds > MAX_NOTIF_CMDS))
 		n_cmds = MAX_NOTIF_CMDS;
 
@@ -156,18 +157,19 @@ iwl_init_notification_wait(struct iwl_notif_wait_data *notif_wait,
 	wait_entry->triggered = false;
 	wait_entry->aborted = false;
 
-	spin_lock_bh(&notif_wait->notif_wait_lock);
+	bh = spin_lock_bh(&notif_wait->notif_wait_lock, SOFTIRQ_ALL_MASK);
 	list_add(&wait_entry->list, &notif_wait->notif_waits);
-	spin_unlock_bh(&notif_wait->notif_wait_lock);
+	spin_unlock_bh(&notif_wait->notif_wait_lock, bh);
 }
 IWL_EXPORT_SYMBOL(iwl_init_notification_wait);
 
 void iwl_remove_notification(struct iwl_notif_wait_data *notif_wait,
 			     struct iwl_notification_wait *wait_entry)
 {
-	spin_lock_bh(&notif_wait->notif_wait_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&notif_wait->notif_wait_lock, SOFTIRQ_ALL_MASK);
 	list_del(&wait_entry->list);
-	spin_unlock_bh(&notif_wait->notif_wait_lock);
+	spin_unlock_bh(&notif_wait->notif_wait_lock, bh);
 }
 IWL_EXPORT_SYMBOL(iwl_remove_notification);
 

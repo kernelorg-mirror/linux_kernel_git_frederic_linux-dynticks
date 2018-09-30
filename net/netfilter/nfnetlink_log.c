@@ -158,11 +158,12 @@ static struct nfulnl_instance *
 instance_create(struct net *net, u_int16_t group_num,
 		u32 portid, struct user_namespace *user_ns)
 {
+	unsigned int bh;
 	struct nfulnl_instance *inst;
 	struct nfnl_log_net *log = nfnl_log_pernet(net);
 	int err;
 
-	spin_lock_bh(&log->instances_lock);
+	bh = spin_lock_bh(&log->instances_lock, SOFTIRQ_ALL_MASK);
 	if (__instance_lookup(log, group_num)) {
 		err = -EEXIST;
 		goto out_unlock;
@@ -202,12 +203,12 @@ instance_create(struct net *net, u_int16_t group_num,
 		       &log->instance_table[instance_hashfn(group_num)]);
 
 
-	spin_unlock_bh(&log->instances_lock);
+	spin_unlock_bh(&log->instances_lock, bh);
 
 	return inst;
 
 out_unlock:
-	spin_unlock_bh(&log->instances_lock);
+	spin_unlock_bh(&log->instances_lock, bh);
 	return ERR_PTR(err);
 }
 
@@ -239,18 +240,20 @@ static inline void
 instance_destroy(struct nfnl_log_net *log,
 		 struct nfulnl_instance *inst)
 {
-	spin_lock_bh(&log->instances_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&log->instances_lock, SOFTIRQ_ALL_MASK);
 	__instance_destroy(inst);
-	spin_unlock_bh(&log->instances_lock);
+	spin_unlock_bh(&log->instances_lock, bh);
 }
 
 static int
 nfulnl_set_mode(struct nfulnl_instance *inst, u_int8_t mode,
 		  unsigned int range)
 {
+	unsigned int bh;
 	int status = 0;
 
-	spin_lock_bh(&inst->lock);
+	bh = spin_lock_bh(&inst->lock, SOFTIRQ_ALL_MASK);
 
 	switch (mode) {
 	case NFULNL_COPY_NONE:
@@ -272,7 +275,7 @@ nfulnl_set_mode(struct nfulnl_instance *inst, u_int8_t mode,
 		break;
 	}
 
-	spin_unlock_bh(&inst->lock);
+	spin_unlock_bh(&inst->lock, bh);
 
 	return status;
 }
@@ -280,9 +283,10 @@ nfulnl_set_mode(struct nfulnl_instance *inst, u_int8_t mode,
 static int
 nfulnl_set_nlbufsiz(struct nfulnl_instance *inst, u_int32_t nlbufsiz)
 {
+	unsigned int bh;
 	int status;
 
-	spin_lock_bh(&inst->lock);
+	bh = spin_lock_bh(&inst->lock, SOFTIRQ_ALL_MASK);
 	if (nlbufsiz < NFULNL_NLBUFSIZ_DEFAULT)
 		status = -ERANGE;
 	else if (nlbufsiz > 131072)
@@ -291,7 +295,7 @@ nfulnl_set_nlbufsiz(struct nfulnl_instance *inst, u_int32_t nlbufsiz)
 		inst->nlbufsiz = nlbufsiz;
 		status = 0;
 	}
-	spin_unlock_bh(&inst->lock);
+	spin_unlock_bh(&inst->lock, bh);
 
 	return status;
 }
@@ -299,25 +303,28 @@ nfulnl_set_nlbufsiz(struct nfulnl_instance *inst, u_int32_t nlbufsiz)
 static void
 nfulnl_set_timeout(struct nfulnl_instance *inst, u_int32_t timeout)
 {
-	spin_lock_bh(&inst->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&inst->lock, SOFTIRQ_ALL_MASK);
 	inst->flushtimeout = timeout;
-	spin_unlock_bh(&inst->lock);
+	spin_unlock_bh(&inst->lock, bh);
 }
 
 static void
 nfulnl_set_qthresh(struct nfulnl_instance *inst, u_int32_t qthresh)
 {
-	spin_lock_bh(&inst->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&inst->lock, SOFTIRQ_ALL_MASK);
 	inst->qthreshold = qthresh;
-	spin_unlock_bh(&inst->lock);
+	spin_unlock_bh(&inst->lock, bh);
 }
 
 static int
 nfulnl_set_flags(struct nfulnl_instance *inst, u_int16_t flags)
 {
-	spin_lock_bh(&inst->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&inst->lock, SOFTIRQ_ALL_MASK);
 	inst->flags = flags;
-	spin_unlock_bh(&inst->lock);
+	spin_unlock_bh(&inst->lock, bh);
 
 	return 0;
 }
@@ -380,12 +387,13 @@ __nfulnl_flush(struct nfulnl_instance *inst)
 static void
 nfulnl_timer(struct timer_list *t)
 {
+	unsigned int bh;
 	struct nfulnl_instance *inst = from_timer(inst, t, timer);
 
-	spin_lock_bh(&inst->lock);
+	bh = spin_lock_bh(&inst->lock, SOFTIRQ_ALL_MASK);
 	if (inst->skb)
 		__nfulnl_send(inst);
-	spin_unlock_bh(&inst->lock);
+	spin_unlock_bh(&inst->lock, bh);
 	instance_put(inst);
 }
 
@@ -629,6 +637,7 @@ nfulnl_log_packet(struct net *net,
 		  const struct nf_loginfo *li_user,
 		  const char *prefix)
 {
+	unsigned int bh;
 	size_t size;
 	unsigned int data_len;
 	struct nfulnl_instance *inst;
@@ -677,7 +686,7 @@ nfulnl_log_packet(struct net *net,
 			+ nla_total_size(sizeof(u_int16_t));	/* hwlen */
 	}
 
-	spin_lock_bh(&inst->lock);
+	bh = spin_lock_bh(&inst->lock, SOFTIRQ_ALL_MASK);
 
 	if (inst->flags & NFULNL_CFG_F_SEQ)
 		size += nla_total_size(sizeof(u_int32_t));
@@ -752,7 +761,7 @@ nfulnl_log_packet(struct net *net,
 	}
 
 unlock_and_release:
-	spin_unlock_bh(&inst->lock);
+	spin_unlock_bh(&inst->lock, bh);
 	instance_put(inst);
 	return;
 
@@ -765,6 +774,7 @@ static int
 nfulnl_rcv_nl_event(struct notifier_block *this,
 		   unsigned long event, void *ptr)
 {
+	unsigned int bh;
 	struct netlink_notify *n = ptr;
 	struct nfnl_log_net *log = nfnl_log_pernet(n->net);
 
@@ -772,7 +782,7 @@ nfulnl_rcv_nl_event(struct notifier_block *this,
 		int i;
 
 		/* destroy all instances for this portid */
-		spin_lock_bh(&log->instances_lock);
+		bh = spin_lock_bh(&log->instances_lock, SOFTIRQ_ALL_MASK);
 		for  (i = 0; i < INSTANCE_BUCKETS; i++) {
 			struct hlist_node *t2;
 			struct nfulnl_instance *inst;
@@ -783,7 +793,7 @@ nfulnl_rcv_nl_event(struct notifier_block *this,
 					__instance_destroy(inst);
 			}
 		}
-		spin_unlock_bh(&log->instances_lock);
+		spin_unlock_bh(&log->instances_lock, bh);
 	}
 	return NOTIFY_DONE;
 }

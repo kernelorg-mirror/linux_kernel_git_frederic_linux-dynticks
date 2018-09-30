@@ -1198,21 +1198,22 @@ cleanup_prefix_route(struct inet6_ifaddr *ifp, unsigned long expires, bool del_r
 
 static void ipv6_del_addr(struct inet6_ifaddr *ifp)
 {
+	unsigned int bh;
 	int state;
 	enum cleanup_prefix_rt_t action = CLEANUP_PREFIX_RT_NOP;
 	unsigned long expires;
 
 	ASSERT_RTNL();
 
-	spin_lock_bh(&ifp->lock);
+	bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 	state = ifp->state;
 	ifp->state = INET6_IFADDR_STATE_DEAD;
-	spin_unlock_bh(&ifp->lock);
+	spin_unlock_bh(&ifp->lock, bh);
 
 	if (state == INET6_IFADDR_STATE_DEAD)
 		goto out;
 
-	spin_lock_bh(&addrconf_hash_lock);
+	spin_lock_bh(&addrconf_hash_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_init_rcu(&ifp->addr_lst);
 	spin_unlock_bh(&addrconf_hash_lock);
 
@@ -1256,6 +1257,7 @@ static int ipv6_create_tempaddr(struct inet6_ifaddr *ifp,
 				struct inet6_ifaddr *ift,
 				bool block)
 {
+	unsigned int bh;
 	struct inet6_dev *idev = ifp->idev;
 	struct in6_addr addr, *tmpaddr;
 	unsigned long tmp_tstamp, age;
@@ -1268,9 +1270,9 @@ static int ipv6_create_tempaddr(struct inet6_ifaddr *ifp,
 
 	write_lock_bh(&idev->lock);
 	if (ift) {
-		spin_lock_bh(&ift->lock);
+		bh = spin_lock_bh(&ift->lock, SOFTIRQ_ALL_MASK);
 		memcpy(&addr.s6_addr[8], &ift->addr.s6_addr[8], 8);
-		spin_unlock_bh(&ift->lock);
+		spin_unlock_bh(&ift->lock, bh);
 		tmpaddr = &addr;
 	} else {
 		tmpaddr = NULL;
@@ -1284,10 +1286,10 @@ retry:
 		ret = -1;
 		goto out;
 	}
-	spin_lock_bh(&ifp->lock);
+	bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 	if (ifp->regen_count++ >= idev->cnf.regen_max_retry) {
 		idev->cnf.use_tempaddr = -1;	/*XXX*/
-		spin_unlock_bh(&ifp->lock);
+		spin_unlock_bh(&ifp->lock, bh);
 		write_unlock_bh(&idev->lock);
 		pr_warn("%s: regeneration time exceeded - disabled temporary address support\n",
 			__func__);
@@ -1331,7 +1333,7 @@ retry:
 
 	cfg.plen = ifp->prefix_len;
 	tmp_tstamp = ifp->tstamp;
-	spin_unlock_bh(&ifp->lock);
+	spin_unlock_bh(&ifp->lock, bh);
 
 	write_unlock_bh(&idev->lock);
 
@@ -1368,7 +1370,7 @@ retry:
 		goto retry;
 	}
 
-	spin_lock_bh(&ift->lock);
+	spin_lock_bh(&ift->lock, SOFTIRQ_ALL_MASK);
 	ift->ifpub = ifp;
 	ift->cstamp = now;
 	ift->tstamp = tmp_tstamp;
@@ -1968,29 +1970,30 @@ struct inet6_ifaddr *ipv6_get_ifaddr(struct net *net, const struct in6_addr *add
 
 static void addrconf_dad_stop(struct inet6_ifaddr *ifp, int dad_failed)
 {
+	unsigned int bh;
 	if (dad_failed)
 		ifp->flags |= IFA_F_DADFAILED;
 
 	if (ifp->flags&IFA_F_TEMPORARY) {
 		struct inet6_ifaddr *ifpub;
-		spin_lock_bh(&ifp->lock);
+		bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 		ifpub = ifp->ifpub;
 		if (ifpub) {
 			in6_ifa_hold(ifpub);
-			spin_unlock_bh(&ifp->lock);
+			spin_unlock_bh(&ifp->lock, bh);
 			ipv6_create_tempaddr(ifpub, ifp, true);
 			in6_ifa_put(ifpub);
 		} else {
-			spin_unlock_bh(&ifp->lock);
+			spin_unlock_bh(&ifp->lock, bh);
 		}
 		ipv6_del_addr(ifp);
 	} else if (ifp->flags&IFA_F_PERMANENT || !dad_failed) {
-		spin_lock_bh(&ifp->lock);
+		bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 		addrconf_del_dad_work(ifp);
 		ifp->flags |= IFA_F_TENTATIVE;
 		if (dad_failed)
 			ifp->flags &= ~IFA_F_OPTIMISTIC;
-		spin_unlock_bh(&ifp->lock);
+		spin_unlock_bh(&ifp->lock, bh);
 		if (dad_failed)
 			ipv6_ifa_notify(0, ifp);
 		in6_ifa_put(ifp);
@@ -2001,20 +2004,22 @@ static void addrconf_dad_stop(struct inet6_ifaddr *ifp, int dad_failed)
 
 static int addrconf_dad_end(struct inet6_ifaddr *ifp)
 {
+	unsigned int bh;
 	int err = -ENOENT;
 
-	spin_lock_bh(&ifp->lock);
+	bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 	if (ifp->state == INET6_IFADDR_STATE_DAD) {
 		ifp->state = INET6_IFADDR_STATE_POSTDAD;
 		err = 0;
 	}
-	spin_unlock_bh(&ifp->lock);
+	spin_unlock_bh(&ifp->lock, bh);
 
 	return err;
 }
 
 void addrconf_dad_failure(struct sk_buff *skb, struct inet6_ifaddr *ifp)
 {
+	unsigned int bh;
 	struct inet6_dev *idev = ifp->idev;
 	struct net *net = dev_net(ifp->idev->dev);
 
@@ -2026,7 +2031,7 @@ void addrconf_dad_failure(struct sk_buff *skb, struct inet6_ifaddr *ifp)
 	net_info_ratelimited("%s: IPv6 duplicate address %pI6c used by %pM detected!\n",
 			     ifp->idev->dev->name, &ifp->addr, eth_hdr(skb)->h_source);
 
-	spin_lock_bh(&ifp->lock);
+	bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 
 	if (ifp->flags & IFA_F_STABLE_PRIVACY) {
 		struct in6_addr new_addr;
@@ -2066,7 +2071,7 @@ void addrconf_dad_failure(struct sk_buff *skb, struct inet6_ifaddr *ifp)
 		if (IS_ERR(ifp2))
 			goto lock_errdad;
 
-		spin_lock_bh(&ifp2->lock);
+		spin_lock_bh(&ifp2->lock, SOFTIRQ_ALL_MASK);
 		ifp2->stable_privacy_retry = retries;
 		ifp2->state = INET6_IFADDR_STATE_PREDAD;
 		spin_unlock_bh(&ifp2->lock);
@@ -2074,13 +2079,13 @@ void addrconf_dad_failure(struct sk_buff *skb, struct inet6_ifaddr *ifp)
 		addrconf_mod_dad_work(ifp2, net->ipv6.sysctl.idgen_delay);
 		in6_ifa_put(ifp2);
 lock_errdad:
-		spin_lock_bh(&ifp->lock);
+		spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 	}
 
 errdad:
 	/* transition from _POSTDAD to _ERRDAD */
 	ifp->state = INET6_IFADDR_STATE_ERRDAD;
-	spin_unlock_bh(&ifp->lock);
+	spin_unlock_bh(&ifp->lock, bh);
 
 	addrconf_mod_dad_work(ifp, 0);
 	in6_ifa_put(ifp);
@@ -2502,6 +2507,7 @@ int addrconf_prefix_rcv_add_addr(struct net *net, struct net_device *dev,
 				 u32 addr_flags, bool sllao, bool tokenized,
 				 __u32 valid_lft, u32 prefered_lft)
 {
+	unsigned int bh;
 	struct inet6_ifaddr *ifp = ipv6_get_ifaddr(net, addr, dev, 1);
 	int create = 0, update_lft = 0;
 
@@ -2534,11 +2540,11 @@ int addrconf_prefix_rcv_add_addr(struct net *net, struct net_device *dev,
 			return -1;
 
 		create = 1;
-		spin_lock_bh(&ifp->lock);
+		bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 		ifp->flags |= IFA_F_MANAGETEMPADDR;
 		ifp->cstamp = jiffies;
 		ifp->tokenized = tokenized;
-		spin_unlock_bh(&ifp->lock);
+		spin_unlock_bh(&ifp->lock, bh);
 		addrconf_dad_start(ifp);
 	}
 
@@ -2548,7 +2554,7 @@ int addrconf_prefix_rcv_add_addr(struct net *net, struct net_device *dev,
 		u32 stored_lft;
 
 		/* update lifetime (RFC2462 5.5.3 e) */
-		spin_lock_bh(&ifp->lock);
+		bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 		now = jiffies;
 		if (ifp->valid_lft > (now - ifp->tstamp) / HZ)
 			stored_lft = ifp->valid_lft - (now - ifp->tstamp) / HZ;
@@ -2578,12 +2584,12 @@ int addrconf_prefix_rcv_add_addr(struct net *net, struct net_device *dev,
 			ifp->tstamp = now;
 			flags = ifp->flags;
 			ifp->flags &= ~IFA_F_DEPRECATED;
-			spin_unlock_bh(&ifp->lock);
+			spin_unlock_bh(&ifp->lock, bh);
 
 			if (!(flags&IFA_F_TENTATIVE))
 				ipv6_ifa_notify(0, ifp);
 		} else
-			spin_unlock_bh(&ifp->lock);
+			spin_unlock_bh(&ifp->lock, bh);
 
 		manage_tempaddrs(in6_dev, ifp, valid_lft, prefered_lft,
 				 create, now);
@@ -3015,6 +3021,7 @@ int addrconf_del_ifaddr(struct net *net, void __user *arg)
 static void add_addr(struct inet6_dev *idev, const struct in6_addr *addr,
 		     int plen, int scope)
 {
+	unsigned int bh;
 	struct inet6_ifaddr *ifp;
 	struct ifa6_config cfg = {
 		.pfx = addr,
@@ -3027,9 +3034,9 @@ static void add_addr(struct inet6_dev *idev, const struct in6_addr *addr,
 
 	ifp = ipv6_add_addr(idev, &cfg, true, NULL);
 	if (!IS_ERR(ifp)) {
-		spin_lock_bh(&ifp->lock);
+		bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 		ifp->flags &= ~IFA_F_TENTATIVE;
-		spin_unlock_bh(&ifp->lock);
+		spin_unlock_bh(&ifp->lock, bh);
 		rt_genid_bump_ipv6(dev_net(idev->dev));
 		ipv6_ifa_notify(RTM_NEWADDR, ifp);
 		in6_ifa_put(ifp);
@@ -3162,6 +3169,7 @@ static int ipv6_generate_stable_address(struct in6_addr *address,
 					u8 dad_count,
 					const struct inet6_dev *idev)
 {
+	unsigned int bh;
 	static DEFINE_SPINLOCK(lock);
 	static __u32 digest[SHA_DIGEST_WORDS];
 	static __u32 workspace[SHA_WORKSPACE_WORDS];
@@ -3190,7 +3198,7 @@ static int ipv6_generate_stable_address(struct in6_addr *address,
 		return -1;
 
 retry:
-	spin_lock_bh(&lock);
+	bh = spin_lock_bh(&lock, SOFTIRQ_ALL_MASK);
 
 	sha_init(digest);
 	memset(&data, 0, sizeof(data));
@@ -3207,7 +3215,7 @@ retry:
 	temp.s6_addr32[2] = (__force __be32)digest[0];
 	temp.s6_addr32[3] = (__force __be32)digest[1];
 
-	spin_unlock_bh(&lock);
+	spin_unlock_bh(&lock, bh);
 
 	if (ipv6_reserved_interfaceid(temp)) {
 		dad_count++;
@@ -3637,6 +3645,7 @@ static bool addr_is_local(const struct in6_addr *addr)
 
 static int addrconf_ifdown(struct net_device *dev, int how)
 {
+	unsigned int bh;
 	unsigned long event = how ? NETDEV_UNREGISTER : NETDEV_DOWN;
 	struct net *net = dev_net(dev);
 	struct inet6_dev *idev;
@@ -3684,7 +3693,7 @@ static int addrconf_ifdown(struct net_device *dev, int how)
 	for (i = 0; i < IN6_ADDR_HSIZE; i++) {
 		struct hlist_head *h = &inet6_addr_lst[i];
 
-		spin_lock_bh(&addrconf_hash_lock);
+		bh = spin_lock_bh(&addrconf_hash_lock, SOFTIRQ_ALL_MASK);
 restart:
 		hlist_for_each_entry_rcu(ifa, h, addr_lst) {
 			if (ifa->idev == idev) {
@@ -3700,7 +3709,7 @@ restart:
 				}
 			}
 		}
-		spin_unlock_bh(&addrconf_hash_lock);
+		spin_unlock_bh(&addrconf_hash_lock, bh);
 	}
 
 	write_lock_bh(&idev->lock);
@@ -3717,13 +3726,13 @@ restart:
 				       struct inet6_ifaddr, tmp_list);
 		list_del(&ifa->tmp_list);
 		write_unlock_bh(&idev->lock);
-		spin_lock_bh(&ifa->lock);
+		bh = spin_lock_bh(&ifa->lock, SOFTIRQ_ALL_MASK);
 
 		if (ifa->ifpub) {
 			in6_ifa_put(ifa->ifpub);
 			ifa->ifpub = NULL;
 		}
-		spin_unlock_bh(&ifa->lock);
+		spin_unlock_bh(&ifa->lock, bh);
 		in6_ifa_put(ifa);
 		write_lock_bh(&idev->lock);
 	}
@@ -3738,7 +3747,7 @@ restart:
 			!addr_is_local(&ifa->addr);
 
 		write_unlock_bh(&idev->lock);
-		spin_lock_bh(&ifa->lock);
+		bh = spin_lock_bh(&ifa->lock, SOFTIRQ_ALL_MASK);
 
 		if (keep) {
 			/* set state to skip the notifier below */
@@ -3754,7 +3763,7 @@ restart:
 			ifa->state = INET6_IFADDR_STATE_DEAD;
 		}
 
-		spin_unlock_bh(&ifa->lock);
+		spin_unlock_bh(&ifa->lock, bh);
 
 		if (rt)
 			ip6_del_rt(net, rt);
@@ -3943,14 +3952,15 @@ out:
 
 static void addrconf_dad_start(struct inet6_ifaddr *ifp)
 {
+	unsigned int bh;
 	bool begin_dad = false;
 
-	spin_lock_bh(&ifp->lock);
+	bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 	if (ifp->state != INET6_IFADDR_STATE_DEAD) {
 		ifp->state = INET6_IFADDR_STATE_PREDAD;
 		begin_dad = true;
 	}
-	spin_unlock_bh(&ifp->lock);
+	spin_unlock_bh(&ifp->lock, bh);
 
 	if (begin_dad)
 		addrconf_mod_dad_work(ifp, 0);
@@ -3958,6 +3968,7 @@ static void addrconf_dad_start(struct inet6_ifaddr *ifp)
 
 static void addrconf_dad_work(struct work_struct *w)
 {
+	unsigned int bh;
 	struct inet6_ifaddr *ifp = container_of(to_delayed_work(w),
 						struct inet6_ifaddr,
 						dad_work);
@@ -3973,7 +3984,7 @@ static void addrconf_dad_work(struct work_struct *w)
 
 	rtnl_lock();
 
-	spin_lock_bh(&ifp->lock);
+	bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 	if (ifp->state == INET6_IFADDR_STATE_PREDAD) {
 		action = DAD_BEGIN;
 		ifp->state = INET6_IFADDR_STATE_DAD;
@@ -4001,7 +4012,7 @@ static void addrconf_dad_work(struct work_struct *w)
 			}
 		}
 	}
-	spin_unlock_bh(&ifp->lock);
+	spin_unlock_bh(&ifp->lock, bh);
 
 	if (action == DAD_BEGIN) {
 		addrconf_dad_begin(ifp);
@@ -4561,6 +4572,7 @@ static int modify_prefix_route(struct inet6_ifaddr *ifp,
 
 static int inet6_addr_modify(struct inet6_ifaddr *ifp, struct ifa6_config *cfg)
 {
+	unsigned int bh;
 	u32 flags;
 	clock_t expires;
 	unsigned long timeout;
@@ -4597,7 +4609,7 @@ static int inet6_addr_modify(struct inet6_ifaddr *ifp, struct ifa6_config *cfg)
 		cfg->preferred_lft = timeout;
 	}
 
-	spin_lock_bh(&ifp->lock);
+	bh = spin_lock_bh(&ifp->lock, SOFTIRQ_ALL_MASK);
 	was_managetempaddr = ifp->flags & IFA_F_MANAGETEMPADDR;
 	had_prefixroute = ifp->flags & IFA_F_PERMANENT &&
 			  !(ifp->flags & IFA_F_NOPREFIXROUTE);
@@ -4612,7 +4624,7 @@ static int inet6_addr_modify(struct inet6_ifaddr *ifp, struct ifa6_config *cfg)
 	if (cfg->rt_priority && cfg->rt_priority != ifp->rt_priority)
 		ifp->rt_priority = cfg->rt_priority;
 
-	spin_unlock_bh(&ifp->lock);
+	spin_unlock_bh(&ifp->lock, bh);
 	if (!(ifp->flags&IFA_F_TENTATIVE))
 		ipv6_ifa_notify(0, ifp);
 
@@ -6808,6 +6820,7 @@ out:
 
 void addrconf_cleanup(void)
 {
+	unsigned int bh;
 	struct net_device *dev;
 	int i;
 
@@ -6830,10 +6843,10 @@ void addrconf_cleanup(void)
 	/*
 	 *	Check hash table.
 	 */
-	spin_lock_bh(&addrconf_hash_lock);
+	bh = spin_lock_bh(&addrconf_hash_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < IN6_ADDR_HSIZE; i++)
 		WARN_ON(!hlist_empty(&inet6_addr_lst[i]));
-	spin_unlock_bh(&addrconf_hash_lock);
+	spin_unlock_bh(&addrconf_hash_lock, bh);
 	cancel_delayed_work(&addr_chk_work);
 	rtnl_unlock();
 

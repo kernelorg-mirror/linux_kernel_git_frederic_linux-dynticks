@@ -1308,9 +1308,10 @@ static void mib_counters_clear(struct mv643xx_eth_private *mp)
 
 static void mib_counters_update(struct mv643xx_eth_private *mp)
 {
+	unsigned int bh;
 	struct mib_counters *p = &mp->mib_counters;
 
-	spin_lock_bh(&mp->mib_counters_lock);
+	bh = spin_lock_bh(&mp->mib_counters_lock, SOFTIRQ_ALL_MASK);
 	p->good_octets_received += mib_read(mp, 0x00);
 	p->bad_octets_received += mib_read(mp, 0x08);
 	p->internal_mac_transmit_err += mib_read(mp, 0x0c);
@@ -1344,7 +1345,7 @@ static void mib_counters_update(struct mv643xx_eth_private *mp)
 	/* Non MIB hardware counters */
 	p->rx_discard += rdlp(mp, RX_DISCARD_FRAME_CNT);
 	p->rx_overrun += rdlp(mp, RX_OVERRUN_FRAME_CNT);
-	spin_unlock_bh(&mp->mib_counters_lock);
+	spin_unlock_bh(&mp->mib_counters_lock, bh);
 }
 
 static void mib_counters_timer_wrapper(struct timer_list *t)

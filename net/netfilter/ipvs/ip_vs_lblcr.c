@@ -399,19 +399,20 @@ ip_vs_lblcr_new(struct ip_vs_lblcr_table *tbl, const union nf_inet_addr *daddr,
  */
 static void ip_vs_lblcr_flush(struct ip_vs_service *svc)
 {
+	unsigned int bh;
 	struct ip_vs_lblcr_table *tbl = svc->sched_data;
 	int i;
 	struct ip_vs_lblcr_entry *en;
 	struct hlist_node *next;
 
-	spin_lock_bh(&svc->sched_lock);
+	bh = spin_lock_bh(&svc->sched_lock, SOFTIRQ_ALL_MASK);
 	tbl->dead = true;
 	for (i = 0; i < IP_VS_LBLCR_TAB_SIZE; i++) {
 		hlist_for_each_entry_safe(en, next, &tbl->bucket[i], list) {
 			ip_vs_lblcr_free(en);
 		}
 	}
-	spin_unlock_bh(&svc->sched_lock);
+	spin_unlock_bh(&svc->sched_lock, bh);
 }
 
 static int sysctl_lblcr_expiration(struct ip_vs_service *svc)
@@ -650,6 +651,7 @@ static struct ip_vs_dest *
 ip_vs_lblcr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb,
 		     struct ip_vs_iphdr *iph)
 {
+	unsigned int bh;
 	struct ip_vs_lblcr_table *tbl = svc->sched_data;
 	struct ip_vs_dest *dest;
 	struct ip_vs_lblcr_entry *en;
@@ -668,7 +670,7 @@ ip_vs_lblcr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb,
 		if (atomic_read(&en->set.size) > 1 &&
 		    time_after(jiffies, en->set.lastmod +
 				sysctl_lblcr_expiration(svc))) {
-			spin_lock_bh(&svc->sched_lock);
+			bh = spin_lock_bh(&svc->sched_lock, SOFTIRQ_ALL_MASK);
 			if (atomic_read(&en->set.size) > 1) {
 				struct ip_vs_dest *m;
 
@@ -676,7 +678,7 @@ ip_vs_lblcr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb,
 				if (m)
 					ip_vs_dest_set_erase(&en->set, m);
 			}
-			spin_unlock_bh(&svc->sched_lock);
+			spin_unlock_bh(&svc->sched_lock, bh);
 		}
 
 		/* If the destination is not overloaded, use it */
@@ -691,10 +693,10 @@ ip_vs_lblcr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb,
 		}
 
 		/* Update our cache entry */
-		spin_lock_bh(&svc->sched_lock);
+		bh = spin_lock_bh(&svc->sched_lock, SOFTIRQ_ALL_MASK);
 		if (!tbl->dead)
 			ip_vs_dest_set_insert(&en->set, dest, true);
-		spin_unlock_bh(&svc->sched_lock);
+		spin_unlock_bh(&svc->sched_lock, bh);
 		goto out;
 	}
 
@@ -706,10 +708,10 @@ ip_vs_lblcr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb,
 	}
 
 	/* If we fail to create a cache entry, we'll just use the valid dest */
-	spin_lock_bh(&svc->sched_lock);
+	bh = spin_lock_bh(&svc->sched_lock, SOFTIRQ_ALL_MASK);
 	if (!tbl->dead)
 		ip_vs_lblcr_new(tbl, &iph->daddr, svc->af, dest);
-	spin_unlock_bh(&svc->sched_lock);
+	spin_unlock_bh(&svc->sched_lock, bh);
 
 out:
 	IP_VS_DBG_BUF(6, "LBLCR: destination IP address %s --> server %s:%d\n",

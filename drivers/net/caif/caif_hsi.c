@@ -139,10 +139,11 @@ static int cfhsi_tx_queue_len(struct cfhsi *cfhsi)
 
 static void cfhsi_abort_tx(struct cfhsi *cfhsi)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 
 	for (;;) {
-		spin_lock_bh(&cfhsi->lock);
+		bh = spin_lock_bh(&cfhsi->lock, SOFTIRQ_ALL_MASK);
 		skb = cfhsi_dequeue(cfhsi);
 		if (!skb)
 			break;
@@ -150,14 +151,14 @@ static void cfhsi_abort_tx(struct cfhsi *cfhsi)
 		cfhsi->ndev->stats.tx_errors++;
 		cfhsi->ndev->stats.tx_dropped++;
 		cfhsi_update_aggregation_stats(cfhsi, skb, -1);
-		spin_unlock_bh(&cfhsi->lock);
+		spin_unlock_bh(&cfhsi->lock, bh);
 		kfree_skb(skb);
 	}
 	cfhsi->tx_state = CFHSI_TX_STATE_IDLE;
 	if (!test_bit(CFHSI_SHUTDOWN, &cfhsi->bits))
 		mod_timer(&cfhsi->inactivity_timer,
 			jiffies + cfhsi->cfg.inactivity_timeout);
-	spin_unlock_bh(&cfhsi->lock);
+	spin_unlock_bh(&cfhsi->lock, bh);
 }
 
 static int cfhsi_flush_fifo(struct cfhsi *cfhsi)
@@ -216,6 +217,7 @@ static int cfhsi_flush_fifo(struct cfhsi *cfhsi)
 
 static int cfhsi_tx_frm(struct cfhsi_desc *desc, struct cfhsi *cfhsi)
 {
+	unsigned int bh;
 	int nfrms = 0;
 	int pld_len = 0;
 	struct sk_buff *skb;
@@ -248,11 +250,11 @@ static int cfhsi_tx_frm(struct cfhsi_desc *desc, struct cfhsi *cfhsi)
 			pemb += hpad;
 
 			/* Update network statistics. */
-			spin_lock_bh(&cfhsi->lock);
+			bh = spin_lock_bh(&cfhsi->lock, SOFTIRQ_ALL_MASK);
 			cfhsi->ndev->stats.tx_packets++;
 			cfhsi->ndev->stats.tx_bytes += skb->len;
 			cfhsi_update_aggregation_stats(cfhsi, skb, -1);
-			spin_unlock_bh(&cfhsi->lock);
+			spin_unlock_bh(&cfhsi->lock, bh);
 
 			/* Copy in embedded CAIF frame. */
 			skb_copy_bits(skb, 0, pemb, skb->len);
@@ -289,11 +291,11 @@ static int cfhsi_tx_frm(struct cfhsi_desc *desc, struct cfhsi *cfhsi)
 		pfrm += hpad;
 
 		/* Update network statistics. */
-		spin_lock_bh(&cfhsi->lock);
+		bh = spin_lock_bh(&cfhsi->lock, SOFTIRQ_ALL_MASK);
 		cfhsi->ndev->stats.tx_packets++;
 		cfhsi->ndev->stats.tx_bytes += skb->len;
 		cfhsi_update_aggregation_stats(cfhsi, skb, -1);
-		spin_unlock_bh(&cfhsi->lock);
+		spin_unlock_bh(&cfhsi->lock, bh);
 
 		/* Copy in CAIF frame. */
 		skb_copy_bits(skb, 0, pfrm, skb->len);
@@ -329,6 +331,7 @@ static int cfhsi_tx_frm(struct cfhsi_desc *desc, struct cfhsi *cfhsi)
 
 static void cfhsi_start_tx(struct cfhsi *cfhsi)
 {
+	unsigned int bh;
 	struct cfhsi_desc *desc = (struct cfhsi_desc *)cfhsi->tx_buf;
 	int len, res;
 
@@ -341,9 +344,9 @@ static void cfhsi_start_tx(struct cfhsi *cfhsi)
 		/* Create HSI frame. */
 		len = cfhsi_tx_frm(desc, cfhsi);
 		if (!len) {
-			spin_lock_bh(&cfhsi->lock);
+			bh = spin_lock_bh(&cfhsi->lock, SOFTIRQ_ALL_MASK);
 			if (unlikely(cfhsi_tx_queue_len(cfhsi))) {
-				spin_unlock_bh(&cfhsi->lock);
+				spin_unlock_bh(&cfhsi->lock, bh);
 				res = -EAGAIN;
 				continue;
 			}
@@ -351,7 +354,7 @@ static void cfhsi_start_tx(struct cfhsi *cfhsi)
 			/* Start inactivity timer. */
 			mod_timer(&cfhsi->inactivity_timer,
 				jiffies + cfhsi->cfg.inactivity_timeout);
-			spin_unlock_bh(&cfhsi->lock);
+			spin_unlock_bh(&cfhsi->lock, bh);
 			break;
 		}
 
@@ -365,6 +368,7 @@ static void cfhsi_start_tx(struct cfhsi *cfhsi)
 
 static void cfhsi_tx_done(struct cfhsi *cfhsi)
 {
+	unsigned int bh;
 	netdev_dbg(cfhsi->ndev, "%s.\n", __func__);
 
 	if (test_bit(CFHSI_SHUTDOWN, &cfhsi->bits))
@@ -374,7 +378,7 @@ static void cfhsi_tx_done(struct cfhsi *cfhsi)
 	 * Send flow on if flow off has been previously signalled
 	 * and number of packets is below low water mark.
 	 */
-	spin_lock_bh(&cfhsi->lock);
+	bh = spin_lock_bh(&cfhsi->lock, SOFTIRQ_ALL_MASK);
 	if (cfhsi->flow_off_sent &&
 			cfhsi_tx_queue_len(cfhsi) <= cfhsi->cfg.q_low_mark &&
 			cfhsi->cfdev.flowctrl) {
@@ -384,12 +388,12 @@ static void cfhsi_tx_done(struct cfhsi *cfhsi)
 	}
 
 	if (cfhsi_can_send_aggregate(cfhsi)) {
-		spin_unlock_bh(&cfhsi->lock);
+		spin_unlock_bh(&cfhsi->lock, bh);
 		cfhsi_start_tx(cfhsi);
 	} else {
 		mod_timer(&cfhsi->aggregation_timer,
 			jiffies + cfhsi->cfg.aggregation_timeout);
-		spin_unlock_bh(&cfhsi->lock);
+		spin_unlock_bh(&cfhsi->lock, bh);
 	}
 
 	return;
@@ -611,6 +615,7 @@ static int cfhsi_rx_pld(struct cfhsi_desc *desc, struct cfhsi *cfhsi)
 
 static void cfhsi_rx_done(struct cfhsi *cfhsi)
 {
+	unsigned int bh;
 	int res;
 	int desc_pld_len = 0, rx_len, rx_state;
 	struct cfhsi_desc *desc = NULL;
@@ -625,10 +630,10 @@ static void cfhsi_rx_done(struct cfhsi *cfhsi)
 		return;
 
 	/* Update inactivity timer if pending. */
-	spin_lock_bh(&cfhsi->lock);
+	bh = spin_lock_bh(&cfhsi->lock, SOFTIRQ_ALL_MASK);
 	mod_timer_pending(&cfhsi->inactivity_timer,
 			jiffies + cfhsi->cfg.inactivity_timeout);
-	spin_unlock_bh(&cfhsi->lock);
+	spin_unlock_bh(&cfhsi->lock, bh);
 
 	if (cfhsi->rx_state.state == CFHSI_RX_STATE_DESC) {
 		desc_pld_len = cfhsi_rx_desc_len(desc);
@@ -765,6 +770,7 @@ static void cfhsi_rx_done_cb(struct cfhsi_cb_ops *cb_ops)
 
 static void cfhsi_wake_up(struct work_struct *work)
 {
+	unsigned int bh;
 	struct cfhsi *cfhsi = NULL;
 	int res;
 	int len;
@@ -854,7 +860,7 @@ wake_ack:
 	/* Clear power up acknowledment. */
 	clear_bit(CFHSI_WAKE_UP_ACK, &cfhsi->bits);
 
-	spin_lock_bh(&cfhsi->lock);
+	bh = spin_lock_bh(&cfhsi->lock, SOFTIRQ_ALL_MASK);
 
 	/* Resume transmit if queues are not empty. */
 	if (!cfhsi_tx_queue_len(cfhsi)) {
@@ -863,14 +869,14 @@ wake_ack:
 		/* Start inactivity timer. */
 		mod_timer(&cfhsi->inactivity_timer,
 				jiffies + cfhsi->cfg.inactivity_timeout);
-		spin_unlock_bh(&cfhsi->lock);
+		spin_unlock_bh(&cfhsi->lock, bh);
 		return;
 	}
 
 	netdev_dbg(cfhsi->ndev, "%s: Host wake.\n",
 		__func__);
 
-	spin_unlock_bh(&cfhsi->lock);
+	spin_unlock_bh(&cfhsi->lock, bh);
 
 	/* Create HSI frame. */
 	len = cfhsi_tx_frm((struct cfhsi_desc *)cfhsi->tx_buf, cfhsi);
@@ -1008,6 +1014,7 @@ static void cfhsi_aggregation_tout(struct timer_list *t)
 
 static int cfhsi_xmit(struct sk_buff *skb, struct net_device *dev)
 {
+	unsigned int bh;
 	struct cfhsi *cfhsi = NULL;
 	int start_xfer = 0;
 	int timer_active;
@@ -1036,7 +1043,7 @@ static int cfhsi_xmit(struct sk_buff *skb, struct net_device *dev)
 		break;
 	}
 
-	spin_lock_bh(&cfhsi->lock);
+	bh = spin_lock_bh(&cfhsi->lock, SOFTIRQ_ALL_MASK);
 
 	/* Update aggregation statistics  */
 	cfhsi_update_aggregation_stats(cfhsi, skb, 1);
@@ -1046,7 +1053,7 @@ static int cfhsi_xmit(struct sk_buff *skb, struct net_device *dev)
 
 	/* Sanity check; xmit should not be called after unregister_netdev */
 	if (WARN_ON(test_bit(CFHSI_SHUTDOWN, &cfhsi->bits))) {
-		spin_unlock_bh(&cfhsi->lock);
+		spin_unlock_bh(&cfhsi->lock, bh);
 		cfhsi_abort_tx(cfhsi);
 		return -EINVAL;
 	}
@@ -1069,7 +1076,7 @@ static int cfhsi_xmit(struct sk_buff *skb, struct net_device *dev)
 		bool aggregate_ready =
 			cfhsi_can_send_aggregate(cfhsi) &&
 			del_timer(&cfhsi->aggregation_timer) > 0;
-		spin_unlock_bh(&cfhsi->lock);
+		spin_unlock_bh(&cfhsi->lock, bh);
 		if (aggregate_ready)
 			cfhsi_start_tx(cfhsi);
 		return 0;
@@ -1078,7 +1085,7 @@ static int cfhsi_xmit(struct sk_buff *skb, struct net_device *dev)
 	/* Delete inactivity timer if started. */
 	timer_active = del_timer_sync(&cfhsi->inactivity_timer);
 
-	spin_unlock_bh(&cfhsi->lock);
+	spin_unlock_bh(&cfhsi->lock, bh);
 
 	if (timer_active) {
 		struct cfhsi_desc *desc = (struct cfhsi_desc *)cfhsi->tx_buf;

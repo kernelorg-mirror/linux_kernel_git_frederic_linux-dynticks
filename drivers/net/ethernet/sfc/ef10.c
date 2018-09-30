@@ -2009,7 +2009,7 @@ static int efx_ef10_try_update_nic_stats_vf(struct efx_nic *efx)
 		/* If in atomic context, cannot update stats.  Just update the
 		 * software stats and return so the caller can continue.
 		 */
-		spin_lock_bh(&efx->stats_lock);
+		spin_lock_bh(&efx->stats_lock, SOFTIRQ_ALL_MASK);
 		efx_update_sw_stats(efx, stats);
 		return 0;
 	}
@@ -2018,7 +2018,7 @@ static int efx_ef10_try_update_nic_stats_vf(struct efx_nic *efx)
 
 	rc = efx_nic_alloc_buffer(efx, &stats_buf, dma_len, GFP_ATOMIC);
 	if (rc) {
-		spin_lock_bh(&efx->stats_lock);
+		spin_lock_bh(&efx->stats_lock, SOFTIRQ_ALL_MASK);
 		return rc;
 	}
 
@@ -2033,7 +2033,7 @@ static int efx_ef10_try_update_nic_stats_vf(struct efx_nic *efx)
 
 	rc = efx_mcdi_rpc_quiet(efx, MC_CMD_MAC_STATS, inbuf, sizeof(inbuf),
 				NULL, 0, NULL);
-	spin_lock_bh(&efx->stats_lock);
+	spin_lock_bh(&efx->stats_lock, SOFTIRQ_ALL_MASK);
 	if (rc) {
 		/* Expect ENOENT if DMA queues have not been set up */
 		if (rc != -ENOENT || atomic_read(&efx->active_queues))
@@ -4751,6 +4751,7 @@ static s32 efx_ef10_filter_get_rx_ids(struct efx_nic *efx,
 static bool efx_ef10_filter_rfs_expire_one(struct efx_nic *efx, u32 flow_id,
 					   unsigned int filter_idx)
 {
+	unsigned int bh;
 	struct efx_filter_spec *spec, saved_spec;
 	struct efx_ef10_filter_table *table;
 	struct efx_arfs_rule *rule = NULL;
@@ -4765,7 +4766,7 @@ static bool efx_ef10_filter_rfs_expire_one(struct efx_nic *efx, u32 flow_id,
 	if (!spec || spec->priority != EFX_FILTER_PRI_HINT)
 		goto out_unlock;
 
-	spin_lock_bh(&efx->rps_hash_lock);
+	bh = spin_lock_bh(&efx->rps_hash_lock, SOFTIRQ_ALL_MASK);
 	if (!efx->rps_hash_table) {
 		/* In the absence of the table, we always return 0 to ARFS. */
 		arfs_id = 0;
@@ -4779,7 +4780,7 @@ static bool efx_ef10_filter_rfs_expire_one(struct efx_nic *efx, u32 flow_id,
 		if (force)
 			goto expire;
 		if (!ret) {
-			spin_unlock_bh(&efx->rps_hash_lock);
+			spin_unlock_bh(&efx->rps_hash_lock, bh);
 			goto out_unlock;
 		}
 	}
@@ -4789,7 +4790,7 @@ static bool efx_ef10_filter_rfs_expire_one(struct efx_nic *efx, u32 flow_id,
 		rule->filter_id = EFX_ARFS_FILTER_ID_REMOVING;
 expire:
 	saved_spec = *spec; /* remove operation will kfree spec */
-	spin_unlock_bh(&efx->rps_hash_lock);
+	spin_unlock_bh(&efx->rps_hash_lock, bh);
 	/* At this point (since we dropped the lock), another thread might queue
 	 * up a fresh insertion request (but the actual insertion will be held
 	 * up by our possession of the filter table lock).  In that case, it
@@ -4804,7 +4805,7 @@ expire:
 	 */
 	if (ret && rule) {
 		/* Expiring, so remove entry from ARFS table */
-		spin_lock_bh(&efx->rps_hash_lock);
+		spin_lock_bh(&efx->rps_hash_lock, SOFTIRQ_ALL_MASK);
 		efx_rps_hash_del(efx, &saved_spec);
 		spin_unlock_bh(&efx->rps_hash_lock);
 	}

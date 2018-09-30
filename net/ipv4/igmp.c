@@ -198,13 +198,14 @@ static void ip_ma_put(struct ip_mc_list *im)
 
 static void igmp_stop_timer(struct ip_mc_list *im)
 {
-	spin_lock_bh(&im->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&im->lock, SOFTIRQ_ALL_MASK);
 	if (del_timer(&im->timer))
 		refcount_dec(&im->refcnt);
 	im->tm_running = 0;
 	im->reporter = 0;
 	im->unsolicit_count = 0;
-	spin_unlock_bh(&im->lock);
+	spin_unlock_bh(&im->lock, bh);
 }
 
 /* It must be called with locked im->lock */
@@ -241,19 +242,20 @@ static void igmp_ifc_start_timer(struct in_device *in_dev, int delay)
 
 static void igmp_mod_timer(struct ip_mc_list *im, int max_delay)
 {
-	spin_lock_bh(&im->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&im->lock, SOFTIRQ_ALL_MASK);
 	im->unsolicit_count = 0;
 	if (del_timer(&im->timer)) {
 		if ((long)(im->timer.expires-jiffies) < max_delay) {
 			add_timer(&im->timer);
 			im->tm_running = 1;
-			spin_unlock_bh(&im->lock);
+			spin_unlock_bh(&im->lock, bh);
 			return;
 		}
 		refcount_dec(&im->refcnt);
 	}
 	igmp_start_timer(im, max_delay);
-	spin_unlock_bh(&im->lock);
+	spin_unlock_bh(&im->lock, bh);
 }
 
 
@@ -579,6 +581,7 @@ empty_source:
 
 static int igmpv3_send_report(struct in_device *in_dev, struct ip_mc_list *pmc)
 {
+	unsigned int bh;
 	struct sk_buff *skb = NULL;
 	struct net *net = dev_net(in_dev->dev);
 	int type;
@@ -591,23 +594,23 @@ static int igmpv3_send_report(struct in_device *in_dev, struct ip_mc_list *pmc)
 			if (ipv4_is_local_multicast(pmc->multiaddr) &&
 			     !net->ipv4.sysctl_igmp_llm_reports)
 				continue;
-			spin_lock_bh(&pmc->lock);
+			bh = spin_lock_bh(&pmc->lock, SOFTIRQ_ALL_MASK);
 			if (pmc->sfcount[MCAST_EXCLUDE])
 				type = IGMPV3_MODE_IS_EXCLUDE;
 			else
 				type = IGMPV3_MODE_IS_INCLUDE;
 			skb = add_grec(skb, pmc, type, 0, 0);
-			spin_unlock_bh(&pmc->lock);
+			spin_unlock_bh(&pmc->lock, bh);
 		}
 		rcu_read_unlock();
 	} else {
-		spin_lock_bh(&pmc->lock);
+		bh = spin_lock_bh(&pmc->lock, SOFTIRQ_ALL_MASK);
 		if (pmc->sfcount[MCAST_EXCLUDE])
 			type = IGMPV3_MODE_IS_EXCLUDE;
 		else
 			type = IGMPV3_MODE_IS_INCLUDE;
 		skb = add_grec(skb, pmc, type, 0, 0);
-		spin_unlock_bh(&pmc->lock);
+		spin_unlock_bh(&pmc->lock, bh);
 	}
 	if (!skb)
 		return 0;
@@ -637,12 +640,13 @@ static void igmpv3_clear_zeros(struct ip_sf_list **ppsf)
 
 static void igmpv3_send_cr(struct in_device *in_dev)
 {
+	unsigned int bh;
 	struct ip_mc_list *pmc, *pmc_prev, *pmc_next;
 	struct sk_buff *skb = NULL;
 	int type, dtype;
 
 	rcu_read_lock();
-	spin_lock_bh(&in_dev->mc_tomb_lock);
+	bh = spin_lock_bh(&in_dev->mc_tomb_lock, SOFTIRQ_ALL_MASK);
 
 	/* deleted MCA's */
 	pmc_prev = NULL;
@@ -675,11 +679,11 @@ static void igmpv3_send_cr(struct in_device *in_dev)
 		} else
 			pmc_prev = pmc;
 	}
-	spin_unlock_bh(&in_dev->mc_tomb_lock);
+	spin_unlock_bh(&in_dev->mc_tomb_lock, bh);
 
 	/* change recs */
 	for_each_pmc_rcu(in_dev, pmc) {
-		spin_lock_bh(&pmc->lock);
+		spin_lock_bh(&pmc->lock, SOFTIRQ_ALL_MASK);
 		if (pmc->sfcount[MCAST_EXCLUDE]) {
 			type = IGMPV3_BLOCK_OLD_SOURCES;
 			dtype = IGMPV3_ALLOW_NEW_SOURCES;
@@ -920,6 +924,7 @@ static bool igmp_heard_report(struct in_device *in_dev, __be32 group)
 static bool igmp_heard_query(struct in_device *in_dev, struct sk_buff *skb,
 	int len)
 {
+	unsigned int bh;
 	struct igmphdr 		*ih = igmp_hdr(skb);
 	struct igmpv3_query *ih3 = igmpv3_query_hdr(skb);
 	struct ip_mc_list	*im;
@@ -1014,14 +1019,14 @@ static bool igmp_heard_query(struct in_device *in_dev, struct sk_buff *skb,
 		if (ipv4_is_local_multicast(im->multiaddr) &&
 		    !net->ipv4.sysctl_igmp_llm_reports)
 			continue;
-		spin_lock_bh(&im->lock);
+		bh = spin_lock_bh(&im->lock, SOFTIRQ_ALL_MASK);
 		if (im->tm_running)
 			im->gsquery = im->gsquery && mark;
 		else
 			im->gsquery = mark;
 		changed = !im->gsquery ||
 			igmp_marksources(im, ntohs(ih3->nsrcs), ih3->srcs);
-		spin_unlock_bh(&im->lock);
+		spin_unlock_bh(&im->lock, bh);
 		if (changed)
 			igmp_mod_timer(im, max_delay);
 	}
@@ -1135,6 +1140,7 @@ static void ip_mc_filter_del(struct in_device *in_dev, __be32 addr)
  */
 static void igmpv3_add_delrec(struct in_device *in_dev, struct ip_mc_list *im)
 {
+	unsigned int bh;
 	struct ip_mc_list *pmc;
 	struct net *net = dev_net(in_dev->dev);
 
@@ -1148,7 +1154,7 @@ static void igmpv3_add_delrec(struct in_device *in_dev, struct ip_mc_list *im)
 	if (!pmc)
 		return;
 	spin_lock_init(&pmc->lock);
-	spin_lock_bh(&im->lock);
+	bh = spin_lock_bh(&im->lock, SOFTIRQ_ALL_MASK);
 	pmc->interface = im->interface;
 	in_dev_hold(in_dev);
 	pmc->multiaddr = im->multiaddr;
@@ -1163,9 +1169,9 @@ static void igmpv3_add_delrec(struct in_device *in_dev, struct ip_mc_list *im)
 		for (psf = pmc->sources; psf; psf = psf->sf_next)
 			psf->sf_crcount = pmc->crcount;
 	}
-	spin_unlock_bh(&im->lock);
+	spin_unlock_bh(&im->lock, bh);
 
-	spin_lock_bh(&in_dev->mc_tomb_lock);
+	spin_lock_bh(&in_dev->mc_tomb_lock, SOFTIRQ_ALL_MASK);
 	pmc->next = in_dev->mc_tomb;
 	in_dev->mc_tomb = pmc;
 	spin_unlock_bh(&in_dev->mc_tomb_lock);
@@ -1176,12 +1182,13 @@ static void igmpv3_add_delrec(struct in_device *in_dev, struct ip_mc_list *im)
  */
 static void igmpv3_del_delrec(struct in_device *in_dev, struct ip_mc_list *im)
 {
+	unsigned int bh;
 	struct ip_mc_list *pmc, *pmc_prev;
 	struct ip_sf_list *psf;
 	struct net *net = dev_net(in_dev->dev);
 	__be32 multiaddr = im->multiaddr;
 
-	spin_lock_bh(&in_dev->mc_tomb_lock);
+	bh = spin_lock_bh(&in_dev->mc_tomb_lock, SOFTIRQ_ALL_MASK);
 	pmc_prev = NULL;
 	for (pmc = in_dev->mc_tomb; pmc; pmc = pmc->next) {
 		if (pmc->multiaddr == multiaddr)
@@ -1194,9 +1201,9 @@ static void igmpv3_del_delrec(struct in_device *in_dev, struct ip_mc_list *im)
 		else
 			in_dev->mc_tomb = pmc->next;
 	}
-	spin_unlock_bh(&in_dev->mc_tomb_lock);
+	spin_unlock_bh(&in_dev->mc_tomb_lock, bh);
 
-	spin_lock_bh(&im->lock);
+	spin_lock_bh(&im->lock, SOFTIRQ_ALL_MASK);
 	if (pmc) {
 		im->interface = pmc->interface;
 		if (im->sfmode == MCAST_INCLUDE) {
@@ -1218,12 +1225,13 @@ static void igmpv3_del_delrec(struct in_device *in_dev, struct ip_mc_list *im)
  */
 static void igmpv3_clear_delrec(struct in_device *in_dev)
 {
+	unsigned int bh;
 	struct ip_mc_list *pmc, *nextpmc;
 
-	spin_lock_bh(&in_dev->mc_tomb_lock);
+	bh = spin_lock_bh(&in_dev->mc_tomb_lock, SOFTIRQ_ALL_MASK);
 	pmc = in_dev->mc_tomb;
 	in_dev->mc_tomb = NULL;
-	spin_unlock_bh(&in_dev->mc_tomb_lock);
+	spin_unlock_bh(&in_dev->mc_tomb_lock, bh);
 
 	for (; pmc; pmc = nextpmc) {
 		nextpmc = pmc->next;
@@ -1236,7 +1244,7 @@ static void igmpv3_clear_delrec(struct in_device *in_dev)
 	for_each_pmc_rcu(in_dev, pmc) {
 		struct ip_sf_list *psf, *psf_next;
 
-		spin_lock_bh(&pmc->lock);
+		spin_lock_bh(&pmc->lock, SOFTIRQ_ALL_MASK);
 		psf = pmc->tomb;
 		pmc->tomb = NULL;
 		spin_unlock_bh(&pmc->lock);
@@ -1310,7 +1318,7 @@ static void igmp_group_added(struct ip_mc_list *im)
 
 	im->unsolicit_count = net->ipv4.sysctl_igmp_qrv;
 	if (IGMP_V1_SEEN(in_dev) || IGMP_V2_SEEN(in_dev)) {
-		spin_lock_bh(&im->lock);
+		spin_lock_bh(&im->lock, SOFTIRQ_ALL_MASK);
 		igmp_start_timer(im, IGMP_INITIAL_REPORT_DELAY);
 		spin_unlock_bh(&im->lock);
 		return;
@@ -1874,6 +1882,7 @@ static int ip_mc_del1_src(struct ip_mc_list *pmc, int sfmode,
 static int ip_mc_del_src(struct in_device *in_dev, __be32 *pmca, int sfmode,
 			 int sfcount, __be32 *psfsrc, int delta)
 {
+	unsigned int bh;
 	struct ip_mc_list *pmc;
 	int	changerec = 0;
 	int	i, err;
@@ -1890,7 +1899,7 @@ static int ip_mc_del_src(struct in_device *in_dev, __be32 *pmca, int sfmode,
 		rcu_read_unlock();
 		return -ESRCH;
 	}
-	spin_lock_bh(&pmc->lock);
+	bh = spin_lock_bh(&pmc->lock, SOFTIRQ_ALL_MASK);
 	rcu_read_unlock();
 #ifdef CONFIG_IP_MULTICAST
 	sf_markstate(pmc);
@@ -1930,7 +1939,7 @@ static int ip_mc_del_src(struct in_device *in_dev, __be32 *pmca, int sfmode,
 #endif
 	}
 out_unlock:
-	spin_unlock_bh(&pmc->lock);
+	spin_unlock_bh(&pmc->lock, bh);
 	return err;
 }
 
@@ -2046,6 +2055,7 @@ static int sf_setstate(struct ip_mc_list *pmc)
 static int ip_mc_add_src(struct in_device *in_dev, __be32 *pmca, int sfmode,
 			 int sfcount, __be32 *psfsrc, int delta)
 {
+	unsigned int bh;
 	struct ip_mc_list *pmc;
 	int	isexclude;
 	int	i, err;
@@ -2062,7 +2072,7 @@ static int ip_mc_add_src(struct in_device *in_dev, __be32 *pmca, int sfmode,
 		rcu_read_unlock();
 		return -ESRCH;
 	}
-	spin_lock_bh(&pmc->lock);
+	bh = spin_lock_bh(&pmc->lock, SOFTIRQ_ALL_MASK);
 	rcu_read_unlock();
 
 #ifdef CONFIG_IP_MULTICAST
@@ -2108,15 +2118,16 @@ static int ip_mc_add_src(struct in_device *in_dev, __be32 *pmca, int sfmode,
 		igmp_ifc_event(in_dev);
 #endif
 	}
-	spin_unlock_bh(&pmc->lock);
+	spin_unlock_bh(&pmc->lock, bh);
 	return err;
 }
 
 static void ip_mc_clear_src(struct ip_mc_list *pmc)
 {
+	unsigned int bh;
 	struct ip_sf_list *psf, *nextpsf, *tomb, *sources;
 
-	spin_lock_bh(&pmc->lock);
+	bh = spin_lock_bh(&pmc->lock, SOFTIRQ_ALL_MASK);
 	tomb = pmc->tomb;
 	pmc->tomb = NULL;
 	sources = pmc->sources;
@@ -2124,7 +2135,7 @@ static void ip_mc_clear_src(struct ip_mc_list *pmc)
 	pmc->sfmode = MCAST_EXCLUDE;
 	pmc->sfcount[MCAST_INCLUDE] = 0;
 	pmc->sfcount[MCAST_EXCLUDE] = 1;
-	spin_unlock_bh(&pmc->lock);
+	spin_unlock_bh(&pmc->lock, bh);
 
 	for (psf = tomb; psf; psf = nextpsf) {
 		nextpsf = psf->sf_next;
@@ -2857,6 +2868,7 @@ struct igmp_mcf_iter_state {
 	struct net_device *dev;
 	struct in_device *idev;
 	struct ip_mc_list *im;
+	unsigned int bh;
 };
 
 #define igmp_mcf_seq_private(seq)	((struct igmp_mcf_iter_state *)(seq)->private)
@@ -2877,14 +2889,14 @@ static inline struct ip_sf_list *igmp_mcf_get_first(struct seq_file *seq)
 			continue;
 		im = rcu_dereference(idev->mc_list);
 		if (likely(im)) {
-			spin_lock_bh(&im->lock);
+			state->bh = spin_lock_bh(&im->lock, SOFTIRQ_ALL_MASK);
 			psf = im->sources;
 			if (likely(psf)) {
 				state->im = im;
 				state->idev = idev;
 				break;
 			}
-			spin_unlock_bh(&im->lock);
+			spin_unlock_bh(&im->lock, state->bh);
 		}
 	}
 	return psf;
@@ -2896,7 +2908,7 @@ static struct ip_sf_list *igmp_mcf_get_next(struct seq_file *seq, struct ip_sf_l
 
 	psf = psf->sf_next;
 	while (!psf) {
-		spin_unlock_bh(&state->im->lock);
+		spin_unlock_bh(&state->im->lock, state->bh);
 		state->im = state->im->next;
 		while (!state->im) {
 			state->dev = next_net_device_rcu(state->dev);
@@ -2911,7 +2923,7 @@ static struct ip_sf_list *igmp_mcf_get_next(struct seq_file *seq, struct ip_sf_l
 		}
 		if (!state->im)
 			break;
-		spin_lock_bh(&state->im->lock);
+		state->bh = spin_lock_bh(&state->im->lock, SOFTIRQ_ALL_MASK);
 		psf = state->im->sources;
 	}
 out:
@@ -2950,7 +2962,7 @@ static void igmp_mcf_seq_stop(struct seq_file *seq, void *v)
 {
 	struct igmp_mcf_iter_state *state = igmp_mcf_seq_private(seq);
 	if (likely(state->im)) {
-		spin_unlock_bh(&state->im->lock);
+		spin_unlock_bh(&state->im->lock, state->bh);
 		state->im = NULL;
 	}
 	state->idev = NULL;

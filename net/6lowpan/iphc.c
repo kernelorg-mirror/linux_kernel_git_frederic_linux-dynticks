@@ -612,6 +612,7 @@ static const u8 lowpan_ttl_values[] = {
 int lowpan_header_decompress(struct sk_buff *skb, const struct net_device *dev,
 			     const void *daddr, const void *saddr)
 {
+	unsigned int bh;
 	struct ipv6hdr hdr = {};
 	struct lowpan_iphc_ctx *ci;
 	u8 iphc0, iphc1, cid = 0;
@@ -657,10 +658,10 @@ int lowpan_header_decompress(struct sk_buff *skb, const struct net_device *dev,
 	}
 
 	if (iphc1 & LOWPAN_IPHC_SAC) {
-		spin_lock_bh(&lowpan_dev(dev)->ctx.lock);
+		bh = spin_lock_bh(&lowpan_dev(dev)->ctx.lock, SOFTIRQ_ALL_MASK);
 		ci = lowpan_iphc_ctx_get_by_id(dev, LOWPAN_IPHC_CID_SCI(cid));
 		if (!ci) {
-			spin_unlock_bh(&lowpan_dev(dev)->ctx.lock);
+			spin_unlock_bh(&lowpan_dev(dev)->ctx.lock, bh);
 			return -EINVAL;
 		}
 
@@ -668,7 +669,7 @@ int lowpan_header_decompress(struct sk_buff *skb, const struct net_device *dev,
 		err = lowpan_iphc_uncompress_ctx_addr(skb, dev, ci, &hdr.saddr,
 						      iphc1 & LOWPAN_IPHC_SAM_MASK,
 						      saddr);
-		spin_unlock_bh(&lowpan_dev(dev)->ctx.lock);
+		spin_unlock_bh(&lowpan_dev(dev)->ctx.lock, bh);
 	} else {
 		/* Source address uncompression */
 		pr_debug("source address stateless compression\n");
@@ -685,10 +686,10 @@ int lowpan_header_decompress(struct sk_buff *skb, const struct net_device *dev,
 	case LOWPAN_IPHC_M | LOWPAN_IPHC_DAC:
 		skb->pkt_type = PACKET_BROADCAST;
 
-		spin_lock_bh(&lowpan_dev(dev)->ctx.lock);
+		bh = spin_lock_bh(&lowpan_dev(dev)->ctx.lock, SOFTIRQ_ALL_MASK);
 		ci = lowpan_iphc_ctx_get_by_id(dev, LOWPAN_IPHC_CID_DCI(cid));
 		if (!ci) {
-			spin_unlock_bh(&lowpan_dev(dev)->ctx.lock);
+			spin_unlock_bh(&lowpan_dev(dev)->ctx.lock, bh);
 			return -EINVAL;
 		}
 
@@ -697,7 +698,7 @@ int lowpan_header_decompress(struct sk_buff *skb, const struct net_device *dev,
 		err = lowpan_uncompress_multicast_ctx_daddr(skb, ci,
 							    &hdr.daddr,
 							    iphc1 & LOWPAN_IPHC_DAM_MASK);
-		spin_unlock_bh(&lowpan_dev(dev)->ctx.lock);
+		spin_unlock_bh(&lowpan_dev(dev)->ctx.lock, bh);
 		break;
 	case LOWPAN_IPHC_M:
 		skb->pkt_type = PACKET_BROADCAST;
@@ -709,10 +710,10 @@ int lowpan_header_decompress(struct sk_buff *skb, const struct net_device *dev,
 	case LOWPAN_IPHC_DAC:
 		skb->pkt_type = PACKET_HOST;
 
-		spin_lock_bh(&lowpan_dev(dev)->ctx.lock);
+		bh = spin_lock_bh(&lowpan_dev(dev)->ctx.lock, SOFTIRQ_ALL_MASK);
 		ci = lowpan_iphc_ctx_get_by_id(dev, LOWPAN_IPHC_CID_DCI(cid));
 		if (!ci) {
-			spin_unlock_bh(&lowpan_dev(dev)->ctx.lock);
+			spin_unlock_bh(&lowpan_dev(dev)->ctx.lock, bh);
 			return -EINVAL;
 		}
 
@@ -721,7 +722,7 @@ int lowpan_header_decompress(struct sk_buff *skb, const struct net_device *dev,
 		err = lowpan_iphc_uncompress_ctx_addr(skb, dev, ci, &hdr.daddr,
 						      iphc1 & LOWPAN_IPHC_DAM_MASK,
 						      daddr);
-		spin_unlock_bh(&lowpan_dev(dev)->ctx.lock);
+		spin_unlock_bh(&lowpan_dev(dev)->ctx.lock, bh);
 		break;
 	default:
 		skb->pkt_type = PACKET_HOST;
@@ -1163,7 +1164,7 @@ int lowpan_header_compress(struct sk_buff *skb, const struct net_device *dev,
 		       skb->data, skb->len);
 
 	ipv6_daddr_type = ipv6_addr_type(&hdr->daddr);
-	spin_lock_bh(&lowpan_dev(dev)->ctx.lock);
+	spin_lock_bh(&lowpan_dev(dev)->ctx.lock, SOFTIRQ_ALL_MASK);
 	if (ipv6_daddr_type & IPV6_ADDR_MULTICAST)
 		dci = lowpan_iphc_ctx_get_by_mcast_addr(dev, &hdr->daddr);
 	else
@@ -1174,7 +1175,7 @@ int lowpan_header_compress(struct sk_buff *skb, const struct net_device *dev,
 	}
 	spin_unlock_bh(&lowpan_dev(dev)->ctx.lock);
 
-	spin_lock_bh(&lowpan_dev(dev)->ctx.lock);
+	spin_lock_bh(&lowpan_dev(dev)->ctx.lock, SOFTIRQ_ALL_MASK);
 	sci = lowpan_iphc_ctx_get_by_addr(dev, &hdr->saddr);
 	if (sci) {
 		memcpy(&sci_entry, sci, sizeof(*sci));

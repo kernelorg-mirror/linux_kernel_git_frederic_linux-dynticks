@@ -1253,6 +1253,7 @@ static unsigned char *isdn_ppp_skb_push(struct sk_buff **skb_p, int len)
 int
 isdn_ppp_xmit(struct sk_buff *skb, struct net_device *netdev)
 {
+	unsigned int bh;
 	isdn_net_local *lp, *mlp;
 	isdn_net_dev *nd;
 	unsigned int proto = PPP_IP;     /* 0x21 */
@@ -1486,7 +1487,7 @@ isdn_ppp_xmit(struct sk_buff *skb, struct net_device *netdev)
 	isdn_net_writebuf_skb(lp, skb);
 
 unlock:
-	spin_unlock_bh(&lp->xmit_lock);
+	spin_unlock_bh(&lp->xmit_lock, bh);
 out:
 	return retval;
 }

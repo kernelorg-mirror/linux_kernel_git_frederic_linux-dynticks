@@ -137,6 +137,7 @@ static int iscsi_login_check_initiator_version(
 
 int iscsi_check_for_session_reinstatement(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	int sessiontype;
 	struct iscsi_param *initiatorname_param = NULL, *sessiontype_param = NULL;
 	struct iscsi_portal_group *tpg = conn->tpg;
@@ -156,7 +157,7 @@ int iscsi_check_for_session_reinstatement(struct iscsi_conn *conn)
 
 	sessiontype = (strncmp(sessiontype_param->value, NORMAL, 6)) ? 1 : 0;
 
-	spin_lock_bh(&se_tpg->session_lock);
+	bh = spin_lock_bh(&se_tpg->session_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(se_sess, se_sess_tmp, &se_tpg->tpg_sess_list,
 			sess_list) {
 
@@ -182,7 +183,7 @@ int iscsi_check_for_session_reinstatement(struct iscsi_conn *conn)
 		}
 		spin_unlock(&sess_p->conn_lock);
 	}
-	spin_unlock_bh(&se_tpg->session_lock);
+	spin_unlock_bh(&se_tpg->session_lock, bh);
 	/*
 	 * If the Time2Retain handler has expired, the session is already gone.
 	 */
@@ -194,7 +195,7 @@ int iscsi_check_for_session_reinstatement(struct iscsi_conn *conn)
 		"Discovery" : "Normal", sess->sid,
 		sess->sess_ops->InitiatorName);
 
-	spin_lock_bh(&sess->conn_lock);
+	spin_lock_bh(&sess->conn_lock, SOFTIRQ_ALL_MASK);
 	if (sess->session_state == TARG_SESS_STATE_FAILED) {
 		spin_unlock_bh(&sess->conn_lock);
 		iscsit_dec_session_usage_count(sess);
@@ -480,6 +481,7 @@ static int iscsi_login_non_zero_tsih_s2(
 	struct iscsi_conn *conn,
 	unsigned char *buf)
 {
+	unsigned int bh;
 	struct iscsi_portal_group *tpg = conn->tpg;
 	struct iscsi_session *sess = NULL, *sess_p = NULL;
 	struct se_portal_group *se_tpg = &tpg->tpg_se_tpg;
@@ -487,7 +489,7 @@ static int iscsi_login_non_zero_tsih_s2(
 	struct iscsi_login_req *pdu = (struct iscsi_login_req *)buf;
 	bool iser = false;
 
-	spin_lock_bh(&se_tpg->session_lock);
+	bh = spin_lock_bh(&se_tpg->session_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(se_sess, se_sess_tmp, &se_tpg->tpg_sess_list,
 			sess_list) {
 
@@ -504,7 +506,7 @@ static int iscsi_login_non_zero_tsih_s2(
 			break;
 		}
 	}
-	spin_unlock_bh(&se_tpg->session_lock);
+	spin_unlock_bh(&se_tpg->session_lock, bh);
 
 	/*
 	 * If the Time2Retain handler has expired, the session is already gone.
@@ -521,7 +523,7 @@ static int iscsi_login_non_zero_tsih_s2(
 	 * Stop the Time2Retain timer if this is a failed session, we restart
 	 * the timer if the login is not successful.
 	 */
-	spin_lock_bh(&sess->conn_lock);
+	spin_lock_bh(&sess->conn_lock, SOFTIRQ_ALL_MASK);
 	if (sess->session_state == TARG_SESS_STATE_FAILED)
 		atomic_set(&sess->session_continuation, 1);
 	spin_unlock_bh(&sess->conn_lock);
@@ -682,6 +684,7 @@ void iscsi_post_login_handler(
 	struct iscsi_conn *conn,
 	u8 zero_tsih)
 {
+	unsigned int bh;
 	int stop_timer = 0;
 	struct iscsi_session *sess = conn->sess;
 	struct se_session *se_sess = sess->se_sess;
@@ -706,7 +709,7 @@ void iscsi_post_login_handler(
 		iscsi_release_param_list(conn->param_list);
 		conn->param_list = NULL;
 
-		spin_lock_bh(&sess->conn_lock);
+		bh = spin_lock_bh(&sess->conn_lock, SOFTIRQ_ALL_MASK);
 		atomic_set(&sess->session_continuation, 0);
 		if (sess->session_state == TARG_SESS_STATE_FAILED) {
 			pr_debug("Moving to"
@@ -724,7 +727,7 @@ void iscsi_post_login_handler(
 		pr_debug("Incremented iSCSI Connection count to %hu"
 			" from node: %s\n", atomic_read(&sess->nconn),
 			sess->sess_ops->InitiatorName);
-		spin_unlock_bh(&sess->conn_lock);
+		spin_unlock_bh(&sess->conn_lock, bh);
 
 		iscsi_post_login_start_timers(conn);
 		/*
@@ -742,7 +745,7 @@ void iscsi_post_login_handler(
 		iscsit_dec_conn_usage_count(conn);
 
 		if (stop_timer) {
-			spin_lock_bh(&se_tpg->session_lock);
+			spin_lock_bh(&se_tpg->session_lock, SOFTIRQ_ALL_MASK);
 			iscsit_stop_time2retain_timer(sess);
 			spin_unlock_bh(&se_tpg->session_lock);
 		}
@@ -756,7 +759,7 @@ void iscsi_post_login_handler(
 
 	iscsit_determine_maxcmdsn(sess);
 
-	spin_lock_bh(&se_tpg->session_lock);
+	bh = spin_lock_bh(&se_tpg->session_lock, SOFTIRQ_ALL_MASK);
 	__transport_register_session(&sess->tpg->tpg_se_tpg,
 			se_sess->se_node_acl, se_sess, sess);
 	pr_debug("Moving to TARG_SESS_STATE_LOGGED_IN.\n");
@@ -766,7 +769,7 @@ void iscsi_post_login_handler(
 		conn->cid, &conn->login_sockaddr, &conn->local_sockaddr,
 		tpg->tpgt);
 
-	spin_lock_bh(&sess->conn_lock);
+	spin_lock_bh(&sess->conn_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&conn->conn_list, &sess->sess_conn_list);
 	atomic_inc(&sess->nconn);
 	pr_debug("Incremented iSCSI Connection count to %hu from node:"
@@ -786,7 +789,7 @@ void iscsi_post_login_handler(
 
 	pr_debug("Incremented number of active iSCSI sessions to %u on"
 		" iSCSI Target Portal Group: %hu\n", tpg->nsessions, tpg->tpgt);
-	spin_unlock_bh(&se_tpg->session_lock);
+	spin_unlock_bh(&se_tpg->session_lock, bh);
 
 	iscsi_post_login_start_timers(conn);
 	/*
@@ -806,14 +809,15 @@ void iscsi_post_login_handler(
 
 void iscsi_handle_login_thread_timeout(struct timer_list *t)
 {
+	unsigned int bh;
 	struct iscsi_np *np = from_timer(np, t, np_login_timer);
 
-	spin_lock_bh(&np->np_thread_lock);
+	bh = spin_lock_bh(&np->np_thread_lock, SOFTIRQ_ALL_MASK);
 	pr_err("iSCSI Login timeout on Network Portal %pISpc\n",
 			&np->np_sockaddr);
 
 	if (np->np_login_timer_flags & ISCSI_TF_STOP) {
-		spin_unlock_bh(&np->np_thread_lock);
+		spin_unlock_bh(&np->np_thread_lock, bh);
 		return;
 	}
 
@@ -821,30 +825,32 @@ void iscsi_handle_login_thread_timeout(struct timer_list *t)
 		send_sig(SIGINT, np->np_thread, 1);
 
 	np->np_login_timer_flags &= ~ISCSI_TF_RUNNING;
-	spin_unlock_bh(&np->np_thread_lock);
+	spin_unlock_bh(&np->np_thread_lock, bh);
 }
 
 static void iscsi_start_login_thread_timer(struct iscsi_np *np)
 {
+	unsigned int bh;
 	/*
 	 * This used the TA_LOGIN_TIMEOUT constant because at this
 	 * point we do not have access to ISCSI_TPG_ATTRIB(tpg)->login_timeout
 	 */
-	spin_lock_bh(&np->np_thread_lock);
+	bh = spin_lock_bh(&np->np_thread_lock, SOFTIRQ_ALL_MASK);
 	np->np_login_timer_flags &= ~ISCSI_TF_STOP;
 	np->np_login_timer_flags |= ISCSI_TF_RUNNING;
 	mod_timer(&np->np_login_timer, jiffies + TA_LOGIN_TIMEOUT * HZ);
 
 	pr_debug("Added timeout timer to iSCSI login request for"
 			" %u seconds.\n", TA_LOGIN_TIMEOUT);
-	spin_unlock_bh(&np->np_thread_lock);
+	spin_unlock_bh(&np->np_thread_lock, bh);
 }
 
 static void iscsi_stop_login_thread_timer(struct iscsi_np *np)
 {
-	spin_lock_bh(&np->np_thread_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&np->np_thread_lock, SOFTIRQ_ALL_MASK);
 	if (!(np->np_login_timer_flags & ISCSI_TF_RUNNING)) {
-		spin_unlock_bh(&np->np_thread_lock);
+		spin_unlock_bh(&np->np_thread_lock, bh);
 		return;
 	}
 	np->np_login_timer_flags |= ISCSI_TF_STOP;
@@ -852,7 +858,7 @@ static void iscsi_stop_login_thread_timer(struct iscsi_np *np)
 
 	del_timer_sync(&np->np_login_timer);
 
-	spin_lock_bh(&np->np_thread_lock);
+	spin_lock_bh(&np->np_thread_lock, SOFTIRQ_ALL_MASK);
 	np->np_login_timer_flags &= ~ISCSI_TF_RUNNING;
 	spin_unlock_bh(&np->np_thread_lock);
 }
@@ -1184,6 +1190,7 @@ void iscsit_free_conn(struct iscsi_conn *conn)
 void iscsi_target_login_sess_out(struct iscsi_conn *conn,
 		struct iscsi_np *np, bool zero_tsih, bool new_sess)
 {
+	unsigned int bh;
 	if (!new_sess)
 		goto old_sess_out;
 
@@ -1206,18 +1213,18 @@ old_sess_out:
 	 * needs to be restarted.
 	 */
 	if (!zero_tsih && conn->sess) {
-		spin_lock_bh(&conn->sess->conn_lock);
+		bh = spin_lock_bh(&conn->sess->conn_lock, SOFTIRQ_ALL_MASK);
 		if (conn->sess->session_state == TARG_SESS_STATE_FAILED) {
 			struct se_portal_group *se_tpg =
 					&conn->tpg->tpg_se_tpg;
 
 			atomic_set(&conn->sess->session_continuation, 0);
-			spin_unlock_bh(&conn->sess->conn_lock);
-			spin_lock_bh(&se_tpg->session_lock);
+			spin_unlock_bh(&conn->sess->conn_lock, bh);
+			spin_lock_bh(&se_tpg->session_lock, SOFTIRQ_ALL_MASK);
 			iscsit_start_time2retain_handler(conn->sess);
 			spin_unlock_bh(&se_tpg->session_lock);
 		} else
-			spin_unlock_bh(&conn->sess->conn_lock);
+			spin_unlock_bh(&conn->sess->conn_lock, bh);
 		iscsit_dec_session_usage_count(conn->sess);
 	}
 
@@ -1252,6 +1259,7 @@ old_sess_out:
 
 static int __iscsi_target_login_thread(struct iscsi_np *np)
 {
+	unsigned int bh;
 	u8 *buffer, zero_tsih = 0;
 	int ret = 0, rc;
 	struct iscsi_conn *conn = NULL;
@@ -1263,10 +1271,10 @@ static int __iscsi_target_login_thread(struct iscsi_np *np)
 
 	flush_signals(current);
 
-	spin_lock_bh(&np->np_thread_lock);
+	bh = spin_lock_bh(&np->np_thread_lock, SOFTIRQ_ALL_MASK);
 	if (atomic_dec_if_positive(&np->np_reset_count) >= 0) {
 		np->np_thread_state = ISCSI_NP_THREAD_ACTIVE;
-		spin_unlock_bh(&np->np_thread_lock);
+		spin_unlock_bh(&np->np_thread_lock, bh);
 		complete(&np->np_restart_comp);
 		return 1;
 	} else if (np->np_thread_state == ISCSI_NP_THREAD_SHUTDOWN) {
@@ -1275,7 +1283,7 @@ static int __iscsi_target_login_thread(struct iscsi_np *np)
 	} else {
 		np->np_thread_state = ISCSI_NP_THREAD_ACTIVE;
 	}
-	spin_unlock_bh(&np->np_thread_lock);
+	spin_unlock_bh(&np->np_thread_lock, bh);
 
 	conn = iscsit_alloc_conn(np);
 	if (!conn) {
@@ -1289,7 +1297,7 @@ static int __iscsi_target_login_thread(struct iscsi_np *np)
 		iscsit_free_conn(conn);
 		goto exit;
 	} else if (rc < 0) {
-		spin_lock_bh(&np->np_thread_lock);
+		spin_lock_bh(&np->np_thread_lock, SOFTIRQ_ALL_MASK);
 		if (atomic_dec_if_positive(&np->np_reset_count) >= 0) {
 			np->np_thread_state = ISCSI_NP_THREAD_ACTIVE;
 			spin_unlock_bh(&np->np_thread_lock);
@@ -1331,7 +1339,7 @@ static int __iscsi_target_login_thread(struct iscsi_np *np)
 	*/
 	conn->login_itt	= pdu->itt;
 
-	spin_lock_bh(&np->np_thread_lock);
+	spin_lock_bh(&np->np_thread_lock, SOFTIRQ_ALL_MASK);
 	if (np->np_thread_state != ISCSI_NP_THREAD_ACTIVE) {
 		spin_unlock_bh(&np->np_thread_lock);
 		pr_err("iSCSI Network Portal on %pISpc currently not"
@@ -1454,7 +1462,7 @@ old_sess_out:
 
 exit:
 	iscsi_stop_login_thread_timer(np);
-	spin_lock_bh(&np->np_thread_lock);
+	spin_lock_bh(&np->np_thread_lock, SOFTIRQ_ALL_MASK);
 	np->np_thread_state = ISCSI_NP_THREAD_EXIT;
 	spin_unlock_bh(&np->np_thread_lock);
 

@@ -71,23 +71,25 @@ static DEFINE_SPINLOCK(fastmap_lock);
 static void
 route4_reset_fastmap(struct route4_head *head)
 {
-	spin_lock_bh(&fastmap_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&fastmap_lock, SOFTIRQ_ALL_MASK);
 	memset(head->fastmap, 0, sizeof(head->fastmap));
-	spin_unlock_bh(&fastmap_lock);
+	spin_unlock_bh(&fastmap_lock, bh);
 }
 
 static void
 route4_set_fastmap(struct route4_head *head, u32 id, int iif,
 		   struct route4_filter *f)
 {
+	unsigned int bh;
 	int h = route4_fastmap_hash(id, iif);
 
 	/* fastmap updates must look atomic to aling id, iff, filter */
-	spin_lock_bh(&fastmap_lock);
+	bh = spin_lock_bh(&fastmap_lock, SOFTIRQ_ALL_MASK);
 	head->fastmap[h].id = id;
 	head->fastmap[h].iif = iif;
 	head->fastmap[h].filter = f;
-	spin_unlock_bh(&fastmap_lock);
+	spin_unlock_bh(&fastmap_lock, bh);
 }
 
 static inline int route4_hash_to(u32 id)

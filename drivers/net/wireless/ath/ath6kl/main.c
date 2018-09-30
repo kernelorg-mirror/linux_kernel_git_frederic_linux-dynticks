@@ -85,11 +85,12 @@ static void ath6kl_add_new_sta(struct ath6kl_vif *vif, u8 *mac, u16 aid,
 
 static void ath6kl_sta_cleanup(struct ath6kl *ar, u8 i)
 {
+	unsigned int bh;
 	struct ath6kl_sta *sta = &ar->sta_list[i];
 	struct ath6kl_mgmt_buff *entry, *tmp;
 
 	/* empty the queued pkts in the PS queue if any */
-	spin_lock_bh(&sta->psq_lock);
+	bh = spin_lock_bh(&sta->psq_lock, SOFTIRQ_ALL_MASK);
 	skb_queue_purge(&sta->psq);
 	skb_queue_purge(&sta->apsdq);
 
@@ -101,7 +102,7 @@ static void ath6kl_sta_cleanup(struct ath6kl *ar, u8 i)
 		sta->mgmt_psq_len = 0;
 	}
 
-	spin_unlock_bh(&sta->psq_lock);
+	spin_unlock_bh(&sta->psq_lock, bh);
 
 	memset(&ar->ap_stats.sta[sta->aid - 1], 0,
 	       sizeof(struct wmi_per_sta_stat));
@@ -600,13 +601,14 @@ static int ath6kl_commit_ch_switch(struct ath6kl_vif *vif, u16 channel)
 
 static void ath6kl_check_ch_switch(struct ath6kl *ar, u16 channel)
 {
+	unsigned int bh;
 	struct ath6kl_vif *vif;
 	int res = 0;
 
 	if (!ar->want_ch_switch)
 		return;
 
-	spin_lock_bh(&ar->list_lock);
+	bh = spin_lock_bh(&ar->list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(vif, &ar->vif_list, list) {
 		if (ar->want_ch_switch & (1 << vif->fw_vif_idx))
 			res = ath6kl_commit_ch_switch(vif, channel);
@@ -618,7 +620,7 @@ static void ath6kl_check_ch_switch(struct ath6kl *ar, u16 channel)
 			ath6kl_err("channel switch failed nw_type %d res %d\n",
 				   vif->nw_type, res);
 	}
-	spin_unlock_bh(&ar->list_lock);
+	spin_unlock_bh(&ar->list_lock, bh);
 }
 
 void ath6kl_connect_event(struct ath6kl_vif *vif, u16 channel, u8 *bssid,
@@ -627,6 +629,7 @@ void ath6kl_connect_event(struct ath6kl_vif *vif, u16 channel, u8 *bssid,
 			  u8 assoc_req_len, u8 assoc_resp_len,
 			  u8 *assoc_info)
 {
+	unsigned int bh;
 	struct ath6kl *ar = vif->ar;
 
 	ath6kl_cfg80211_connect_event(vif, channel, bssid,
@@ -647,11 +650,11 @@ void ath6kl_connect_event(struct ath6kl_vif *vif, u16 channel, u8 *bssid,
 	netif_wake_queue(vif->ndev);
 
 	/* Update connect & link status atomically */
-	spin_lock_bh(&vif->if_lock);
+	bh = spin_lock_bh(&vif->if_lock, SOFTIRQ_ALL_MASK);
 	set_bit(CONNECTED, &vif->flags);
 	clear_bit(CONNECT_PEND, &vif->flags);
 	netif_carrier_on(vif->ndev);
-	spin_unlock_bh(&vif->if_lock);
+	spin_unlock_bh(&vif->if_lock, bh);
 
 	aggr_reset_state(vif->aggr_cntxt->aggr_conn);
 	vif->reconnect_flag = 0;
@@ -863,6 +866,7 @@ void ath6kl_txpwr_rx_evt(void *devt, u8 tx_pwr)
 
 void ath6kl_pspoll_event(struct ath6kl_vif *vif, u8 aid)
 {
+	unsigned int bh;
 	struct ath6kl_sta *conn;
 	struct sk_buff *skb;
 	bool psq_empty = false;
@@ -877,15 +881,15 @@ void ath6kl_pspoll_event(struct ath6kl_vif *vif, u8 aid)
 	 * Send out a packet queued on ps queue. When the ps queue
 	 * becomes empty update the PVB for this station.
 	 */
-	spin_lock_bh(&conn->psq_lock);
+	bh = spin_lock_bh(&conn->psq_lock, SOFTIRQ_ALL_MASK);
 	psq_empty  = skb_queue_empty(&conn->psq) && (conn->mgmt_psq_len == 0);
-	spin_unlock_bh(&conn->psq_lock);
+	spin_unlock_bh(&conn->psq_lock, bh);
 
 	if (psq_empty)
 		/* TODO: Send out a NULL data frame */
 		return;
 
-	spin_lock_bh(&conn->psq_lock);
+	spin_lock_bh(&conn->psq_lock, SOFTIRQ_ALL_MASK);
 	if (conn->mgmt_psq_len > 0) {
 		mgmt_buf = list_first_entry(&conn->mgmt_psq,
 					struct ath6kl_mgmt_buff, list);
@@ -909,7 +913,7 @@ void ath6kl_pspoll_event(struct ath6kl_vif *vif, u8 aid)
 		conn->sta_flags &= ~STA_PS_POLLED;
 	}
 
-	spin_lock_bh(&conn->psq_lock);
+	spin_lock_bh(&conn->psq_lock, SOFTIRQ_ALL_MASK);
 	psq_empty  = skb_queue_empty(&conn->psq) && (conn->mgmt_psq_len == 0);
 	spin_unlock_bh(&conn->psq_lock);
 
@@ -919,6 +923,7 @@ void ath6kl_pspoll_event(struct ath6kl_vif *vif, u8 aid)
 
 void ath6kl_dtimexpiry_event(struct ath6kl_vif *vif)
 {
+	unsigned int bh;
 	bool mcastq_empty = false;
 	struct sk_buff *skb;
 	struct ath6kl *ar = vif->ar;
@@ -935,9 +940,9 @@ void ath6kl_dtimexpiry_event(struct ath6kl_vif *vif)
 	if (!ar->sta_list_index)
 		return;
 
-	spin_lock_bh(&ar->mcastpsq_lock);
+	bh = spin_lock_bh(&ar->mcastpsq_lock, SOFTIRQ_ALL_MASK);
 	mcastq_empty = skb_queue_empty(&ar->mcastpsq);
-	spin_unlock_bh(&ar->mcastpsq_lock);
+	spin_unlock_bh(&ar->mcastpsq_lock, bh);
 
 	if (mcastq_empty)
 		return;
@@ -945,13 +950,13 @@ void ath6kl_dtimexpiry_event(struct ath6kl_vif *vif)
 	/* set the STA flag to dtim_expired for the frame to go out */
 	set_bit(DTIM_EXPIRED, &vif->flags);
 
-	spin_lock_bh(&ar->mcastpsq_lock);
+	spin_lock_bh(&ar->mcastpsq_lock, SOFTIRQ_ALL_MASK);
 	while ((skb = skb_dequeue(&ar->mcastpsq)) != NULL) {
 		spin_unlock_bh(&ar->mcastpsq_lock);
 
 		ath6kl_data_tx(skb, vif->ndev);
 
-		spin_lock_bh(&ar->mcastpsq_lock);
+		spin_lock_bh(&ar->mcastpsq_lock, SOFTIRQ_ALL_MASK);
 	}
 	spin_unlock_bh(&ar->mcastpsq_lock);
 
@@ -965,6 +970,7 @@ void ath6kl_disconnect_event(struct ath6kl_vif *vif, u8 reason, u8 *bssid,
 			     u8 assoc_resp_len, u8 *assoc_info,
 			     u16 prot_reason_status)
 {
+	unsigned int bh;
 	struct ath6kl *ar = vif->ar;
 
 	if (vif->nw_type == AP_NETWORK) {
@@ -995,9 +1001,9 @@ void ath6kl_disconnect_event(struct ath6kl_vif *vif, u8 reason, u8 *bssid,
 
 		/* if no more associated STAs, empty the mcast PS q */
 		if (ar->sta_list_index == 0) {
-			spin_lock_bh(&ar->mcastpsq_lock);
+			bh = spin_lock_bh(&ar->mcastpsq_lock, SOFTIRQ_ALL_MASK);
 			skb_queue_purge(&ar->mcastpsq);
-			spin_unlock_bh(&ar->mcastpsq_lock);
+			spin_unlock_bh(&ar->mcastpsq_lock, bh);
 
 			/* clear the LSB of the TIM IE's BitMapCtl field */
 			if (test_bit(WMI_READY, &ar->flag))
@@ -1051,10 +1057,10 @@ void ath6kl_disconnect_event(struct ath6kl_vif *vif, u8 reason, u8 *bssid,
 	ath6kl_check_ch_switch(ar, ar->last_ch);
 
 	/* update connect & link status atomically */
-	spin_lock_bh(&vif->if_lock);
+	bh = spin_lock_bh(&vif->if_lock, SOFTIRQ_ALL_MASK);
 	clear_bit(CONNECTED, &vif->flags);
 	netif_carrier_off(vif->ndev);
-	spin_unlock_bh(&vif->if_lock);
+	spin_unlock_bh(&vif->if_lock, bh);
 
 	if ((reason != CSERV_DISCONNECT) || (vif->reconnect_flag != 1))
 		vif->reconnect_flag = 0;
@@ -1071,17 +1077,18 @@ void ath6kl_disconnect_event(struct ath6kl_vif *vif, u8 reason, u8 *bssid,
 
 struct ath6kl_vif *ath6kl_vif_first(struct ath6kl *ar)
 {
+	unsigned int bh;
 	struct ath6kl_vif *vif;
 
-	spin_lock_bh(&ar->list_lock);
+	bh = spin_lock_bh(&ar->list_lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&ar->vif_list)) {
-		spin_unlock_bh(&ar->list_lock);
+		spin_unlock_bh(&ar->list_lock, bh);
 		return NULL;
 	}
 
 	vif = list_first_entry(&ar->vif_list, struct ath6kl_vif, list);
 
-	spin_unlock_bh(&ar->list_lock);
+	spin_unlock_bh(&ar->list_lock, bh);
 
 	return vif;
 }

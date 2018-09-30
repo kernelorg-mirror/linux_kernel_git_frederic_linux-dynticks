@@ -16,6 +16,7 @@ struct net_rate_estimator;
 
 struct gnet_dump {
 	spinlock_t *      lock;
+	unsigned int      bh;
 	struct sk_buff *  skb;
 	struct nlattr *   tail;
 

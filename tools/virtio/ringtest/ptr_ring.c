@@ -80,7 +80,7 @@ static void spin_unlock(spinlock_t *lock)
 	assert(!ret);
 }
 
-static void spin_lock_bh(spinlock_t *lock)
+static void spin_lock_bh(spinlock_t *lock, SOFTIRQ_ALL_MASK)
 {
 	spin_lock(lock);
 }

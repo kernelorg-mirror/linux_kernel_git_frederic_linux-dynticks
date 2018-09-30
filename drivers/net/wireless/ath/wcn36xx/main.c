@@ -1078,6 +1078,7 @@ static int wcn36xx_ampdu_action(struct ieee80211_hw *hw,
 		    struct ieee80211_vif *vif,
 		    struct ieee80211_ampdu_params *params)
 {
+	unsigned int bh;
 	struct wcn36xx *wcn = hw->priv;
 	struct wcn36xx_sta *sta_priv = wcn36xx_sta_to_priv(params->sta);
 	struct ieee80211_sta *sta = params->sta;
@@ -1102,16 +1103,16 @@ static int wcn36xx_ampdu_action(struct ieee80211_hw *hw,
 		wcn36xx_smd_del_ba(wcn, tid, get_sta_index(vif, sta_priv));
 		break;
 	case IEEE80211_AMPDU_TX_START:
-		spin_lock_bh(&sta_priv->ampdu_lock);
+		bh = spin_lock_bh(&sta_priv->ampdu_lock, SOFTIRQ_ALL_MASK);
 		sta_priv->ampdu_state[tid] = WCN36XX_AMPDU_START;
-		spin_unlock_bh(&sta_priv->ampdu_lock);
+		spin_unlock_bh(&sta_priv->ampdu_lock, bh);
 
 		ieee80211_start_tx_ba_cb_irqsafe(vif, sta->addr, tid);
 		break;
 	case IEEE80211_AMPDU_TX_OPERATIONAL:
-		spin_lock_bh(&sta_priv->ampdu_lock);
+		bh = spin_lock_bh(&sta_priv->ampdu_lock, SOFTIRQ_ALL_MASK);
 		sta_priv->ampdu_state[tid] = WCN36XX_AMPDU_OPERATIONAL;
-		spin_unlock_bh(&sta_priv->ampdu_lock);
+		spin_unlock_bh(&sta_priv->ampdu_lock, bh);
 
 		wcn36xx_smd_add_ba_session(wcn, sta, tid, ssn, 1,
 			get_sta_index(vif, sta_priv));
@@ -1119,9 +1120,9 @@ static int wcn36xx_ampdu_action(struct ieee80211_hw *hw,
 	case IEEE80211_AMPDU_TX_STOP_FLUSH:
 	case IEEE80211_AMPDU_TX_STOP_FLUSH_CONT:
 	case IEEE80211_AMPDU_TX_STOP_CONT:
-		spin_lock_bh(&sta_priv->ampdu_lock);
+		bh = spin_lock_bh(&sta_priv->ampdu_lock, SOFTIRQ_ALL_MASK);
 		sta_priv->ampdu_state[tid] = WCN36XX_AMPDU_NONE;
-		spin_unlock_bh(&sta_priv->ampdu_lock);
+		spin_unlock_bh(&sta_priv->ampdu_lock, bh);
 
 		ieee80211_stop_tx_ba_cb_irqsafe(vif, sta->addr, tid);
 		break;

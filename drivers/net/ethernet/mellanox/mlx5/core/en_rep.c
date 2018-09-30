@@ -431,6 +431,7 @@ mlx5e_rep_neigh_entry_lookup(struct mlx5e_priv *priv,
 static int mlx5e_rep_netevent_event(struct notifier_block *nb,
 				    unsigned long event, void *ptr)
 {
+	unsigned int bh;
 	struct mlx5e_rep_priv *rpriv = container_of(nb, struct mlx5e_rep_priv,
 						    neigh_update.netevent_nb);
 	struct mlx5e_neigh_update_table *neigh_update = &rpriv->neigh_update;
@@ -460,10 +461,10 @@ static int mlx5e_rep_netevent_event(struct notifier_block *nb,
 		 * spin_lock_bh to lookup the neigh table. bh is used since
 		 * netevent can be called from a softirq context.
 		 */
-		spin_lock_bh(&neigh_update->encap_lock);
+		bh = spin_lock_bh(&neigh_update->encap_lock, SOFTIRQ_ALL_MASK);
 		nhe = mlx5e_rep_neigh_entry_lookup(priv, &m_neigh);
 		if (!nhe) {
-			spin_unlock_bh(&neigh_update->encap_lock);
+			spin_unlock_bh(&neigh_update->encap_lock, bh);
 			return NOTIFY_DONE;
 		}
 
@@ -483,7 +484,7 @@ static int mlx5e_rep_netevent_event(struct notifier_block *nb,
 			mlx5e_rep_neigh_entry_release(nhe);
 			neigh_release(n);
 		}
-		spin_unlock_bh(&neigh_update->encap_lock);
+		spin_unlock_bh(&neigh_update->encap_lock, bh);
 		break;
 
 	case NETEVENT_DELAY_PROBE_TIME_UPDATE:
@@ -505,14 +506,14 @@ static int mlx5e_rep_netevent_event(struct notifier_block *nb,
 		 * the relevant device. bh is used since netevent can be
 		 * called from a softirq context.
 		 */
-		spin_lock_bh(&neigh_update->encap_lock);
+		bh = spin_lock_bh(&neigh_update->encap_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(nhe, &neigh_update->neigh_list, neigh_list) {
 			if (p->dev == nhe->m_neigh.dev) {
 				found = true;
 				break;
 			}
 		}
-		spin_unlock_bh(&neigh_update->encap_lock);
+		spin_unlock_bh(&neigh_update->encap_lock, bh);
 		if (!found)
 			return NOTIFY_DONE;
 
@@ -593,16 +594,17 @@ static int mlx5e_rep_neigh_entry_insert(struct mlx5e_priv *priv,
 static void mlx5e_rep_neigh_entry_remove(struct mlx5e_priv *priv,
 					 struct mlx5e_neigh_hash_entry *nhe)
 {
+	unsigned int bh;
 	struct mlx5e_rep_priv *rpriv = priv->ppriv;
 
-	spin_lock_bh(&rpriv->neigh_update.encap_lock);
+	bh = spin_lock_bh(&rpriv->neigh_update.encap_lock, SOFTIRQ_ALL_MASK);
 
 	list_del(&nhe->neigh_list);
 
 	rhashtable_remove_fast(&rpriv->neigh_update.neigh_ht,
 			       &nhe->rhash_node,
 			       mlx5e_neigh_ht_params);
-	spin_unlock_bh(&rpriv->neigh_update.encap_lock);
+	spin_unlock_bh(&rpriv->neigh_update.encap_lock, bh);
 }
 
 /* This function must only be called under RTNL lock or under the

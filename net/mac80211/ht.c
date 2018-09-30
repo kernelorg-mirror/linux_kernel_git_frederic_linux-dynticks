@@ -326,6 +326,7 @@ void ieee80211_sta_tear_down_BA_sessions(struct sta_info *sta,
 
 void ieee80211_ba_session_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct sta_info *sta =
 		container_of(work, struct sta_info, ampdu_mlme.work);
 	struct tid_ampdu_tx *tid_tx;
@@ -361,7 +362,7 @@ void ieee80211_ba_session_work(struct work_struct *work)
 				sta, tid, WLAN_BACK_RECIPIENT,
 				0, false);
 
-		spin_lock_bh(&sta->lock);
+		bh = spin_lock_bh(&sta->lock, SOFTIRQ_ALL_MASK);
 
 		tid_tx = sta->ampdu_mlme.tid_start_tx[tid];
 		if (!blocked && tid_tx) {
@@ -376,12 +377,12 @@ void ieee80211_ba_session_work(struct work_struct *work)
 				kfree(tid_tx);
 			else
 				ieee80211_assign_tid_tx(sta, tid, tid_tx);
-			spin_unlock_bh(&sta->lock);
+			spin_unlock_bh(&sta->lock, bh);
 
 			ieee80211_tx_ba_session_handle_start(sta, tid);
 			continue;
 		}
-		spin_unlock_bh(&sta->lock);
+		spin_unlock_bh(&sta->lock, bh);
 
 		tid_tx = rcu_dereference_protected_tid_tx(sta, tid);
 		if (!tid_tx)

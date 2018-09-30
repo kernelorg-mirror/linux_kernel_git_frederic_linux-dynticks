@@ -1451,11 +1451,12 @@ static void
 xgmac_get_stats64(struct net_device *dev,
 		  struct rtnl_link_stats64 *storage)
 {
+	unsigned int bh;
 	struct xgmac_priv *priv = netdev_priv(dev);
 	void __iomem *base = priv->base;
 	u32 count;
 
-	spin_lock_bh(&priv->stats_lock);
+	bh = spin_lock_bh(&priv->stats_lock, SOFTIRQ_ALL_MASK);
 	writel(XGMAC_MMC_CTRL_CNT_FRZ, base + XGMAC_MMC_CTRL);
 
 	storage->rx_bytes = readl(base + XGMAC_MMC_RXOCTET_G_LO);
@@ -1476,7 +1477,7 @@ xgmac_get_stats64(struct net_device *dev,
 	storage->tx_fifo_errors = readl(base + XGMAC_MMC_TXUNDERFLOW);
 
 	writel(0, base + XGMAC_MMC_CTRL);
-	spin_unlock_bh(&priv->stats_lock);
+	spin_unlock_bh(&priv->stats_lock, bh);
 }
 
 static int xgmac_set_mac_address(struct net_device *dev, void *p)

@@ -353,7 +353,7 @@ static int ap_control_proc_show(struct seq_file *m, void *v)
 static void *ap_control_proc_start(struct seq_file *m, loff_t *_pos)
 {
 	struct ap_data *ap = PDE_DATA(file_inode(m->file));
-	spin_lock_bh(&ap->mac_restrictions.lock);
+	spin_lock_bh(&ap->mac_restrictions.lock, SOFTIRQ_ALL_MASK);
 	return seq_list_start_head(&ap->mac_restrictions.mac_list, *_pos);
 }
 
@@ -378,6 +378,7 @@ static const struct seq_operations ap_control_proc_seqops = {
 
 int ap_control_add_mac(struct mac_restrictions *mac_restrictions, u8 *mac)
 {
+	unsigned int bh;
 	struct mac_entry *entry;
 
 	entry = kmalloc(sizeof(struct mac_entry), GFP_KERNEL);
@@ -386,10 +387,10 @@ int ap_control_add_mac(struct mac_restrictions *mac_restrictions, u8 *mac)
 
 	memcpy(entry->addr, mac, ETH_ALEN);
 
-	spin_lock_bh(&mac_restrictions->lock);
+	bh = spin_lock_bh(&mac_restrictions->lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&entry->list, &mac_restrictions->mac_list);
 	mac_restrictions->entries++;
-	spin_unlock_bh(&mac_restrictions->lock);
+	spin_unlock_bh(&mac_restrictions->lock, bh);
 
 	return 0;
 }
@@ -397,10 +398,11 @@ int ap_control_add_mac(struct mac_restrictions *mac_restrictions, u8 *mac)
 
 int ap_control_del_mac(struct mac_restrictions *mac_restrictions, u8 *mac)
 {
+	unsigned int bh;
 	struct list_head *ptr;
 	struct mac_entry *entry;
 
-	spin_lock_bh(&mac_restrictions->lock);
+	bh = spin_lock_bh(&mac_restrictions->lock, SOFTIRQ_ALL_MASK);
 	for (ptr = mac_restrictions->mac_list.next;
 	     ptr != &mac_restrictions->mac_list; ptr = ptr->next) {
 		entry = list_entry(ptr, struct mac_entry, list);
@@ -409,11 +411,11 @@ int ap_control_del_mac(struct mac_restrictions *mac_restrictions, u8 *mac)
 			list_del(ptr);
 			kfree(entry);
 			mac_restrictions->entries--;
-			spin_unlock_bh(&mac_restrictions->lock);
+			spin_unlock_bh(&mac_restrictions->lock, bh);
 			return 0;
 		}
 	}
-	spin_unlock_bh(&mac_restrictions->lock);
+	spin_unlock_bh(&mac_restrictions->lock, bh);
 	return -1;
 }
 
@@ -421,20 +423,21 @@ int ap_control_del_mac(struct mac_restrictions *mac_restrictions, u8 *mac)
 static int ap_control_mac_deny(struct mac_restrictions *mac_restrictions,
 			       u8 *mac)
 {
+	unsigned int bh;
 	struct mac_entry *entry;
 	int found = 0;
 
 	if (mac_restrictions->policy == MAC_POLICY_OPEN)
 		return 0;
 
-	spin_lock_bh(&mac_restrictions->lock);
+	bh = spin_lock_bh(&mac_restrictions->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(entry, &mac_restrictions->mac_list, list) {
 		if (ether_addr_equal(entry->addr, mac)) {
 			found = 1;
 			break;
 		}
 	}
-	spin_unlock_bh(&mac_restrictions->lock);
+	spin_unlock_bh(&mac_restrictions->lock, bh);
 
 	if (mac_restrictions->policy == MAC_POLICY_ALLOW)
 		return !found;
@@ -445,13 +448,14 @@ static int ap_control_mac_deny(struct mac_restrictions *mac_restrictions,
 
 void ap_control_flush_macs(struct mac_restrictions *mac_restrictions)
 {
+	unsigned int bh;
 	struct list_head *ptr, *n;
 	struct mac_entry *entry;
 
 	if (mac_restrictions->entries == 0)
 		return;
 
-	spin_lock_bh(&mac_restrictions->lock);
+	bh = spin_lock_bh(&mac_restrictions->lock, SOFTIRQ_ALL_MASK);
 	for (ptr = mac_restrictions->mac_list.next, n = ptr->next;
 	     ptr != &mac_restrictions->mac_list;
 	     ptr = n, n = ptr->next) {
@@ -460,22 +464,23 @@ void ap_control_flush_macs(struct mac_restrictions *mac_restrictions)
 		kfree(entry);
 	}
 	mac_restrictions->entries = 0;
-	spin_unlock_bh(&mac_restrictions->lock);
+	spin_unlock_bh(&mac_restrictions->lock, bh);
 }
 
 
 int ap_control_kick_mac(struct ap_data *ap, struct net_device *dev, u8 *mac)
 {
+	unsigned int bh;
 	struct sta_info *sta;
 	__le16 resp;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(ap, mac);
 	if (sta) {
 		ap_sta_hash_del(ap, sta);
 		list_del(&sta->list);
 	}
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 
 	if (!sta)
 		return -EINVAL;
@@ -497,10 +502,11 @@ int ap_control_kick_mac(struct ap_data *ap, struct net_device *dev, u8 *mac)
 
 void ap_control_kickall(struct ap_data *ap)
 {
+	unsigned int bh;
 	struct list_head *ptr, *n;
 	struct sta_info *sta;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	for (ptr = ap->sta_list.next, n = ptr->next; ptr != &ap->sta_list;
 	     ptr = n, n = ptr->next) {
 		sta = list_entry(ptr, struct sta_info, list);
@@ -510,7 +516,7 @@ void ap_control_kickall(struct ap_data *ap)
 			hostap_event_expired_sta(sta->local->dev, sta);
 		ap_free_sta(ap, sta);
 	}
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 }
 
 
@@ -555,7 +561,7 @@ static int prism2_ap_proc_show(struct seq_file *m, void *v)
 static void *prism2_ap_proc_start(struct seq_file *m, loff_t *_pos)
 {
 	struct ap_data *ap = PDE_DATA(file_inode(m->file));
-	spin_lock_bh(&ap->sta_table_lock);
+	spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	return seq_list_start_head(&ap->sta_list, *_pos);
 }
 
@@ -1062,6 +1068,7 @@ static int prism2_sta_proc_show(struct seq_file *m, void *v)
 
 static void handle_add_proc_queue(struct work_struct *work)
 {
+	unsigned int bh;
 	struct ap_data *ap = container_of(work, struct ap_data,
 					  add_sta_proc_queue);
 	struct sta_info *sta;
@@ -1072,11 +1079,11 @@ static void handle_add_proc_queue(struct work_struct *work)
 	ap->add_sta_proc_entries = NULL;
 
 	while (entry) {
-		spin_lock_bh(&ap->sta_table_lock);
+		bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 		sta = ap_get_sta(ap, entry->addr);
 		if (sta)
 			atomic_inc(&sta->users);
-		spin_unlock_bh(&ap->sta_table_lock);
+		spin_unlock_bh(&ap->sta_table_lock, bh);
 
 		if (sta) {
 			sprintf(name, "%pM", sta->addr);
@@ -1096,6 +1103,7 @@ static void handle_add_proc_queue(struct work_struct *work)
 
 static struct sta_info * ap_add_sta(struct ap_data *ap, u8 *addr)
 {
+	unsigned int bh;
 	struct sta_info *sta;
 
 	sta = kzalloc(sizeof(struct sta_info), GFP_ATOMIC);
@@ -1110,11 +1118,11 @@ static struct sta_info * ap_add_sta(struct ap_data *ap, u8 *addr)
 	memcpy(sta->addr, addr, ETH_ALEN);
 
 	atomic_inc(&sta->users);
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	list_add(&sta->list, &ap->sta_list);
 	ap->num_sta++;
 	ap_sta_hash_add(ap, sta);
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 
 	if (ap->proc) {
 		struct add_sta_proc_data *entry;
@@ -1283,6 +1291,7 @@ static char * ap_auth_make_challenge(struct ap_data *ap)
 static void handle_authen(local_info_t *local, struct sk_buff *skb,
 			  struct hostap_80211_rx_status *rx_stats)
 {
+	unsigned int bh;
 	struct net_device *dev = local->dev;
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 	size_t hdrlen;
@@ -1306,11 +1315,11 @@ static void handle_authen(local_info_t *local, struct sk_buff *skb,
 		return;
 	}
 
-	spin_lock_bh(&local->ap->sta_table_lock);
+	bh = spin_lock_bh(&local->ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(local->ap, hdr->addr2);
 	if (sta)
 		atomic_inc(&sta->users);
-	spin_unlock_bh(&local->ap->sta_table_lock);
+	spin_unlock_bh(&local->ap->sta_table_lock, bh);
 
 	if (sta && sta->crypt)
 		crypt = sta->crypt;
@@ -1496,6 +1505,7 @@ static void handle_authen(local_info_t *local, struct sk_buff *skb,
 static void handle_assoc(local_info_t *local, struct sk_buff *skb,
 			 struct hostap_80211_rx_status *rx_stats, int reassoc)
 {
+	unsigned int bh;
 	struct net_device *dev = local->dev;
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 	char body[12], *p, *lpos;
@@ -1516,10 +1526,10 @@ static void handle_assoc(local_info_t *local, struct sk_buff *skb,
 		return;
 	}
 
-	spin_lock_bh(&local->ap->sta_table_lock);
+	bh = spin_lock_bh(&local->ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(local->ap, hdr->addr2);
 	if (sta == NULL || (sta->flags & WLAN_STA_AUTH) == 0) {
-		spin_unlock_bh(&local->ap->sta_table_lock);
+		spin_unlock_bh(&local->ap->sta_table_lock, bh);
 		txt = "trying to associate before authentication";
 		send_deauth = 1;
 		resp = WLAN_STATUS_UNSPECIFIED_FAILURE;
@@ -1527,7 +1537,7 @@ static void handle_assoc(local_info_t *local, struct sk_buff *skb,
 		goto fail;
 	}
 	atomic_inc(&sta->users);
-	spin_unlock_bh(&local->ap->sta_table_lock);
+	spin_unlock_bh(&local->ap->sta_table_lock, bh);
 
 	pos = (__le16 *) (skb->data + IEEE80211_MGMT_HDR_LEN);
 	sta->capability = __le16_to_cpu(*pos);
@@ -1608,7 +1618,7 @@ static void handle_assoc(local_info_t *local, struct sk_buff *skb,
 	if (sta->aid > 0)
 		txt = "OK, old AID";
 	else {
-		spin_lock_bh(&local->ap->sta_table_lock);
+		spin_lock_bh(&local->ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 		for (sta->aid = 1; sta->aid <= MAX_AID_TABLE_SIZE; sta->aid++)
 			if (local->ap->sta_aid[sta->aid - 1] == NULL)
 				break;
@@ -1705,6 +1715,7 @@ static void handle_assoc(local_info_t *local, struct sk_buff *skb,
 static void handle_deauth(local_info_t *local, struct sk_buff *skb,
 			  struct hostap_80211_rx_status *rx_stats)
 {
+	unsigned int bh;
 	struct net_device *dev = local->dev;
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 	char *body = (char *) (skb->data + IEEE80211_MGMT_HDR_LEN);
@@ -1727,14 +1738,14 @@ static void handle_deauth(local_info_t *local, struct sk_buff *skb,
 	       "reason_code=%d\n", dev->name, hdr->addr2,
 	       len, reason_code);
 
-	spin_lock_bh(&local->ap->sta_table_lock);
+	bh = spin_lock_bh(&local->ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(local->ap, hdr->addr2);
 	if (sta != NULL) {
 		if ((sta->flags & WLAN_STA_ASSOC) && !sta->ap)
 			hostap_event_expired_sta(local->dev, sta);
 		sta->flags &= ~(WLAN_STA_AUTH | WLAN_STA_ASSOC);
 	}
-	spin_unlock_bh(&local->ap->sta_table_lock);
+	spin_unlock_bh(&local->ap->sta_table_lock, bh);
 	if (sta == NULL) {
 		printk("%s: deauthentication from %pM, "
 	       "reason_code=%d, but STA not authenticated\n", dev->name,
@@ -1747,6 +1758,7 @@ static void handle_deauth(local_info_t *local, struct sk_buff *skb,
 static void handle_disassoc(local_info_t *local, struct sk_buff *skb,
 			    struct hostap_80211_rx_status *rx_stats)
 {
+	unsigned int bh;
 	struct net_device *dev = local->dev;
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 	char *body = skb->data + IEEE80211_MGMT_HDR_LEN;
@@ -1769,14 +1781,14 @@ static void handle_disassoc(local_info_t *local, struct sk_buff *skb,
 	       "reason_code=%d\n", dev->name, hdr->addr2,
 	       len, reason_code);
 
-	spin_lock_bh(&local->ap->sta_table_lock);
+	bh = spin_lock_bh(&local->ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(local->ap, hdr->addr2);
 	if (sta != NULL) {
 		if ((sta->flags & WLAN_STA_ASSOC) && !sta->ap)
 			hostap_event_expired_sta(local->dev, sta);
 		sta->flags &= ~WLAN_STA_ASSOC;
 	}
-	spin_unlock_bh(&local->ap->sta_table_lock);
+	spin_unlock_bh(&local->ap->sta_table_lock, bh);
 	if (sta == NULL) {
 		printk("%s: disassociation from %pM, "
 		       "reason_code=%d, but STA not authenticated\n",
@@ -1806,15 +1818,16 @@ static void ap_handle_data_nullfunc(local_info_t *local,
 static void ap_handle_dropped_data(local_info_t *local,
 				   struct ieee80211_hdr *hdr)
 {
+	unsigned int bh;
 	struct net_device *dev = local->dev;
 	struct sta_info *sta;
 	__le16 reason;
 
-	spin_lock_bh(&local->ap->sta_table_lock);
+	bh = spin_lock_bh(&local->ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(local->ap, hdr->addr2);
 	if (sta)
 		atomic_inc(&sta->users);
-	spin_unlock_bh(&local->ap->sta_table_lock);
+	spin_unlock_bh(&local->ap->sta_table_lock, bh);
 
 	if (sta != NULL && (sta->flags & WLAN_STA_ASSOC)) {
 		PDEBUG(DEBUG_AP, "ap_handle_dropped_data: STA is now okay?\n");
@@ -1865,6 +1878,7 @@ static void handle_pspoll(local_info_t *local,
 			  struct ieee80211_hdr *hdr,
 			  struct hostap_80211_rx_status *rx_stats)
 {
+	unsigned int bh;
 	struct net_device *dev = local->dev;
 	struct sta_info *sta;
 	u16 aid;
@@ -1892,11 +1906,11 @@ static void handle_pspoll(local_info_t *local,
 	}
 	PDEBUG(DEBUG_PS2, "   aid=%d\n", aid);
 
-	spin_lock_bh(&local->ap->sta_table_lock);
+	bh = spin_lock_bh(&local->ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(local->ap, hdr->addr2);
 	if (sta)
 		atomic_inc(&sta->users);
-	spin_unlock_bh(&local->ap->sta_table_lock);
+	spin_unlock_bh(&local->ap->sta_table_lock, bh);
 
 	if (sta == NULL) {
 		PDEBUG(DEBUG_PS, "   STA not found\n");
@@ -1950,15 +1964,16 @@ static void handle_pspoll(local_info_t *local,
 
 static void handle_wds_oper_queue(struct work_struct *work)
 {
+	unsigned int bh;
 	struct ap_data *ap = container_of(work, struct ap_data,
 					  wds_oper_queue);
 	local_info_t *local = ap->local;
 	struct wds_oper_data *entry, *prev;
 
-	spin_lock_bh(&local->lock);
+	bh = spin_lock_bh(&local->lock, SOFTIRQ_ALL_MASK);
 	entry = local->ap->wds_oper_entries;
 	local->ap->wds_oper_entries = NULL;
-	spin_unlock_bh(&local->lock);
+	spin_unlock_bh(&local->lock, bh);
 
 	while (entry) {
 		PDEBUG(DEBUG_AP, "%s: %s automatic WDS connection "
@@ -1982,6 +1997,7 @@ static void handle_wds_oper_queue(struct work_struct *work)
 static void handle_beacon(local_info_t *local, struct sk_buff *skb,
 			  struct hostap_80211_rx_status *rx_stats)
 {
+	unsigned int bh;
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 	char *body = skb->data + IEEE80211_MGMT_HDR_LEN;
 	int len, left;
@@ -2079,11 +2095,11 @@ static void handle_beacon(local_info_t *local, struct sk_buff *skb,
 		}
 	}
 
-	spin_lock_bh(&local->ap->sta_table_lock);
+	bh = spin_lock_bh(&local->ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(local->ap, hdr->addr2);
 	if (sta != NULL)
 		atomic_inc(&sta->users);
-	spin_unlock_bh(&local->ap->sta_table_lock);
+	spin_unlock_bh(&local->ap->sta_table_lock, bh);
 
 	if (sta == NULL) {
 		/* add new AP */
@@ -2326,11 +2342,12 @@ int prism2_ap_get_sta_qual(local_info_t *local, struct sockaddr addr[],
 			   struct iw_quality qual[], int buf_size,
 			   int aplist)
 {
+	unsigned int bh;
 	struct ap_data *ap = local->ap;
 	struct list_head *ptr;
 	int count = 0;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 
 	for (ptr = ap->sta_list.next; ptr != NULL && ptr != &ap->sta_list;
 	     ptr = ptr->next) {
@@ -2356,7 +2373,7 @@ int prism2_ap_get_sta_qual(local_info_t *local, struct sockaddr addr[],
 		if (count >= buf_size)
 			break;
 	}
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 
 	return count;
 }
@@ -2367,6 +2384,7 @@ int prism2_ap_get_sta_qual(local_info_t *local, struct sockaddr addr[],
 int prism2_ap_translate_scan(struct net_device *dev,
 			     struct iw_request_info *info, char *buffer)
 {
+	unsigned int bh;
 	struct hostap_interface *iface;
 	local_info_t *local;
 	struct ap_data *ap;
@@ -2382,7 +2400,7 @@ int prism2_ap_translate_scan(struct net_device *dev,
 	local = iface->local;
 	ap = local->ap;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 
 	for (ptr = ap->sta_list.next; ptr != NULL && ptr != &ap->sta_list;
 	     ptr = ptr->next) {
@@ -2473,7 +2491,7 @@ int prism2_ap_translate_scan(struct net_device *dev,
 		/* To be continued, we should make good use of IWEVCUSTOM */
 	}
 
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 
 	return current_ev - buffer;
 }
@@ -2482,13 +2500,14 @@ int prism2_ap_translate_scan(struct net_device *dev,
 static int prism2_hostapd_add_sta(struct ap_data *ap,
 				  struct prism2_hostapd_param *param)
 {
+	unsigned int bh;
 	struct sta_info *sta;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(ap, param->sta_addr);
 	if (sta)
 		atomic_inc(&sta->users);
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 
 	if (sta == NULL) {
 		sta = ap_add_sta(ap, param->sta_addr);
@@ -2521,15 +2540,16 @@ static int prism2_hostapd_add_sta(struct ap_data *ap,
 static int prism2_hostapd_remove_sta(struct ap_data *ap,
 				     struct prism2_hostapd_param *param)
 {
+	unsigned int bh;
 	struct sta_info *sta;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(ap, param->sta_addr);
 	if (sta) {
 		ap_sta_hash_del(ap, sta);
 		list_del(&sta->list);
 	}
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 
 	if (!sta)
 		return -ENOENT;
@@ -2545,13 +2565,14 @@ static int prism2_hostapd_remove_sta(struct ap_data *ap,
 static int prism2_hostapd_get_info_sta(struct ap_data *ap,
 				       struct prism2_hostapd_param *param)
 {
+	unsigned int bh;
 	struct sta_info *sta;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(ap, param->sta_addr);
 	if (sta)
 		atomic_inc(&sta->users);
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 
 	if (!sta)
 		return -ENOENT;
@@ -2567,15 +2588,16 @@ static int prism2_hostapd_get_info_sta(struct ap_data *ap,
 static int prism2_hostapd_set_flags_sta(struct ap_data *ap,
 					struct prism2_hostapd_param *param)
 {
+	unsigned int bh;
 	struct sta_info *sta;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(ap, param->sta_addr);
 	if (sta) {
 		sta->flags |= param->u.set_flags_sta.flags_or;
 		sta->flags &= param->u.set_flags_sta.flags_and;
 	}
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 
 	if (!sta)
 		return -ENOENT;
@@ -2587,10 +2609,11 @@ static int prism2_hostapd_set_flags_sta(struct ap_data *ap,
 static int prism2_hostapd_sta_clear_stats(struct ap_data *ap,
 					  struct prism2_hostapd_param *param)
 {
+	unsigned int bh;
 	struct sta_info *sta;
 	int rate;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(ap, param->sta_addr);
 	if (sta) {
 		sta->rx_packets = sta->tx_packets = 0;
@@ -2600,7 +2623,7 @@ static int prism2_hostapd_sta_clear_stats(struct ap_data *ap,
 			sta->rx_count[rate] = 0;
 		}
 	}
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 
 	if (!sta)
 		return -ENOENT;
@@ -3194,30 +3217,32 @@ int hostap_update_rx_stats(struct ap_data *ap,
 
 void hostap_update_rates(local_info_t *local)
 {
+	unsigned int bh;
 	struct sta_info *sta;
 	struct ap_data *ap = local->ap;
 
 	if (!ap)
 		return;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(sta, &ap->sta_list, list) {
 		prism2_check_tx_rates(sta);
 	}
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 }
 
 
 void * ap_crypt_get_ptrs(struct ap_data *ap, u8 *addr, int permanent,
 			 struct lib80211_crypt_data ***crypt)
 {
+	unsigned int bh;
 	struct sta_info *sta;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	sta = ap_get_sta(ap, addr);
 	if (sta)
 		atomic_inc(&sta->users);
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 
 	if (!sta && permanent)
 		sta = ap_add_sta(ap, addr);
@@ -3236,15 +3261,16 @@ void * ap_crypt_get_ptrs(struct ap_data *ap, u8 *addr, int permanent,
 
 void hostap_add_wds_links(local_info_t *local)
 {
+	unsigned int bh;
 	struct ap_data *ap = local->ap;
 	struct sta_info *sta;
 
-	spin_lock_bh(&ap->sta_table_lock);
+	bh = spin_lock_bh(&ap->sta_table_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(sta, &ap->sta_list, list) {
 		if (sta->ap)
 			hostap_wds_link_oper(local, sta->addr, WDS_ADD);
 	}
-	spin_unlock_bh(&ap->sta_table_lock);
+	spin_unlock_bh(&ap->sta_table_lock, bh);
 
 	schedule_work(&local->ap->wds_oper_queue);
 }
@@ -3252,6 +3278,7 @@ void hostap_add_wds_links(local_info_t *local)
 
 void hostap_wds_link_oper(local_info_t *local, u8 *addr, wds_oper_type type)
 {
+	unsigned int bh;
 	struct wds_oper_data *entry;
 
 	entry = kmalloc(sizeof(*entry), GFP_ATOMIC);
@@ -3259,10 +3286,10 @@ void hostap_wds_link_oper(local_info_t *local, u8 *addr, wds_oper_type type)
 		return;
 	memcpy(entry->addr, addr, ETH_ALEN);
 	entry->type = type;
-	spin_lock_bh(&local->lock);
+	bh = spin_lock_bh(&local->lock, SOFTIRQ_ALL_MASK);
 	entry->next = local->ap->wds_oper_entries;
 	local->ap->wds_oper_entries = entry;
-	spin_unlock_bh(&local->lock);
+	spin_unlock_bh(&local->lock, bh);
 
 	schedule_work(&local->ap->wds_oper_queue);
 }

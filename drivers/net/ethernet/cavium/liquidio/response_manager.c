@@ -62,6 +62,7 @@ void octeon_delete_response_list(struct octeon_device *oct)
 int lio_process_ordered_list(struct octeon_device *octeon_dev,
 			     u32 force_quit)
 {
+	unsigned int bh;
 	struct octeon_response_list *ordered_sc_list;
 	struct octeon_soft_command *sc;
 	int request_complete = 0;
@@ -72,10 +73,10 @@ int lio_process_ordered_list(struct octeon_device *octeon_dev,
 	ordered_sc_list = &octeon_dev->response_list[OCTEON_ORDERED_SC_LIST];
 
 	do {
-		spin_lock_bh(&ordered_sc_list->lock);
+		bh = spin_lock_bh(&ordered_sc_list->lock, SOFTIRQ_ALL_MASK);
 
 		if (list_empty(&ordered_sc_list->head)) {
-			spin_unlock_bh(&ordered_sc_list->lock);
+			spin_unlock_bh(&ordered_sc_list->lock, bh);
 			return 1;
 		}
 
@@ -125,8 +126,7 @@ int lio_process_ordered_list(struct octeon_device *octeon_dev,
 			atomic_dec(&octeon_dev->response_list
 					  [OCTEON_ORDERED_SC_LIST].
 					  pending_req_count);
-			spin_unlock_bh
-			    (&ordered_sc_list->lock);
+			spin_unlock_bh(&ordered_sc_list->lock, bh);
 
 			if (sc->callback)
 				sc->callback(octeon_dev, status,
@@ -137,8 +137,7 @@ int lio_process_ordered_list(struct octeon_device *octeon_dev,
 		} else {
 			/* no response yet */
 			request_complete = 0;
-			spin_unlock_bh
-			    (&ordered_sc_list->lock);
+			spin_unlock_bh(&ordered_sc_list->lock, bh);
 		}
 
 		/* If we hit the Max Ordered requests to process every loop,

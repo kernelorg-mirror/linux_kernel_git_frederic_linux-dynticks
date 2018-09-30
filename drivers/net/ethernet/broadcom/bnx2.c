@@ -678,13 +678,14 @@ bnx2_netif_stop(struct bnx2 *bp, bool stop_cnic)
 static void
 bnx2_netif_start(struct bnx2 *bp, bool start_cnic)
 {
+	unsigned int bh;
 	if (atomic_dec_and_test(&bp->intr_sem)) {
 		if (netif_running(bp->dev)) {
 			netif_tx_wake_all_queues(bp->dev);
-			spin_lock_bh(&bp->phy_lock);
+			bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 			if (bp->link_up)
 				netif_carrier_on(bp->dev);
-			spin_unlock_bh(&bp->phy_lock);
+			spin_unlock_bh(&bp->phy_lock, bh);
 			bnx2_napi_enable(bp);
 			bnx2_enable_int(bp);
 			if (start_cnic)
@@ -1752,13 +1753,13 @@ __acquires(&bp->phy_lock)
 
 	spin_unlock_bh(&bp->phy_lock);
 	bnx2_fw_sync(bp, BNX2_DRV_MSG_CODE_CMD_SET_LINK, 1, 0);
-	spin_lock_bh(&bp->phy_lock);
+	spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 
 	return 0;
 }
 
 static int
-bnx2_setup_serdes_phy(struct bnx2 *bp, u8 port)
+bnx2_setup_serdes_phy(struct bnx2 *bp, u8 port, unsigned int *bh)
 __releases(&bp->phy_lock)
 __acquires(&bp->phy_lock)
 {
@@ -1847,9 +1848,9 @@ __acquires(&bp->phy_lock)
 		/* Force a link down visible on the other side */
 		if (bp->link_up) {
 			bnx2_write_phy(bp, bp->mii_bmcr, BMCR_LOOPBACK);
-			spin_unlock_bh(&bp->phy_lock);
+			spin_unlock_bh(&bp->phy_lock, *bh);
 			msleep(20);
-			spin_lock_bh(&bp->phy_lock);
+			*bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 		}
 
 		bnx2_write_phy(bp, bp->mii_adv, new_adv);
@@ -2076,7 +2077,7 @@ bnx2_set_remote_link(struct bnx2 *bp)
 }
 
 static int
-bnx2_setup_copper_phy(struct bnx2 *bp)
+bnx2_setup_copper_phy(struct bnx2 *bp, unsigned int *bh)
 __releases(&bp->phy_lock)
 __acquires(&bp->phy_lock)
 {
@@ -2140,9 +2141,9 @@ __acquires(&bp->phy_lock)
 		if (bmsr & BMSR_LSTATUS) {
 			/* Force link down */
 			bnx2_write_phy(bp, bp->mii_bmcr, BMCR_LOOPBACK);
-			spin_unlock_bh(&bp->phy_lock);
+			spin_unlock_bh(&bp->phy_lock, *bh);
 			msleep(50);
-			spin_lock_bh(&bp->phy_lock);
+			*bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 
 			bnx2_read_phy(bp, bp->mii_bmsr, &bmsr);
 			bnx2_read_phy(bp, bp->mii_bmsr, &bmsr);
@@ -2168,7 +2169,7 @@ __acquires(&bp->phy_lock)
 }
 
 static int
-bnx2_setup_phy(struct bnx2 *bp, u8 port)
+bnx2_setup_phy(struct bnx2 *bp, u8 port, unsigned int *bh)
 __releases(&bp->phy_lock)
 __acquires(&bp->phy_lock)
 {
@@ -2176,10 +2177,10 @@ __acquires(&bp->phy_lock)
 		return 0;
 
 	if (bp->phy_flags & BNX2_PHY_FLAG_SERDES) {
-		return bnx2_setup_serdes_phy(bp, port);
+		return bnx2_setup_serdes_phy(bp, port, bh);
 	}
 	else {
-		return bnx2_setup_copper_phy(bp);
+		return bnx2_setup_copper_phy(bp, bh);
 	}
 }
 
@@ -2389,7 +2390,7 @@ bnx2_init_copper_phy(struct bnx2 *bp, int reset_phy)
 
 
 static int
-bnx2_init_phy(struct bnx2 *bp, int reset_phy)
+bnx2_init_phy(struct bnx2 *bp, int reset_phy, unsigned int *bh)
 __releases(&bp->phy_lock)
 __acquires(&bp->phy_lock)
 {
@@ -2429,7 +2430,7 @@ __acquires(&bp->phy_lock)
 
 setup_phy:
 	if (!rc)
-		rc = bnx2_setup_phy(bp, bp->phy_port);
+		rc = bnx2_setup_phy(bp, bp->phy_port, bh);
 
 	return rc;
 }
@@ -2452,13 +2453,14 @@ static int bnx2_test_link(struct bnx2 *);
 static int
 bnx2_set_phy_loopback(struct bnx2 *bp)
 {
+	unsigned int bh;
 	u32 mac_mode;
 	int rc, i;
 
-	spin_lock_bh(&bp->phy_lock);
+	bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 	rc = bnx2_write_phy(bp, bp->mii_bmcr, BMCR_LOOPBACK | BMCR_FULLDPLX |
 			    BMCR_SPEED1000);
-	spin_unlock_bh(&bp->phy_lock);
+	spin_unlock_bh(&bp->phy_lock, bh);
 	if (rc)
 		return rc;
 
@@ -3581,6 +3583,7 @@ static int bnx2_poll(struct napi_struct *napi, int budget)
 static void
 bnx2_set_rx_mode(struct net_device *dev)
 {
+	unsigned int bh;
 	struct bnx2 *bp = netdev_priv(dev);
 	u32 rx_mode, sort_mode;
 	struct netdev_hw_addr *ha;
@@ -3589,7 +3592,7 @@ bnx2_set_rx_mode(struct net_device *dev)
 	if (!netif_running(dev))
 		return;
 
-	spin_lock_bh(&bp->phy_lock);
+	bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 
 	rx_mode = bp->rx_mode & ~(BNX2_EMAC_RX_MODE_PROMISCUOUS |
 				  BNX2_EMAC_RX_MODE_KEEP_VLAN_TAG);
@@ -3661,7 +3664,7 @@ bnx2_set_rx_mode(struct net_device *dev)
 	BNX2_WR(bp, BNX2_RPM_SORT_USER0, sort_mode);
 	BNX2_WR(bp, BNX2_RPM_SORT_USER0, sort_mode | BNX2_RPM_SORT_USER0_ENA);
 
-	spin_unlock_bh(&bp->phy_lock);
+	spin_unlock_bh(&bp->phy_lock, bh);
 }
 
 static int
@@ -3952,6 +3955,7 @@ init_cpu_err:
 static void
 bnx2_setup_wol(struct bnx2 *bp)
 {
+	unsigned int bh;
 	int i;
 	u32 val, wol_msg;
 
@@ -3971,9 +3975,9 @@ bnx2_setup_wol(struct bnx2 *bp)
 				ADVERTISED_Autoneg;
 		}
 
-		spin_lock_bh(&bp->phy_lock);
-		bnx2_setup_phy(bp, bp->phy_port);
-		spin_unlock_bh(&bp->phy_lock);
+		bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
+		bnx2_setup_phy(bp, bp->phy_port, &bh);
+		spin_unlock_bh(&bp->phy_lock, bh);
 
 		bp->autoneg = autoneg;
 		bp->advertising = advertising;
@@ -4799,6 +4803,7 @@ bnx2_wait_dma_complete(struct bnx2 *bp)
 static int
 bnx2_reset_chip(struct bnx2 *bp, u32 reset_code)
 {
+	unsigned int bh;
 	u32 val;
 	int i, rc = 0;
 	u8 old_port;
@@ -4873,13 +4878,13 @@ bnx2_reset_chip(struct bnx2 *bp, u32 reset_code)
 	if (rc)
 		return rc;
 
-	spin_lock_bh(&bp->phy_lock);
+	bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 	old_port = bp->phy_port;
 	bnx2_init_fw_cap(bp);
 	if ((bp->phy_flags & BNX2_PHY_FLAG_REMOTE_PHY_CAP) &&
 	    old_port != bp->phy_port)
 		bnx2_set_default_remote_link(bp);
-	spin_unlock_bh(&bp->phy_lock);
+	spin_unlock_bh(&bp->phy_lock, bh);
 
 	if (BNX2_CHIP_ID(bp) == BNX2_CHIP_ID_5706_A0) {
 		/* Adjust the voltage regular to two steps lower.  The default
@@ -5537,17 +5542,18 @@ bnx2_reset_nic(struct bnx2 *bp, u32 reset_code)
 static int
 bnx2_init_nic(struct bnx2 *bp, int reset_phy)
 {
+	unsigned int bh;
 	int rc;
 
 	if ((rc = bnx2_reset_nic(bp, BNX2_DRV_MSG_CODE_RESET)) != 0)
 		return rc;
 
-	spin_lock_bh(&bp->phy_lock);
-	bnx2_init_phy(bp, reset_phy);
+	bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
+	bnx2_init_phy(bp, reset_phy, &bh);
 	bnx2_set_link(bp);
 	if (bp->phy_flags & BNX2_PHY_FLAG_REMOTE_PHY_CAP)
 		bnx2_remote_phy_event(bp);
-	spin_unlock_bh(&bp->phy_lock);
+	spin_unlock_bh(&bp->phy_lock, bh);
 	return 0;
 }
 
@@ -5946,15 +5952,16 @@ loopback_test_done:
 static int
 bnx2_test_loopback(struct bnx2 *bp)
 {
+	unsigned int bh;
 	int rc = 0;
 
 	if (!netif_running(bp->dev))
 		return BNX2_LOOPBACK_FAILED;
 
 	bnx2_reset_nic(bp, BNX2_DRV_MSG_CODE_RESET);
-	spin_lock_bh(&bp->phy_lock);
-	bnx2_init_phy(bp, 1);
-	spin_unlock_bh(&bp->phy_lock);
+	bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
+	bnx2_init_phy(bp, 1, &bh);
+	spin_unlock_bh(&bp->phy_lock, bh);
 	if (bnx2_run_loopback(bp, BNX2_MAC_LOOPBACK))
 		rc |= BNX2_MAC_LOOPBACK_FAILED;
 	if (bnx2_run_loopback(bp, BNX2_PHY_LOOPBACK))
@@ -6003,6 +6010,7 @@ test_nvram_done:
 static int
 bnx2_test_link(struct bnx2 *bp)
 {
+	unsigned int bh;
 	u32 bmsr;
 
 	if (!netif_running(bp->dev))
@@ -6013,12 +6021,12 @@ bnx2_test_link(struct bnx2 *bp)
 			return 0;
 		return -ENODEV;
 	}
-	spin_lock_bh(&bp->phy_lock);
+	bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 	bnx2_enable_bmsr1(bp);
 	bnx2_read_phy(bp, bp->mii_bmsr1, &bmsr);
 	bnx2_read_phy(bp, bp->mii_bmsr1, &bmsr);
 	bnx2_disable_bmsr1(bp);
-	spin_unlock_bh(&bp->phy_lock);
+	spin_unlock_bh(&bp->phy_lock, bh);
 
 	if (bmsr & BMSR_LSTATUS) {
 		return 0;
@@ -6900,6 +6908,7 @@ static int
 bnx2_get_link_ksettings(struct net_device *dev,
 			struct ethtool_link_ksettings *cmd)
 {
+	unsigned int bh;
 	struct bnx2 *bp = netdev_priv(dev);
 	int support_serdes = 0, support_copper = 0;
 	u32 supported, advertising;
@@ -6928,7 +6937,7 @@ bnx2_get_link_ksettings(struct net_device *dev,
 			SUPPORTED_TP;
 	}
 
-	spin_lock_bh(&bp->phy_lock);
+	bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 	cmd->base.port = bp->phy_port;
 	advertising = bp->advertising;
 
@@ -6952,7 +6961,7 @@ bnx2_get_link_ksettings(struct net_device *dev,
 		cmd->base.speed = SPEED_UNKNOWN;
 		cmd->base.duplex = DUPLEX_UNKNOWN;
 	}
-	spin_unlock_bh(&bp->phy_lock);
+	spin_unlock_bh(&bp->phy_lock, bh);
 
 	cmd->base.phy_address = bp->phy_addr;
 
@@ -6968,6 +6977,7 @@ static int
 bnx2_set_link_ksettings(struct net_device *dev,
 			const struct ethtool_link_ksettings *cmd)
 {
+	unsigned int bh;
 	struct bnx2 *bp = netdev_priv(dev);
 	u8 autoneg = bp->autoneg;
 	u8 req_duplex = bp->req_duplex;
@@ -6975,7 +6985,7 @@ bnx2_set_link_ksettings(struct net_device *dev,
 	u32 advertising = bp->advertising;
 	int err = -EINVAL;
 
-	spin_lock_bh(&bp->phy_lock);
+	bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 
 	if (cmd->base.port != PORT_TP && cmd->base.port != PORT_FIBRE)
 		goto err_out_unlock;
@@ -7038,10 +7048,10 @@ bnx2_set_link_ksettings(struct net_device *dev,
 	 * brought up.
 	 */
 	if (netif_running(dev))
-		err = bnx2_setup_phy(bp, cmd->base.port);
+		err = bnx2_setup_phy(bp, cmd->base.port, &bh);
 
 err_out_unlock:
-	spin_unlock_bh(&bp->phy_lock);
+	spin_unlock_bh(&bp->phy_lock, bh);
 
 	return err;
 }
@@ -7162,6 +7172,7 @@ bnx2_set_wol(struct net_device *dev, struct ethtool_wolinfo *wol)
 static int
 bnx2_nway_reset(struct net_device *dev)
 {
+	unsigned int bh;
 	struct bnx2 *bp = netdev_priv(dev);
 	u32 bmcr;
 
@@ -7172,13 +7183,13 @@ bnx2_nway_reset(struct net_device *dev)
 		return -EINVAL;
 	}
 
-	spin_lock_bh(&bp->phy_lock);
+	bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 
 	if (bp->phy_flags & BNX2_PHY_FLAG_REMOTE_PHY_CAP) {
 		int rc;
 
 		rc = bnx2_setup_remote_phy(bp, bp->phy_port);
-		spin_unlock_bh(&bp->phy_lock);
+		spin_unlock_bh(&bp->phy_lock, bh);
 		return rc;
 	}
 
@@ -7189,7 +7200,7 @@ bnx2_nway_reset(struct net_device *dev)
 
 		msleep(20);
 
-		spin_lock_bh(&bp->phy_lock);
+		spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 
 		bp->current_interval = BNX2_SERDES_AN_TIMEOUT;
 		bp->serdes_an_pending = 1;
@@ -7200,7 +7211,7 @@ bnx2_nway_reset(struct net_device *dev)
 	bmcr &= ~BMCR_LOOPBACK;
 	bnx2_write_phy(bp, bp->mii_bmcr, bmcr | BMCR_ANRESTART | BMCR_ANENABLE);
 
-	spin_unlock_bh(&bp->phy_lock);
+	spin_unlock_bh(&bp->phy_lock, bh);
 
 	return 0;
 }
@@ -7424,6 +7435,7 @@ bnx2_get_pauseparam(struct net_device *dev, struct ethtool_pauseparam *epause)
 static int
 bnx2_set_pauseparam(struct net_device *dev, struct ethtool_pauseparam *epause)
 {
+	unsigned int bh;
 	struct bnx2 *bp = netdev_priv(dev);
 
 	bp->req_flow_ctrl = 0;
@@ -7440,9 +7452,9 @@ bnx2_set_pauseparam(struct net_device *dev, struct ethtool_pauseparam *epause)
 	}
 
 	if (netif_running(dev)) {
-		spin_lock_bh(&bp->phy_lock);
-		bnx2_setup_phy(bp, bp->phy_port);
-		spin_unlock_bh(&bp->phy_lock);
+		bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
+		bnx2_setup_phy(bp, bp->phy_port, &bh);
+		spin_unlock_bh(&bp->phy_lock, bh);
 	}
 
 	return 0;
@@ -7854,6 +7866,7 @@ static const struct ethtool_ops bnx2_ethtool_ops = {
 static int
 bnx2_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
+	unsigned int bh;
 	struct mii_ioctl_data *data = if_mii(ifr);
 	struct bnx2 *bp = netdev_priv(dev);
 	int err;
@@ -7872,9 +7885,9 @@ bnx2_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		if (!netif_running(dev))
 			return -EAGAIN;
 
-		spin_lock_bh(&bp->phy_lock);
+		bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 		err = bnx2_read_phy(bp, data->reg_num & 0x1f, &mii_regval);
-		spin_unlock_bh(&bp->phy_lock);
+		spin_unlock_bh(&bp->phy_lock, bh);
 
 		data->val_out = mii_regval;
 
@@ -7888,9 +7901,9 @@ bnx2_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 		if (!netif_running(dev))
 			return -EAGAIN;
 
-		spin_lock_bh(&bp->phy_lock);
+		bh = spin_lock_bh(&bp->phy_lock, SOFTIRQ_ALL_MASK);
 		err = bnx2_write_phy(bp, data->reg_num & 0x1f, data->val_in);
-		spin_unlock_bh(&bp->phy_lock);
+		spin_unlock_bh(&bp->phy_lock, bh);
 
 		return err;
 

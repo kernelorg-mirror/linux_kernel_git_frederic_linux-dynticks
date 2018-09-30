@@ -130,18 +130,19 @@ static bool connected(struct tipc_conn *con)
 
 static void tipc_conn_kref_release(struct kref *kref)
 {
+	unsigned int bh;
 	struct tipc_conn *con = container_of(kref, struct tipc_conn, kref);
 	struct tipc_topsrv *s = con->server;
 	struct outqueue_entry *e, *safe;
 
-	spin_lock_bh(&s->idr_lock);
+	bh = spin_lock_bh(&s->idr_lock, SOFTIRQ_ALL_MASK);
 	idr_remove(&s->conn_idr, con->conid);
 	s->idr_in_use--;
-	spin_unlock_bh(&s->idr_lock);
+	spin_unlock_bh(&s->idr_lock, bh);
 	if (con->sock)
 		sock_release(con->sock);
 
-	spin_lock_bh(&con->outqueue_lock);
+	spin_lock_bh(&con->outqueue_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(e, safe, &con->outqueue, list) {
 		list_del(&e->list);
 		kfree(e);
@@ -186,6 +187,7 @@ static void tipc_conn_close(struct tipc_conn *con)
 
 static struct tipc_conn *tipc_conn_alloc(struct tipc_topsrv *s)
 {
+	unsigned int bh;
 	struct tipc_conn *con;
 	int ret;
 
@@ -201,16 +203,16 @@ static struct tipc_conn *tipc_conn_alloc(struct tipc_topsrv *s)
 	INIT_WORK(&con->swork, tipc_conn_send_work);
 	INIT_WORK(&con->rwork, tipc_conn_recv_work);
 
-	spin_lock_bh(&s->idr_lock);
+	bh = spin_lock_bh(&s->idr_lock, SOFTIRQ_ALL_MASK);
 	ret = idr_alloc(&s->conn_idr, con, 0, 0, GFP_ATOMIC);
 	if (ret < 0) {
 		kfree(con);
-		spin_unlock_bh(&s->idr_lock);
+		spin_unlock_bh(&s->idr_lock, bh);
 		return ERR_PTR(-ENOMEM);
 	}
 	con->conid = ret;
 	s->idr_in_use++;
-	spin_unlock_bh(&s->idr_lock);
+	spin_unlock_bh(&s->idr_lock, bh);
 
 	set_bit(CF_CONNECTED, &con->flags);
 	con->server = s;
@@ -220,13 +222,14 @@ static struct tipc_conn *tipc_conn_alloc(struct tipc_topsrv *s)
 
 static struct tipc_conn *tipc_conn_lookup(struct tipc_topsrv *s, int conid)
 {
+	unsigned int bh;
 	struct tipc_conn *con;
 
-	spin_lock_bh(&s->idr_lock);
+	bh = spin_lock_bh(&s->idr_lock, SOFTIRQ_ALL_MASK);
 	con = idr_find(&s->conn_idr, conid);
 	if (!connected(con) || !kref_get_unless_zero(&con->kref))
 		con = NULL;
-	spin_unlock_bh(&s->idr_lock);
+	spin_unlock_bh(&s->idr_lock, bh);
 	return con;
 }
 
@@ -235,11 +238,12 @@ static struct tipc_conn *tipc_conn_lookup(struct tipc_topsrv *s, int conid)
  */
 static void tipc_conn_delete_sub(struct tipc_conn *con, struct tipc_subscr *s)
 {
+	unsigned int bh;
 	struct tipc_net *tn = tipc_net(con->server->net);
 	struct list_head *sub_list = &con->sub_list;
 	struct tipc_subscription *sub, *tmp;
 
-	spin_lock_bh(&con->sub_lock);
+	bh = spin_lock_bh(&con->sub_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(sub, tmp, sub_list, sub_list) {
 		if (!s || !memcmp(s, &sub->evt.s, sizeof(*s))) {
 			tipc_sub_unsubscribe(sub);
@@ -248,11 +252,12 @@ static void tipc_conn_delete_sub(struct tipc_conn *con, struct tipc_subscr *s)
 			break;
 		}
 	}
-	spin_unlock_bh(&con->sub_lock);
+	spin_unlock_bh(&con->sub_lock, bh);
 }
 
 static void tipc_conn_send_to_sock(struct tipc_conn *con)
 {
+	unsigned int bh;
 	struct list_head *queue = &con->outqueue;
 	struct tipc_topsrv *srv = con->server;
 	struct outqueue_entry *e;
@@ -262,12 +267,12 @@ static void tipc_conn_send_to_sock(struct tipc_conn *con)
 	int count = 0;
 	int ret;
 
-	spin_lock_bh(&con->outqueue_lock);
+	bh = spin_lock_bh(&con->outqueue_lock, SOFTIRQ_ALL_MASK);
 
 	while (!list_empty(queue)) {
 		e = list_first_entry(queue, struct outqueue_entry, list);
 		evt = &e->evt;
-		spin_unlock_bh(&con->outqueue_lock);
+		spin_unlock_bh(&con->outqueue_lock, bh);
 
 		if (e->inactive)
 			tipc_conn_delete_sub(con, &evt->s);
@@ -296,11 +301,11 @@ static void tipc_conn_send_to_sock(struct tipc_conn *con)
 			cond_resched();
 			count = 0;
 		}
-		spin_lock_bh(&con->outqueue_lock);
+		spin_lock_bh(&con->outqueue_lock, SOFTIRQ_ALL_MASK);
 		list_del(&e->list);
 		kfree(e);
 	}
-	spin_unlock_bh(&con->outqueue_lock);
+	spin_unlock_bh(&con->outqueue_lock, bh);
 }
 
 static void tipc_conn_send_work(struct work_struct *work)
@@ -319,6 +324,7 @@ static void tipc_conn_send_work(struct work_struct *work)
 void tipc_topsrv_queue_evt(struct net *net, int conid,
 			   u32 event, struct tipc_event *evt)
 {
+	unsigned int bh;
 	struct tipc_topsrv *srv = tipc_topsrv(net);
 	struct outqueue_entry *e;
 	struct tipc_conn *con;
@@ -335,9 +341,9 @@ void tipc_topsrv_queue_evt(struct net *net, int conid,
 		goto err;
 	e->inactive = (event == TIPC_SUBSCR_TIMEOUT);
 	memcpy(&e->evt, evt, sizeof(*evt));
-	spin_lock_bh(&con->outqueue_lock);
+	bh = spin_lock_bh(&con->outqueue_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&e->list, &con->outqueue);
-	spin_unlock_bh(&con->outqueue_lock);
+	spin_unlock_bh(&con->outqueue_lock, bh);
 
 	if (queue_work(srv->send_wq, &con->swork))
 		return;
@@ -367,6 +373,7 @@ static int tipc_conn_rcv_sub(struct tipc_topsrv *srv,
 			     struct tipc_conn *con,
 			     struct tipc_subscr *s)
 {
+	unsigned int bh;
 	struct tipc_net *tn = tipc_net(srv->net);
 	struct tipc_subscription *sub;
 
@@ -382,9 +389,9 @@ static int tipc_conn_rcv_sub(struct tipc_topsrv *srv,
 	if (!sub)
 		return -1;
 	atomic_inc(&tn->subscription_count);
-	spin_lock_bh(&con->sub_lock);
+	bh = spin_lock_bh(&con->sub_lock, SOFTIRQ_ALL_MASK);
 	list_add(&sub->sub_list, &con->sub_list);
-	spin_unlock_bh(&con->sub_lock);
+	spin_unlock_bh(&con->sub_lock, bh);
 	return 0;
 }
 
@@ -678,24 +685,25 @@ int tipc_topsrv_start(struct net *net)
 
 void tipc_topsrv_stop(struct net *net)
 {
+	unsigned int bh;
 	struct tipc_topsrv *srv = tipc_topsrv(net);
 	struct socket *lsock = srv->listener;
 	struct tipc_conn *con;
 	int id;
 
-	spin_lock_bh(&srv->idr_lock);
+	bh = spin_lock_bh(&srv->idr_lock, SOFTIRQ_ALL_MASK);
 	for (id = 0; srv->idr_in_use; id++) {
 		con = idr_find(&srv->conn_idr, id);
 		if (con) {
 			spin_unlock_bh(&srv->idr_lock);
 			tipc_conn_close(con);
-			spin_lock_bh(&srv->idr_lock);
+			spin_lock_bh(&srv->idr_lock, SOFTIRQ_ALL_MASK);
 		}
 	}
 	__module_get(lsock->ops->owner);
 	__module_get(lsock->sk->sk_prot_creator->owner);
 	srv->listener = NULL;
-	spin_unlock_bh(&srv->idr_lock);
+	spin_unlock_bh(&srv->idr_lock, bh);
 	sock_release(lsock);
 	tipc_topsrv_work_stop(srv);
 	idr_destroy(&srv->conn_idr);

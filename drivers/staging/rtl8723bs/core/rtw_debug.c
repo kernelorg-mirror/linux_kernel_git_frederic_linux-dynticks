@@ -430,6 +430,7 @@ int proc_get_rf_info(struct seq_file *m, void *v)
 
 int proc_get_survey_info(struct seq_file *m, void *v)
 {
+	unsigned int bh;
 	struct net_device *dev = m->private;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
 	struct mlme_priv *pmlmepriv = &(padapter->mlmepriv);
@@ -440,11 +441,11 @@ int proc_get_survey_info(struct seq_file *m, void *v)
 	s16 notify_noise = 0;
 	u16  index = 0;
 
-	spin_lock_bh(&(pmlmepriv->scanned_queue.lock));
+	bh = spin_lock_bh(&(pmlmepriv->scanned_queue.lock), SOFTIRQ_ALL_MASK);
 	phead = get_list_head(queue);
 	plist = phead ? get_next(phead) : NULL;
 	if ((!phead) || (!plist)) {
-		spin_unlock_bh(&(pmlmepriv->scanned_queue.lock));
+		spin_unlock_bh(&(pmlmepriv->scanned_queue.lock), bh);
 		return 0;
 	}
 
@@ -481,7 +482,7 @@ int proc_get_survey_info(struct seq_file *m, void *v)
 			pnetwork->network.Ssid.Ssid);
 		plist = get_next(plist);
 	}
-	spin_unlock_bh(&(pmlmepriv->scanned_queue.lock));
+	spin_unlock_bh(&(pmlmepriv->scanned_queue.lock), bh);
 
 	return 0;
 }
@@ -1263,6 +1264,7 @@ ssize_t proc_set_rssi_disp(struct file *file, const char __user *buffer, size_t 
 
 int proc_get_all_sta_info(struct seq_file *m, void *v)
 {
+	unsigned int bh;
 	struct net_device *dev = m->private;
 	struct sta_info *psta;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(dev);
@@ -1273,7 +1275,7 @@ int proc_get_all_sta_info(struct seq_file *m, void *v)
 
 	DBG_871X_SEL_NL(m, "sta_dz_bitmap = 0x%x, tim_bitmap = 0x%x\n", pstapriv->sta_dz_bitmap, pstapriv->tim_bitmap);
 
-	spin_lock_bh(&pstapriv->sta_hash_lock);
+	bh = spin_lock_bh(&pstapriv->sta_hash_lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < NUM_STA; i++) {
 		phead = &(pstapriv->sta_hash[i]);
@@ -1338,7 +1340,7 @@ int proc_get_all_sta_info(struct seq_file *m, void *v)
 		}
 	}
 
-	spin_unlock_bh(&pstapriv->sta_hash_lock);
+	spin_unlock_bh(&pstapriv->sta_hash_lock, bh);
 
 	return 0;
 }

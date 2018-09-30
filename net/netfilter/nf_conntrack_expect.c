@@ -69,11 +69,12 @@ EXPORT_SYMBOL_GPL(nf_ct_unlink_expect_report);
 
 static void nf_ct_expectation_timed_out(struct timer_list *t)
 {
+	unsigned int bh;
 	struct nf_conntrack_expect *exp = from_timer(exp, t, timeout);
 
-	spin_lock_bh(&nf_conntrack_expect_lock);
+	bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 	nf_ct_unlink_expect(exp);
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 	nf_ct_expect_put(exp);
 }
 
@@ -212,6 +213,7 @@ nf_ct_find_expectation(struct net *net,
 /* delete all expectations for this conntrack */
 void nf_ct_remove_expectations(struct nf_conn *ct)
 {
+	unsigned int bh;
 	struct nf_conn_help *help = nfct_help(ct);
 	struct nf_conntrack_expect *exp;
 	struct hlist_node *next;
@@ -220,11 +222,11 @@ void nf_ct_remove_expectations(struct nf_conn *ct)
 	if (!help)
 		return;
 
-	spin_lock_bh(&nf_conntrack_expect_lock);
+	bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 	hlist_for_each_entry_safe(exp, next, &help->expectations, lnode) {
 		nf_ct_remove_expect(exp);
 	}
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 }
 EXPORT_SYMBOL_GPL(nf_ct_remove_expectations);
 
@@ -262,9 +264,10 @@ static inline int expect_matches(const struct nf_conntrack_expect *a,
 /* Generally a bad idea to call this: could have matched already. */
 void nf_ct_unexpect_related(struct nf_conntrack_expect *exp)
 {
-	spin_lock_bh(&nf_conntrack_expect_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 	nf_ct_remove_expect(exp);
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 }
 EXPORT_SYMBOL_GPL(nf_ct_unexpect_related);
 
@@ -458,20 +461,21 @@ out:
 int nf_ct_expect_related_report(struct nf_conntrack_expect *expect,
 				u32 portid, int report)
 {
+	unsigned int bh;
 	int ret;
 
-	spin_lock_bh(&nf_conntrack_expect_lock);
+	bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 	ret = __nf_ct_expect_check(expect);
 	if (ret < 0)
 		goto out;
 
 	nf_ct_expect_insert(expect);
 
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 	nf_ct_expect_event_report(IPEXP_NEW, expect, portid, report);
 	return 0;
 out:
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 	return ret;
 }
 EXPORT_SYMBOL_GPL(nf_ct_expect_related_report);
@@ -479,11 +483,12 @@ EXPORT_SYMBOL_GPL(nf_ct_expect_related_report);
 void nf_ct_expect_iterate_destroy(bool (*iter)(struct nf_conntrack_expect *e, void *data),
 				  void *data)
 {
+	unsigned int bh;
 	struct nf_conntrack_expect *exp;
 	const struct hlist_node *next;
 	unsigned int i;
 
-	spin_lock_bh(&nf_conntrack_expect_lock);
+	bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < nf_ct_expect_hsize; i++) {
 		hlist_for_each_entry_safe(exp, next,
@@ -496,7 +501,7 @@ void nf_ct_expect_iterate_destroy(bool (*iter)(struct nf_conntrack_expect *e, vo
 		}
 	}
 
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 }
 EXPORT_SYMBOL_GPL(nf_ct_expect_iterate_destroy);
 
@@ -505,11 +510,12 @@ void nf_ct_expect_iterate_net(struct net *net,
 			      void *data,
 			      u32 portid, int report)
 {
+	unsigned int bh;
 	struct nf_conntrack_expect *exp;
 	const struct hlist_node *next;
 	unsigned int i;
 
-	spin_lock_bh(&nf_conntrack_expect_lock);
+	bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < nf_ct_expect_hsize; i++) {
 		hlist_for_each_entry_safe(exp, next,
@@ -526,7 +532,7 @@ void nf_ct_expect_iterate_net(struct net *net,
 		}
 	}
 
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 }
 EXPORT_SYMBOL_GPL(nf_ct_expect_iterate_net);
 

@@ -78,6 +78,7 @@ static int tcf_police_init(struct net *net, struct nlattr *nla,
 			       int ovr, int bind, bool rtnl_held,
 			       struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	int ret = 0, err;
 	struct nlattr *tb[TCA_POLICE_MAX + 1];
 	struct tc_police *parm;
@@ -150,7 +151,7 @@ static int tcf_police_init(struct net *net, struct nlattr *nla,
 		goto failure;
 	}
 
-	spin_lock_bh(&police->tcf_lock);
+	bh = spin_lock_bh(&police->tcf_lock, SOFTIRQ_ALL_MASK);
 	/* No failure allowed after this point */
 	police->tcfp_mtu = parm->mtu;
 	if (police->tcfp_mtu == 0) {
@@ -187,7 +188,7 @@ static int tcf_police_init(struct net *net, struct nlattr *nla,
 	if (tb[TCA_POLICE_AVRATE])
 		police->tcfp_ewma_rate = nla_get_u32(tb[TCA_POLICE_AVRATE]);
 
-	spin_unlock_bh(&police->tcf_lock);
+	spin_unlock_bh(&police->tcf_lock, bh);
 	if (ret != ACT_P_CREATED)
 		return ret;
 
@@ -270,6 +271,7 @@ static int tcf_police_act(struct sk_buff *skb, const struct tc_action *a,
 static int tcf_police_dump(struct sk_buff *skb, struct tc_action *a,
 			       int bind, int ref)
 {
+	unsigned int bh;
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tcf_police *police = to_police(a);
 	struct tc_police opt = {
@@ -279,7 +281,7 @@ static int tcf_police_dump(struct sk_buff *skb, struct tc_action *a,
 	};
 	struct tcf_t t;
 
-	spin_lock_bh(&police->tcf_lock);
+	bh = spin_lock_bh(&police->tcf_lock, SOFTIRQ_ALL_MASK);
 	opt.action = police->tcf_action;
 	opt.mtu = police->tcfp_mtu;
 	opt.burst = PSCHED_NS2TICKS(police->tcfp_burst);
@@ -302,12 +304,12 @@ static int tcf_police_dump(struct sk_buff *skb, struct tc_action *a,
 	t.expires = jiffies_to_clock_t(police->tcf_tm.expires);
 	if (nla_put_64bit(skb, TCA_POLICE_TM, sizeof(t), &t, TCA_POLICE_PAD))
 		goto nla_put_failure;
-	spin_unlock_bh(&police->tcf_lock);
+	spin_unlock_bh(&police->tcf_lock, bh);
 
 	return skb->len;
 
 nla_put_failure:
-	spin_unlock_bh(&police->tcf_lock);
+	spin_unlock_bh(&police->tcf_lock, bh);
 	nlmsg_trim(skb, b);
 	return -1;
 }

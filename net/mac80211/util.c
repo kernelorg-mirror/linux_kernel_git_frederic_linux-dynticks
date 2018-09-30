@@ -1823,6 +1823,7 @@ static void ieee80211_reconfig_stations(struct ieee80211_sub_if_data *sdata)
 
 static int ieee80211_reconfig_nan(struct ieee80211_sub_if_data *sdata)
 {
+	unsigned int bh;
 	struct cfg80211_nan_func *func, **funcs;
 	int res, id, i = 0;
 
@@ -1841,12 +1842,12 @@ static int ieee80211_reconfig_nan(struct ieee80211_sub_if_data *sdata)
 	 * This is a little bit ugly. We need to call a potentially sleeping
 	 * callback for each NAN function, so we can't hold the spinlock.
 	 */
-	spin_lock_bh(&sdata->u.nan.func_lock);
+	bh = spin_lock_bh(&sdata->u.nan.func_lock, SOFTIRQ_ALL_MASK);
 
 	idr_for_each_entry(&sdata->u.nan.function_inst_ids, func, id)
 		funcs[i++] = func;
 
-	spin_unlock_bh(&sdata->u.nan.func_lock);
+	spin_unlock_bh(&sdata->u.nan.func_lock, bh);
 
 	for (i = 0; funcs[i]; i++) {
 		res = drv_add_nan_func(sdata->local, sdata, funcs[i]);

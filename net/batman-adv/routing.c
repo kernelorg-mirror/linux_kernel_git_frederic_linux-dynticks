@@ -68,6 +68,7 @@ static void _batadv_update_route(struct batadv_priv *bat_priv,
 				 struct batadv_hard_iface *recv_if,
 				 struct batadv_neigh_node *neigh_node)
 {
+	unsigned int bh;
 	struct batadv_orig_ifinfo *orig_ifinfo;
 	struct batadv_neigh_node *curr_router;
 
@@ -75,7 +76,7 @@ static void _batadv_update_route(struct batadv_priv *bat_priv,
 	if (!orig_ifinfo)
 		return;
 
-	spin_lock_bh(&orig_node->neigh_list_lock);
+	bh = spin_lock_bh(&orig_node->neigh_list_lock, SOFTIRQ_ALL_MASK);
 	/* curr_router used earlier may not be the current orig_ifinfo->router
 	 * anymore because it was dereferenced outside of the neigh_list_lock
 	 * protected region. After the new best neighbor has replace the current
@@ -90,7 +91,7 @@ static void _batadv_update_route(struct batadv_priv *bat_priv,
 		kref_get(&neigh_node->refcount);
 
 	rcu_assign_pointer(orig_ifinfo->router, neigh_node);
-	spin_unlock_bh(&orig_node->neigh_list_lock);
+	spin_unlock_bh(&orig_node->neigh_list_lock, bh);
 	batadv_orig_ifinfo_put(orig_ifinfo);
 
 	/* route deleted */
@@ -504,14 +505,15 @@ static int batadv_check_unicast_packet(struct batadv_priv *bat_priv,
 static struct batadv_orig_ifinfo *
 batadv_last_bonding_get(struct batadv_orig_node *orig_node)
 {
+	unsigned int bh;
 	struct batadv_orig_ifinfo *last_bonding_candidate;
 
-	spin_lock_bh(&orig_node->neigh_list_lock);
+	bh = spin_lock_bh(&orig_node->neigh_list_lock, SOFTIRQ_ALL_MASK);
 	last_bonding_candidate = orig_node->last_bonding_candidate;
 
 	if (last_bonding_candidate)
 		kref_get(&last_bonding_candidate->refcount);
-	spin_unlock_bh(&orig_node->neigh_list_lock);
+	spin_unlock_bh(&orig_node->neigh_list_lock, bh);
 
 	return last_bonding_candidate;
 }
@@ -525,15 +527,16 @@ static void
 batadv_last_bonding_replace(struct batadv_orig_node *orig_node,
 			    struct batadv_orig_ifinfo *new_candidate)
 {
+	unsigned int bh;
 	struct batadv_orig_ifinfo *old_candidate;
 
-	spin_lock_bh(&orig_node->neigh_list_lock);
+	bh = spin_lock_bh(&orig_node->neigh_list_lock, SOFTIRQ_ALL_MASK);
 	old_candidate = orig_node->last_bonding_candidate;
 
 	if (new_candidate)
 		kref_get(&new_candidate->refcount);
 	orig_node->last_bonding_candidate = new_candidate;
-	spin_unlock_bh(&orig_node->neigh_list_lock);
+	spin_unlock_bh(&orig_node->neigh_list_lock, bh);
 
 	if (old_candidate)
 		batadv_orig_ifinfo_put(old_candidate);
@@ -1193,6 +1196,7 @@ free_skb:
 int batadv_recv_bcast_packet(struct sk_buff *skb,
 			     struct batadv_hard_iface *recv_if)
 {
+	unsigned int bh;
 	struct batadv_priv *bat_priv = netdev_priv(recv_if->soft_iface);
 	struct batadv_orig_node *orig_node = NULL;
 	struct batadv_bcast_packet *bcast_packet;
@@ -1234,7 +1238,7 @@ int batadv_recv_bcast_packet(struct sk_buff *skb,
 	if (!orig_node)
 		goto free_skb;
 
-	spin_lock_bh(&orig_node->bcast_seqno_lock);
+	bh = spin_lock_bh(&orig_node->bcast_seqno_lock, SOFTIRQ_ALL_MASK);
 
 	seqno = ntohl(bcast_packet->seqno);
 	/* check whether the packet is a duplicate */
@@ -1256,7 +1260,7 @@ int batadv_recv_bcast_packet(struct sk_buff *skb,
 	if (batadv_bit_get_packet(bat_priv, orig_node->bcast_bits, seq_diff, 1))
 		orig_node->last_bcast_seqno = seqno;
 
-	spin_unlock_bh(&orig_node->bcast_seqno_lock);
+	spin_unlock_bh(&orig_node->bcast_seqno_lock, bh);
 
 	/* check whether this has been sent by another originator before */
 	if (batadv_bla_check_bcast_duplist(bat_priv, skb))
@@ -1286,7 +1290,7 @@ rx_success:
 	goto out;
 
 spin_unlock:
-	spin_unlock_bh(&orig_node->bcast_seqno_lock);
+	spin_unlock_bh(&orig_node->bcast_seqno_lock, bh);
 free_skb:
 	kfree_skb(skb);
 out:

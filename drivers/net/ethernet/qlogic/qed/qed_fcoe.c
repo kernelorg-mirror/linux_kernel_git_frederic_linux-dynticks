@@ -387,22 +387,23 @@ static int
 qed_fcoe_allocate_connection(struct qed_hwfn *p_hwfn,
 			     struct qed_fcoe_conn **p_out_conn)
 {
+	unsigned int bh;
 	struct qed_fcoe_conn *p_conn = NULL;
 	void *p_addr;
 	u32 i;
 
-	spin_lock_bh(&p_hwfn->p_fcoe_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_fcoe_info->lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&p_hwfn->p_fcoe_info->free_list))
 		p_conn =
 		    list_first_entry(&p_hwfn->p_fcoe_info->free_list,
 				     struct qed_fcoe_conn, list_entry);
 	if (p_conn) {
 		list_del(&p_conn->list_entry);
-		spin_unlock_bh(&p_hwfn->p_fcoe_info->lock);
+		spin_unlock_bh(&p_hwfn->p_fcoe_info->lock, bh);
 		*p_out_conn = p_conn;
 		return 0;
 	}
-	spin_unlock_bh(&p_hwfn->p_fcoe_info->lock);
+	spin_unlock_bh(&p_hwfn->p_fcoe_info->lock, bh);
 
 	p_conn = kzalloc(sizeof(*p_conn), GFP_KERNEL);
 	if (!p_conn)
@@ -618,13 +619,14 @@ qed_fcoe_acquire_connection(struct qed_hwfn *p_hwfn,
 			    struct qed_fcoe_conn *p_in_conn,
 			    struct qed_fcoe_conn **p_out_conn)
 {
+	unsigned int bh;
 	struct qed_fcoe_conn *p_conn = NULL;
 	int rc = 0;
 	u32 icid;
 
-	spin_lock_bh(&p_hwfn->p_fcoe_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_fcoe_info->lock, SOFTIRQ_ALL_MASK);
 	rc = qed_cxt_acquire_cid(p_hwfn, PROTOCOLID_FCOE, &icid);
-	spin_unlock_bh(&p_hwfn->p_fcoe_info->lock);
+	spin_unlock_bh(&p_hwfn->p_fcoe_info->lock, bh);
 	if (rc)
 		return rc;
 
@@ -634,7 +636,7 @@ qed_fcoe_acquire_connection(struct qed_hwfn *p_hwfn,
 	} else {
 		rc = qed_fcoe_allocate_connection(p_hwfn, &p_conn);
 		if (rc) {
-			spin_lock_bh(&p_hwfn->p_fcoe_info->lock);
+			spin_lock_bh(&p_hwfn->p_fcoe_info->lock, SOFTIRQ_ALL_MASK);
 			qed_cxt_release_cid(p_hwfn, icid);
 			spin_unlock_bh(&p_hwfn->p_fcoe_info->lock);
 			return rc;
@@ -651,10 +653,11 @@ qed_fcoe_acquire_connection(struct qed_hwfn *p_hwfn,
 static void qed_fcoe_release_connection(struct qed_hwfn *p_hwfn,
 					struct qed_fcoe_conn *p_conn)
 {
-	spin_lock_bh(&p_hwfn->p_fcoe_info->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&p_hwfn->p_fcoe_info->lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&p_conn->list_entry, &p_hwfn->p_fcoe_info->free_list);
 	qed_cxt_release_cid(p_hwfn, p_conn->icid);
-	spin_unlock_bh(&p_hwfn->p_fcoe_info->lock);
+	spin_unlock_bh(&p_hwfn->p_fcoe_info->lock, bh);
 }
 
 static void _qed_fcoe_get_tstats(struct qed_hwfn *p_hwfn,

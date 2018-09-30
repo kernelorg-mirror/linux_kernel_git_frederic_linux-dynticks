@@ -249,13 +249,14 @@ static unsigned int __get_socket_status(struct bcm63xx_pcmcia_socket *skt)
 static int bcm63xx_pcmcia_get_status(struct pcmcia_socket *sock,
 				     unsigned int *status)
 {
+	unsigned int bh;
 	struct bcm63xx_pcmcia_socket *skt;
 
 	skt = sock->driver_data;
 
-	spin_lock_bh(&skt->lock);
+	bh = spin_lock_bh(&skt->lock, SOFTIRQ_ALL_MASK);
 	*status = __get_socket_status(skt);
-	spin_unlock_bh(&skt->lock);
+	spin_unlock_bh(&skt->lock, bh);
 
 	return 0;
 }
@@ -265,12 +266,13 @@ static int bcm63xx_pcmcia_get_status(struct pcmcia_socket *sock,
  */
 static void bcm63xx_pcmcia_poll(struct timer_list *t)
 {
+	unsigned int bh;
 	struct bcm63xx_pcmcia_socket *skt;
 	unsigned int stat, events;
 
 	skt = from_timer(skt, t, timer);
 
-	spin_lock_bh(&skt->lock);
+	bh = spin_lock_bh(&skt->lock, SOFTIRQ_ALL_MASK);
 
 	stat = __get_socket_status(skt);
 
@@ -278,7 +280,7 @@ static void bcm63xx_pcmcia_poll(struct timer_list *t)
 	 * core */
 	events = (stat ^ skt->old_status) & skt->requested_state.csc_mask;
 	skt->old_status = stat;
-	spin_unlock_bh(&skt->lock);
+	spin_unlock_bh(&skt->lock, bh);
 
 	if (events)
 		pcmcia_parse_events(&skt->socket, events);

@@ -248,6 +248,7 @@ static int mlx4_ib_update_gids(struct gid_entry *gids,
 
 static int mlx4_ib_add_gid(const struct ib_gid_attr *attr, void **context)
 {
+	unsigned int bh;
 	struct mlx4_ib_dev *ibdev = to_mdev(attr->device);
 	struct mlx4_ib_iboe *iboe = &ibdev->iboe;
 	struct mlx4_port_gid_table   *port_gid_table;
@@ -267,7 +268,7 @@ static int mlx4_ib_add_gid(const struct ib_gid_attr *attr, void **context)
 		return -EINVAL;
 
 	port_gid_table = &iboe->gids[attr->port_num - 1];
-	spin_lock_bh(&iboe->lock);
+	bh = spin_lock_bh(&iboe->lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < MLX4_MAX_PORT_GIDS; ++i) {
 		if (!memcmp(&port_gid_table->gids[i].gid,
 			    &attr->gid, sizeof(attr->gid)) &&
@@ -313,7 +314,7 @@ static int mlx4_ib_add_gid(const struct ib_gid_attr *attr, void **context)
 			}
 		}
 	}
-	spin_unlock_bh(&iboe->lock);
+	spin_unlock_bh(&iboe->lock, bh);
 
 	if (!ret && hw_update) {
 		ret = mlx4_ib_update_gids(gids, ibdev, attr->port_num);
@@ -325,6 +326,7 @@ static int mlx4_ib_add_gid(const struct ib_gid_attr *attr, void **context)
 
 static int mlx4_ib_del_gid(const struct ib_gid_attr *attr, void **context)
 {
+	unsigned int bh;
 	struct gid_cache_context *ctx = *context;
 	struct mlx4_ib_dev *ibdev = to_mdev(attr->device);
 	struct mlx4_ib_iboe *iboe = &ibdev->iboe;
@@ -340,7 +342,7 @@ static int mlx4_ib_del_gid(const struct ib_gid_attr *attr, void **context)
 		return -EINVAL;
 
 	port_gid_table = &iboe->gids[attr->port_num - 1];
-	spin_lock_bh(&iboe->lock);
+	bh = spin_lock_bh(&iboe->lock, SOFTIRQ_ALL_MASK);
 	if (ctx) {
 		ctx->refcount--;
 		if (!ctx->refcount) {
@@ -370,7 +372,7 @@ static int mlx4_ib_del_gid(const struct ib_gid_attr *attr, void **context)
 			}
 		}
 	}
-	spin_unlock_bh(&iboe->lock);
+	spin_unlock_bh(&iboe->lock, bh);
 
 	if (!ret && hw_update) {
 		ret = mlx4_ib_update_gids(gids, ibdev, attr->port_num);
@@ -740,6 +742,7 @@ static u8 state_to_phys_state(enum ib_port_state state)
 static int eth_link_query_port(struct ib_device *ibdev, u8 port,
 			       struct ib_port_attr *props)
 {
+	unsigned int bh;
 
 	struct mlx4_ib_dev *mdev = to_mdev(ibdev);
 	struct mlx4_ib_iboe *iboe = &mdev->iboe;
@@ -774,7 +777,7 @@ static int eth_link_query_port(struct ib_device *ibdev, u8 port,
 	props->state		= IB_PORT_DOWN;
 	props->phys_state	= state_to_phys_state(props->state);
 	props->active_mtu	= IB_MTU_256;
-	spin_lock_bh(&iboe->lock);
+	bh = spin_lock_bh(&iboe->lock, SOFTIRQ_ALL_MASK);
 	ndev = iboe->netdevs[port - 1];
 	if (ndev && is_bonded) {
 		rcu_read_lock(); /* required to get upper dev */
@@ -791,7 +794,7 @@ static int eth_link_query_port(struct ib_device *ibdev, u8 port,
 					IB_PORT_ACTIVE : IB_PORT_DOWN;
 	props->phys_state	= state_to_phys_state(props->state);
 out_unlock:
-	spin_unlock_bh(&iboe->lock);
+	spin_unlock_bh(&iboe->lock, bh);
 out:
 	mlx4_free_cmd_mailbox(mdev->dev, mailbox);
 	return err;
@@ -1409,17 +1412,18 @@ static void mlx4_ib_delete_counters_table(struct mlx4_ib_dev *ibdev,
 int mlx4_ib_add_mc(struct mlx4_ib_dev *mdev, struct mlx4_ib_qp *mqp,
 		   union ib_gid *gid)
 {
+	unsigned int bh;
 	struct net_device *ndev;
 	int ret = 0;
 
 	if (!mqp->port)
 		return 0;
 
-	spin_lock_bh(&mdev->iboe.lock);
+	bh = spin_lock_bh(&mdev->iboe.lock, SOFTIRQ_ALL_MASK);
 	ndev = mdev->iboe.netdevs[mqp->port - 1];
 	if (ndev)
 		dev_hold(ndev);
-	spin_unlock_bh(&mdev->iboe.lock);
+	spin_unlock_bh(&mdev->iboe.lock, bh);
 
 	if (ndev) {
 		ret = 1;
@@ -2034,6 +2038,7 @@ static struct mlx4_ib_gid_entry *find_gid_entry(struct mlx4_ib_qp *qp, u8 *raw)
 
 static int mlx4_ib_mcg_detach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 {
+	unsigned int bh;
 	int err;
 	struct mlx4_ib_dev *mdev = to_mdev(ibqp->device);
 	struct mlx4_dev *dev = mdev->dev;
@@ -2078,11 +2083,11 @@ static int mlx4_ib_mcg_detach(struct ib_qp *ibqp, union ib_gid *gid, u16 lid)
 	mutex_lock(&mqp->mutex);
 	ge = find_gid_entry(mqp, gid->raw);
 	if (ge) {
-		spin_lock_bh(&mdev->iboe.lock);
+		bh = spin_lock_bh(&mdev->iboe.lock, SOFTIRQ_ALL_MASK);
 		ndev = ge->added ? mdev->iboe.netdevs[ge->port - 1] : NULL;
 		if (ndev)
 			dev_hold(ndev);
-		spin_unlock_bh(&mdev->iboe.lock);
+		spin_unlock_bh(&mdev->iboe.lock, bh);
 		if (ndev)
 			dev_put(ndev);
 		list_del(&ge->list);
@@ -2423,6 +2428,7 @@ static void mlx4_ib_scan_netdevs(struct mlx4_ib_dev *ibdev,
 				 unsigned long event)
 
 {
+	unsigned int bh;
 	struct mlx4_ib_iboe *iboe;
 	int update_qps_port = -1;
 	int port;
@@ -2431,7 +2437,7 @@ static void mlx4_ib_scan_netdevs(struct mlx4_ib_dev *ibdev,
 
 	iboe = &ibdev->iboe;
 
-	spin_lock_bh(&iboe->lock);
+	bh = spin_lock_bh(&iboe->lock, SOFTIRQ_ALL_MASK);
 	mlx4_foreach_ib_transport_port(port, ibdev->dev) {
 
 		iboe->netdevs[port - 1] =
@@ -2443,7 +2449,7 @@ static void mlx4_ib_scan_netdevs(struct mlx4_ib_dev *ibdev,
 			update_qps_port = port;
 
 	}
-	spin_unlock_bh(&iboe->lock);
+	spin_unlock_bh(&iboe->lock, bh);
 
 	if (update_qps_port > 0)
 		mlx4_ib_update_qps(ibdev, dev, update_qps_port);
@@ -3210,6 +3216,7 @@ static void mlx4_ib_handle_catas_error(struct mlx4_ib_dev *ibdev)
 
 static void handle_bonded_port_state_event(struct work_struct *work)
 {
+	unsigned int bh;
 	struct ib_event_work *ew =
 		container_of(work, struct ib_event_work, work);
 	struct mlx4_ib_dev *ibdev = ew->ib_dev;
@@ -3218,7 +3225,7 @@ static void handle_bonded_port_state_event(struct work_struct *work)
 	struct ib_event ibev;
 
 	kfree(ew);
-	spin_lock_bh(&ibdev->iboe.lock);
+	bh = spin_lock_bh(&ibdev->iboe.lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < MLX4_MAX_PORTS; ++i) {
 		struct net_device *curr_netdev = ibdev->iboe.netdevs[i];
 		enum ib_port_state curr_port_state;
@@ -3234,7 +3241,7 @@ static void handle_bonded_port_state_event(struct work_struct *work)
 		bonded_port_state = (bonded_port_state != IB_PORT_ACTIVE) ?
 			curr_port_state : IB_PORT_ACTIVE;
 	}
-	spin_unlock_bh(&ibdev->iboe.lock);
+	spin_unlock_bh(&ibdev->iboe.lock, bh);
 
 	ibev.device = &ibdev->ib_dev;
 	ibev.element.port_num = 1;

@@ -597,11 +597,12 @@ void qed_spq_free(struct qed_hwfn *p_hwfn)
 
 int qed_spq_get_entry(struct qed_hwfn *p_hwfn, struct qed_spq_entry **pp_ent)
 {
+	unsigned int bh;
 	struct qed_spq *p_spq = p_hwfn->p_spq;
 	struct qed_spq_entry *p_ent = NULL;
 	int rc = 0;
 
-	spin_lock_bh(&p_spq->lock);
+	bh = spin_lock_bh(&p_spq->lock, SOFTIRQ_ALL_MASK);
 
 	if (list_empty(&p_spq->free_pool)) {
 		p_ent = kzalloc(sizeof(*p_ent), GFP_ATOMIC);
@@ -622,7 +623,7 @@ int qed_spq_get_entry(struct qed_hwfn *p_hwfn, struct qed_spq_entry **pp_ent)
 	*pp_ent = p_ent;
 
 out_unlock:
-	spin_unlock_bh(&p_spq->lock);
+	spin_unlock_bh(&p_spq->lock, bh);
 	return rc;
 }
 
@@ -635,9 +636,10 @@ static void __qed_spq_return_entry(struct qed_hwfn *p_hwfn,
 
 void qed_spq_return_entry(struct qed_hwfn *p_hwfn, struct qed_spq_entry *p_ent)
 {
-	spin_lock_bh(&p_hwfn->p_spq->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&p_hwfn->p_spq->lock, SOFTIRQ_ALL_MASK);
 	__qed_spq_return_entry(p_hwfn, p_ent);
-	spin_unlock_bh(&p_hwfn->p_spq->lock);
+	spin_unlock_bh(&p_hwfn->p_spq->lock, bh);
 }
 
 /**
@@ -771,6 +773,7 @@ static int qed_spq_pend_post(struct qed_hwfn *p_hwfn)
 int qed_spq_post(struct qed_hwfn *p_hwfn,
 		 struct qed_spq_entry *p_ent, u8 *fw_return_code)
 {
+	unsigned int bh;
 	int rc = 0;
 	struct qed_spq *p_spq = p_hwfn ? p_hwfn->p_spq : NULL;
 	bool b_ret_ent = true;
@@ -787,7 +790,7 @@ int qed_spq_post(struct qed_hwfn *p_hwfn,
 	/* Complete the entry */
 	rc = qed_spq_fill_entry(p_hwfn, p_ent);
 
-	spin_lock_bh(&p_spq->lock);
+	bh = spin_lock_bh(&p_spq->lock, SOFTIRQ_ALL_MASK);
 
 	/* Check return value after LOCK is taken for cleaner error flow */
 	if (rc)
@@ -813,7 +816,7 @@ int qed_spq_post(struct qed_hwfn *p_hwfn,
 		goto spq_post_fail;
 	}
 
-	spin_unlock_bh(&p_spq->lock);
+	spin_unlock_bh(&p_spq->lock, bh);
 
 	if (eblock) {
 		/* For entries in QED BLOCK mode, the completion code cannot
@@ -841,7 +844,7 @@ int qed_spq_post(struct qed_hwfn *p_hwfn,
 	return rc;
 
 spq_post_fail2:
-	spin_lock_bh(&p_spq->lock);
+	spin_lock_bh(&p_spq->lock, SOFTIRQ_ALL_MASK);
 	list_del(&p_ent->list);
 	qed_chain_return_produced(&p_spq->chain);
 
@@ -849,7 +852,7 @@ spq_post_fail:
 	/* return to the free pool */
 	if (b_ret_ent)
 		__qed_spq_return_entry(p_hwfn, p_ent);
-	spin_unlock_bh(&p_spq->lock);
+	spin_unlock_bh(&p_spq->lock, bh);
 
 	return rc;
 }
@@ -859,6 +862,7 @@ int qed_spq_completion(struct qed_hwfn *p_hwfn,
 		       u8 fw_return_code,
 		       union event_ring_data *p_data)
 {
+	unsigned int bh;
 	struct qed_spq		*p_spq;
 	struct qed_spq_entry	*p_ent = NULL;
 	struct qed_spq_entry	*tmp;
@@ -872,7 +876,7 @@ int qed_spq_completion(struct qed_hwfn *p_hwfn,
 	if (!p_spq)
 		return -EINVAL;
 
-	spin_lock_bh(&p_spq->lock);
+	bh = spin_lock_bh(&p_spq->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(p_ent, tmp, &p_spq->completion_pending, list) {
 		if (p_ent->elem.hdr.echo == echo) {
 			u16 pos = le16_to_cpu(echo) % SPQ_RING_SIZE;
@@ -911,7 +915,7 @@ int qed_spq_completion(struct qed_hwfn *p_hwfn,
 	/* Release lock before callback, as callback may post
 	 * an additional ramrod.
 	 */
-	spin_unlock_bh(&p_spq->lock);
+	spin_unlock_bh(&p_spq->lock, bh);
 
 	if (!found) {
 		DP_NOTICE(p_hwfn,
@@ -941,7 +945,7 @@ int qed_spq_completion(struct qed_hwfn *p_hwfn,
 		qed_spq_return_entry(p_hwfn, found);
 
 	/* Attempt to post pending requests */
-	spin_lock_bh(&p_spq->lock);
+	spin_lock_bh(&p_spq->lock, SOFTIRQ_ALL_MASK);
 	rc = qed_spq_pend_post(p_hwfn);
 	spin_unlock_bh(&p_spq->lock);
 

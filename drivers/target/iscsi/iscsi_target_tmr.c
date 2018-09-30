@@ -203,6 +203,7 @@ static int iscsit_task_reassign_complete_nop_out(
 	struct iscsi_tmr_req *tmr_req,
 	struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct iscsi_cmd *cmd = tmr_req->ref_cmd;
 	struct iscsi_conn_recovery *cr;
 
@@ -222,9 +223,9 @@ static int iscsit_task_reassign_complete_nop_out(
 
 	iscsit_task_reassign_remove_cmd(cmd, cr, conn->sess);
 
-	spin_lock_bh(&conn->cmd_lock);
+	bh = spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&cmd->i_conn_node, &conn->conn_cmd_list);
-	spin_unlock_bh(&conn->cmd_lock);
+	spin_unlock_bh(&conn->cmd_lock, bh);
 
 	cmd->i_state = ISTATE_SEND_NOPIN;
 	iscsit_add_cmd_to_response_queue(cmd, conn, cmd->i_state);
@@ -235,6 +236,7 @@ static int iscsit_task_reassign_complete_write(
 	struct iscsi_cmd *cmd,
 	struct iscsi_tmr_req *tmr_req)
 {
+	unsigned int bh;
 	int no_build_r2ts = 0;
 	u32 length = 0, offset = 0;
 	struct iscsi_conn *conn = cmd->conn;
@@ -286,13 +288,13 @@ static int iscsit_task_reassign_complete_write(
 		} else
 			length = (conn->sess->sess_ops->FirstBurstLength - offset);
 
-		spin_lock_bh(&cmd->r2t_lock);
+		bh = spin_lock_bh(&cmd->r2t_lock, SOFTIRQ_ALL_MASK);
 		if (iscsit_add_r2t_to_list(cmd, offset, length, 0, 0) < 0) {
-			spin_unlock_bh(&cmd->r2t_lock);
+			spin_unlock_bh(&cmd->r2t_lock, bh);
 			return -1;
 		}
 		cmd->outstanding_r2ts++;
-		spin_unlock_bh(&cmd->r2t_lock);
+		spin_unlock_bh(&cmd->r2t_lock, bh);
 
 		if (no_build_r2ts)
 			return 0;
@@ -371,6 +373,7 @@ static int iscsit_task_reassign_complete_scsi_cmnd(
 	struct iscsi_tmr_req *tmr_req,
 	struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct iscsi_cmd *cmd = tmr_req->ref_cmd;
 	struct iscsi_conn_recovery *cr;
 
@@ -390,9 +393,9 @@ static int iscsit_task_reassign_complete_scsi_cmnd(
 
 	iscsit_task_reassign_remove_cmd(cmd, cr, conn->sess);
 
-	spin_lock_bh(&conn->cmd_lock);
+	bh = spin_lock_bh(&conn->cmd_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&cmd->i_conn_node, &conn->conn_cmd_list);
-	spin_unlock_bh(&conn->cmd_lock);
+	spin_unlock_bh(&conn->cmd_lock, bh);
 
 	if (cmd->se_cmd.se_cmd_flags & SCF_SENT_CHECK_CONDITION) {
 		cmd->i_state = ISTATE_SEND_STATUS;
@@ -554,6 +557,7 @@ static int iscsit_task_reassign_prepare_write(
 	struct iscsi_tmr_req *tmr_req,
 	struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct iscsi_cmd *cmd = tmr_req->ref_cmd;
 	struct iscsi_pdu *pdu = NULL;
 	struct iscsi_r2t *r2t = NULL, *r2t_tmp;
@@ -587,9 +591,9 @@ static int iscsit_task_reassign_prepare_write(
 	 * so iscsit_build_r2ts_for_cmd() in iscsit_task_reassign_complete_write()
 	 * will resend a new R2T for the DataOUT sequences in question.
 	 */
-	spin_lock_bh(&cmd->r2t_lock);
+	bh = spin_lock_bh(&cmd->r2t_lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&cmd->cmd_r2t_list)) {
-		spin_unlock_bh(&cmd->r2t_lock);
+		spin_unlock_bh(&cmd->r2t_lock, bh);
 		return -1;
 	}
 
@@ -679,7 +683,7 @@ static int iscsit_task_reassign_prepare_write(
 			seq = iscsit_get_seq_holder(cmd, r2t->offset,
 					r2t->xfer_len);
 			if (!seq) {
-				spin_unlock_bh(&cmd->r2t_lock);
+				spin_unlock_bh(&cmd->r2t_lock, bh);
 				return -1;
 			}
 
@@ -725,7 +729,7 @@ drop_unacknowledged_r2ts:
 	cmd->cmd_flags &= ~ICF_SENT_LAST_R2T;
 	cmd->r2t_sn = tmr_req->exp_data_sn;
 
-	spin_lock_bh(&cmd->r2t_lock);
+	bh = spin_lock_bh(&cmd->r2t_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(r2t, r2t_tmp, &cmd->cmd_r2t_list, r2t_list) {
 		/*
 		 * Skip up to the R2T Sequence number provided by the
@@ -741,7 +745,7 @@ drop_unacknowledged_r2ts:
 				"   BAD INITIATOR ERL=2 IMPLEMENTATION!\n",
 				tmr_req->exp_data_sn, r2t->r2t_sn,
 				r2t->offset, r2t->xfer_len);
-			spin_unlock_bh(&cmd->r2t_lock);
+			spin_unlock_bh(&cmd->r2t_lock, bh);
 			return -1;
 		}
 
@@ -774,7 +778,7 @@ drop_unacknowledged_r2ts:
 		cmd->outstanding_r2ts--;
 		iscsit_free_r2t(r2t, cmd);
 	}
-	spin_unlock_bh(&cmd->r2t_lock);
+	spin_unlock_bh(&cmd->r2t_lock, bh);
 
 	return 0;
 }

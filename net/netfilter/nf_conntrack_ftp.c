@@ -376,6 +376,7 @@ static int help(struct sk_buff *skb,
 		struct nf_conn *ct,
 		enum ip_conntrack_info ctinfo)
 {
+	unsigned int bh;
 	unsigned int dataoff, datalen;
 	const struct tcphdr *th;
 	struct tcphdr _tcph;
@@ -412,7 +413,7 @@ static int help(struct sk_buff *skb,
 	}
 	datalen = skb->len - dataoff;
 
-	spin_lock_bh(&nf_ftp_lock);
+	bh = spin_lock_bh(&nf_ftp_lock, SOFTIRQ_ALL_MASK);
 	fb_ptr = skb_header_pointer(skb, dataoff, datalen, ftp_buffer);
 	BUG_ON(fb_ptr == NULL);
 
@@ -542,7 +543,7 @@ out_update_nl:
 	if (ends_in_nl)
 		update_nl_seq(ct, seq, ct_ftp_info, dir, skb);
  out:
-	spin_unlock_bh(&nf_ftp_lock);
+	spin_unlock_bh(&nf_ftp_lock, bh);
 	return ret;
 }
 

@@ -438,13 +438,14 @@ nla_put_failure:
 
 static int ctnetlink_dump_ct_seq_adj(struct sk_buff *skb, struct nf_conn *ct)
 {
+	unsigned int bh;
 	struct nf_conn_seqadj *seqadj = nfct_seqadj(ct);
 	struct nf_ct_seqadj *seq;
 
 	if (!(ct->status & IPS_SEQ_ADJUST) || !seqadj)
 		return 0;
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	seq = &seqadj->seq[IP_CT_DIR_ORIGINAL];
 	if (dump_ct_seq_adj(skb, seq, CTA_SEQ_ADJ_ORIG) == -1)
 		goto err;
@@ -453,10 +454,10 @@ static int ctnetlink_dump_ct_seq_adj(struct sk_buff *skb, struct nf_conn *ct)
 	if (dump_ct_seq_adj(skb, seq, CTA_SEQ_ADJ_REPLY) == -1)
 		goto err;
 
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 	return 0;
 err:
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 	return -1;
 }
 
@@ -1375,6 +1376,7 @@ static int ctnetlink_done_list(struct netlink_callback *cb)
 static int
 ctnetlink_dump_list(struct sk_buff *skb, struct netlink_callback *cb, bool dying)
 {
+	unsigned int bh;
 	struct nf_conn *ct, *last;
 	struct nf_conntrack_tuple_hash *h;
 	struct hlist_nulls_node *n;
@@ -1397,7 +1399,7 @@ ctnetlink_dump_list(struct sk_buff *skb, struct netlink_callback *cb, bool dying
 			continue;
 
 		pcpu = per_cpu_ptr(net->ct.pcpu_lists, cpu);
-		spin_lock_bh(&pcpu->lock);
+		bh = spin_lock_bh(&pcpu->lock, SOFTIRQ_ALL_MASK);
 		list = dying ? &pcpu->dying : &pcpu->unconfirmed;
 restart:
 		hlist_nulls_for_each_entry(h, n, list, hnnode) {
@@ -1420,7 +1422,7 @@ restart:
 					continue;
 				cb->args[0] = cpu;
 				cb->args[1] = (unsigned long)ct;
-				spin_unlock_bh(&pcpu->lock);
+				spin_unlock_bh(&pcpu->lock, bh);
 				goto out;
 			}
 		}
@@ -1428,7 +1430,7 @@ restart:
 			cb->args[1] = 0;
 			goto restart;
 		}
-		spin_unlock_bh(&pcpu->lock);
+		spin_unlock_bh(&pcpu->lock, bh);
 	}
 	cb->args[2] = 1;
 out:
@@ -1746,13 +1748,14 @@ static int
 ctnetlink_change_seq_adj(struct nf_conn *ct,
 			 const struct nlattr * const cda[])
 {
+	unsigned int bh;
 	struct nf_conn_seqadj *seqadj = nfct_seqadj(ct);
 	int ret = 0;
 
 	if (!seqadj)
 		return 0;
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	if (cda[CTA_SEQ_ADJ_ORIG]) {
 		ret = change_seq_adj(&seqadj->seq[IP_CT_DIR_ORIGINAL],
 				     cda[CTA_SEQ_ADJ_ORIG]);
@@ -1771,10 +1774,10 @@ ctnetlink_change_seq_adj(struct nf_conn *ct,
 		set_bit(IPS_SEQ_ADJUST_BIT, &ct->status);
 	}
 
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 	return 0;
 err:
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 	return ret;
 }
 
@@ -3082,6 +3085,7 @@ static int ctnetlink_del_expect(struct net *net, struct sock *ctnl,
 				const struct nlattr * const cda[],
 				struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct nf_conntrack_expect *exp;
 	struct nf_conntrack_tuple tuple;
 	struct nfgenmsg *nfmsg = nlmsg_data(nlh);
@@ -3114,13 +3118,13 @@ static int ctnetlink_del_expect(struct net *net, struct sock *ctnl,
 		}
 
 		/* after list removal, usage count == 1 */
-		spin_lock_bh(&nf_conntrack_expect_lock);
+		bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 		if (del_timer(&exp->timeout)) {
 			nf_ct_unlink_expect_report(exp, NETLINK_CB(skb).portid,
 						   nlmsg_report(nlh));
 			nf_ct_expect_put(exp);
 		}
-		spin_unlock_bh(&nf_conntrack_expect_lock);
+		spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 		/* have to put what we 'get' above.
 		 * after this line usage count == 0 */
 		nf_ct_expect_put(exp);
@@ -3335,6 +3339,7 @@ static int ctnetlink_new_expect(struct net *net, struct sock *ctnl,
 				const struct nlattr * const cda[],
 				struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct nf_conntrack_tuple tuple;
 	struct nf_conntrack_expect *exp;
 	struct nfgenmsg *nfmsg = nlmsg_data(nlh);
@@ -3356,10 +3361,10 @@ static int ctnetlink_new_expect(struct net *net, struct sock *ctnl,
 	if (err < 0)
 		return err;
 
-	spin_lock_bh(&nf_conntrack_expect_lock);
+	bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 	exp = __nf_ct_expect_find(net, &zone, &tuple);
 	if (!exp) {
-		spin_unlock_bh(&nf_conntrack_expect_lock);
+		spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 		err = -ENOENT;
 		if (nlh->nlmsg_flags & NLM_F_CREATE) {
 			err = ctnetlink_create_expect(net, &zone, cda, u3,
@@ -3372,7 +3377,7 @@ static int ctnetlink_new_expect(struct net *net, struct sock *ctnl,
 	err = -EEXIST;
 	if (!(nlh->nlmsg_flags & NLM_F_EXCL))
 		err = ctnetlink_change_expect(exp, cda);
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 
 	return err;
 }

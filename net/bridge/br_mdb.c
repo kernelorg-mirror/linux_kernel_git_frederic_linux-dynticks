@@ -264,6 +264,7 @@ struct br_mdb_complete_info {
 
 static void br_mdb_complete(struct net_device *dev, int err, void *priv)
 {
+	unsigned int bh;
 	struct br_mdb_complete_info *data = priv;
 	struct net_bridge_port_group __rcu **pp;
 	struct net_bridge_port_group *p;
@@ -275,7 +276,7 @@ static void br_mdb_complete(struct net_device *dev, int err, void *priv)
 	if (err)
 		goto err;
 
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 	mdb = mlock_dereference(br->mdb, br);
 	mp = br_mdb_ip_get(mdb, &data->ip);
 	if (!mp)
@@ -287,7 +288,7 @@ static void br_mdb_complete(struct net_device *dev, int err, void *priv)
 		p->flags |= MDB_PG_FLAGS_OFFLOAD;
 	}
 out:
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 err:
 	kfree(priv);
 }
@@ -593,6 +594,7 @@ static int br_mdb_add_group(struct net_bridge *br, struct net_bridge_port *port,
 static int __br_mdb_add(struct net *net, struct net_bridge *br,
 			struct br_mdb_entry *entry)
 {
+	unsigned int bh;
 	struct br_ip ip;
 	struct net_device *dev;
 	struct net_bridge_port *p;
@@ -611,9 +613,9 @@ static int __br_mdb_add(struct net *net, struct net_bridge *br,
 
 	__mdb_entry_to_br_ip(entry, &ip);
 
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 	ret = br_mdb_add_group(br, p, &ip, entry->state);
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 	return ret;
 }
 
@@ -666,6 +668,7 @@ static int br_mdb_add(struct sk_buff *skb, struct nlmsghdr *nlh,
 
 static int __br_mdb_del(struct net_bridge *br, struct br_mdb_entry *entry)
 {
+	unsigned int bh;
 	struct net_bridge_mdb_htable *mdb;
 	struct net_bridge_mdb_entry *mp;
 	struct net_bridge_port_group *p;
@@ -678,7 +681,7 @@ static int __br_mdb_del(struct net_bridge *br, struct br_mdb_entry *entry)
 
 	__mdb_entry_to_br_ip(entry, &ip);
 
-	spin_lock_bh(&br->multicast_lock);
+	bh = spin_lock_bh(&br->multicast_lock, SOFTIRQ_ALL_MASK);
 	mdb = mlock_dereference(br->mdb, br);
 
 	mp = br_mdb_ip_get(mdb, &ip);
@@ -708,7 +711,7 @@ static int __br_mdb_del(struct net_bridge *br, struct br_mdb_entry *entry)
 	}
 
 unlock:
-	spin_unlock_bh(&br->multicast_lock);
+	spin_unlock_bh(&br->multicast_lock, bh);
 	return err;
 }
 

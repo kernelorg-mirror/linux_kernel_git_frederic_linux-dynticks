@@ -438,10 +438,11 @@ static int fib6_node_dump(struct fib6_walker *w)
 static void fib6_table_dump(struct net *net, struct fib6_table *tb,
 			    struct fib6_walker *w)
 {
+	unsigned int bh;
 	w->root = &tb->tb6_root;
-	spin_lock_bh(&tb->tb6_lock);
+	bh = spin_lock_bh(&tb->tb6_lock, SOFTIRQ_ALL_MASK);
 	fib6_walk(net, w);
-	spin_unlock_bh(&tb->tb6_lock);
+	spin_unlock_bh(&tb->tb6_lock, bh);
 }
 
 /* Called with rcu_read_lock() */
@@ -526,6 +527,7 @@ static int fib6_dump_done(struct netlink_callback *cb)
 static int fib6_dump_table(struct fib6_table *table, struct sk_buff *skb,
 			   struct netlink_callback *cb)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct fib6_walker *w;
 	int res;
@@ -537,9 +539,9 @@ static int fib6_dump_table(struct fib6_table *table, struct sk_buff *skb,
 		w->count = 0;
 		w->skip = 0;
 
-		spin_lock_bh(&table->tb6_lock);
+		bh = spin_lock_bh(&table->tb6_lock, SOFTIRQ_ALL_MASK);
 		res = fib6_walk(net, w);
-		spin_unlock_bh(&table->tb6_lock);
+		spin_unlock_bh(&table->tb6_lock, bh);
 		if (res > 0) {
 			cb->args[4] = 1;
 			cb->args[5] = w->root->fn_sernum;
@@ -554,9 +556,9 @@ static int fib6_dump_table(struct fib6_table *table, struct sk_buff *skb,
 		} else
 			w->skip = 0;
 
-		spin_lock_bh(&table->tb6_lock);
+		bh = spin_lock_bh(&table->tb6_lock, SOFTIRQ_ALL_MASK);
 		res = fib6_walk_continue(w);
-		spin_unlock_bh(&table->tb6_lock);
+		spin_unlock_bh(&table->tb6_lock, bh);
 		if (res <= 0) {
 			fib6_walker_unlink(net, w);
 			cb->args[4] = 0;
@@ -2023,6 +2025,7 @@ static void __fib6_clean_all(struct net *net,
 			     int (*func)(struct fib6_info *, void *),
 			     int sernum, void *arg)
 {
+	unsigned int bh;
 	struct fib6_table *table;
 	struct hlist_head *head;
 	unsigned int h;
@@ -2031,10 +2034,10 @@ static void __fib6_clean_all(struct net *net,
 	for (h = 0; h < FIB6_TABLE_HASHSZ; h++) {
 		head = &net->ipv6.fib_table_hash[h];
 		hlist_for_each_entry_rcu(table, head, tb6_hlist) {
-			spin_lock_bh(&table->tb6_lock);
+			bh = spin_lock_bh(&table->tb6_lock, SOFTIRQ_ALL_MASK);
 			fib6_clean_tree(net, &table->tb6_root,
 					func, sernum, arg);
-			spin_unlock_bh(&table->tb6_lock);
+			spin_unlock_bh(&table->tb6_lock, bh);
 		}
 	}
 	rcu_read_unlock();
@@ -2086,11 +2089,12 @@ static int fib6_age(struct fib6_info *rt, void *arg)
 
 void fib6_run_gc(unsigned long expires, struct net *net, bool force)
 {
+	unsigned int bh;
 	struct fib6_gc_args gc_args;
 	unsigned long now;
 
 	if (force) {
-		spin_lock_bh(&net->ipv6.fib6_gc_lock);
+		bh = spin_lock_bh(&net->ipv6.fib6_gc_lock, SOFTIRQ_ALL_MASK);
 	} else if (!spin_trylock_bh(&net->ipv6.fib6_gc_lock)) {
 		mod_timer(&net->ipv6.ip6_fib_timer, jiffies + HZ);
 		return;
@@ -2109,7 +2113,7 @@ void fib6_run_gc(unsigned long expires, struct net *net, bool force)
 					+ net->ipv6.sysctl.ip6_rt_gc_interval));
 	else
 		del_timer(&net->ipv6.ip6_fib_timer);
-	spin_unlock_bh(&net->ipv6.fib6_gc_lock);
+	spin_unlock_bh(&net->ipv6.fib6_gc_lock, bh);
 }
 
 static void fib6_gc_timer_cb(struct timer_list *t)
@@ -2343,6 +2347,7 @@ static void ipv6_route_check_sernum(struct ipv6_route_iter *iter)
 
 static void *ipv6_route_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 {
+	unsigned int bh;
 	int r;
 	struct fib6_info *n;
 	struct net *net = seq_file_net(seq);
@@ -2359,9 +2364,9 @@ static void *ipv6_route_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 
 iter_table:
 	ipv6_route_check_sernum(iter);
-	spin_lock_bh(&iter->tbl->tb6_lock);
+	bh = spin_lock_bh(&iter->tbl->tb6_lock, SOFTIRQ_ALL_MASK);
 	r = fib6_walk_continue(&iter->w);
-	spin_unlock_bh(&iter->tbl->tb6_lock);
+	spin_unlock_bh(&iter->tbl->tb6_lock, bh);
 	if (r > 0) {
 		if (v)
 			++*pos;

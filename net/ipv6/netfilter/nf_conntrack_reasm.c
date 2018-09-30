@@ -535,6 +535,7 @@ find_prev_fhdr(struct sk_buff *skb, u8 *prevhdrp, int *prevhoff, int *fhoff)
 
 int nf_ct_frag6_gather(struct net *net, struct sk_buff *skb, u32 user)
 {
+	unsigned int bh;
 	u16 savethdr = skb->transport_header;
 	struct net_device *dev = skb->dev;
 	int fhoff, nhoff, ret;
@@ -571,7 +572,7 @@ int nf_ct_frag6_gather(struct net *net, struct sk_buff *skb, u32 user)
 		return -ENOMEM;
 	}
 
-	spin_lock_bh(&fq->q.lock);
+	bh = spin_lock_bh(&fq->q.lock, SOFTIRQ_ALL_MASK);
 
 	ret = nf_ct_frag6_queue(fq, skb, fhdr, nhoff);
 	if (ret < 0) {
@@ -594,7 +595,7 @@ int nf_ct_frag6_gather(struct net *net, struct sk_buff *skb, u32 user)
 		skb_dst_drop(skb);
 
 out_unlock:
-	spin_unlock_bh(&fq->q.lock);
+	spin_unlock_bh(&fq->q.lock, bh);
 	inet_frag_put(&fq->q);
 	return ret;
 }

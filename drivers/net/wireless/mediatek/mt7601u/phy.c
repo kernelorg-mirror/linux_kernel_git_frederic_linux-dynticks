@@ -974,6 +974,7 @@ void mt7601u_agc_restore(struct mt7601u_dev *dev)
 
 static void mt7601u_agc_tune(struct mt7601u_dev *dev)
 {
+	unsigned int bh;
 	u8 val = mt7601u_agc_default(dev);
 	long avg_rssi;
 
@@ -984,9 +985,9 @@ static void mt7601u_agc_tune(struct mt7601u_dev *dev)
 	 *	 there is enough rssi updates since last run?
 	 *	 Rssi updates are only on beacons and U2M so should work...
 	 */
-	spin_lock_bh(&dev->con_mon_lock);
+	bh = spin_lock_bh(&dev->con_mon_lock, SOFTIRQ_ALL_MASK);
 	avg_rssi = ewma_rssi_read(&dev->avg_rssi);
-	spin_unlock_bh(&dev->con_mon_lock);
+	spin_unlock_bh(&dev->con_mon_lock, bh);
 	if (avg_rssi == 0)
 		return;
 
@@ -1086,7 +1087,7 @@ static void mt7601u_phy_freq_cal(struct work_struct *work)
 	u8 phy_mode;
 	unsigned long delay;
 
-	spin_lock_bh(&dev->con_mon_lock);
+	spin_lock_bh(&dev->con_mon_lock, SOFTIRQ_ALL_MASK);
 	last_offset = dev->bcn_freq_off;
 	phy_mode = dev->bcn_phy_mode;
 	spin_unlock_bh(&dev->con_mon_lock);
@@ -1094,7 +1095,7 @@ static void mt7601u_phy_freq_cal(struct work_struct *work)
 	delay = __mt7601u_phy_freq_cal(dev, last_offset, phy_mode);
 	ieee80211_queue_delayed_work(dev->hw, &dev->freq_cal.work, delay);
 
-	spin_lock_bh(&dev->con_mon_lock);
+	spin_lock_bh(&dev->con_mon_lock, SOFTIRQ_ALL_MASK);
 	dev->bcn_freq_off = MT_FREQ_OFFSET_INVALID;
 	spin_unlock_bh(&dev->con_mon_lock);
 }
@@ -1102,15 +1103,16 @@ static void mt7601u_phy_freq_cal(struct work_struct *work)
 void mt7601u_phy_con_cal_onoff(struct mt7601u_dev *dev,
 			       struct ieee80211_bss_conf *info)
 {
+	unsigned int bh;
 	if (!info->assoc)
 		cancel_delayed_work_sync(&dev->freq_cal.work);
 
 	/* Start/stop collecting beacon data */
-	spin_lock_bh(&dev->con_mon_lock);
+	bh = spin_lock_bh(&dev->con_mon_lock, SOFTIRQ_ALL_MASK);
 	ether_addr_copy(dev->ap_bssid, info->bssid);
 	ewma_rssi_init(&dev->avg_rssi);
 	dev->bcn_freq_off = MT_FREQ_OFFSET_INVALID;
-	spin_unlock_bh(&dev->con_mon_lock);
+	spin_unlock_bh(&dev->con_mon_lock, bh);
 
 	dev->freq_cal.freq = dev->ee->rf_freq_off;
 	dev->freq_cal.enabled = info->assoc;

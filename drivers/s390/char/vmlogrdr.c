@@ -308,6 +308,7 @@ static int vmlogrdr_recording(struct vmlogrdr_priv_t * logptr,
 
 static int vmlogrdr_open (struct inode *inode, struct file *filp)
 {
+	unsigned int bh;
 	int dev_num = 0;
 	struct vmlogrdr_priv_t * logptr = NULL;
 	int connect_rc = 0;
@@ -325,9 +326,9 @@ static int vmlogrdr_open (struct inode *inode, struct file *filp)
 		return -EOPNOTSUPP;
 
 	/* Besure this device hasn't already been opened */
-	spin_lock_bh(&logptr->priv_lock);
+	bh = spin_lock_bh(&logptr->priv_lock, SOFTIRQ_ALL_MASK);
 	if (logptr->dev_in_use)	{
-		spin_unlock_bh(&logptr->priv_lock);
+		spin_unlock_bh(&logptr->priv_lock, bh);
 		return -EBUSY;
 	}
 	logptr->dev_in_use = 1;
@@ -335,7 +336,7 @@ static int vmlogrdr_open (struct inode *inode, struct file *filp)
 	logptr->iucv_path_severed = 0;
 	atomic_set(&logptr->receive_ready, 0);
 	logptr->buffer_free = 1;
-	spin_unlock_bh(&logptr->priv_lock);
+	spin_unlock_bh(&logptr->priv_lock, bh);
 
 	/* set the file options */
 	filp->private_data = logptr;
@@ -406,6 +407,7 @@ static int vmlogrdr_release (struct inode *inode, struct file *filp)
 
 static int vmlogrdr_receive_data(struct vmlogrdr_priv_t *priv)
 {
+	unsigned int bh;
 	int rc, *temp;
 	/* we need to keep track of two data sizes here:
 	 * The number of bytes we need to receive from iucv and
@@ -415,7 +417,7 @@ static int vmlogrdr_receive_data(struct vmlogrdr_priv_t *priv)
 	char * buffer;
 
 	if (atomic_read(&priv->receive_ready)) {
-		spin_lock_bh(&priv->priv_lock);
+		bh = spin_lock_bh(&priv->priv_lock, SOFTIRQ_ALL_MASK);
 		if (priv->residual_length){
 			/* receive second half of a record */
 			iucv_data_count = priv->residual_length;
@@ -442,7 +444,7 @@ static int vmlogrdr_receive_data(struct vmlogrdr_priv_t *priv)
 					  &priv->local_interrupt_buffer,
 					  0, buffer, iucv_data_count,
 					  &priv->residual_length);
-		spin_unlock_bh(&priv->priv_lock);
+		spin_unlock_bh(&priv->priv_lock, bh);
 		/* An rc of 5 indicates that the record was bigger than
 		 * the buffer, which is OK for us. A 9 indicates that the
 		 * record was purged befor we could receive it.
@@ -681,15 +683,16 @@ static const struct attribute_group *vmlogrdr_attr_groups[] = {
 
 static int vmlogrdr_pm_prepare(struct device *dev)
 {
+	unsigned int bh;
 	int rc;
 	struct vmlogrdr_priv_t *priv = dev_get_drvdata(dev);
 
 	rc = 0;
 	if (priv) {
-		spin_lock_bh(&priv->priv_lock);
+		bh = spin_lock_bh(&priv->priv_lock, SOFTIRQ_ALL_MASK);
 		if (priv->dev_in_use)
 			rc = -EBUSY;
-		spin_unlock_bh(&priv->priv_lock);
+		spin_unlock_bh(&priv->priv_lock, bh);
 	}
 	if (rc)
 		pr_err("vmlogrdr: device %s is busy. Refuse to suspend.\n",

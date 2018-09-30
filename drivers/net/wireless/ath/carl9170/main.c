@@ -183,19 +183,20 @@ static struct ieee80211_supported_band carl9170_band_5GHz = {
 
 static void carl9170_ampdu_gc(struct ar9170 *ar)
 {
+	unsigned int bh;
 	struct carl9170_sta_tid *tid_info;
 	LIST_HEAD(tid_gc);
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(tid_info, &ar->tx_ampdu_list, list) {
-		spin_lock_bh(&ar->tx_ampdu_list_lock);
+		bh = spin_lock_bh(&ar->tx_ampdu_list_lock, SOFTIRQ_ALL_MASK);
 		if (tid_info->state == CARL9170_TID_STATE_SHUTDOWN) {
 			tid_info->state = CARL9170_TID_STATE_KILLED;
 			list_del_rcu(&tid_info->list);
 			ar->tx_ampdu_list_len--;
 			list_add_tail(&tid_info->tmp_list, &tid_gc);
 		}
-		spin_unlock_bh(&ar->tx_ampdu_list_lock);
+		spin_unlock_bh(&ar->tx_ampdu_list_lock, bh);
 
 	}
 	rcu_assign_pointer(ar->tx_ampdu_iter, tid_info);
@@ -248,6 +249,7 @@ static void carl9170_flush(struct ar9170 *ar, bool drop_queued)
 
 static void carl9170_flush_ba(struct ar9170 *ar)
 {
+	unsigned int bh;
 	struct sk_buff_head free;
 	struct carl9170_sta_tid *tid_info;
 	struct sk_buff *skb;
@@ -255,7 +257,7 @@ static void carl9170_flush_ba(struct ar9170 *ar)
 	__skb_queue_head_init(&free);
 
 	rcu_read_lock();
-	spin_lock_bh(&ar->tx_ampdu_list_lock);
+	bh = spin_lock_bh(&ar->tx_ampdu_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_rcu(tid_info, &ar->tx_ampdu_list, list) {
 		if (tid_info->state > CARL9170_TID_STATE_SUSPEND) {
 			tid_info->state = CARL9170_TID_STATE_SUSPEND;
@@ -266,7 +268,7 @@ static void carl9170_flush_ba(struct ar9170 *ar)
 			spin_unlock(&tid_info->lock);
 		}
 	}
-	spin_unlock_bh(&ar->tx_ampdu_list_lock);
+	spin_unlock_bh(&ar->tx_ampdu_list_lock, bh);
 	rcu_read_unlock();
 
 	while ((skb = __skb_dequeue(&free)))
@@ -275,6 +277,7 @@ static void carl9170_flush_ba(struct ar9170 *ar)
 
 static void carl9170_zap_queues(struct ar9170 *ar)
 {
+	unsigned int bh;
 	struct carl9170_vif_info *cvif;
 	unsigned int i;
 
@@ -284,7 +287,7 @@ static void carl9170_zap_queues(struct ar9170 *ar)
 	carl9170_flush(ar, true);
 
 	for (i = 0; i < ar->hw->queues; i++) {
-		spin_lock_bh(&ar->tx_status[i].lock);
+		bh = spin_lock_bh(&ar->tx_status[i].lock, SOFTIRQ_ALL_MASK);
 		while (!skb_queue_empty(&ar->tx_status[i])) {
 			struct sk_buff *skb;
 
@@ -292,10 +295,10 @@ static void carl9170_zap_queues(struct ar9170 *ar)
 			carl9170_tx_get_skb(skb);
 			spin_unlock_bh(&ar->tx_status[i].lock);
 			carl9170_tx_drop(ar, skb);
-			spin_lock_bh(&ar->tx_status[i].lock);
+			spin_lock_bh(&ar->tx_status[i].lock, SOFTIRQ_ALL_MASK);
 			carl9170_tx_put_skb(skb);
 		}
-		spin_unlock_bh(&ar->tx_status[i].lock);
+		spin_unlock_bh(&ar->tx_status[i].lock, bh);
 	}
 
 	BUILD_BUG_ON(CARL9170_NUM_TX_LIMIT_SOFT < 1);
@@ -312,10 +315,10 @@ static void carl9170_zap_queues(struct ar9170 *ar)
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(cvif, &ar->vif_list, list) {
-		spin_lock_bh(&ar->beacon_lock);
+		bh = spin_lock_bh(&ar->beacon_lock, SOFTIRQ_ALL_MASK);
 		dev_kfree_skb_any(cvif->beacon);
 		cvif->beacon = NULL;
-		spin_unlock_bh(&ar->beacon_lock);
+		spin_unlock_bh(&ar->beacon_lock, bh);
 	}
 	rcu_read_unlock();
 
@@ -599,6 +602,7 @@ static int carl9170_init_interface(struct ar9170 *ar,
 static int carl9170_op_add_interface(struct ieee80211_hw *hw,
 				     struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct carl9170_vif_info *vif_priv = (void *) vif->drv_priv;
 	struct ieee80211_vif *main_vif, *old_main = NULL;
 	struct ar9170 *ar = hw->priv;
@@ -614,10 +618,10 @@ static int carl9170_op_add_interface(struct ieee80211_hw *hw,
 		vif_id = vif_priv->id;
 		vif_priv->enable_beacon = false;
 
-		spin_lock_bh(&ar->beacon_lock);
+		bh = spin_lock_bh(&ar->beacon_lock, SOFTIRQ_ALL_MASK);
 		dev_kfree_skb_any(vif_priv->beacon);
 		vif_priv->beacon = NULL;
-		spin_unlock_bh(&ar->beacon_lock);
+		spin_unlock_bh(&ar->beacon_lock, bh);
 
 		goto init;
 	}
@@ -764,6 +768,7 @@ unlock:
 static void carl9170_op_remove_interface(struct ieee80211_hw *hw,
 					 struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct carl9170_vif_info *vif_priv = (void *) vif->drv_priv;
 	struct ieee80211_vif *main_vif;
 	struct ar9170 *ar = hw->priv;
@@ -805,10 +810,10 @@ static void carl9170_op_remove_interface(struct ieee80211_hw *hw,
 	carl9170_update_beacon(ar, false);
 	carl9170_flush_cab(ar, id);
 
-	spin_lock_bh(&ar->beacon_lock);
+	bh = spin_lock_bh(&ar->beacon_lock, SOFTIRQ_ALL_MASK);
 	dev_kfree_skb_any(vif_priv->beacon);
 	vif_priv->beacon = NULL;
-	spin_unlock_bh(&ar->beacon_lock);
+	spin_unlock_bh(&ar->beacon_lock, bh);
 
 	bitmap_release_region(&ar->vif_bitmap, id, 0);
 
@@ -1345,6 +1350,7 @@ static int carl9170_op_sta_remove(struct ieee80211_hw *hw,
 				struct ieee80211_vif *vif,
 				struct ieee80211_sta *sta)
 {
+	unsigned int bh;
 	struct ar9170 *ar = hw->priv;
 	struct carl9170_sta_info *sta_info = (void *) sta->drv_priv;
 	unsigned int i;
@@ -1364,10 +1370,10 @@ static int carl9170_op_sta_remove(struct ieee80211_hw *hw,
 			if (!tid_info)
 				continue;
 
-			spin_lock_bh(&ar->tx_ampdu_list_lock);
+			bh = spin_lock_bh(&ar->tx_ampdu_list_lock, SOFTIRQ_ALL_MASK);
 			if (tid_info->state > CARL9170_TID_STATE_SHUTDOWN)
 				tid_info->state = CARL9170_TID_STATE_SHUTDOWN;
-			spin_unlock_bh(&ar->tx_ampdu_list_lock);
+			spin_unlock_bh(&ar->tx_ampdu_list_lock, bh);
 			cleanup = true;
 		}
 		rcu_read_unlock();
@@ -1415,6 +1421,7 @@ static int carl9170_op_ampdu_action(struct ieee80211_hw *hw,
 				    struct ieee80211_vif *vif,
 				    struct ieee80211_ampdu_params *params)
 {
+	unsigned int bh;
 	struct ieee80211_sta *sta = params->sta;
 	enum ieee80211_ampdu_mlme_action action = params->action;
 	u16 tid = params->tid;
@@ -1448,11 +1455,11 @@ static int carl9170_op_ampdu_action(struct ieee80211_hw *hw,
 		skb_queue_head_init(&tid_info->queue);
 		spin_lock_init(&tid_info->lock);
 
-		spin_lock_bh(&ar->tx_ampdu_list_lock);
+		bh = spin_lock_bh(&ar->tx_ampdu_list_lock, SOFTIRQ_ALL_MASK);
 		ar->tx_ampdu_list_len++;
 		list_add_tail_rcu(&tid_info->list, &ar->tx_ampdu_list);
 		rcu_assign_pointer(sta_info->agg[tid], tid_info);
-		spin_unlock_bh(&ar->tx_ampdu_list_lock);
+		spin_unlock_bh(&ar->tx_ampdu_list_lock, bh);
 
 		ieee80211_start_tx_ba_cb_irqsafe(vif, sta->addr, tid);
 		break;
@@ -1463,10 +1470,10 @@ static int carl9170_op_ampdu_action(struct ieee80211_hw *hw,
 		rcu_read_lock();
 		tid_info = rcu_dereference(sta_info->agg[tid]);
 		if (tid_info) {
-			spin_lock_bh(&ar->tx_ampdu_list_lock);
+			bh = spin_lock_bh(&ar->tx_ampdu_list_lock, SOFTIRQ_ALL_MASK);
 			if (tid_info->state > CARL9170_TID_STATE_SHUTDOWN)
 				tid_info->state = CARL9170_TID_STATE_SHUTDOWN;
-			spin_unlock_bh(&ar->tx_ampdu_list_lock);
+			spin_unlock_bh(&ar->tx_ampdu_list_lock, bh);
 		}
 
 		RCU_INIT_POINTER(sta_info->agg[tid], NULL);

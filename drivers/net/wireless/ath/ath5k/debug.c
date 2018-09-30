@@ -828,6 +828,7 @@ static const struct file_operations fops_ani = {
 static ssize_t read_file_queue(struct file *file, char __user *user_buf,
 				   size_t count, loff_t *ppos)
 {
+	unsigned int bh;
 	struct ath5k_hw *ah = file->private_data;
 	char buf[700];
 	unsigned int len = 0;
@@ -849,10 +850,10 @@ static ssize_t read_file_queue(struct file *file, char __user *user_buf,
 			continue;
 
 		n = 0;
-		spin_lock_bh(&txq->lock);
+		bh = spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry_safe(bf, bf0, &txq->q, list)
 			n++;
-		spin_unlock_bh(&txq->lock);
+		spin_unlock_bh(&txq->lock, bh);
 
 		len += snprintf(buf + len, sizeof(buf) - len,
 				"  len: %d bufs: %d\n", txq->txq_len, n);
@@ -1083,6 +1084,7 @@ ath5k_debug_printrxbuf(struct ath5k_buf *bf, int done,
 void
 ath5k_debug_printrxbuffs(struct ath5k_hw *ah)
 {
+	unsigned int bh;
 	struct ath5k_desc *ds;
 	struct ath5k_buf *bf;
 	struct ath5k_rx_status rs = {};
@@ -1094,14 +1096,14 @@ ath5k_debug_printrxbuffs(struct ath5k_hw *ah)
 	printk(KERN_DEBUG "rxdp %x, rxlink %p\n",
 		ath5k_hw_get_rxdp(ah), ah->rxlink);
 
-	spin_lock_bh(&ah->rxbuflock);
+	bh = spin_lock_bh(&ah->rxbuflock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(bf, &ah->rxbuf, list) {
 		ds = bf->desc;
 		status = ah->ah_proc_rx_desc(ah, ds, &rs);
 		if (!status)
 			ath5k_debug_printrxbuf(bf, status == 0, &rs);
 	}
-	spin_unlock_bh(&ah->rxbuflock);
+	spin_unlock_bh(&ah->rxbuflock, bh);
 }
 
 void

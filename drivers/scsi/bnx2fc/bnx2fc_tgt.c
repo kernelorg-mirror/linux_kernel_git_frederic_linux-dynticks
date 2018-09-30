@@ -172,7 +172,7 @@ void bnx2fc_flush_active_ios(struct bnx2fc_rport *tgt)
 	BNX2FC_TGT_DBG(tgt, "Entered flush_active_ios - %d\n",
 		       tgt->num_active_ios.counter);
 
-	spin_lock_bh(&tgt->tgt_lock);
+	spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 	tgt->flush_in_prog = 1;
 
 	list_for_each_entry_safe(io_req, tmp, &tgt->active_cmd_queue, link) {
@@ -270,7 +270,7 @@ void bnx2fc_flush_active_ios(struct bnx2fc_rport *tgt)
 		printk(KERN_ERR PFX "CLEANUP on port 0x%x:"
 				    " active_ios = %d\n",
 			tgt->rdata->ids.port_id, tgt->num_active_ios.counter);
-	spin_lock_bh(&tgt->tgt_lock);
+	spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 	tgt->flush_in_prog = 0;
 	spin_unlock_bh(&tgt->tgt_lock);
 }
@@ -615,6 +615,7 @@ struct bnx2fc_rport *bnx2fc_tgt_lookup(struct fcoe_port *port,
 static u32 bnx2fc_alloc_conn_id(struct bnx2fc_hba *hba,
 				struct bnx2fc_rport *tgt)
 {
+	unsigned int bh;
 	u32 conn_id, next;
 
 	/* called with hba mutex held */
@@ -625,7 +626,7 @@ static u32 bnx2fc_alloc_conn_id(struct bnx2fc_hba *hba,
 	 * hba lock needs to be held for read access.
 	 */
 
-	spin_lock_bh(&hba->hba_lock);
+	bh = spin_lock_bh(&hba->hba_lock, SOFTIRQ_ALL_MASK);
 	next = hba->next_conn_id;
 	conn_id = hba->next_conn_id++;
 	if (hba->next_conn_id == BNX2FC_NUM_MAX_SESS)
@@ -638,22 +639,23 @@ static u32 bnx2fc_alloc_conn_id(struct bnx2fc_hba *hba,
 
 		if (conn_id == next) {
 			/* No free conn_ids are available */
-			spin_unlock_bh(&hba->hba_lock);
+			spin_unlock_bh(&hba->hba_lock, bh);
 			return -1;
 		}
 	}
 	hba->tgt_ofld_list[conn_id] = tgt;
 	tgt->fcoe_conn_id = conn_id;
-	spin_unlock_bh(&hba->hba_lock);
+	spin_unlock_bh(&hba->hba_lock, bh);
 	return conn_id;
 }
 
 static void bnx2fc_free_conn_id(struct bnx2fc_hba *hba, u32 conn_id)
 {
+	unsigned int bh;
 	/* called with hba mutex held */
-	spin_lock_bh(&hba->hba_lock);
+	bh = spin_lock_bh(&hba->hba_lock, SOFTIRQ_ALL_MASK);
 	hba->tgt_ofld_list[conn_id] = NULL;
-	spin_unlock_bh(&hba->hba_lock);
+	spin_unlock_bh(&hba->hba_lock, bh);
 }
 
 /**
@@ -830,11 +832,12 @@ mem_alloc_failure:
 static void bnx2fc_free_session_resc(struct bnx2fc_hba *hba,
 						struct bnx2fc_rport *tgt)
 {
+	unsigned int bh;
 	void __iomem *ctx_base_ptr;
 
 	BNX2FC_TGT_DBG(tgt, "Freeing up session resources\n");
 
-	spin_lock_bh(&tgt->cq_lock);
+	bh = spin_lock_bh(&tgt->cq_lock, SOFTIRQ_ALL_MASK);
 	ctx_base_ptr = tgt->ctx_base;
 	tgt->ctx_base = NULL;
 
@@ -890,7 +893,7 @@ static void bnx2fc_free_session_resc(struct bnx2fc_hba *hba,
 				    tgt->sq, tgt->sq_dma);
 		tgt->sq = NULL;
 	}
-	spin_unlock_bh(&tgt->cq_lock);
+	spin_unlock_bh(&tgt->cq_lock, bh);
 
 	if (ctx_base_ptr)
 		iounmap(ctx_base_ptr);

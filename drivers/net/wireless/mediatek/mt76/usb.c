@@ -545,6 +545,7 @@ EXPORT_SYMBOL_GPL(mt76u_skb_dma_info);
 
 static void mt76u_tx_tasklet(unsigned long data)
 {
+	unsigned int bh;
 	struct mt76_dev *dev = (struct mt76_dev *)data;
 	struct mt76u_buf *buf;
 	struct mt76_queue *q;
@@ -554,7 +555,7 @@ static void mt76u_tx_tasklet(unsigned long data)
 	for (i = 0; i < IEEE80211_NUM_ACS; i++) {
 		q = &dev->q_tx[i];
 
-		spin_lock_bh(&q->lock);
+		bh = spin_lock_bh(&q->lock, SOFTIRQ_ALL_MASK);
 		while (true) {
 			buf = &q->entry[q->head].ubuf;
 			if (!buf->done || !q->queued)
@@ -577,7 +578,7 @@ static void mt76u_tx_tasklet(unsigned long data)
 		if (!q->queued)
 			wake_up(&dev->tx_wait);
 
-		spin_unlock_bh(&q->lock);
+		spin_unlock_bh(&q->lock, bh);
 
 		if (!test_and_set_bit(MT76_READING_STATS, &dev->state))
 			ieee80211_queue_delayed_work(dev->hw,

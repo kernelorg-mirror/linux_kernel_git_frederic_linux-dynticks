@@ -171,6 +171,7 @@ static void ath_dynack_compute_to(struct ath_hw *ah)
 void ath_dynack_sample_tx_ts(struct ath_hw *ah, struct sk_buff *skb,
 			     struct ath_tx_status *ts)
 {
+	unsigned int bh;
 	u8 ridx;
 	struct ieee80211_hdr *hdr;
 	struct ath_dynack *da = &ah->dynack;
@@ -180,7 +181,7 @@ void ath_dynack_sample_tx_ts(struct ath_hw *ah, struct sk_buff *skb,
 	if ((info->flags & IEEE80211_TX_CTL_NO_ACK) || !da->enabled)
 		return;
 
-	spin_lock_bh(&da->qlock);
+	bh = spin_lock_bh(&da->qlock, SOFTIRQ_ALL_MASK);
 
 	hdr = (struct ieee80211_hdr *)skb->data;
 
@@ -195,7 +196,7 @@ void ath_dynack_sample_tx_ts(struct ath_hw *ah, struct sk_buff *skb,
 			da->lto = jiffies + LATEACK_DELAY;
 		}
 
-		spin_unlock_bh(&da->qlock);
+		spin_unlock_bh(&da->qlock, bh);
 		return;
 	}
 
@@ -233,7 +234,7 @@ void ath_dynack_sample_tx_ts(struct ath_hw *ah, struct sk_buff *skb,
 
 	ath_dynack_compute_to(ah);
 
-	spin_unlock_bh(&da->qlock);
+	spin_unlock_bh(&da->qlock, bh);
 }
 EXPORT_SYMBOL(ath_dynack_sample_tx_ts);
 
@@ -247,6 +248,7 @@ EXPORT_SYMBOL(ath_dynack_sample_tx_ts);
 void ath_dynack_sample_ack_ts(struct ath_hw *ah, struct sk_buff *skb,
 			      u32 ts)
 {
+	unsigned int bh;
 	struct ath_dynack *da = &ah->dynack;
 	struct ath_common *common = ath9k_hw_common(ah);
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
@@ -254,7 +256,7 @@ void ath_dynack_sample_ack_ts(struct ath_hw *ah, struct sk_buff *skb,
 	if (!ath_dynack_bssidmask(ah, hdr->addr1) || !da->enabled)
 		return;
 
-	spin_lock_bh(&da->qlock);
+	bh = spin_lock_bh(&da->qlock, SOFTIRQ_ALL_MASK);
 	da->ack_rbf.tstamp[da->ack_rbf.t_rb] = ts;
 
 	ath_dbg(common, DYNACK, "rx sample %u [h %u-t %u]\n",
@@ -267,7 +269,7 @@ void ath_dynack_sample_ack_ts(struct ath_hw *ah, struct sk_buff *skb,
 
 	ath_dynack_compute_to(ah);
 
-	spin_unlock_bh(&da->qlock);
+	spin_unlock_bh(&da->qlock, bh);
 }
 EXPORT_SYMBOL(ath_dynack_sample_ack_ts);
 

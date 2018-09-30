@@ -60,15 +60,16 @@ struct qede_ptp {
  */
 static int qede_ptp_adjfreq(struct ptp_clock_info *info, s32 ppb)
 {
+	unsigned int bh;
 	struct qede_ptp *ptp = container_of(info, struct qede_ptp, clock_info);
 	struct qede_dev *edev = ptp->edev;
 	int rc;
 
 	__qede_lock(edev);
 	if (edev->state == QEDE_STATE_OPEN) {
-		spin_lock_bh(&ptp->lock);
+		bh = spin_lock_bh(&ptp->lock, SOFTIRQ_ALL_MASK);
 		rc = ptp->ops->adjfreq(edev->cdev, ppb);
-		spin_unlock_bh(&ptp->lock);
+		spin_unlock_bh(&ptp->lock, bh);
 	} else {
 		DP_ERR(edev, "PTP adjfreq called while interface is down\n");
 		rc = -EFAULT;
@@ -80,6 +81,7 @@ static int qede_ptp_adjfreq(struct ptp_clock_info *info, s32 ppb)
 
 static int qede_ptp_adjtime(struct ptp_clock_info *info, s64 delta)
 {
+	unsigned int bh;
 	struct qede_dev *edev;
 	struct qede_ptp *ptp;
 
@@ -89,15 +91,16 @@ static int qede_ptp_adjtime(struct ptp_clock_info *info, s64 delta)
 	DP_VERBOSE(edev, QED_MSG_DEBUG, "PTP adjtime called, delta = %llx\n",
 		   delta);
 
-	spin_lock_bh(&ptp->lock);
+	bh = spin_lock_bh(&ptp->lock, SOFTIRQ_ALL_MASK);
 	timecounter_adjtime(&ptp->tc, delta);
-	spin_unlock_bh(&ptp->lock);
+	spin_unlock_bh(&ptp->lock, bh);
 
 	return 0;
 }
 
 static int qede_ptp_gettime(struct ptp_clock_info *info, struct timespec64 *ts)
 {
+	unsigned int bh;
 	struct qede_dev *edev;
 	struct qede_ptp *ptp;
 	u64 ns;
@@ -105,9 +108,9 @@ static int qede_ptp_gettime(struct ptp_clock_info *info, struct timespec64 *ts)
 	ptp = container_of(info, struct qede_ptp, clock_info);
 	edev = ptp->edev;
 
-	spin_lock_bh(&ptp->lock);
+	bh = spin_lock_bh(&ptp->lock, SOFTIRQ_ALL_MASK);
 	ns = timecounter_read(&ptp->tc);
-	spin_unlock_bh(&ptp->lock);
+	spin_unlock_bh(&ptp->lock, bh);
 
 	DP_VERBOSE(edev, QED_MSG_DEBUG, "PTP gettime called, ns = %llu\n", ns);
 
@@ -119,6 +122,7 @@ static int qede_ptp_gettime(struct ptp_clock_info *info, struct timespec64 *ts)
 static int qede_ptp_settime(struct ptp_clock_info *info,
 			    const struct timespec64 *ts)
 {
+	unsigned int bh;
 	struct qede_dev *edev;
 	struct qede_ptp *ptp;
 	u64 ns;
@@ -131,9 +135,9 @@ static int qede_ptp_settime(struct ptp_clock_info *info,
 	DP_VERBOSE(edev, QED_MSG_DEBUG, "PTP settime called, ns = %llu\n", ns);
 
 	/* Re-init the timecounter */
-	spin_lock_bh(&ptp->lock);
+	bh = spin_lock_bh(&ptp->lock, SOFTIRQ_ALL_MASK);
 	timecounter_init(&ptp->tc, &ptp->cc, ns);
-	spin_unlock_bh(&ptp->lock);
+	spin_unlock_bh(&ptp->lock, bh);
 
 	return 0;
 }
@@ -156,6 +160,7 @@ static int qede_ptp_ancillary_feature_enable(struct ptp_clock_info *info,
 
 static void qede_ptp_task(struct work_struct *work)
 {
+	unsigned int bh;
 	struct skb_shared_hwtstamps shhwtstamps;
 	struct qede_dev *edev;
 	struct qede_ptp *ptp;
@@ -166,9 +171,9 @@ static void qede_ptp_task(struct work_struct *work)
 	edev = ptp->edev;
 
 	/* Read Tx timestamp registers */
-	spin_lock_bh(&ptp->lock);
+	bh = spin_lock_bh(&ptp->lock, SOFTIRQ_ALL_MASK);
 	rc = ptp->ops->read_tx_ts(edev->cdev, &timestamp);
-	spin_unlock_bh(&ptp->lock);
+	spin_unlock_bh(&ptp->lock, bh);
 	if (rc) {
 		/* Reschedule to keep checking for a valid timestamp value */
 		schedule_work(&ptp->work);
@@ -209,6 +214,7 @@ static u64 qede_ptp_read_cc(const struct cyclecounter *cc)
 
 static int qede_ptp_cfg_filters(struct qede_dev *edev)
 {
+	unsigned int bh;
 	enum qed_ptp_hwtstamp_tx_type tx_type = QED_PTP_HWTSTAMP_TX_ON;
 	enum qed_ptp_filter_type rx_filter = QED_PTP_FILTER_NONE;
 	struct qede_ptp *ptp = edev->ptp;
@@ -237,7 +243,7 @@ static int qede_ptp_cfg_filters(struct qede_dev *edev)
 		return -ERANGE;
 	}
 
-	spin_lock_bh(&ptp->lock);
+	bh = spin_lock_bh(&ptp->lock, SOFTIRQ_ALL_MASK);
 	switch (ptp->rx_filter) {
 	case HWTSTAMP_FILTER_NONE:
 		rx_filter = QED_PTP_FILTER_NONE;
@@ -292,7 +298,7 @@ static int qede_ptp_cfg_filters(struct qede_dev *edev)
 
 	ptp->ops->cfg_filters(edev->cdev, rx_filter, tx_type);
 
-	spin_unlock_bh(&ptp->lock);
+	spin_unlock_bh(&ptp->lock, bh);
 
 	return 0;
 }
@@ -379,6 +385,7 @@ int qede_ptp_get_ts_info(struct qede_dev *edev, struct ethtool_ts_info *info)
 
 void qede_ptp_disable(struct qede_dev *edev)
 {
+	unsigned int bh;
 	struct qede_ptp *ptp;
 
 	ptp = edev->ptp;
@@ -400,9 +407,9 @@ void qede_ptp_disable(struct qede_dev *edev)
 	}
 
 	/* Disable PTP in HW */
-	spin_lock_bh(&ptp->lock);
+	bh = spin_lock_bh(&ptp->lock, SOFTIRQ_ALL_MASK);
 	ptp->ops->disable(edev->cdev);
-	spin_unlock_bh(&ptp->lock);
+	spin_unlock_bh(&ptp->lock, bh);
 
 	kfree(ptp);
 	edev->ptp = NULL;
@@ -534,6 +541,7 @@ void qede_ptp_tx_ts(struct qede_dev *edev, struct sk_buff *skb)
 
 void qede_ptp_rx_ts(struct qede_dev *edev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct qede_ptp *ptp;
 	u64 timestamp, ns;
 	int rc;
@@ -542,16 +550,16 @@ void qede_ptp_rx_ts(struct qede_dev *edev, struct sk_buff *skb)
 	if (!ptp)
 		return;
 
-	spin_lock_bh(&ptp->lock);
+	bh = spin_lock_bh(&ptp->lock, SOFTIRQ_ALL_MASK);
 	rc = ptp->ops->read_rx_ts(edev->cdev, &timestamp);
 	if (rc) {
-		spin_unlock_bh(&ptp->lock);
+		spin_unlock_bh(&ptp->lock, bh);
 		DP_INFO(edev, "Invalid Rx timestamp\n");
 		return;
 	}
 
 	ns = timecounter_cyc2time(&ptp->tc, timestamp);
-	spin_unlock_bh(&ptp->lock);
+	spin_unlock_bh(&ptp->lock, bh);
 	skb_hwtstamps(skb)->hwtstamp = ns_to_ktime(ns);
 	DP_VERBOSE(edev, QED_MSG_DEBUG,
 		   "Rx timestamp, timestamp cycles = %llu, ns = %llu\n",

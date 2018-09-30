@@ -2770,11 +2770,12 @@ static void reg_process_pending_hints(void)
 /* Processes beacon hints -- this has nothing to do with country IEs */
 static void reg_process_pending_beacon_hints(void)
 {
+	unsigned int bh;
 	struct cfg80211_registered_device *rdev;
 	struct reg_beacon *pending_beacon, *tmp;
 
 	/* This goes through the _pending_ beacon list */
-	spin_lock_bh(&reg_pending_beacons_lock);
+	bh = spin_lock_bh(&reg_pending_beacons_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe(pending_beacon, tmp,
 				 &reg_pending_beacons, list) {
@@ -2788,7 +2789,7 @@ static void reg_process_pending_beacon_hints(void)
 		list_add_tail(&pending_beacon->list, &reg_beacon_list);
 	}
 
-	spin_unlock_bh(&reg_pending_beacons_lock);
+	spin_unlock_bh(&reg_pending_beacons_lock, bh);
 }
 
 static void reg_process_self_managed_hints(void)
@@ -3108,6 +3109,7 @@ static void restore_custom_reg_settings(struct wiphy *wiphy)
  */
 static void restore_regulatory_settings(bool reset_user)
 {
+	unsigned int bh;
 	char alpha2[2];
 	char world_alpha2[2];
 	struct reg_beacon *reg_beacon, *btmp;
@@ -3142,12 +3144,12 @@ static void restore_regulatory_settings(bool reset_user)
 	spin_unlock(&reg_requests_lock);
 
 	/* Clear beacon hints */
-	spin_lock_bh(&reg_pending_beacons_lock);
+	bh = spin_lock_bh(&reg_pending_beacons_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(reg_beacon, btmp, &reg_pending_beacons, list) {
 		list_del(&reg_beacon->list);
 		kfree(reg_beacon);
 	}
-	spin_unlock_bh(&reg_pending_beacons_lock);
+	spin_unlock_bh(&reg_pending_beacons_lock, bh);
 
 	list_for_each_entry_safe(reg_beacon, btmp, &reg_beacon_list, list) {
 		list_del(&reg_beacon->list);
@@ -3214,6 +3216,7 @@ int regulatory_hint_found_beacon(struct wiphy *wiphy,
 				 struct ieee80211_channel *beacon_chan,
 				 gfp_t gfp)
 {
+	unsigned int bh;
 	struct reg_beacon *reg_beacon;
 	bool processing;
 
@@ -3223,9 +3226,9 @@ int regulatory_hint_found_beacon(struct wiphy *wiphy,
 	     !freq_is_chan_12_13_14(beacon_chan->center_freq)))
 		return 0;
 
-	spin_lock_bh(&reg_pending_beacons_lock);
+	bh = spin_lock_bh(&reg_pending_beacons_lock, SOFTIRQ_ALL_MASK);
 	processing = pending_reg_beacon(beacon_chan);
-	spin_unlock_bh(&reg_pending_beacons_lock);
+	spin_unlock_bh(&reg_pending_beacons_lock, bh);
 
 	if (processing)
 		return 0;
@@ -3244,9 +3247,9 @@ int regulatory_hint_found_beacon(struct wiphy *wiphy,
 
 	/*
 	 * Since we can be called from BH or and non-BH context
-	 * we must use spin_lock_bh()
+	 * we must use spin_lock_bh(, SOFTIRQ_ALL_MASK)
 	 */
-	spin_lock_bh(&reg_pending_beacons_lock);
+	spin_lock_bh(&reg_pending_beacons_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&reg_beacon->list, &reg_pending_beacons);
 	spin_unlock_bh(&reg_pending_beacons_lock);
 

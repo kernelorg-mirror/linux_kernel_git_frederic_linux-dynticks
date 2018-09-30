@@ -150,6 +150,7 @@ static void mcryptd_opportunistic_flush(void)
  */
 static void mcryptd_queue_worker(struct work_struct *work)
 {
+	unsigned int bh;
 	struct mcryptd_cpu_queue *cpu_queue;
 	struct crypto_async_request *req, *backlog;
 	int i;
@@ -163,10 +164,10 @@ static void mcryptd_queue_worker(struct work_struct *work)
 	i = 0;
 	while (i < MCRYPTD_BATCH || single_task_running()) {
 
-		spin_lock_bh(&cpu_queue->q_lock);
+		bh = spin_lock_bh(&cpu_queue->q_lock, SOFTIRQ_ALL_MASK);
 		backlog = crypto_get_backlog(&cpu_queue->queue);
 		req = crypto_dequeue_request(&cpu_queue->queue);
-		spin_unlock_bh(&cpu_queue->q_lock);
+		spin_unlock_bh(&cpu_queue->q_lock, bh);
 
 		if (!req) {
 			mcryptd_opportunistic_flush();

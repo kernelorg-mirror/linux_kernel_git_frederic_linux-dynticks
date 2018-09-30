@@ -67,6 +67,7 @@ static int port_cost(struct net_device *dev)
 /* Check for port carrier transitions. */
 void br_port_carrier_check(struct net_bridge_port *p, bool *notified)
 {
+	unsigned int bh;
 	struct net_device *dev = p->dev;
 	struct net_bridge *br = p->br;
 
@@ -78,7 +79,7 @@ void br_port_carrier_check(struct net_bridge_port *p, bool *notified)
 	if (!netif_running(br->dev))
 		return;
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	if (netif_running(dev) && netif_oper_up(dev)) {
 		if (p->state == BR_STATE_DISABLED) {
 			br_stp_enable_port(p);
@@ -90,7 +91,7 @@ void br_port_carrier_check(struct net_bridge_port *p, bool *notified)
 			*notified = true;
 		}
 	}
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 }
 
 static void br_port_set_promisc(struct net_bridge_port *p)
@@ -326,6 +327,7 @@ static void update_headroom(struct net_bridge *br, int new_hr)
  */
 static void del_nbp(struct net_bridge_port *p)
 {
+	unsigned int bh;
 	struct net_bridge *br = p->br;
 	struct net_device *dev = p->dev;
 
@@ -333,9 +335,9 @@ static void del_nbp(struct net_bridge_port *p)
 
 	nbp_delete_promisc(p);
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	br_stp_disable_port(p);
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 
 	br_ifinfo_notify(RTM_DELLINK, NULL, p);
 
@@ -561,6 +563,7 @@ netdev_features_t br_features_recompute(struct net_bridge *br,
 int br_add_if(struct net_bridge *br, struct net_device *dev,
 	      struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct net_bridge_port *p;
 	int err = 0;
 	unsigned br_hr, dev_hr;
@@ -657,13 +660,13 @@ int br_add_if(struct net_bridge *br, struct net_device *dev,
 		goto err7;
 	}
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	changed_addr = br_stp_recalculate_bridge_id(br);
 
 	if (netif_running(dev) && netif_oper_up(dev) &&
 	    (br->dev->flags & IFF_UP))
 		br_stp_enable_port(p);
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 
 	br_ifinfo_notify(RTM_NEWLINK, NULL, p);
 
@@ -704,6 +707,7 @@ put_back:
 /* called with RTNL */
 int br_del_if(struct net_bridge *br, struct net_device *dev)
 {
+	unsigned int bh;
 	struct net_bridge_port *p;
 	bool changed_addr;
 
@@ -720,9 +724,9 @@ int br_del_if(struct net_bridge *br, struct net_device *dev)
 	br_mtu_auto_adjust(br);
 	br_set_gso_limits(br);
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	changed_addr = br_stp_recalculate_bridge_id(br);
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 
 	if (changed_addr)
 		call_netdevice_notifiers(NETDEV_CHANGEADDR, br->dev);

@@ -161,10 +161,11 @@ static enum roce_flavor qed_roce_mode_to_flavor(enum roce_mode roce_mode)
 
 static void qed_roce_free_cid_pair(struct qed_hwfn *p_hwfn, u16 cid)
 {
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	qed_bmap_release_id(p_hwfn, &p_hwfn->p_rdma_info->cid_map, cid);
 	qed_bmap_release_id(p_hwfn, &p_hwfn->p_rdma_info->cid_map, cid + 1);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 }
 
 int qed_roce_alloc_cid(struct qed_hwfn *p_hwfn, u16 *cid)
@@ -174,7 +175,7 @@ int qed_roce_alloc_cid(struct qed_hwfn *p_hwfn, u16 *cid)
 	u32 requester_icid;
 	int rc;
 
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	rc = qed_rdma_bmap_alloc_id(p_hwfn, &p_rdma_info->cid_map,
 				    &responder_icid);
 	if (rc) {
@@ -216,7 +217,7 @@ int qed_roce_alloc_cid(struct qed_hwfn *p_hwfn, u16 *cid)
 	return rc;
 
 err:
-	spin_lock_bh(&p_rdma_info->lock);
+	spin_lock_bh(&p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	qed_bmap_release_id(p_hwfn, &p_rdma_info->cid_map, responder_icid);
 	qed_bmap_release_id(p_hwfn, &p_rdma_info->cid_map, requester_icid);
 
@@ -228,9 +229,10 @@ err:
 
 static void qed_roce_set_real_cid(struct qed_hwfn *p_hwfn, u32 cid)
 {
-	spin_lock_bh(&p_hwfn->p_rdma_info->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&p_hwfn->p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 	qed_bmap_set_id(p_hwfn, &p_hwfn->p_rdma_info->real_cid_map, cid);
-	spin_unlock_bh(&p_hwfn->p_rdma_info->lock);
+	spin_unlock_bh(&p_hwfn->p_rdma_info->lock, bh);
 }
 
 static u8 qed_roce_get_qp_tc(struct qed_hwfn *p_hwfn, struct qed_rdma_qp *qp)
@@ -1124,7 +1126,7 @@ static void qed_roce_free_real_icid(struct qed_hwfn *p_hwfn, u16 icid)
 	cid = icid - start_cid;
 	xcid = cid ^ 1;
 
-	spin_lock_bh(&p_rdma_info->lock);
+	spin_lock_bh(&p_rdma_info->lock, SOFTIRQ_ALL_MASK);
 
 	qed_bmap_release_id(p_hwfn, &p_rdma_info->real_cid_map, cid);
 	if (qed_bmap_test_id(p_hwfn, &p_rdma_info->real_cid_map, xcid) == 0) {

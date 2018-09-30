@@ -516,7 +516,7 @@ static bool is_valid_lport(struct bnx2fc_hba *hba, struct fc_lport *lport)
 {
 	struct bnx2fc_lport *blport;
 
-	spin_lock_bh(&hba->hba_lock);
+	spin_lock_bh(&hba->hba_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(blport, &hba->vports, list) {
 		if (blport->lport == lport) {
 			spin_unlock_bh(&hba->hba_lock);
@@ -650,7 +650,7 @@ static void bnx2fc_process_unsol_compl(struct bnx2fc_rport *tgt, u16 wqe)
 
 		num_rq = (frame_len + BNX2FC_RQ_BUF_SZ - 1) / BNX2FC_RQ_BUF_SZ;
 
-		spin_lock_bh(&tgt->tgt_lock);
+		spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		rq_data = (unsigned char *)bnx2fc_get_next_rqe(tgt, num_rq);
 		spin_unlock_bh(&tgt->tgt_lock);
 
@@ -666,7 +666,7 @@ static void bnx2fc_process_unsol_compl(struct bnx2fc_rport *tgt, u16 wqe)
 			}
 
 			for (i = 0; i < num_rq; i++) {
-				spin_lock_bh(&tgt->tgt_lock);
+				spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 				rq_data = (unsigned char *)
 					   bnx2fc_get_next_rqe(tgt, 1);
 				spin_unlock_bh(&tgt->tgt_lock);
@@ -680,7 +680,7 @@ static void bnx2fc_process_unsol_compl(struct bnx2fc_rport *tgt, u16 wqe)
 
 		if (buf != rq_data)
 			kfree(buf);
-		spin_lock_bh(&tgt->tgt_lock);
+		spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		bnx2fc_return_rqe(tgt, num_rq);
 		spin_unlock_bh(&tgt->tgt_lock);
 		break;
@@ -690,7 +690,7 @@ static void bnx2fc_process_unsol_compl(struct bnx2fc_rport *tgt, u16 wqe)
 		 * In case of error reporting CQE a single RQ entry
 		 * is consumed.
 		 */
-		spin_lock_bh(&tgt->tgt_lock);
+		spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		num_rq = 1;
 		err_entry = (struct fcoe_err_report_entry *)
 			     bnx2fc_get_next_rqe(tgt, 1);
@@ -771,7 +771,7 @@ static void bnx2fc_process_unsol_compl(struct bnx2fc_rport *tgt, u16 wqe)
 				      &io_req->req_flags)) {
 				spin_unlock_bh(&tgt->tgt_lock);
 				rc = bnx2fc_send_rec(io_req);
-				spin_lock_bh(&tgt->tgt_lock);
+				spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 
 				if (rc)
 					goto skip_rec;
@@ -809,7 +809,7 @@ ret_err_rqe:
 		 *In case of warning reporting CQE a single RQ entry
 		 * is consumes.
 		 */
-		spin_lock_bh(&tgt->tgt_lock);
+		spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		num_rq = 1;
 		err_entry = (struct fcoe_err_report_entry *)
 			     bnx2fc_get_next_rqe(tgt, 1);
@@ -884,7 +884,7 @@ void bnx2fc_process_cq_compl(struct bnx2fc_rport *tgt, u16 wqe)
 	u8 rx_state = 0;
 	u8 num_rq;
 
-	spin_lock_bh(&tgt->tgt_lock);
+	spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 	xid = wqe & FCOE_PEND_WQ_CQE_TASK_ID;
 	if (xid >= hba->max_tasks) {
 		printk(KERN_ERR PFX "ERROR:xid out of range\n");
@@ -1016,7 +1016,7 @@ static void bnx2fc_pending_work(struct bnx2fc_rport *tgt, unsigned int wqe)
 	struct bnx2fc_work *work;
 
 	fps = &per_cpu(bnx2fc_percpu, cpu);
-	spin_lock_bh(&fps->fp_work_lock);
+	spin_lock_bh(&fps->fp_work_lock, SOFTIRQ_ALL_MASK);
 	if (fps->iothread) {
 		work = bnx2fc_alloc_work(tgt, wqe);
 		if (work) {
@@ -1044,7 +1044,7 @@ int bnx2fc_process_new_cqes(struct bnx2fc_rport *tgt)
 	 * the CQ data structure from being freed up during
 	 * the upload operation
 	 */
-	spin_lock_bh(&tgt->cq_lock);
+	spin_lock_bh(&tgt->cq_lock, SOFTIRQ_ALL_MASK);
 
 	if (!tgt->cq) {
 		printk(KERN_ERR PFX "process_new_cqes: cq is NULL\n");

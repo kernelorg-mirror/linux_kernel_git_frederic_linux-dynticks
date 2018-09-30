@@ -2134,6 +2134,7 @@ static void iwl_trans_pcie_freeze_txq_timer(struct iwl_trans *trans,
 					    unsigned long txqs,
 					    bool freeze)
 {
+	unsigned int bh;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	int queue;
 
@@ -2141,7 +2142,7 @@ static void iwl_trans_pcie_freeze_txq_timer(struct iwl_trans *trans,
 		struct iwl_txq *txq = trans_pcie->txq[queue];
 		unsigned long now;
 
-		spin_lock_bh(&txq->lock);
+		bh = spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 
 		now = jiffies;
 
@@ -2180,12 +2181,13 @@ static void iwl_trans_pcie_freeze_txq_timer(struct iwl_trans *trans,
 			  now + txq->frozen_expiry_remainder);
 
 next_queue:
-		spin_unlock_bh(&txq->lock);
+		spin_unlock_bh(&txq->lock, bh);
 	}
 }
 
 static void iwl_trans_pcie_block_txq_ptrs(struct iwl_trans *trans, bool block)
 {
+	unsigned int bh;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	int i;
 
@@ -2195,7 +2197,7 @@ static void iwl_trans_pcie_block_txq_ptrs(struct iwl_trans *trans, bool block)
 		if (i == trans_pcie->cmd_queue)
 			continue;
 
-		spin_lock_bh(&txq->lock);
+		bh = spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 
 		if (!block && !(WARN_ON_ONCE(!txq->block))) {
 			txq->block--;
@@ -2207,7 +2209,7 @@ static void iwl_trans_pcie_block_txq_ptrs(struct iwl_trans *trans, bool block)
 			txq->block++;
 		}
 
-		spin_unlock_bh(&txq->lock);
+		spin_unlock_bh(&txq->lock, bh);
 	}
 }
 
@@ -2947,6 +2949,7 @@ static struct iwl_trans_dump_data
 *iwl_trans_pcie_dump_data(struct iwl_trans *trans,
 			  const struct iwl_fw_dbg_trigger_tlv *trigger)
 {
+	unsigned int bh;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	struct iwl_fw_error_dump_data *data;
 	struct iwl_txq *cmdq = trans_pcie->txq[trans_pcie->cmd_queue];
@@ -3073,7 +3076,7 @@ static struct iwl_trans_dump_data
 
 		data->type = cpu_to_le32(IWL_FW_ERROR_DUMP_TXCMD);
 		txcmd = (void *)data->data;
-		spin_lock_bh(&cmdq->lock);
+		bh = spin_lock_bh(&cmdq->lock, SOFTIRQ_ALL_MASK);
 		ptr = cmdq->write_ptr;
 		for (i = 0; i < cmdq->n_window; i++) {
 			u8 idx = iwl_pcie_get_cmd_index(cmdq, ptr);
@@ -3095,7 +3098,7 @@ static struct iwl_trans_dump_data
 
 			ptr = iwl_queue_dec_wrap(trans, ptr);
 		}
-		spin_unlock_bh(&cmdq->lock);
+		spin_unlock_bh(&cmdq->lock, bh);
 
 		data->len = cpu_to_le32(len);
 		len += sizeof(*data);

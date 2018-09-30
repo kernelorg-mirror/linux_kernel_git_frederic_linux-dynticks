@@ -170,17 +170,18 @@ static void chtls_unregister_dev(struct chtls_dev *cdev)
 
 static void process_deferq(struct work_struct *task_param)
 {
+	unsigned int bh;
 	struct chtls_dev *cdev = container_of(task_param,
 				struct chtls_dev, deferq_task);
 	struct sk_buff *skb;
 
-	spin_lock_bh(&cdev->deferq.lock);
+	bh = spin_lock_bh(&cdev->deferq.lock, SOFTIRQ_ALL_MASK);
 	while ((skb = __skb_dequeue(&cdev->deferq)) != NULL) {
-		spin_unlock_bh(&cdev->deferq.lock);
+		spin_unlock_bh(&cdev->deferq.lock, bh);
 		DEFERRED_SKB_CB(skb)->handler(cdev, skb);
-		spin_lock_bh(&cdev->deferq.lock);
+		bh = spin_lock_bh(&cdev->deferq.lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&cdev->deferq.lock);
+	spin_unlock_bh(&cdev->deferq.lock, bh);
 }
 
 static int chtls_get_skb(struct chtls_dev *cdev)

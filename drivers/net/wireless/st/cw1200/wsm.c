@@ -1663,6 +1663,7 @@ found:
 int wsm_get_tx(struct cw1200_common *priv, u8 **data,
 	       size_t *tx_len, int *burst)
 {
+	unsigned int bh;
 	struct wsm_tx *wsm = NULL;
 	struct ieee80211_tx_info *tx_info;
 	struct cw1200_queue *queue = NULL;
@@ -1689,7 +1690,7 @@ int wsm_get_tx(struct cw1200_common *priv, u8 **data,
 			if (atomic_add_return(0, &priv->tx_lock))
 				break;
 
-			spin_lock_bh(&priv->ps_state_lock);
+			bh = spin_lock_bh(&priv->ps_state_lock, SOFTIRQ_ALL_MASK);
 
 			ret = wsm_get_tx_queue_and_mask(priv, &queue,
 							&tx_allowed_mask, &more);
@@ -1706,7 +1707,7 @@ int wsm_get_tx(struct cw1200_common *priv, u8 **data,
 				}
 			}
 
-			spin_unlock_bh(&priv->ps_state_lock);
+			spin_unlock_bh(&priv->ps_state_lock, bh);
 
 			if (ret)
 				break;

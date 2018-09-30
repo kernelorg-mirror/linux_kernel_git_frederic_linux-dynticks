@@ -262,6 +262,7 @@ static u32 i40e_ptp_get_rx_events(struct i40e_pf *pf)
  **/
 void i40e_ptp_rx_hang(struct i40e_pf *pf)
 {
+	unsigned int bh;
 	struct i40e_hw *hw = &pf->hw;
 	unsigned int i, cleared = 0;
 
@@ -273,7 +274,7 @@ void i40e_ptp_rx_hang(struct i40e_pf *pf)
 	if (!(pf->flags & I40E_FLAG_PTP) || !pf->ptp_rx)
 		return;
 
-	spin_lock_bh(&pf->ptp_rx_lock);
+	bh = spin_lock_bh(&pf->ptp_rx_lock, SOFTIRQ_ALL_MASK);
 
 	/* Update current latch times for Rx events */
 	i40e_ptp_get_rx_events(pf);
@@ -293,7 +294,7 @@ void i40e_ptp_rx_hang(struct i40e_pf *pf)
 		}
 	}
 
-	spin_unlock_bh(&pf->ptp_rx_lock);
+	spin_unlock_bh(&pf->ptp_rx_lock, bh);
 
 	/* Log a warning if more than 2 timestamps got dropped in the same
 	 * check. We don't want to warn about all drops because it can occur
@@ -401,6 +402,7 @@ void i40e_ptp_tx_hwtstamp(struct i40e_pf *pf)
  **/
 void i40e_ptp_rx_hwtstamp(struct i40e_pf *pf, struct sk_buff *skb, u8 index)
 {
+	unsigned int bh;
 	u32 prttsyn_stat, hi, lo;
 	struct i40e_hw *hw;
 	u64 ns;
@@ -413,14 +415,14 @@ void i40e_ptp_rx_hwtstamp(struct i40e_pf *pf, struct sk_buff *skb, u8 index)
 
 	hw = &pf->hw;
 
-	spin_lock_bh(&pf->ptp_rx_lock);
+	bh = spin_lock_bh(&pf->ptp_rx_lock, SOFTIRQ_ALL_MASK);
 
 	/* Get current Rx events and update latch times */
 	prttsyn_stat = i40e_ptp_get_rx_events(pf);
 
 	/* TODO: Should we warn about missing Rx timestamp event? */
 	if (!(prttsyn_stat & BIT(index))) {
-		spin_unlock_bh(&pf->ptp_rx_lock);
+		spin_unlock_bh(&pf->ptp_rx_lock, bh);
 		return;
 	}
 
@@ -430,7 +432,7 @@ void i40e_ptp_rx_hwtstamp(struct i40e_pf *pf, struct sk_buff *skb, u8 index)
 	lo = rd32(hw, I40E_PRTTSYN_RXTIME_L(index));
 	hi = rd32(hw, I40E_PRTTSYN_RXTIME_H(index));
 
-	spin_unlock_bh(&pf->ptp_rx_lock);
+	spin_unlock_bh(&pf->ptp_rx_lock, bh);
 
 	ns = (((u64)hi) << 32) | lo;
 
@@ -533,6 +535,7 @@ int i40e_ptp_get_ts_config(struct i40e_pf *pf, struct ifreq *ifr)
 static int i40e_ptp_set_timestamp_mode(struct i40e_pf *pf,
 				       struct hwtstamp_config *config)
 {
+	unsigned int bh;
 	struct i40e_hw *hw = &pf->hw;
 	u32 tsyntype, regval;
 
@@ -601,7 +604,7 @@ static int i40e_ptp_set_timestamp_mode(struct i40e_pf *pf,
 	}
 
 	/* Clear out all 1588-related registers to clear and unlatch them. */
-	spin_lock_bh(&pf->ptp_rx_lock);
+	bh = spin_lock_bh(&pf->ptp_rx_lock, SOFTIRQ_ALL_MASK);
 	rd32(hw, I40E_PRTTSYN_STAT_0);
 	rd32(hw, I40E_PRTTSYN_TXTIME_H);
 	rd32(hw, I40E_PRTTSYN_RXTIME_H(0));
@@ -609,7 +612,7 @@ static int i40e_ptp_set_timestamp_mode(struct i40e_pf *pf,
 	rd32(hw, I40E_PRTTSYN_RXTIME_H(2));
 	rd32(hw, I40E_PRTTSYN_RXTIME_H(3));
 	pf->latch_event_flags = 0;
-	spin_unlock_bh(&pf->ptp_rx_lock);
+	spin_unlock_bh(&pf->ptp_rx_lock, bh);
 
 	/* Enable/disable the Tx timestamp interrupt based on user input. */
 	regval = rd32(hw, I40E_PRTTSYN_CTL0);

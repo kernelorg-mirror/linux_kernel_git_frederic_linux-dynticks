@@ -474,9 +474,10 @@ static void
 sctp_state_transition(struct ip_vs_conn *cp, int direction,
 		const struct sk_buff *skb, struct ip_vs_proto_data *pd)
 {
-	spin_lock_bh(&cp->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&cp->lock, SOFTIRQ_ALL_MASK);
 	set_sctp_state(pd, cp, direction, skb);
-	spin_unlock_bh(&cp->lock);
+	spin_unlock_bh(&cp->lock, bh);
 }
 
 static inline __u16 sctp_app_hashkey(__be16 port)

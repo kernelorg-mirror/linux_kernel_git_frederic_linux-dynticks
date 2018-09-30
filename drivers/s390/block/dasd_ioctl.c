@@ -348,6 +348,7 @@ static int dasd_ioctl_reset_profile(struct dasd_block *block)
  */
 static int dasd_ioctl_read_profile(struct dasd_block *block, void __user *argp)
 {
+	unsigned int bh;
 	struct dasd_profile_info_t *data;
 	int rc = 0;
 
@@ -355,7 +356,7 @@ static int dasd_ioctl_read_profile(struct dasd_block *block, void __user *argp)
 	if (!data)
 		return -ENOMEM;
 
-	spin_lock_bh(&block->profile.lock);
+	bh = spin_lock_bh(&block->profile.lock, SOFTIRQ_ALL_MASK);
 	if (block->profile.data) {
 		data->dasd_io_reqs = block->profile.data->dasd_io_reqs;
 		data->dasd_io_sects = block->profile.data->dasd_io_sects;
@@ -377,9 +378,9 @@ static int dasd_ioctl_read_profile(struct dasd_block *block, void __user *argp)
 		memcpy(data->dasd_io_nr_req,
 		       block->profile.data->dasd_io_nr_req,
 		       sizeof(data->dasd_io_nr_req));
-		spin_unlock_bh(&block->profile.lock);
+		spin_unlock_bh(&block->profile.lock, bh);
 	} else {
-		spin_unlock_bh(&block->profile.lock);
+		spin_unlock_bh(&block->profile.lock, bh);
 		rc = -EIO;
 		goto out;
 	}

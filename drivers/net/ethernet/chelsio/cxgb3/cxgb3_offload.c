@@ -500,15 +500,16 @@ void cxgb3_set_dummy_ops(struct t3cdev *dev)
  */
 void *cxgb3_free_atid(struct t3cdev *tdev, int atid)
 {
+	unsigned int bh;
 	struct tid_info *t = &(T3C_DATA(tdev))->tid_maps;
 	union active_open_entry *p = atid2entry(t, atid);
 	void *ctx = p->t3c_tid.ctx;
 
-	spin_lock_bh(&t->atid_lock);
+	bh = spin_lock_bh(&t->atid_lock, SOFTIRQ_ALL_MASK);
 	p->next = t->afree;
 	t->afree = p;
 	t->atids_in_use--;
-	spin_unlock_bh(&t->atid_lock);
+	spin_unlock_bh(&t->atid_lock, bh);
 
 	return ctx;
 }
@@ -520,14 +521,15 @@ EXPORT_SYMBOL(cxgb3_free_atid);
  */
 void cxgb3_free_stid(struct t3cdev *tdev, int stid)
 {
+	unsigned int bh;
 	struct tid_info *t = &(T3C_DATA(tdev))->tid_maps;
 	union listen_entry *p = stid2entry(t, stid);
 
-	spin_lock_bh(&t->stid_lock);
+	bh = spin_lock_bh(&t->stid_lock, SOFTIRQ_ALL_MASK);
 	p->next = t->sfree;
 	t->sfree = p;
 	t->stids_in_use--;
-	spin_unlock_bh(&t->stid_lock);
+	spin_unlock_bh(&t->stid_lock, bh);
 }
 
 EXPORT_SYMBOL(cxgb3_free_stid);
@@ -559,13 +561,14 @@ static inline void mk_tid_release(struct sk_buff *skb, unsigned int tid)
 
 static void t3_process_tid_release_list(struct work_struct *work)
 {
+	unsigned int bh;
 	struct t3c_data *td = container_of(work, struct t3c_data,
 					   tid_release_task);
 	struct sk_buff *skb;
 	struct t3cdev *tdev = td->dev;
 
 
-	spin_lock_bh(&td->tid_release_lock);
+	bh = spin_lock_bh(&td->tid_release_lock, SOFTIRQ_ALL_MASK);
 	while (td->tid_release_list) {
 		struct t3c_tid_entry *p = td->tid_release_list;
 
@@ -577,7 +580,7 @@ static void t3_process_tid_release_list(struct work_struct *work)
 		if (!skb)
 			skb = td->nofail_skb;
 		if (!skb) {
-			spin_lock_bh(&td->tid_release_lock);
+			spin_lock_bh(&td->tid_release_lock, SOFTIRQ_ALL_MASK);
 			p->ctx = (void *)td->tid_release_list;
 			td->tid_release_list = p;
 			break;
@@ -589,10 +592,10 @@ static void t3_process_tid_release_list(struct work_struct *work)
 			td->nofail_skb =
 				alloc_skb(sizeof(struct cpl_tid_release),
 					GFP_KERNEL);
-		spin_lock_bh(&td->tid_release_lock);
+		spin_lock_bh(&td->tid_release_lock, SOFTIRQ_ALL_MASK);
 	}
 	td->release_list_incomplete = (td->tid_release_list == NULL) ? 0 : 1;
-	spin_unlock_bh(&td->tid_release_lock);
+	spin_unlock_bh(&td->tid_release_lock, bh);
 
 	if (!td->nofail_skb)
 		td->nofail_skb =
@@ -603,16 +606,17 @@ static void t3_process_tid_release_list(struct work_struct *work)
 /* use ctx as a next pointer in the tid release list */
 void cxgb3_queue_tid_release(struct t3cdev *tdev, unsigned int tid)
 {
+	unsigned int bh;
 	struct t3c_data *td = T3C_DATA(tdev);
 	struct t3c_tid_entry *p = &td->tid_maps.tid_tab[tid];
 
-	spin_lock_bh(&td->tid_release_lock);
+	bh = spin_lock_bh(&td->tid_release_lock, SOFTIRQ_ALL_MASK);
 	p->ctx = (void *)td->tid_release_list;
 	p->client = NULL;
 	td->tid_release_list = p;
 	if (!p->ctx || td->release_list_incomplete)
 		schedule_work(&td->tid_release_task);
-	spin_unlock_bh(&td->tid_release_lock);
+	spin_unlock_bh(&td->tid_release_lock, bh);
 }
 
 EXPORT_SYMBOL(cxgb3_queue_tid_release);
@@ -650,10 +654,11 @@ EXPORT_SYMBOL(cxgb3_remove_tid);
 int cxgb3_alloc_atid(struct t3cdev *tdev, struct cxgb3_client *client,
 		     void *ctx)
 {
+	unsigned int bh;
 	int atid = -1;
 	struct tid_info *t = &(T3C_DATA(tdev))->tid_maps;
 
-	spin_lock_bh(&t->atid_lock);
+	bh = spin_lock_bh(&t->atid_lock, SOFTIRQ_ALL_MASK);
 	if (t->afree &&
 	    t->atids_in_use + atomic_read(&t->tids_in_use) + MC5_MIN_TIDS <=
 	    t->ntids) {
@@ -665,7 +670,7 @@ int cxgb3_alloc_atid(struct t3cdev *tdev, struct cxgb3_client *client,
 		p->t3c_tid.client = client;
 		t->atids_in_use++;
 	}
-	spin_unlock_bh(&t->atid_lock);
+	spin_unlock_bh(&t->atid_lock, bh);
 	return atid;
 }
 
@@ -674,10 +679,11 @@ EXPORT_SYMBOL(cxgb3_alloc_atid);
 int cxgb3_alloc_stid(struct t3cdev *tdev, struct cxgb3_client *client,
 		     void *ctx)
 {
+	unsigned int bh;
 	int stid = -1;
 	struct tid_info *t = &(T3C_DATA(tdev))->tid_maps;
 
-	spin_lock_bh(&t->stid_lock);
+	bh = spin_lock_bh(&t->stid_lock, SOFTIRQ_ALL_MASK);
 	if (t->sfree) {
 		union listen_entry *p = t->sfree;
 
@@ -687,7 +693,7 @@ int cxgb3_alloc_stid(struct t3cdev *tdev, struct cxgb3_client *client,
 		p->t3c_tid.client = client;
 		t->stids_in_use++;
 	}
-	spin_unlock_bh(&t->stid_lock);
+	spin_unlock_bh(&t->stid_lock, bh);
 	return stid;
 }
 

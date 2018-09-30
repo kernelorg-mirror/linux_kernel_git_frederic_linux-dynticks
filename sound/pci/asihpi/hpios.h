@@ -114,7 +114,7 @@ static inline void cond_lock(struct hpios_spinlock *l)
 		spin_lock(&((l)->lock));
 		l->lock_context = IN_LOCK_IRQ;
 	} else {
-		spin_lock_bh(&((l)->lock));
+		spin_lock_bh(&((l)->lock), SOFTIRQ_ALL_MASK);
 		l->lock_context = IN_LOCK_BH;
 	}
 }

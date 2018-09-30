@@ -37,6 +37,7 @@
 struct sst_block *sst_create_block(struct intel_sst_drv *ctx,
 					u32 msg_id, u32 drv_id)
 {
+	unsigned int bh;
 	struct sst_block *msg = NULL;
 
 	dev_dbg(ctx->dev, "Enter\n");
@@ -47,9 +48,9 @@ struct sst_block *sst_create_block(struct intel_sst_drv *ctx,
 	msg->on = true;
 	msg->msg_id = msg_id;
 	msg->drv_id = drv_id;
-	spin_lock_bh(&ctx->block_lock);
+	bh = spin_lock_bh(&ctx->block_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&msg->node, &ctx->block_list);
-	spin_unlock_bh(&ctx->block_lock);
+	spin_unlock_bh(&ctx->block_lock, bh);
 
 	return msg;
 }
@@ -72,11 +73,12 @@ struct sst_block *sst_create_block(struct intel_sst_drv *ctx,
 int sst_wake_up_block(struct intel_sst_drv *ctx, int result,
 		u32 drv_id, u32 ipc, void *data, u32 size)
 {
+	unsigned int bh;
 	struct sst_block *block = NULL;
 
 	dev_dbg(ctx->dev, "Enter\n");
 
-	spin_lock_bh(&ctx->block_lock);
+	bh = spin_lock_bh(&ctx->block_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(block, &ctx->block_list, node) {
 		dev_dbg(ctx->dev, "Block ipc %d, drv_id %d\n", block->msg_id,
 							block->drv_id);
@@ -86,12 +88,12 @@ int sst_wake_up_block(struct intel_sst_drv *ctx, int result,
 			block->data = data;
 			block->size = size;
 			block->condition = true;
-			spin_unlock_bh(&ctx->block_lock);
+			spin_unlock_bh(&ctx->block_lock, bh);
 			wake_up(&ctx->wait_queue);
 			return 0;
 		}
 	}
-	spin_unlock_bh(&ctx->block_lock);
+	spin_unlock_bh(&ctx->block_lock, bh);
 	dev_dbg(ctx->dev,
 		"Block not found or a response received for a short msg for ipc %d, drv_id %d\n",
 		ipc, drv_id);
@@ -100,23 +102,24 @@ int sst_wake_up_block(struct intel_sst_drv *ctx, int result,
 
 int sst_free_block(struct intel_sst_drv *ctx, struct sst_block *freed)
 {
+	unsigned int bh;
 	struct sst_block *block = NULL, *__block;
 
 	dev_dbg(ctx->dev, "Enter\n");
-	spin_lock_bh(&ctx->block_lock);
+	bh = spin_lock_bh(&ctx->block_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(block, __block, &ctx->block_list, node) {
 		if (block == freed) {
 			pr_debug("pvt_id freed --> %d\n", freed->drv_id);
 			/* toggle the index position of pvt_id */
 			list_del(&freed->node);
-			spin_unlock_bh(&ctx->block_lock);
+			spin_unlock_bh(&ctx->block_lock, bh);
 			kfree(freed->data);
 			freed->data = NULL;
 			kfree(freed);
 			return 0;
 		}
 	}
-	spin_unlock_bh(&ctx->block_lock);
+	spin_unlock_bh(&ctx->block_lock, bh);
 	dev_err(ctx->dev, "block is already freed!!!\n");
 	return -EINVAL;
 }

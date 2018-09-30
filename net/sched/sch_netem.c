@@ -736,6 +736,7 @@ static void dist_free(struct disttable *d)
 static int get_dist_table(struct Qdisc *sch, struct disttable **tbl,
 			  const struct nlattr *attr)
 {
+	unsigned int bh;
 	size_t n = nla_len(attr)/sizeof(__s16);
 	const __s16 *data = nla_data(attr);
 	spinlock_t *root_lock;
@@ -755,9 +756,9 @@ static int get_dist_table(struct Qdisc *sch, struct disttable **tbl,
 
 	root_lock = qdisc_root_sleeping_lock(sch);
 
-	spin_lock_bh(root_lock);
+	bh = spin_lock_bh(root_lock, SOFTIRQ_ALL_MASK);
 	swap(*tbl, d);
-	spin_unlock_bh(root_lock);
+	spin_unlock_bh(root_lock, bh);
 
 	dist_free(d);
 	return 0;

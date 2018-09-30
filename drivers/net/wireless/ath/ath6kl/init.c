@@ -1885,6 +1885,7 @@ void ath6kl_init_hw_restart(struct ath6kl *ar)
 
 void ath6kl_stop_txrx(struct ath6kl *ar)
 {
+	unsigned int bh;
 	struct ath6kl_vif *vif, *tmp_vif;
 	int i;
 
@@ -1898,7 +1899,7 @@ void ath6kl_stop_txrx(struct ath6kl *ar)
 	for (i = 0; i < AP_MAX_NUM_STA; i++)
 		aggr_reset_state(ar->sta_list[i].aggr_conn);
 
-	spin_lock_bh(&ar->list_lock);
+	bh = spin_lock_bh(&ar->list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(vif, tmp_vif, &ar->vif_list, list) {
 		list_del(&vif->list);
 		spin_unlock_bh(&ar->list_lock);
@@ -1906,9 +1907,9 @@ void ath6kl_stop_txrx(struct ath6kl *ar)
 		rtnl_lock();
 		ath6kl_cfg80211_vif_cleanup(vif);
 		rtnl_unlock();
-		spin_lock_bh(&ar->list_lock);
+		spin_lock_bh(&ar->list_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&ar->list_lock);
+	spin_unlock_bh(&ar->list_lock, bh);
 
 	clear_bit(WMI_READY, &ar->flag);
 

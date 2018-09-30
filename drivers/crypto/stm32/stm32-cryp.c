@@ -265,9 +265,10 @@ static int stm32_cryp_read_auth_tag(struct stm32_cryp *cryp);
 
 static struct stm32_cryp *stm32_cryp_find_dev(struct stm32_cryp_ctx *ctx)
 {
+	unsigned int bh;
 	struct stm32_cryp *tmp, *cryp = NULL;
 
-	spin_lock_bh(&cryp_list.lock);
+	bh = spin_lock_bh(&cryp_list.lock, SOFTIRQ_ALL_MASK);
 	if (!ctx->cryp) {
 		list_for_each_entry(tmp, &cryp_list.dev_list, list) {
 			cryp = tmp;
@@ -278,7 +279,7 @@ static struct stm32_cryp *stm32_cryp_find_dev(struct stm32_cryp_ctx *ctx)
 		cryp = ctx->cryp;
 	}
 
-	spin_unlock_bh(&cryp_list.lock);
+	spin_unlock_bh(&cryp_list.lock, bh);
 
 	return cryp;
 }

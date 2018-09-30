@@ -1208,33 +1208,35 @@ static int igbvf_poll(struct napi_struct *napi, int budget)
  */
 static void igbvf_set_rlpml(struct igbvf_adapter *adapter)
 {
+	unsigned int bh;
 	int max_frame_size;
 	struct e1000_hw *hw = &adapter->hw;
 
 	max_frame_size = adapter->max_frame_size + VLAN_TAG_SIZE;
 
-	spin_lock_bh(&hw->mbx_lock);
+	bh = spin_lock_bh(&hw->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	e1000_rlpml_set_vf(hw, max_frame_size);
 
-	spin_unlock_bh(&hw->mbx_lock);
+	spin_unlock_bh(&hw->mbx_lock, bh);
 }
 
 static int igbvf_vlan_rx_add_vid(struct net_device *netdev,
 				 __be16 proto, u16 vid)
 {
+	unsigned int bh;
 	struct igbvf_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
 
-	spin_lock_bh(&hw->mbx_lock);
+	bh = spin_lock_bh(&hw->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	if (hw->mac.ops.set_vfta(hw, vid, true)) {
 		dev_err(&adapter->pdev->dev, "Failed to add vlan id %d\n", vid);
-		spin_unlock_bh(&hw->mbx_lock);
+		spin_unlock_bh(&hw->mbx_lock, bh);
 		return -EINVAL;
 	}
 
-	spin_unlock_bh(&hw->mbx_lock);
+	spin_unlock_bh(&hw->mbx_lock, bh);
 
 	set_bit(vid, adapter->active_vlans);
 	return 0;
@@ -1243,19 +1245,20 @@ static int igbvf_vlan_rx_add_vid(struct net_device *netdev,
 static int igbvf_vlan_rx_kill_vid(struct net_device *netdev,
 				  __be16 proto, u16 vid)
 {
+	unsigned int bh;
 	struct igbvf_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
 
-	spin_lock_bh(&hw->mbx_lock);
+	bh = spin_lock_bh(&hw->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	if (hw->mac.ops.set_vfta(hw, vid, false)) {
 		dev_err(&adapter->pdev->dev,
 			"Failed to remove vlan id %d\n", vid);
-		spin_unlock_bh(&hw->mbx_lock);
+		spin_unlock_bh(&hw->mbx_lock, bh);
 		return -EINVAL;
 	}
 
-	spin_unlock_bh(&hw->mbx_lock);
+	spin_unlock_bh(&hw->mbx_lock, bh);
 
 	clear_bit(vid, adapter->active_vlans);
 	return 0;
@@ -1404,6 +1407,7 @@ static void igbvf_configure_rx(struct igbvf_adapter *adapter)
  **/
 static void igbvf_set_multi(struct net_device *netdev)
 {
+	unsigned int bh;
 	struct igbvf_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
 	struct netdev_hw_addr *ha;
@@ -1422,11 +1426,11 @@ static void igbvf_set_multi(struct net_device *netdev)
 	netdev_for_each_mc_addr(ha, netdev)
 		memcpy(mta_list + (i++ * ETH_ALEN), ha->addr, ETH_ALEN);
 
-	spin_lock_bh(&hw->mbx_lock);
+	bh = spin_lock_bh(&hw->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	hw->mac.ops.update_mc_addr_list(hw, mta_list, i, 0, 0);
 
-	spin_unlock_bh(&hw->mbx_lock);
+	spin_unlock_bh(&hw->mbx_lock, bh);
 	kfree(mta_list);
 }
 
@@ -1439,6 +1443,7 @@ static void igbvf_set_multi(struct net_device *netdev)
  **/
 static int igbvf_set_uni(struct net_device *netdev)
 {
+	unsigned int bh;
 	struct igbvf_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
 
@@ -1447,19 +1452,19 @@ static int igbvf_set_uni(struct net_device *netdev)
 		return -ENOSPC;
 	}
 
-	spin_lock_bh(&hw->mbx_lock);
+	bh = spin_lock_bh(&hw->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	/* Clear all unicast MAC filters */
 	hw->mac.ops.set_uc_addr(hw, E1000_VF_MAC_FILTER_CLR, NULL);
 
-	spin_unlock_bh(&hw->mbx_lock);
+	spin_unlock_bh(&hw->mbx_lock, bh);
 
 	if (!netdev_uc_empty(netdev)) {
 		struct netdev_hw_addr *ha;
 
 		/* Add MAC filters one by one */
 		netdev_for_each_uc_addr(ha, netdev) {
-			spin_lock_bh(&hw->mbx_lock);
+			spin_lock_bh(&hw->mbx_lock, SOFTIRQ_ALL_MASK);
 
 			hw->mac.ops.set_uc_addr(hw, E1000_VF_MAC_FILTER_ADD,
 						ha->addr);
@@ -1505,11 +1510,12 @@ static void igbvf_configure(struct igbvf_adapter *adapter)
  */
 static void igbvf_reset(struct igbvf_adapter *adapter)
 {
+	unsigned int bh;
 	struct e1000_mac_info *mac = &adapter->hw.mac;
 	struct net_device *netdev = adapter->netdev;
 	struct e1000_hw *hw = &adapter->hw;
 
-	spin_lock_bh(&hw->mbx_lock);
+	bh = spin_lock_bh(&hw->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	/* Allow time for pending master requests to run */
 	if (mac->ops.reset_hw(hw))
@@ -1517,7 +1523,7 @@ static void igbvf_reset(struct igbvf_adapter *adapter)
 
 	mac->ops.init_hw(hw);
 
-	spin_unlock_bh(&hw->mbx_lock);
+	spin_unlock_bh(&hw->mbx_lock, bh);
 
 	if (is_valid_ether_addr(adapter->hw.mac.addr)) {
 		memcpy(netdev->dev_addr, adapter->hw.mac.addr,
@@ -1788,6 +1794,7 @@ static int igbvf_close(struct net_device *netdev)
  **/
 static int igbvf_set_mac(struct net_device *netdev, void *p)
 {
+	unsigned int bh;
 	struct igbvf_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
 	struct sockaddr *addr = p;
@@ -1797,11 +1804,11 @@ static int igbvf_set_mac(struct net_device *netdev, void *p)
 
 	memcpy(hw->mac.addr, addr->sa_data, netdev->addr_len);
 
-	spin_lock_bh(&hw->mbx_lock);
+	bh = spin_lock_bh(&hw->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	hw->mac.ops.rar_set(hw, hw->mac.addr, 0);
 
-	spin_unlock_bh(&hw->mbx_lock);
+	spin_unlock_bh(&hw->mbx_lock, bh);
 
 	if (!ether_addr_equal(addr->sa_data, hw->mac.addr))
 		return -EADDRNOTAVAIL;
@@ -1865,6 +1872,7 @@ static void igbvf_print_link_info(struct igbvf_adapter *adapter)
 
 static bool igbvf_has_link(struct igbvf_adapter *adapter)
 {
+	unsigned int bh;
 	struct e1000_hw *hw = &adapter->hw;
 	s32 ret_val = E1000_SUCCESS;
 	bool link_active;
@@ -1873,11 +1881,11 @@ static bool igbvf_has_link(struct igbvf_adapter *adapter)
 	if (test_bit(__IGBVF_DOWN, &adapter->state))
 		return false;
 
-	spin_lock_bh(&hw->mbx_lock);
+	bh = spin_lock_bh(&hw->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	ret_val = hw->mac.ops.check_for_link(hw);
 
-	spin_unlock_bh(&hw->mbx_lock);
+	spin_unlock_bh(&hw->mbx_lock, bh);
 
 	link_active = !hw->mac.get_link_status;
 
@@ -2708,6 +2716,7 @@ static const struct net_device_ops igbvf_netdev_ops = {
  **/
 static int igbvf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
+	unsigned int bh;
 	struct net_device *netdev;
 	struct igbvf_adapter *adapter;
 	struct e1000_hw *hw;
@@ -2829,7 +2838,7 @@ static int igbvf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	netdev->min_mtu = ETH_MIN_MTU;
 	netdev->max_mtu = MAX_STD_JUMBO_FRAME_SIZE;
 
-	spin_lock_bh(&hw->mbx_lock);
+	bh = spin_lock_bh(&hw->mbx_lock, SOFTIRQ_ALL_MASK);
 
 	/*reset the controller to put the device in a known good state */
 	err = hw->mac.ops.reset_hw(hw);
@@ -2847,7 +2856,7 @@ static int igbvf_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 		       netdev->addr_len);
 	}
 
-	spin_unlock_bh(&hw->mbx_lock);
+	spin_unlock_bh(&hw->mbx_lock, bh);
 
 	if (!is_valid_ether_addr(netdev->dev_addr)) {
 		dev_info(&pdev->dev, "Assigning random MAC address.\n");

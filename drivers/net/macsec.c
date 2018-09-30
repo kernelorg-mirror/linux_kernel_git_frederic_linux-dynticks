@@ -539,9 +539,10 @@ static struct macsec_eth_header *macsec_ethhdr(struct sk_buff *skb)
 
 static u32 tx_sa_update_pn(struct macsec_tx_sa *tx_sa, struct macsec_secy *secy)
 {
+	unsigned int bh;
 	u32 pn;
 
-	spin_lock_bh(&tx_sa->lock);
+	bh = spin_lock_bh(&tx_sa->lock, SOFTIRQ_ALL_MASK);
 	pn = tx_sa->next_pn;
 
 	tx_sa->next_pn++;
@@ -551,7 +552,7 @@ static u32 tx_sa_update_pn(struct macsec_tx_sa *tx_sa, struct macsec_secy *secy)
 		if (secy->protect_frames)
 			secy->operational = false;
 	}
-	spin_unlock_bh(&tx_sa->lock);
+	spin_unlock_bh(&tx_sa->lock, bh);
 
 	return pn;
 }
@@ -1660,6 +1661,7 @@ static bool validate_add_rxsa(struct nlattr **attrs)
 
 static int macsec_add_rxsa(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	struct net_device *dev;
 	struct nlattr **attrs = info->attrs;
 	struct macsec_secy *secy;
@@ -1719,9 +1721,9 @@ static int macsec_add_rxsa(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	if (tb_sa[MACSEC_SA_ATTR_PN]) {
-		spin_lock_bh(&rx_sa->lock);
+		bh = spin_lock_bh(&rx_sa->lock, SOFTIRQ_ALL_MASK);
 		rx_sa->next_pn = nla_get_u32(tb_sa[MACSEC_SA_ATTR_PN]);
-		spin_unlock_bh(&rx_sa->lock);
+		spin_unlock_bh(&rx_sa->lock, bh);
 	}
 
 	if (tb_sa[MACSEC_SA_ATTR_ACTIVE])
@@ -1816,6 +1818,7 @@ static bool validate_add_txsa(struct nlattr **attrs)
 
 static int macsec_add_txsa(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	struct net_device *dev;
 	struct nlattr **attrs = info->attrs;
 	struct macsec_secy *secy;
@@ -1875,9 +1878,9 @@ static int macsec_add_txsa(struct sk_buff *skb, struct genl_info *info)
 
 	nla_memcpy(tx_sa->key.id, tb_sa[MACSEC_SA_ATTR_KEYID], MACSEC_KEYID_LEN);
 
-	spin_lock_bh(&tx_sa->lock);
+	bh = spin_lock_bh(&tx_sa->lock, SOFTIRQ_ALL_MASK);
 	tx_sa->next_pn = nla_get_u32(tb_sa[MACSEC_SA_ATTR_PN]);
-	spin_unlock_bh(&tx_sa->lock);
+	spin_unlock_bh(&tx_sa->lock, bh);
 
 	if (tb_sa[MACSEC_SA_ATTR_ACTIVE])
 		tx_sa->active = !!nla_get_u8(tb_sa[MACSEC_SA_ATTR_ACTIVE]);
@@ -2033,6 +2036,7 @@ static bool validate_upd_sa(struct nlattr **attrs)
 
 static int macsec_upd_txsa(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	struct nlattr **attrs = info->attrs;
 	struct net_device *dev;
 	struct macsec_secy *secy;
@@ -2059,9 +2063,9 @@ static int macsec_upd_txsa(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	if (tb_sa[MACSEC_SA_ATTR_PN]) {
-		spin_lock_bh(&tx_sa->lock);
+		bh = spin_lock_bh(&tx_sa->lock, SOFTIRQ_ALL_MASK);
 		tx_sa->next_pn = nla_get_u32(tb_sa[MACSEC_SA_ATTR_PN]);
-		spin_unlock_bh(&tx_sa->lock);
+		spin_unlock_bh(&tx_sa->lock, bh);
 	}
 
 	if (tb_sa[MACSEC_SA_ATTR_ACTIVE])
@@ -2077,6 +2081,7 @@ static int macsec_upd_txsa(struct sk_buff *skb, struct genl_info *info)
 
 static int macsec_upd_rxsa(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	struct nlattr **attrs = info->attrs;
 	struct net_device *dev;
 	struct macsec_secy *secy;
@@ -2107,9 +2112,9 @@ static int macsec_upd_rxsa(struct sk_buff *skb, struct genl_info *info)
 	}
 
 	if (tb_sa[MACSEC_SA_ATTR_PN]) {
-		spin_lock_bh(&rx_sa->lock);
+		bh = spin_lock_bh(&rx_sa->lock, SOFTIRQ_ALL_MASK);
 		rx_sa->next_pn = nla_get_u32(tb_sa[MACSEC_SA_ATTR_PN]);
-		spin_unlock_bh(&rx_sa->lock);
+		spin_unlock_bh(&rx_sa->lock, bh);
 	}
 
 	if (tb_sa[MACSEC_SA_ATTR_ACTIVE])

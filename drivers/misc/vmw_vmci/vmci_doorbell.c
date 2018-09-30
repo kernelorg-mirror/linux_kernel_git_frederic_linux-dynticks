@@ -144,12 +144,13 @@ static struct dbell_entry *dbell_index_table_find(u32 idx)
  */
 static void dbell_index_table_add(struct dbell_entry *entry)
 {
+	unsigned int bh;
 	u32 bucket;
 	u32 new_notify_idx;
 
 	vmci_resource_get(&entry->resource);
 
-	spin_lock_bh(&vmci_doorbell_it.lock);
+	bh = spin_lock_bh(&vmci_doorbell_it.lock, SOFTIRQ_ALL_MASK);
 
 	/*
 	 * Below we try to allocate an index in the notification
@@ -195,7 +196,7 @@ static void dbell_index_table_add(struct dbell_entry *entry)
 	bucket = VMCI_DOORBELL_HASH(entry->idx);
 	hlist_add_head(&entry->node, &vmci_doorbell_it.entries[bucket]);
 
-	spin_unlock_bh(&vmci_doorbell_it.lock);
+	spin_unlock_bh(&vmci_doorbell_it.lock, bh);
 }
 
 /*
@@ -204,7 +205,8 @@ static void dbell_index_table_add(struct dbell_entry *entry)
  */
 static void dbell_index_table_remove(struct dbell_entry *entry)
 {
-	spin_lock_bh(&vmci_doorbell_it.lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&vmci_doorbell_it.lock, SOFTIRQ_ALL_MASK);
 
 	hlist_del_init(&entry->node);
 
@@ -224,7 +226,7 @@ static void dbell_index_table_remove(struct dbell_entry *entry)
 
 	last_notify_idx_released = entry->idx;
 
-	spin_unlock_bh(&vmci_doorbell_it.lock);
+	spin_unlock_bh(&vmci_doorbell_it.lock, bh);
 
 	vmci_resource_put(&entry->resource);
 }
@@ -356,10 +358,11 @@ bool vmci_dbell_register_notification_bitmap(u32 bitmap_ppn)
  */
 static void dbell_fire_entries(u32 notify_idx)
 {
+	unsigned int bh;
 	u32 bucket = VMCI_DOORBELL_HASH(notify_idx);
 	struct dbell_entry *dbell;
 
-	spin_lock_bh(&vmci_doorbell_it.lock);
+	bh = spin_lock_bh(&vmci_doorbell_it.lock, SOFTIRQ_ALL_MASK);
 
 	hlist_for_each_entry(dbell, &vmci_doorbell_it.entries[bucket], node) {
 		if (dbell->idx == notify_idx &&
@@ -373,7 +376,7 @@ static void dbell_fire_entries(u32 notify_idx)
 		}
 	}
 
-	spin_unlock_bh(&vmci_doorbell_it.lock);
+	spin_unlock_bh(&vmci_doorbell_it.lock, bh);
 }
 
 /*

@@ -128,6 +128,7 @@ static int sl_ioctl(struct net_device *dev, struct ifreq *rq, int cmd);
 
 static int sl_alloc_bufs(struct slip *sl, int mtu)
 {
+	unsigned int bh;
 	int err = -ENOBUFS;
 	unsigned long len;
 	char *rbuff = NULL;
@@ -167,9 +168,9 @@ static int sl_alloc_bufs(struct slip *sl, int mtu)
 	if (IS_ERR(slcomp))
 		goto err_exit;
 #endif
-	spin_lock_bh(&sl->lock);
+	bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 	if (sl->tty == NULL) {
-		spin_unlock_bh(&sl->lock);
+		spin_unlock_bh(&sl->lock, bh);
 		err = -ENODEV;
 		goto err_exit;
 	}
@@ -187,7 +188,7 @@ static int sl_alloc_bufs(struct slip *sl, int mtu)
 	sl->xdata    = 0;
 	sl->xbits    = 0;
 #endif
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, bh);
 	err = 0;
 
 	/* Cleanup */
@@ -219,6 +220,7 @@ static void sl_free_bufs(struct slip *sl)
 
 static int sl_realloc_bufs(struct slip *sl, int mtu)
 {
+	unsigned int bh;
 	int err = 0;
 	struct net_device *dev = sl->dev;
 	unsigned char *xbuff, *rbuff;
@@ -254,7 +256,7 @@ static int sl_realloc_bufs(struct slip *sl, int mtu)
 		}
 		goto done;
 	}
-	spin_lock_bh(&sl->lock);
+	bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 
 	err = -ENODEV;
 	if (sl->tty == NULL)
@@ -290,7 +292,7 @@ static int sl_realloc_bufs(struct slip *sl, int mtu)
 	err = 0;
 
 done_on_bh:
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, bh);
 
 done:
 	kfree(xbuff);
@@ -420,13 +422,14 @@ static void sl_encaps(struct slip *sl, unsigned char *icp, int len)
 /* Write out any remaining transmit buffer. Scheduled when tty is writable */
 static void slip_transmit(struct work_struct *work)
 {
+	unsigned int bh;
 	struct slip *sl = container_of(work, struct slip, tx_work);
 	int actual;
 
-	spin_lock_bh(&sl->lock);
+	bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 	/* First make sure we're connected. */
 	if (!sl->tty || sl->magic != SLIP_MAGIC || !netif_running(sl->dev)) {
-		spin_unlock_bh(&sl->lock);
+		spin_unlock_bh(&sl->lock, bh);
 		return;
 	}
 
@@ -435,7 +438,7 @@ static void slip_transmit(struct work_struct *work)
 		 * transmission of another packet */
 		sl->dev->stats.tx_packets++;
 		clear_bit(TTY_DO_WRITE_WAKEUP, &sl->tty->flags);
-		spin_unlock_bh(&sl->lock);
+		spin_unlock_bh(&sl->lock, bh);
 		sl_unlock(sl);
 		return;
 	}
@@ -443,7 +446,7 @@ static void slip_transmit(struct work_struct *work)
 	actual = sl->tty->ops->write(sl->tty, sl->xhead, sl->xleft);
 	sl->xleft -= actual;
 	sl->xhead += actual;
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, bh);
 }
 
 /*
@@ -527,16 +530,17 @@ sl_xmit(struct sk_buff *skb, struct net_device *dev)
 static int
 sl_close(struct net_device *dev)
 {
+	unsigned int bh;
 	struct slip *sl = netdev_priv(dev);
 
-	spin_lock_bh(&sl->lock);
+	bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 	if (sl->tty)
 		/* TTY discipline is running. */
 		clear_bit(TTY_DO_WRITE_WAKEUP, &sl->tty->flags);
 	netif_stop_queue(dev);
 	sl->rcount   = 0;
 	sl->xleft    = 0;
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, bh);
 
 	return 0;
 }
@@ -873,16 +877,17 @@ err_exit:
 
 static void slip_close(struct tty_struct *tty)
 {
+	unsigned int bh;
 	struct slip *sl = tty->disc_data;
 
 	/* First make sure we're connected. */
 	if (!sl || sl->magic != SLIP_MAGIC || sl->tty != tty)
 		return;
 
-	spin_lock_bh(&sl->lock);
+	bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 	tty->disc_data = NULL;
 	sl->tty = NULL;
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, bh);
 
 	flush_work(&sl->tx_work);
 
@@ -1116,7 +1121,7 @@ static int slip_ioctl(struct tty_struct *tty, struct file *file,
 		if (tmp > 255) /* max for unchar */
 			return -EINVAL;
 
-		spin_lock_bh(&sl->lock);
+		spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 		if (!sl->tty) {
 			spin_unlock_bh(&sl->lock);
 			return -ENODEV;
@@ -1141,7 +1146,7 @@ static int slip_ioctl(struct tty_struct *tty, struct file *file,
 			return -EFAULT;
 		if (tmp > 255) /* max for unchar */
 			return -EINVAL;
-		spin_lock_bh(&sl->lock);
+		spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 		if (!sl->tty) {
 			spin_unlock_bh(&sl->lock);
 			return -ENODEV;
@@ -1196,16 +1201,17 @@ static long slip_compat_ioctl(struct tty_struct *tty, struct file *file,
 
 static int sl_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 {
+	unsigned int bh;
 	struct slip *sl = netdev_priv(dev);
 	unsigned long *p = (unsigned long *)&rq->ifr_ifru;
 
 	if (sl == NULL)		/* Allocation failed ?? */
 		return -ENODEV;
 
-	spin_lock_bh(&sl->lock);
+	bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 
 	if (!sl->tty) {
-		spin_unlock_bh(&sl->lock);
+		spin_unlock_bh(&sl->lock, bh);
 		return -ENODEV;
 	}
 
@@ -1213,7 +1219,7 @@ static int sl_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 	case SIOCSKEEPALIVE:
 		/* max for unchar */
 		if ((unsigned)*p > 255) {
-			spin_unlock_bh(&sl->lock);
+			spin_unlock_bh(&sl->lock, bh);
 			return -EINVAL;
 		}
 		sl->keepalive = (u8)*p;
@@ -1233,7 +1239,7 @@ static int sl_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 
 	case SIOCSOUTFILL:
 		if ((unsigned)*p > 255) { /* max for unchar */
-			spin_unlock_bh(&sl->lock);
+			spin_unlock_bh(&sl->lock, bh);
 			return -EINVAL;
 		}
 		sl->outfill = (u8)*p;
@@ -1255,7 +1261,7 @@ static int sl_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 		 */
 		if (sl->tty != current->signal->tty &&
 						sl->pid != current->pid) {
-			spin_unlock_bh(&sl->lock);
+			spin_unlock_bh(&sl->lock, bh);
 			return -EPERM;
 		}
 		sl->leased = 0;
@@ -1266,7 +1272,7 @@ static int sl_ioctl(struct net_device *dev, struct ifreq *rq, int cmd)
 	case SIOCGLEASE:
 		*p = sl->leased;
 	}
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, bh);
 	return 0;
 }
 #endif
@@ -1323,6 +1329,7 @@ static int __init slip_init(void)
 
 static void __exit slip_exit(void)
 {
+	unsigned int bh;
 	int i;
 	struct net_device *dev;
 	struct slip *sl;
@@ -1344,12 +1351,12 @@ static void __exit slip_exit(void)
 			if (!dev)
 				continue;
 			sl = netdev_priv(dev);
-			spin_lock_bh(&sl->lock);
+			bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 			if (sl->tty) {
 				busy++;
 				tty_hangup(sl->tty);
 			}
-			spin_unlock_bh(&sl->lock);
+			spin_unlock_bh(&sl->lock, bh);
 		}
 	} while (busy && time_before(jiffies, timeout));
 

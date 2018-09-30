@@ -346,19 +346,21 @@ static void mv_chan_slot_cleanup(struct mv_xor_chan *mv_chan)
 
 static void mv_xor_tasklet(unsigned long data)
 {
+	unsigned int bh;
 	struct mv_xor_chan *chan = (struct mv_xor_chan *) data;
 
-	spin_lock_bh(&chan->lock);
+	bh = spin_lock_bh(&chan->lock, SOFTIRQ_ALL_MASK);
 	mv_chan_slot_cleanup(chan);
-	spin_unlock_bh(&chan->lock);
+	spin_unlock_bh(&chan->lock, bh);
 }
 
 static struct mv_xor_desc_slot *
 mv_chan_alloc_slot(struct mv_xor_chan *mv_chan)
 {
+	unsigned int bh;
 	struct mv_xor_desc_slot *iter;
 
-	spin_lock_bh(&mv_chan->lock);
+	bh = spin_lock_bh(&mv_chan->lock, SOFTIRQ_ALL_MASK);
 
 	if (!list_empty(&mv_chan->free_slots)) {
 		iter = list_first_entry(&mv_chan->free_slots,
@@ -367,7 +369,7 @@ mv_chan_alloc_slot(struct mv_xor_chan *mv_chan)
 
 		list_move_tail(&iter->node, &mv_chan->allocated_slots);
 
-		spin_unlock_bh(&mv_chan->lock);
+		spin_unlock_bh(&mv_chan->lock, bh);
 
 		/* pre-ack descriptor */
 		async_tx_ack(&iter->async_tx);
@@ -377,7 +379,7 @@ mv_chan_alloc_slot(struct mv_xor_chan *mv_chan)
 
 	}
 
-	spin_unlock_bh(&mv_chan->lock);
+	spin_unlock_bh(&mv_chan->lock, bh);
 
 	/* try to free some slots if the allocation fails */
 	tasklet_schedule(&mv_chan->irq_tasklet);
@@ -389,6 +391,7 @@ mv_chan_alloc_slot(struct mv_xor_chan *mv_chan)
 static dma_cookie_t
 mv_xor_tx_submit(struct dma_async_tx_descriptor *tx)
 {
+	unsigned int bh;
 	struct mv_xor_desc_slot *sw_desc = to_mv_xor_slot(tx);
 	struct mv_xor_chan *mv_chan = to_mv_xor_chan(tx->chan);
 	struct mv_xor_desc_slot *old_chain_tail;
@@ -399,7 +402,7 @@ mv_xor_tx_submit(struct dma_async_tx_descriptor *tx)
 		"%s sw_desc %p: async_tx %p\n",
 		__func__, sw_desc, &sw_desc->async_tx);
 
-	spin_lock_bh(&mv_chan->lock);
+	bh = spin_lock_bh(&mv_chan->lock, SOFTIRQ_ALL_MASK);
 	cookie = dma_cookie_assign(tx);
 
 	if (list_empty(&mv_chan->chain))
@@ -433,7 +436,7 @@ mv_xor_tx_submit(struct dma_async_tx_descriptor *tx)
 	if (new_hw_chain)
 		mv_chan_start_new_chain(mv_chan, sw_desc);
 
-	spin_unlock_bh(&mv_chan->lock);
+	spin_unlock_bh(&mv_chan->lock, bh);
 
 	return cookie;
 }
@@ -441,6 +444,7 @@ mv_xor_tx_submit(struct dma_async_tx_descriptor *tx)
 /* returns the number of allocated descriptors */
 static int mv_xor_alloc_chan_resources(struct dma_chan *chan)
 {
+	unsigned int bh;
 	void *virt_desc;
 	dma_addr_t dma_desc;
 	int idx;
@@ -469,10 +473,10 @@ static int mv_xor_alloc_chan_resources(struct dma_chan *chan)
 		slot->async_tx.phys = dma_desc + idx * MV_XOR_SLOT_SIZE;
 		slot->idx = idx++;
 
-		spin_lock_bh(&mv_chan->lock);
+		bh = spin_lock_bh(&mv_chan->lock, SOFTIRQ_ALL_MASK);
 		mv_chan->slots_allocated = idx;
 		list_add_tail(&slot->node, &mv_chan->free_slots);
-		spin_unlock_bh(&mv_chan->lock);
+		spin_unlock_bh(&mv_chan->lock, bh);
 	}
 
 	dev_dbg(mv_chan_to_devp(mv_chan),
@@ -634,11 +638,12 @@ mv_xor_prep_dma_interrupt(struct dma_chan *chan, unsigned long flags)
 
 static void mv_xor_free_chan_resources(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct mv_xor_chan *mv_chan = to_mv_xor_chan(chan);
 	struct mv_xor_desc_slot *iter, *_iter;
 	int in_use_descs = 0;
 
-	spin_lock_bh(&mv_chan->lock);
+	bh = spin_lock_bh(&mv_chan->lock, SOFTIRQ_ALL_MASK);
 
 	mv_chan_slot_cleanup(mv_chan);
 
@@ -666,7 +671,7 @@ static void mv_xor_free_chan_resources(struct dma_chan *chan)
 
 	dev_dbg(mv_chan_to_devp(mv_chan), "%s slots_allocated %d\n",
 		__func__, mv_chan->slots_allocated);
-	spin_unlock_bh(&mv_chan->lock);
+	spin_unlock_bh(&mv_chan->lock, bh);
 
 	if (in_use_descs)
 		dev_err(mv_chan_to_devp(mv_chan),
@@ -683,6 +688,7 @@ static enum dma_status mv_xor_status(struct dma_chan *chan,
 					  dma_cookie_t cookie,
 					  struct dma_tx_state *txstate)
 {
+	unsigned int bh;
 	struct mv_xor_chan *mv_chan = to_mv_xor_chan(chan);
 	enum dma_status ret;
 
@@ -690,9 +696,9 @@ static enum dma_status mv_xor_status(struct dma_chan *chan,
 	if (ret == DMA_COMPLETE)
 		return ret;
 
-	spin_lock_bh(&mv_chan->lock);
+	bh = spin_lock_bh(&mv_chan->lock, SOFTIRQ_ALL_MASK);
 	mv_chan_slot_cleanup(mv_chan);
-	spin_unlock_bh(&mv_chan->lock);
+	spin_unlock_bh(&mv_chan->lock, bh);
 
 	return dma_cookie_status(chan, cookie, txstate);
 }

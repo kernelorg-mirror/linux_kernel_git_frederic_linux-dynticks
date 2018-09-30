@@ -27,50 +27,54 @@
 
 int enic_dev_fw_info(struct enic *enic, struct vnic_devcmd_fw_info **fw_info)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_fw_info(enic->vdev, fw_info);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 int enic_dev_stats_dump(struct enic *enic, struct vnic_stats **vstats)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_stats_dump(enic->vdev, vstats);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 int enic_dev_add_station_addr(struct enic *enic)
 {
+	unsigned int bh;
 	int err;
 
 	if (!is_valid_ether_addr(enic->netdev->dev_addr))
 		return -EADDRNOTAVAIL;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_add_addr(enic->vdev, enic->netdev->dev_addr);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 int enic_dev_del_station_addr(struct enic *enic)
 {
+	unsigned int bh;
 	int err;
 
 	if (!is_valid_ether_addr(enic->netdev->dev_addr))
 		return -EADDRNOTAVAIL;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_del_addr(enic->vdev, enic->netdev->dev_addr);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
@@ -78,101 +82,110 @@ int enic_dev_del_station_addr(struct enic *enic)
 int enic_dev_packet_filter(struct enic *enic, int directed, int multicast,
 	int broadcast, int promisc, int allmulti)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_packet_filter(enic->vdev, directed,
 		multicast, broadcast, promisc, allmulti);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 int enic_dev_add_addr(struct enic *enic, const u8 *addr)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_add_addr(enic->vdev, addr);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 int enic_dev_del_addr(struct enic *enic, const u8 *addr)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_del_addr(enic->vdev, addr);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 int enic_dev_notify_unset(struct enic *enic)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_notify_unset(enic->vdev);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 int enic_dev_hang_notify(struct enic *enic)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_hang_notify(enic->vdev);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 int enic_dev_set_ig_vlan_rewrite_mode(struct enic *enic)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_set_ig_vlan_rewrite_mode(enic->vdev,
 		IG_VLAN_REWRITE_MODE_PRIORITY_TAG_DEFAULT_VLAN);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 int enic_dev_enable(struct enic *enic)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_enable_wait(enic->vdev);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 int enic_dev_disable(struct enic *enic)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_disable(enic->vdev);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 int enic_dev_intr_coal_timer_info(struct enic *enic)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = vnic_dev_intr_coal_timer_info(enic->vdev);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
@@ -180,12 +193,13 @@ int enic_dev_intr_coal_timer_info(struct enic *enic)
 /* rtnl lock is held */
 int enic_vlan_rx_add_vid(struct net_device *netdev, __be16 proto, u16 vid)
 {
+	unsigned int bh;
 	struct enic *enic = netdev_priv(netdev);
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = enic_add_vlan(enic, vid);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
@@ -193,12 +207,13 @@ int enic_vlan_rx_add_vid(struct net_device *netdev, __be16 proto, u16 vid)
 /* rtnl lock is held */
 int enic_vlan_rx_kill_vid(struct net_device *netdev, __be16 proto, u16 vid)
 {
+	unsigned int bh;
 	struct enic *enic = netdev_priv(netdev);
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = enic_del_vlan(enic, vid);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }

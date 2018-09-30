@@ -242,9 +242,10 @@ static void __iop_adma_slot_cleanup(struct iop_adma_chan *iop_chan)
 static void
 iop_adma_slot_cleanup(struct iop_adma_chan *iop_chan)
 {
-	spin_lock_bh(&iop_chan->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 	__iop_adma_slot_cleanup(iop_chan);
-	spin_unlock_bh(&iop_chan->lock);
+	spin_unlock_bh(&iop_chan->lock, bh);
 }
 
 static void iop_adma_tasklet(unsigned long data)
@@ -369,6 +370,7 @@ static void iop_adma_check_threshold(struct iop_adma_chan *iop_chan)
 static dma_cookie_t
 iop_adma_tx_submit(struct dma_async_tx_descriptor *tx)
 {
+	unsigned int bh;
 	struct iop_adma_desc_slot *sw_desc = tx_to_iop_adma_slot(tx);
 	struct iop_adma_chan *iop_chan = to_iop_adma_chan(tx->chan);
 	struct iop_adma_desc_slot *grp_start, *old_chain_tail;
@@ -381,7 +383,7 @@ iop_adma_tx_submit(struct dma_async_tx_descriptor *tx)
 	slot_cnt = grp_start->slot_cnt;
 	slots_per_op = grp_start->slots_per_op;
 
-	spin_lock_bh(&iop_chan->lock);
+	bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 	cookie = dma_cookie_assign(tx);
 
 	old_chain_tail = list_entry(iop_chan->chain.prev,
@@ -404,7 +406,7 @@ iop_adma_tx_submit(struct dma_async_tx_descriptor *tx)
 	 */
 	iop_chan->pending += slot_cnt;
 	iop_adma_check_threshold(iop_chan);
-	spin_unlock_bh(&iop_chan->lock);
+	spin_unlock_bh(&iop_chan->lock, bh);
 
 	dev_dbg(iop_chan->device->common.dev, "%s cookie: %d slot: %d\n",
 		__func__, sw_desc->async_tx.cookie, sw_desc->idx);
@@ -427,6 +429,7 @@ static void iop_chan_start_null_xor(struct iop_adma_chan *iop_chan);
  * */
 static int iop_adma_alloc_chan_resources(struct dma_chan *chan)
 {
+	unsigned int bh;
 	char *hw_desc;
 	int idx;
 	struct iop_adma_chan *iop_chan = to_iop_adma_chan(chan);
@@ -461,10 +464,10 @@ static int iop_adma_alloc_chan_resources(struct dma_chan *chan)
 			(dma_addr_t) &hw_desc[idx * IOP_ADMA_SLOT_SIZE];
 		slot->idx = idx;
 
-		spin_lock_bh(&iop_chan->lock);
+		bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 		iop_chan->slots_allocated++;
 		list_add_tail(&slot->slot_node, &iop_chan->all_slots);
-		spin_unlock_bh(&iop_chan->lock);
+		spin_unlock_bh(&iop_chan->lock, bh);
 	} while (iop_chan->slots_allocated < num_descs_in_pool);
 
 	if (idx && !iop_chan->last_used)
@@ -494,13 +497,14 @@ static int iop_adma_alloc_chan_resources(struct dma_chan *chan)
 static struct dma_async_tx_descriptor *
 iop_adma_prep_dma_interrupt(struct dma_chan *chan, unsigned long flags)
 {
+	unsigned int bh;
 	struct iop_adma_chan *iop_chan = to_iop_adma_chan(chan);
 	struct iop_adma_desc_slot *sw_desc, *grp_start;
 	int slot_cnt, slots_per_op;
 
 	dev_dbg(iop_chan->device->common.dev, "%s\n", __func__);
 
-	spin_lock_bh(&iop_chan->lock);
+	bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 	slot_cnt = iop_chan_interrupt_slot_count(&slots_per_op, iop_chan);
 	sw_desc = iop_adma_alloc_slots(iop_chan, slot_cnt, slots_per_op);
 	if (sw_desc) {
@@ -508,7 +512,7 @@ iop_adma_prep_dma_interrupt(struct dma_chan *chan, unsigned long flags)
 		iop_desc_init_interrupt(grp_start, iop_chan);
 		sw_desc->async_tx.flags = flags;
 	}
-	spin_unlock_bh(&iop_chan->lock);
+	spin_unlock_bh(&iop_chan->lock, bh);
 
 	return sw_desc ? &sw_desc->async_tx : NULL;
 }
@@ -517,6 +521,7 @@ static struct dma_async_tx_descriptor *
 iop_adma_prep_dma_memcpy(struct dma_chan *chan, dma_addr_t dma_dest,
 			 dma_addr_t dma_src, size_t len, unsigned long flags)
 {
+	unsigned int bh;
 	struct iop_adma_chan *iop_chan = to_iop_adma_chan(chan);
 	struct iop_adma_desc_slot *sw_desc, *grp_start;
 	int slot_cnt, slots_per_op;
@@ -528,7 +533,7 @@ iop_adma_prep_dma_memcpy(struct dma_chan *chan, dma_addr_t dma_dest,
 	dev_dbg(iop_chan->device->common.dev, "%s len: %u\n",
 		__func__, len);
 
-	spin_lock_bh(&iop_chan->lock);
+	bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 	slot_cnt = iop_chan_memcpy_slot_count(len, &slots_per_op);
 	sw_desc = iop_adma_alloc_slots(iop_chan, slot_cnt, slots_per_op);
 	if (sw_desc) {
@@ -539,7 +544,7 @@ iop_adma_prep_dma_memcpy(struct dma_chan *chan, dma_addr_t dma_dest,
 		iop_desc_set_memcpy_src_addr(grp_start, dma_src);
 		sw_desc->async_tx.flags = flags;
 	}
-	spin_unlock_bh(&iop_chan->lock);
+	spin_unlock_bh(&iop_chan->lock, bh);
 
 	return sw_desc ? &sw_desc->async_tx : NULL;
 }
@@ -549,6 +554,7 @@ iop_adma_prep_dma_xor(struct dma_chan *chan, dma_addr_t dma_dest,
 		      dma_addr_t *dma_src, unsigned int src_cnt, size_t len,
 		      unsigned long flags)
 {
+	unsigned int bh;
 	struct iop_adma_chan *iop_chan = to_iop_adma_chan(chan);
 	struct iop_adma_desc_slot *sw_desc, *grp_start;
 	int slot_cnt, slots_per_op;
@@ -561,7 +567,7 @@ iop_adma_prep_dma_xor(struct dma_chan *chan, dma_addr_t dma_dest,
 		"%s src_cnt: %d len: %u flags: %lx\n",
 		__func__, src_cnt, len, flags);
 
-	spin_lock_bh(&iop_chan->lock);
+	bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 	slot_cnt = iop_chan_xor_slot_count(len, src_cnt, &slots_per_op);
 	sw_desc = iop_adma_alloc_slots(iop_chan, slot_cnt, slots_per_op);
 	if (sw_desc) {
@@ -574,7 +580,7 @@ iop_adma_prep_dma_xor(struct dma_chan *chan, dma_addr_t dma_dest,
 			iop_desc_set_xor_src_addr(grp_start, src_cnt,
 						  dma_src[src_cnt]);
 	}
-	spin_unlock_bh(&iop_chan->lock);
+	spin_unlock_bh(&iop_chan->lock, bh);
 
 	return sw_desc ? &sw_desc->async_tx : NULL;
 }
@@ -584,6 +590,7 @@ iop_adma_prep_dma_xor_val(struct dma_chan *chan, dma_addr_t *dma_src,
 			  unsigned int src_cnt, size_t len, u32 *result,
 			  unsigned long flags)
 {
+	unsigned int bh;
 	struct iop_adma_chan *iop_chan = to_iop_adma_chan(chan);
 	struct iop_adma_desc_slot *sw_desc, *grp_start;
 	int slot_cnt, slots_per_op;
@@ -594,7 +601,7 @@ iop_adma_prep_dma_xor_val(struct dma_chan *chan, dma_addr_t *dma_src,
 	dev_dbg(iop_chan->device->common.dev, "%s src_cnt: %d len: %u\n",
 		__func__, src_cnt, len);
 
-	spin_lock_bh(&iop_chan->lock);
+	bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 	slot_cnt = iop_chan_zero_sum_slot_count(len, src_cnt, &slots_per_op);
 	sw_desc = iop_adma_alloc_slots(iop_chan, slot_cnt, slots_per_op);
 	if (sw_desc) {
@@ -609,7 +616,7 @@ iop_adma_prep_dma_xor_val(struct dma_chan *chan, dma_addr_t *dma_src,
 			iop_desc_set_zero_sum_src_addr(grp_start, src_cnt,
 						       dma_src[src_cnt]);
 	}
-	spin_unlock_bh(&iop_chan->lock);
+	spin_unlock_bh(&iop_chan->lock, bh);
 
 	return sw_desc ? &sw_desc->async_tx : NULL;
 }
@@ -619,6 +626,7 @@ iop_adma_prep_dma_pq(struct dma_chan *chan, dma_addr_t *dst, dma_addr_t *src,
 		     unsigned int src_cnt, const unsigned char *scf, size_t len,
 		     unsigned long flags)
 {
+	unsigned int bh;
 	struct iop_adma_chan *iop_chan = to_iop_adma_chan(chan);
 	struct iop_adma_desc_slot *sw_desc, *g;
 	int slot_cnt, slots_per_op;
@@ -639,7 +647,7 @@ iop_adma_prep_dma_pq(struct dma_chan *chan, dma_addr_t *dst, dma_addr_t *src,
 	else
 		continue_srcs = 0+src_cnt;
 
-	spin_lock_bh(&iop_chan->lock);
+	bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 	slot_cnt = iop_chan_pq_slot_count(len, continue_srcs, &slots_per_op);
 	sw_desc = iop_adma_alloc_slots(iop_chan, slot_cnt, slots_per_op);
 	if (sw_desc) {
@@ -673,7 +681,7 @@ iop_adma_prep_dma_pq(struct dma_chan *chan, dma_addr_t *dst, dma_addr_t *src,
 		}
 		iop_desc_init_pq(g, i, flags);
 	}
-	spin_unlock_bh(&iop_chan->lock);
+	spin_unlock_bh(&iop_chan->lock, bh);
 
 	return sw_desc ? &sw_desc->async_tx : NULL;
 }
@@ -684,6 +692,7 @@ iop_adma_prep_dma_pq_val(struct dma_chan *chan, dma_addr_t *pq, dma_addr_t *src,
 			 size_t len, enum sum_check_flags *pqres,
 			 unsigned long flags)
 {
+	unsigned int bh;
 	struct iop_adma_chan *iop_chan = to_iop_adma_chan(chan);
 	struct iop_adma_desc_slot *sw_desc, *g;
 	int slot_cnt, slots_per_op;
@@ -695,7 +704,7 @@ iop_adma_prep_dma_pq_val(struct dma_chan *chan, dma_addr_t *pq, dma_addr_t *src,
 	dev_dbg(iop_chan->device->common.dev, "%s src_cnt: %d len: %u\n",
 		__func__, src_cnt, len);
 
-	spin_lock_bh(&iop_chan->lock);
+	bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 	slot_cnt = iop_chan_pq_zero_sum_slot_count(len, src_cnt + 2, &slots_per_op);
 	sw_desc = iop_adma_alloc_slots(iop_chan, slot_cnt, slots_per_op);
 	if (sw_desc) {
@@ -717,20 +726,21 @@ iop_adma_prep_dma_pq_val(struct dma_chan *chan, dma_addr_t *pq, dma_addr_t *src,
 							  scf[src_cnt]);
 		iop_desc_set_pq_zero_sum_addr(g, pq_idx, src);
 	}
-	spin_unlock_bh(&iop_chan->lock);
+	spin_unlock_bh(&iop_chan->lock, bh);
 
 	return sw_desc ? &sw_desc->async_tx : NULL;
 }
 
 static void iop_adma_free_chan_resources(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct iop_adma_chan *iop_chan = to_iop_adma_chan(chan);
 	struct iop_adma_desc_slot *iter, *_iter;
 	int in_use_descs = 0;
 
 	iop_adma_slot_cleanup(iop_chan);
 
-	spin_lock_bh(&iop_chan->lock);
+	bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(iter, _iter, &iop_chan->chain,
 					chain_node) {
 		in_use_descs++;
@@ -746,7 +756,7 @@ static void iop_adma_free_chan_resources(struct dma_chan *chan)
 
 	dev_dbg(iop_chan->device->common.dev, "%s slots_allocated %d\n",
 		__func__, iop_chan->slots_allocated);
-	spin_unlock_bh(&iop_chan->lock);
+	spin_unlock_bh(&iop_chan->lock, bh);
 
 	/* one is ok since we left it on there on purpose */
 	if (in_use_descs > 1)
@@ -1445,13 +1455,14 @@ static int iop_adma_probe(struct platform_device *pdev)
 
 static void iop_chan_start_null_memcpy(struct iop_adma_chan *iop_chan)
 {
+	unsigned int bh;
 	struct iop_adma_desc_slot *sw_desc, *grp_start;
 	dma_cookie_t cookie;
 	int slot_cnt, slots_per_op;
 
 	dev_dbg(iop_chan->device->common.dev, "%s\n", __func__);
 
-	spin_lock_bh(&iop_chan->lock);
+	bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 	slot_cnt = iop_chan_memcpy_slot_count(0, &slots_per_op);
 	sw_desc = iop_adma_alloc_slots(iop_chan, slot_cnt, slots_per_op);
 	if (sw_desc) {
@@ -1493,18 +1504,19 @@ static void iop_chan_start_null_memcpy(struct iop_adma_chan *iop_chan)
 	} else
 		dev_err(iop_chan->device->common.dev,
 			"failed to allocate null descriptor\n");
-	spin_unlock_bh(&iop_chan->lock);
+	spin_unlock_bh(&iop_chan->lock, bh);
 }
 
 static void iop_chan_start_null_xor(struct iop_adma_chan *iop_chan)
 {
+	unsigned int bh;
 	struct iop_adma_desc_slot *sw_desc, *grp_start;
 	dma_cookie_t cookie;
 	int slot_cnt, slots_per_op;
 
 	dev_dbg(iop_chan->device->common.dev, "%s\n", __func__);
 
-	spin_lock_bh(&iop_chan->lock);
+	bh = spin_lock_bh(&iop_chan->lock, SOFTIRQ_ALL_MASK);
 	slot_cnt = iop_chan_xor_slot_count(0, 2, &slots_per_op);
 	sw_desc = iop_adma_alloc_slots(iop_chan, slot_cnt, slots_per_op);
 	if (sw_desc) {
@@ -1546,7 +1558,7 @@ static void iop_chan_start_null_xor(struct iop_adma_chan *iop_chan)
 	} else
 		dev_err(iop_chan->device->common.dev,
 			"failed to allocate null descriptor\n");
-	spin_unlock_bh(&iop_chan->lock);
+	spin_unlock_bh(&iop_chan->lock, bh);
 }
 
 static struct platform_driver iop_adma_driver = {

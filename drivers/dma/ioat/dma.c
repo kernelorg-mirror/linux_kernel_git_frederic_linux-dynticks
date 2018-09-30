@@ -182,12 +182,13 @@ static void __ioat_issue_pending(struct ioatdma_chan *ioat_chan)
 
 void ioat_issue_pending(struct dma_chan *c)
 {
+	unsigned int bh;
 	struct ioatdma_chan *ioat_chan = to_ioat_chan(c);
 
 	if (ioat_ring_pending(ioat_chan)) {
-		spin_lock_bh(&ioat_chan->prep_lock);
+		bh = spin_lock_bh(&ioat_chan->prep_lock, SOFTIRQ_ALL_MASK);
 		__ioat_issue_pending(ioat_chan);
-		spin_unlock_bh(&ioat_chan->prep_lock);
+		spin_unlock_bh(&ioat_chan->prep_lock, bh);
 	}
 }
 
@@ -240,10 +241,11 @@ static void __ioat_start_null_desc(struct ioatdma_chan *ioat_chan)
 
 void ioat_start_null_desc(struct ioatdma_chan *ioat_chan)
 {
-	spin_lock_bh(&ioat_chan->prep_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&ioat_chan->prep_lock, SOFTIRQ_ALL_MASK);
 	if (!test_bit(IOAT_CHAN_DOWN, &ioat_chan->state))
 		__ioat_start_null_desc(ioat_chan);
-	spin_unlock_bh(&ioat_chan->prep_lock);
+	spin_unlock_bh(&ioat_chan->prep_lock, bh);
 }
 
 static void __ioat_restart_chan(struct ioatdma_chan *ioat_chan)
@@ -328,7 +330,7 @@ static dma_cookie_t ioat_tx_submit_unlock(struct dma_async_tx_descriptor *tx)
 	ioat_chan->head += ioat_chan->produce;
 
 	ioat_update_pending(ioat_chan);
-	spin_unlock_bh(&ioat_chan->prep_lock);
+	spin_unlock_bh(&ioat_chan->prep_lock, ioat_chan->bh);
 
 	return cookie;
 }
@@ -448,7 +450,7 @@ ioat_alloc_ring(struct dma_chan *c, int order, gfp_t flags)
 int ioat_check_space_lock(struct ioatdma_chan *ioat_chan, int num_descs)
 	__acquires(&ioat_chan->prep_lock)
 {
-	spin_lock_bh(&ioat_chan->prep_lock);
+	ioat_chan->bh = spin_lock_bh(&ioat_chan->prep_lock, SOFTIRQ_ALL_MASK);
 	/* never allow the last descriptor to be consumed, we need at
 	 * least one free at all times to allow for on-the-fly ring
 	 * resizing.
@@ -460,7 +462,7 @@ int ioat_check_space_lock(struct ioatdma_chan *ioat_chan, int num_descs)
 		ioat_chan->produce = num_descs;
 		return 0;  /* with ioat->prep_lock held */
 	}
-	spin_unlock_bh(&ioat_chan->prep_lock);
+	spin_unlock_bh(&ioat_chan->prep_lock, ioat_chan->bh);
 
 	dev_dbg_ratelimited(to_dev(ioat_chan),
 			    "%s: ring full! num_descs: %d (%x:%x:%x)\n",
@@ -654,9 +656,10 @@ static void __cleanup(struct ioatdma_chan *ioat_chan, dma_addr_t phys_complete)
 
 static void ioat_cleanup(struct ioatdma_chan *ioat_chan)
 {
+	unsigned int bh;
 	u64 phys_complete;
 
-	spin_lock_bh(&ioat_chan->cleanup_lock);
+	bh = spin_lock_bh(&ioat_chan->cleanup_lock, SOFTIRQ_ALL_MASK);
 
 	if (ioat_cleanup_preamble(ioat_chan, &phys_complete))
 		__cleanup(ioat_chan, phys_complete);
@@ -671,7 +674,7 @@ static void ioat_cleanup(struct ioatdma_chan *ioat_chan)
 		}
 	}
 
-	spin_unlock_bh(&ioat_chan->cleanup_lock);
+	spin_unlock_bh(&ioat_chan->cleanup_lock, bh);
 }
 
 void ioat_cleanup_event(unsigned long data)
@@ -757,6 +760,7 @@ static void ioat_abort_descs(struct ioatdma_chan *ioat_chan)
 
 static void ioat_eh(struct ioatdma_chan *ioat_chan)
 {
+	unsigned int bh;
 	struct pci_dev *pdev = to_pdev(ioat_chan);
 	struct ioat_dma_descriptor *hw;
 	struct dma_async_tx_descriptor *tx;
@@ -840,7 +844,7 @@ static void ioat_eh(struct ioatdma_chan *ioat_chan)
 	/* mark faulting descriptor as complete */
 	*ioat_chan->completion = desc->txd.phys;
 
-	spin_lock_bh(&ioat_chan->prep_lock);
+	bh = spin_lock_bh(&ioat_chan->prep_lock, SOFTIRQ_ALL_MASK);
 	/* we need abort all descriptors */
 	if (abort) {
 		ioat_abort_descs(ioat_chan);
@@ -852,7 +856,7 @@ static void ioat_eh(struct ioatdma_chan *ioat_chan)
 	pci_write_config_dword(pdev, IOAT_PCI_CHANERR_INT_OFFSET, chanerr_int);
 
 	ioat_restart_channel(ioat_chan);
-	spin_unlock_bh(&ioat_chan->prep_lock);
+	spin_unlock_bh(&ioat_chan->prep_lock, bh);
 }
 
 static void check_active(struct ioatdma_chan *ioat_chan)
@@ -868,6 +872,7 @@ static void check_active(struct ioatdma_chan *ioat_chan)
 
 void ioat_timer_event(struct timer_list *t)
 {
+	unsigned int bh, bh2;
 	struct ioatdma_chan *ioat_chan = from_timer(ioat_chan, t, timer);
 	dma_addr_t phys_complete;
 	u64 status;
@@ -887,10 +892,10 @@ void ioat_timer_event(struct timer_list *t)
 		ioat_print_chanerrs(ioat_chan, chanerr);
 
 		if (test_bit(IOAT_RUN, &ioat_chan->state)) {
-			spin_lock_bh(&ioat_chan->cleanup_lock);
-			spin_lock_bh(&ioat_chan->prep_lock);
+			bh = spin_lock_bh(&ioat_chan->cleanup_lock, SOFTIRQ_ALL_MASK);
+			bh2 = spin_lock_bh(&ioat_chan->prep_lock, SOFTIRQ_ALL_MASK);
 			set_bit(IOAT_CHAN_DOWN, &ioat_chan->state);
-			spin_unlock_bh(&ioat_chan->prep_lock);
+			spin_unlock_bh(&ioat_chan->prep_lock, bh2);
 
 			ioat_abort_descs(ioat_chan);
 			dev_warn(to_dev(ioat_chan), "Reset channel...\n");
@@ -898,23 +903,23 @@ void ioat_timer_event(struct timer_list *t)
 			dev_warn(to_dev(ioat_chan), "Restart channel...\n");
 			ioat_restart_channel(ioat_chan);
 
-			spin_lock_bh(&ioat_chan->prep_lock);
+			bh2 = spin_lock_bh(&ioat_chan->prep_lock, SOFTIRQ_ALL_MASK);
 			clear_bit(IOAT_CHAN_DOWN, &ioat_chan->state);
-			spin_unlock_bh(&ioat_chan->prep_lock);
-			spin_unlock_bh(&ioat_chan->cleanup_lock);
+			spin_unlock_bh(&ioat_chan->prep_lock, bh2);
+			spin_unlock_bh(&ioat_chan->cleanup_lock, bh);
 		}
 
 		return;
 	}
 
-	spin_lock_bh(&ioat_chan->cleanup_lock);
+	bh = spin_lock_bh(&ioat_chan->cleanup_lock, SOFTIRQ_ALL_MASK);
 
 	/* handle the no-actives case */
 	if (!ioat_ring_active(ioat_chan)) {
-		spin_lock_bh(&ioat_chan->prep_lock);
+		bh2 = spin_lock_bh(&ioat_chan->prep_lock, SOFTIRQ_ALL_MASK);
 		check_active(ioat_chan);
-		spin_unlock_bh(&ioat_chan->prep_lock);
-		spin_unlock_bh(&ioat_chan->cleanup_lock);
+		spin_unlock_bh(&ioat_chan->prep_lock, bh2);
+		spin_unlock_bh(&ioat_chan->cleanup_lock, bh);
 		return;
 	}
 
@@ -936,9 +941,9 @@ void ioat_timer_event(struct timer_list *t)
 		dev_dbg(to_dev(ioat_chan), "Active descriptors: %d\n",
 			ioat_ring_active(ioat_chan));
 
-		spin_lock_bh(&ioat_chan->prep_lock);
+		bh2 = spin_lock_bh(&ioat_chan->prep_lock, SOFTIRQ_ALL_MASK);
 		set_bit(IOAT_CHAN_DOWN, &ioat_chan->state);
-		spin_unlock_bh(&ioat_chan->prep_lock);
+		spin_unlock_bh(&ioat_chan->prep_lock, bh2);
 
 		ioat_abort_descs(ioat_chan);
 		dev_warn(to_dev(ioat_chan), "Resetting channel...\n");
@@ -946,16 +951,16 @@ void ioat_timer_event(struct timer_list *t)
 		dev_warn(to_dev(ioat_chan), "Restarting channel...\n");
 		ioat_restart_channel(ioat_chan);
 
-		spin_lock_bh(&ioat_chan->prep_lock);
+		bh2 = spin_lock_bh(&ioat_chan->prep_lock, SOFTIRQ_ALL_MASK);
 		clear_bit(IOAT_CHAN_DOWN, &ioat_chan->state);
-		spin_unlock_bh(&ioat_chan->prep_lock);
-		spin_unlock_bh(&ioat_chan->cleanup_lock);
+		spin_unlock_bh(&ioat_chan->prep_lock, bh2);
+		spin_unlock_bh(&ioat_chan->cleanup_lock, bh);
 		return;
 	} else
 		set_bit(IOAT_COMPLETION_ACK, &ioat_chan->state);
 
 	mod_timer(&ioat_chan->timer, jiffies + COMPLETION_TIMEOUT);
-	spin_unlock_bh(&ioat_chan->cleanup_lock);
+	spin_unlock_bh(&ioat_chan->cleanup_lock, bh);
 }
 
 enum dma_status

@@ -700,6 +700,7 @@ err_free_status:
 static int wil_ring_init_tx_edma(struct wil6210_vif *vif, int ring_id,
 				 int size, int cid, int tid)
 {
+	unsigned int bh;
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	int rc;
 	struct wil_ring *ring = &wil->ring_tx[ring_id];
@@ -733,10 +734,10 @@ static int wil_ring_init_tx_edma(struct wil6210_vif *vif, int ring_id,
 
 	return 0;
  out_free:
-	spin_lock_bh(&txdata->lock);
+	bh = spin_lock_bh(&txdata->lock, SOFTIRQ_ALL_MASK);
 	txdata->dot1x_open = false;
 	txdata->enabled = 0;
-	spin_unlock_bh(&txdata->lock);
+	spin_unlock_bh(&txdata->lock, bh);
 	wil_ring_free_edma(wil, ring);
 	wil->ring2cid_tid[ring_id][0] = WIL6210_MAX_CID;
 	wil->ring2cid_tid[ring_id][1] = 0;
@@ -1508,6 +1509,7 @@ mem_error:
 static int wil_ring_init_bcast_edma(struct wil6210_vif *vif, int ring_id,
 				    int size)
 {
+	unsigned int bh;
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	struct wil_ring *ring = &wil->ring_tx[ring_id];
 	int rc;
@@ -1537,10 +1539,10 @@ static int wil_ring_init_bcast_edma(struct wil6210_vif *vif, int ring_id,
 	return 0;
 
  out_free:
-	spin_lock_bh(&txdata->lock);
+	bh = spin_lock_bh(&txdata->lock, SOFTIRQ_ALL_MASK);
 	txdata->enabled = 0;
 	txdata->dot1x_open = false;
-	spin_unlock_bh(&txdata->lock);
+	spin_unlock_bh(&txdata->lock, bh);
 	wil_ring_free_edma(wil, ring);
 
 out:

@@ -147,6 +147,7 @@ static bool connection_broken(struct scsi_info *vscsi)
  */
 static long ibmvscsis_unregister_command_q(struct scsi_info *vscsi)
 {
+	unsigned int bh;
 	long qrc;
 	long rc = ADAPT_SUCCESS;
 	int ticks = 0;
@@ -155,9 +156,9 @@ static long ibmvscsis_unregister_command_q(struct scsi_info *vscsi)
 		qrc = h_free_crq(vscsi->dds.unit_id);
 		switch (qrc) {
 		case H_SUCCESS:
-			spin_lock_bh(&vscsi->intr_lock);
+			bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 			vscsi->flags &= ~PREP_FOR_SUSPEND_FLAGS;
-			spin_unlock_bh(&vscsi->intr_lock);
+			spin_unlock_bh(&vscsi->intr_lock, bh);
 			break;
 
 		case H_HARDWARE:
@@ -275,7 +276,7 @@ static long ibmvscsis_free_command_q(struct scsi_info *vscsi)
 
 		spin_unlock_bh(&vscsi->intr_lock);
 		rc = ibmvscsis_unregister_command_q(vscsi);
-		spin_lock_bh(&vscsi->intr_lock);
+		spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 
 		if (state_under_lock != vscsi->new_state)
 			vscsi->phyp_acr_state = vscsi->new_state;
@@ -416,12 +417,13 @@ static long ibmvscsis_check_init_msg(struct scsi_info *vscsi, uint *format)
  */
 static void ibmvscsis_disconnect(struct work_struct *work)
 {
+	unsigned int bh;
 	struct scsi_info *vscsi = container_of(work, struct scsi_info,
 					       proc_work);
 	u16 new_state;
 	bool wait_idle = false;
 
-	spin_lock_bh(&vscsi->intr_lock);
+	bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 	new_state = vscsi->new_state;
 	vscsi->new_state = 0;
 
@@ -554,14 +556,14 @@ static void ibmvscsis_disconnect(struct work_struct *work)
 			 */
 			spin_unlock_bh(&vscsi->intr_lock);
 			wait_for_completion(&vscsi->wait_idle);
-			spin_lock_bh(&vscsi->intr_lock);
+			spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 		}
 		dev_dbg(&vscsi->dev, "disconnect stop wait\n");
 
 		ibmvscsis_adapter_idle(vscsi);
 	}
 
-	spin_unlock_bh(&vscsi->intr_lock);
+	spin_unlock_bh(&vscsi->intr_lock, bh);
 }
 
 /**
@@ -2644,11 +2646,12 @@ static int read_dma_window(struct scsi_info *vscsi)
 
 static struct ibmvscsis_tport *ibmvscsis_lookup_port(const char *name)
 {
+	unsigned int bh;
 	struct ibmvscsis_tport *tport = NULL;
 	struct vio_dev *vdev;
 	struct scsi_info *vscsi;
 
-	spin_lock_bh(&ibmvscsis_dev_lock);
+	bh = spin_lock_bh(&ibmvscsis_dev_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(vscsi, &ibmvscsis_dev_list, list) {
 		vdev = vscsi->dma_dev;
 		if (!strcmp(dev_name(&vdev->dev), name)) {
@@ -2656,7 +2659,7 @@ static struct ibmvscsis_tport *ibmvscsis_lookup_port(const char *name)
 			break;
 		}
 	}
-	spin_unlock_bh(&ibmvscsis_dev_lock);
+	spin_unlock_bh(&ibmvscsis_dev_lock, bh);
 
 	return tport;
 }
@@ -2675,6 +2678,7 @@ static struct ibmvscsis_tport *ibmvscsis_lookup_port(const char *name)
 static void ibmvscsis_parse_cmd(struct scsi_info *vscsi,
 				struct ibmvscsis_cmd *cmd)
 {
+	unsigned int bh;
 	struct iu_entry *iue = cmd->iue;
 	struct srp_cmd *srp = (struct srp_cmd *)iue->sbuf->buf;
 	struct ibmvscsis_nexus *nexus;
@@ -2694,10 +2698,10 @@ static void ibmvscsis_parse_cmd(struct scsi_info *vscsi,
 	 */
 	if (srp->add_cdb_len & 0x03) {
 		dev_err(&vscsi->dev, "parse_cmd: reserved bits set in IU\n");
-		spin_lock_bh(&vscsi->intr_lock);
+		bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 		ibmvscsis_post_disconnect(vscsi, ERR_DISCONNECT_RECONNECT, 0);
 		ibmvscsis_free_cmd_resources(vscsi, cmd);
-		spin_unlock_bh(&vscsi->intr_lock);
+		spin_unlock_bh(&vscsi->intr_lock, bh);
 		return;
 	}
 
@@ -2730,9 +2734,9 @@ static void ibmvscsis_parse_cmd(struct scsi_info *vscsi,
 
 	cmd->se_cmd.tag = be64_to_cpu(srp->tag);
 
-	spin_lock_bh(&vscsi->intr_lock);
+	bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&cmd->list, &vscsi->active_q);
-	spin_unlock_bh(&vscsi->intr_lock);
+	spin_unlock_bh(&vscsi->intr_lock, bh);
 
 	srp->lun.scsi_lun[0] &= 0x3f;
 
@@ -2741,7 +2745,7 @@ static void ibmvscsis_parse_cmd(struct scsi_info *vscsi,
 			       data_len, attr, dir, 0);
 	if (rc) {
 		dev_err(&vscsi->dev, "target_submit_cmd failed, rc %d\n", rc);
-		spin_lock_bh(&vscsi->intr_lock);
+		spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 		list_del(&cmd->list);
 		ibmvscsis_free_cmd_resources(vscsi, cmd);
 		spin_unlock_bh(&vscsi->intr_lock);
@@ -2750,9 +2754,9 @@ static void ibmvscsis_parse_cmd(struct scsi_info *vscsi,
 	return;
 
 fail:
-	spin_lock_bh(&vscsi->intr_lock);
+	bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 	ibmvscsis_post_disconnect(vscsi, ERR_DISCONNECT_RECONNECT, 0);
-	spin_unlock_bh(&vscsi->intr_lock);
+	spin_unlock_bh(&vscsi->intr_lock, bh);
 }
 
 /**
@@ -2770,6 +2774,7 @@ fail:
 static void ibmvscsis_parse_task(struct scsi_info *vscsi,
 				 struct ibmvscsis_cmd *cmd)
 {
+	unsigned int bh;
 	struct iu_entry *iue = cmd->iue;
 	struct srp_tsk_mgmt *srp_tsk = &vio_iu(iue)->srp.tsk_mgmt;
 	int tcm_type;
@@ -2810,9 +2815,9 @@ static void ibmvscsis_parse_task(struct scsi_info *vscsi,
 	if (!rc) {
 		cmd->se_cmd.tag = be64_to_cpu(srp_tsk->tag);
 
-		spin_lock_bh(&vscsi->intr_lock);
+		bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 		list_add_tail(&cmd->list, &vscsi->active_q);
-		spin_unlock_bh(&vscsi->intr_lock);
+		spin_unlock_bh(&vscsi->intr_lock, bh);
 
 		srp_tsk->lun.scsi_lun[0] &= 0x3f;
 
@@ -2824,7 +2829,7 @@ static void ibmvscsis_parse_task(struct scsi_info *vscsi,
 		if (rc) {
 			dev_err(&vscsi->dev, "target_submit_tmr failed, rc %d\n",
 				rc);
-			spin_lock_bh(&vscsi->intr_lock);
+			spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 			list_del(&cmd->list);
 			spin_unlock_bh(&vscsi->intr_lock);
 			cmd->se_cmd.se_tmr_req->response =
@@ -2838,11 +2843,12 @@ static void ibmvscsis_parse_task(struct scsi_info *vscsi,
 
 static void ibmvscsis_scheduler(struct work_struct *work)
 {
+	unsigned int bh;
 	struct ibmvscsis_cmd *cmd = container_of(work, struct ibmvscsis_cmd,
 						 work);
 	struct scsi_info *vscsi = cmd->adapter;
 
-	spin_lock_bh(&vscsi->intr_lock);
+	bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 
 	/* Remove from schedule_q */
 	list_del(&cmd->list);
@@ -2859,11 +2865,11 @@ static void ibmvscsis_scheduler(struct work_struct *work)
 			complete(&vscsi->wait_idle);
 		}
 
-		spin_unlock_bh(&vscsi->intr_lock);
+		spin_unlock_bh(&vscsi->intr_lock, bh);
 		return;
 	}
 
-	spin_unlock_bh(&vscsi->intr_lock);
+	spin_unlock_bh(&vscsi->intr_lock, bh);
 
 	switch (cmd->type) {
 	case SCSI_CDB:
@@ -2875,7 +2881,7 @@ static void ibmvscsis_scheduler(struct work_struct *work)
 	default:
 		dev_err(&vscsi->dev, "scheduler, invalid cmd type %d\n",
 			cmd->type);
-		spin_lock_bh(&vscsi->intr_lock);
+		spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 		ibmvscsis_free_cmd_resources(vscsi, cmd);
 		spin_unlock_bh(&vscsi->intr_lock);
 		break;
@@ -2926,15 +2932,16 @@ static void ibmvscsis_free_cmds(struct scsi_info *vscsi)
  */
 static enum hrtimer_restart ibmvscsis_service_wait_q(struct hrtimer *timer)
 {
+	unsigned int bh;
 	struct timer_cb *p_timer = container_of(timer, struct timer_cb, timer);
 	struct scsi_info *vscsi = container_of(p_timer, struct scsi_info,
 					       rsp_q_timer);
 
-	spin_lock_bh(&vscsi->intr_lock);
+	bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 	p_timer->timer_pops += 1;
 	p_timer->started = false;
 	ibmvscsis_send_messages(vscsi);
-	spin_unlock_bh(&vscsi->intr_lock);
+	spin_unlock_bh(&vscsi->intr_lock, bh);
 
 	return HRTIMER_NORESTART;
 }
@@ -3096,6 +3103,7 @@ static u8 ibmvscsis_fast_fail(struct scsi_info *vscsi,
 static long srp_build_response(struct scsi_info *vscsi,
 			       struct ibmvscsis_cmd *cmd, uint *len_p)
 {
+	unsigned int bh;
 	struct iu_entry *iue = cmd->iue;
 	struct se_cmd *se_cmd = &cmd->se_cmd;
 	struct srp_rsp *rsp;
@@ -3105,7 +3113,7 @@ static long srp_build_response(struct scsi_info *vscsi,
 	u32 *tsk_status;
 	long rc = ADAPT_SUCCESS;
 
-	spin_lock_bh(&vscsi->intr_lock);
+	bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 
 	rsp = &vio_iu(iue)->srp.rsp;
 	len = sizeof(*rsp);
@@ -3202,7 +3210,7 @@ static long srp_build_response(struct scsi_info *vscsi,
 		break;
 	}
 
-	spin_unlock_bh(&vscsi->intr_lock);
+	spin_unlock_bh(&vscsi->intr_lock, bh);
 
 	return rc;
 }
@@ -3211,6 +3219,7 @@ static int ibmvscsis_rdma(struct ibmvscsis_cmd *cmd, struct scatterlist *sg,
 			  int nsg, struct srp_direct_buf *md, int nmd,
 			  enum dma_data_direction dir, unsigned int bytes)
 {
+	unsigned int bh;
 	struct iu_entry *iue = cmd->iue;
 	struct srp_target *target = iue->target;
 	struct scsi_info *vscsi = target->ldata;
@@ -3291,10 +3300,10 @@ static int ibmvscsis_rdma(struct ibmvscsis_cmd *cmd, struct scatterlist *sg,
 		case H_SOURCE_PARM:
 		case H_DEST_PARM:
 			if (connection_broken(vscsi)) {
-				spin_lock_bh(&vscsi->intr_lock);
+				bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 				vscsi->flags |=
 					(RESPONSE_Q_DOWN | CLIENT_FAILED);
-				spin_unlock_bh(&vscsi->intr_lock);
+				spin_unlock_bh(&vscsi->intr_lock, bh);
 			}
 			dev_err(&vscsi->dev, "rdma: h_copy_rdma failed, rc %ld\n",
 				rc);
@@ -3341,13 +3350,14 @@ static int ibmvscsis_rdma(struct ibmvscsis_cmd *cmd, struct scatterlist *sg,
  */
 static void ibmvscsis_handle_crq(unsigned long data)
 {
+	unsigned int bh;
 	struct scsi_info *vscsi = (struct scsi_info *)data;
 	struct viosrp_crq *crq;
 	long rc;
 	bool ack = true;
 	volatile u8 valid;
 
-	spin_lock_bh(&vscsi->intr_lock);
+	bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 
 	dev_dbg(&vscsi->dev, "got interrupt\n");
 
@@ -3361,7 +3371,7 @@ static void ibmvscsis_handle_crq(unsigned long data)
 
 		dev_dbg(&vscsi->dev, "handle_crq, don't process: flags 0x%x, state 0x%hx\n",
 			vscsi->flags, vscsi->state);
-		spin_unlock_bh(&vscsi->intr_lock);
+		spin_unlock_bh(&vscsi->intr_lock, bh);
 		return;
 	}
 
@@ -3438,12 +3448,13 @@ cmd_work:
 		(int)list_empty(&vscsi->schedule_q), vscsi->flags,
 		vscsi->state);
 
-	spin_unlock_bh(&vscsi->intr_lock);
+	spin_unlock_bh(&vscsi->intr_lock, bh);
 }
 
 static int ibmvscsis_probe(struct vio_dev *vdev,
 			   const struct vio_device_id *id)
 {
+	unsigned int bh;
 	struct scsi_info *vscsi;
 	int rc = 0;
 	long hrc = 0;
@@ -3482,9 +3493,9 @@ static int ibmvscsis_probe(struct vio_dev *vdev,
 		sizeof(vscsi->dds.partition_name));
 	vscsi->dds.partition_num = partition_number;
 
-	spin_lock_bh(&ibmvscsis_dev_lock);
+	bh = spin_lock_bh(&ibmvscsis_dev_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&vscsi->list, &ibmvscsis_dev_list);
-	spin_unlock_bh(&ibmvscsis_dev_lock);
+	spin_unlock_bh(&ibmvscsis_dev_lock, bh);
 
 	/*
 	 * TBD: How do we determine # of cmds to request?  Do we know how
@@ -3598,7 +3609,7 @@ free_cmds:
 free_target:
 	srp_target_free(&vscsi->target);
 rem_list:
-	spin_lock_bh(&ibmvscsis_dev_lock);
+	spin_lock_bh(&ibmvscsis_dev_lock, SOFTIRQ_ALL_MASK);
 	list_del(&vscsi->list);
 	spin_unlock_bh(&ibmvscsis_dev_lock);
 free_adapter:
@@ -3609,14 +3620,15 @@ free_adapter:
 
 static int ibmvscsis_remove(struct vio_dev *vdev)
 {
+	unsigned int bh;
 	struct scsi_info *vscsi = dev_get_drvdata(&vdev->dev);
 
 	dev_dbg(&vscsi->dev, "remove (%s)\n", dev_name(&vscsi->dma_dev->dev));
 
-	spin_lock_bh(&vscsi->intr_lock);
+	bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 	ibmvscsis_post_disconnect(vscsi, UNCONFIGURING, 0);
 	vscsi->flags |= CFG_SLEEPING;
-	spin_unlock_bh(&vscsi->intr_lock);
+	spin_unlock_bh(&vscsi->intr_lock, bh);
 	wait_for_completion(&vscsi->unconfig);
 
 	vio_disable_interrupts(vdev);
@@ -3630,7 +3642,7 @@ static int ibmvscsis_remove(struct vio_dev *vdev)
 	ibmvscsis_freetimer(vscsi);
 	ibmvscsis_free_cmds(vscsi);
 	srp_target_free(&vscsi->target);
-	spin_lock_bh(&ibmvscsis_dev_lock);
+	spin_lock_bh(&ibmvscsis_dev_lock, SOFTIRQ_ALL_MASK);
 	list_del(&vscsi->list);
 	spin_unlock_bh(&ibmvscsis_dev_lock);
 	kfree(vscsi);
@@ -3745,15 +3757,16 @@ static int ibmvscsis_check_stop_free(struct se_cmd *se_cmd)
 
 static void ibmvscsis_release_cmd(struct se_cmd *se_cmd)
 {
+	unsigned int bh;
 	struct ibmvscsis_cmd *cmd = container_of(se_cmd, struct ibmvscsis_cmd,
 						 se_cmd);
 	struct scsi_info *vscsi = cmd->adapter;
 
-	spin_lock_bh(&vscsi->intr_lock);
+	bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 	/* Remove from active_q */
 	list_move_tail(&cmd->list, &vscsi->waiting_rsp);
 	ibmvscsis_send_messages(vscsi);
-	spin_unlock_bh(&vscsi->intr_lock);
+	spin_unlock_bh(&vscsi->intr_lock, bh);
 }
 
 static u32 ibmvscsis_sess_get_index(struct se_session *se_sess)
@@ -3856,6 +3869,7 @@ static int ibmvscsis_queue_status(struct se_cmd *se_cmd)
 
 static void ibmvscsis_queue_tm_rsp(struct se_cmd *se_cmd)
 {
+	unsigned int bh;
 	struct ibmvscsis_cmd *cmd = container_of(se_cmd, struct ibmvscsis_cmd,
 						 se_cmd);
 	struct scsi_info *vscsi = cmd->adapter;
@@ -3870,7 +3884,7 @@ static void ibmvscsis_queue_tm_rsp(struct se_cmd *se_cmd)
 
 	if (srp_tsk->tsk_mgmt_func == SRP_TSK_ABORT_TASK &&
 	    cmd->se_cmd.se_tmr_req->response == TMR_TASK_DOES_NOT_EXIST) {
-		spin_lock_bh(&vscsi->intr_lock);
+		bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(cmd_itr, &vscsi->active_q, list) {
 			if (tag_to_abort == cmd_itr->se_cmd.tag) {
 				cmd_itr->abort_cmd = cmd;
@@ -3878,7 +3892,7 @@ static void ibmvscsis_queue_tm_rsp(struct se_cmd *se_cmd)
 				break;
 			}
 		}
-		spin_unlock_bh(&vscsi->intr_lock);
+		spin_unlock_bh(&vscsi->intr_lock, bh);
 	}
 
 	srp_build_response(vscsi, cmd, &len);
@@ -3996,6 +4010,7 @@ static ssize_t ibmvscsis_tpg_enable_show(struct config_item *item,
 static ssize_t ibmvscsis_tpg_enable_store(struct config_item *item,
 					  const char *page, size_t count)
 {
+	unsigned int bh;
 	struct se_portal_group *se_tpg = to_tpg(item);
 	struct ibmvscsis_tport *tport = container_of(se_tpg,
 						     struct ibmvscsis_tport,
@@ -4017,19 +4032,19 @@ static ssize_t ibmvscsis_tpg_enable_store(struct config_item *item,
 	}
 
 	if (tmp) {
-		spin_lock_bh(&vscsi->intr_lock);
+		bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 		tport->enabled = true;
 		lrc = ibmvscsis_enable_change_state(vscsi);
 		if (lrc)
 			dev_err(&vscsi->dev, "enable_change_state failed, rc %ld state %d\n",
 				lrc, vscsi->state);
-		spin_unlock_bh(&vscsi->intr_lock);
+		spin_unlock_bh(&vscsi->intr_lock, bh);
 	} else {
-		spin_lock_bh(&vscsi->intr_lock);
+		bh = spin_lock_bh(&vscsi->intr_lock, SOFTIRQ_ALL_MASK);
 		tport->enabled = false;
 		/* This simulates the server going down */
 		ibmvscsis_post_disconnect(vscsi, ERR_DISCONNECT, 0);
-		spin_unlock_bh(&vscsi->intr_lock);
+		spin_unlock_bh(&vscsi->intr_lock, bh);
 	}
 
 	dev_dbg(&vscsi->dev, "tpg_enable_store, tmp %ld, state %d\n", tmp,

@@ -1954,13 +1954,14 @@ static inline int prism2_translate_scan(local_info_t *local,
 					struct iw_request_info *info,
 					char *buffer, int buflen)
 {
+	unsigned int bh;
 	struct hfa384x_hostscan_result *scan;
 	int entry, hostscan;
 	char *current_ev = buffer;
 	char *end_buf = buffer + buflen;
 	struct list_head *ptr;
 
-	spin_lock_bh(&local->lock);
+	bh = spin_lock_bh(&local->lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each(ptr, &local->bss_list) {
 		struct hostap_bss_info *bss;
@@ -1994,7 +1995,7 @@ static inline int prism2_translate_scan(local_info_t *local,
 		/* Check if there is space for one more entry */
 		if ((end_buf - current_ev) <= IW_EV_ADDR_LEN) {
 			/* Ask user space to try again with a bigger buffer */
-			spin_unlock_bh(&local->lock);
+			spin_unlock_bh(&local->lock, bh);
 			return -E2BIG;
 		}
 	}
@@ -2012,12 +2013,12 @@ static inline int prism2_translate_scan(local_info_t *local,
 		/* Check if there is space for one more entry */
 		if ((end_buf - current_ev) <= IW_EV_ADDR_LEN) {
 			/* Ask user space to try again with a bigger buffer */
-			spin_unlock_bh(&local->lock);
+			spin_unlock_bh(&local->lock, bh);
 			return -E2BIG;
 		}
 	}
 
-	spin_unlock_bh(&local->lock);
+	spin_unlock_bh(&local->lock, bh);
 
 	return current_ev - buffer;
 }

@@ -244,15 +244,16 @@ static int kiss_esc_crc(unsigned char *s, unsigned char *d, unsigned short crc,
 /* Send one completely decapsulated AX.25 packet to the AX.25 layer. */
 static void ax_bump(struct mkiss *ax)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	int count;
 
-	spin_lock_bh(&ax->buflock);
+	bh = spin_lock_bh(&ax->buflock, SOFTIRQ_ALL_MASK);
 	if (ax->rbuff[0] > 0x0f) {
 		if (ax->rbuff[0] & 0x80) {
 			if (check_crc_16(ax->rbuff, ax->rcount) < 0) {
 				ax->dev->stats.rx_errors++;
-				spin_unlock_bh(&ax->buflock);
+				spin_unlock_bh(&ax->buflock, bh);
 
 				return;
 			}
@@ -267,7 +268,7 @@ static void ax_bump(struct mkiss *ax)
 		} else if (ax->rbuff[0] & 0x20)  {
 			if (check_crc_flex(ax->rbuff, ax->rcount) < 0) {
 				ax->dev->stats.rx_errors++;
-				spin_unlock_bh(&ax->buflock);
+				spin_unlock_bh(&ax->buflock, bh);
 				return;
 			}
 			if (ax->crcmode != CRC_MODE_FLEX && ax->crcauto) {
@@ -294,7 +295,7 @@ static void ax_bump(struct mkiss *ax)
 		printk(KERN_ERR "mkiss: %s: memory squeeze, dropping packet.\n",
 		       ax->dev->name);
 		ax->dev->stats.rx_dropped++;
-		spin_unlock_bh(&ax->buflock);
+		spin_unlock_bh(&ax->buflock, bh);
 		return;
 	}
 
@@ -303,11 +304,12 @@ static void ax_bump(struct mkiss *ax)
 	netif_rx(skb);
 	ax->dev->stats.rx_packets++;
 	ax->dev->stats.rx_bytes += count;
-	spin_unlock_bh(&ax->buflock);
+	spin_unlock_bh(&ax->buflock, bh);
 }
 
 static void kiss_unesc(struct mkiss *ax, unsigned char s)
 {
+	unsigned int bh;
 	switch (s) {
 	case END:
 		/* drop keeptest bit = VSV */
@@ -334,18 +336,18 @@ static void kiss_unesc(struct mkiss *ax, unsigned char s)
 		break;
 	}
 
-	spin_lock_bh(&ax->buflock);
+	bh = spin_lock_bh(&ax->buflock, SOFTIRQ_ALL_MASK);
 	if (!test_bit(AXF_ERROR, &ax->flags)) {
 		if (ax->rcount < ax->buffsize) {
 			ax->rbuff[ax->rcount++] = s;
-			spin_unlock_bh(&ax->buflock);
+			spin_unlock_bh(&ax->buflock, bh);
 			return;
 		}
 
 		ax->dev->stats.rx_over_errors++;
 		set_bit(AXF_ERROR, &ax->flags);
 	}
-	spin_unlock_bh(&ax->buflock);
+	spin_unlock_bh(&ax->buflock, bh);
 }
 
 static int ax_set_mac_address(struct net_device *dev, void *addr)
@@ -366,6 +368,7 @@ static int ax_set_mac_address(struct net_device *dev, void *addr)
 
 static void ax_changedmtu(struct mkiss *ax)
 {
+	unsigned int bh;
 	struct net_device *dev = ax->dev;
 	unsigned char *xbuff, *rbuff, *oxbuff, *orbuff;
 	int len;
@@ -393,7 +396,7 @@ static void ax_changedmtu(struct mkiss *ax)
 		return;
 	}
 
-	spin_lock_bh(&ax->buflock);
+	bh = spin_lock_bh(&ax->buflock, SOFTIRQ_ALL_MASK);
 
 	oxbuff    = ax->xbuff;
 	ax->xbuff = xbuff;
@@ -424,7 +427,7 @@ static void ax_changedmtu(struct mkiss *ax)
 	ax->mtu      = dev->mtu + 73;
 	ax->buffsize = len;
 
-	spin_unlock_bh(&ax->buflock);
+	spin_unlock_bh(&ax->buflock, bh);
 
 	kfree(oxbuff);
 	kfree(orbuff);
@@ -433,6 +436,7 @@ static void ax_changedmtu(struct mkiss *ax)
 /* Encapsulate one AX.25 packet and stuff into a TTY queue. */
 static void ax_encaps(struct net_device *dev, unsigned char *icp, int len)
 {
+	unsigned int bh;
 	struct mkiss *ax = netdev_priv(dev);
 	unsigned char *p;
 	int actual, count;
@@ -449,7 +453,7 @@ static void ax_encaps(struct net_device *dev, unsigned char *icp, int len)
 
 	p = icp;
 
-	spin_lock_bh(&ax->buflock);
+	bh = spin_lock_bh(&ax->buflock, SOFTIRQ_ALL_MASK);
 	if ((*p & 0x0f) != 0) {
 		/* Configuration Command (kissparms(1).
 		 * Protocol spec says: never append CRC.
@@ -480,7 +484,7 @@ static void ax_encaps(struct net_device *dev, unsigned char *icp, int len)
 				printk(KERN_INFO "mkiss: %s: crc mode set to %d\n",
 				       ax->dev->name, cmd);
 			}
-			spin_unlock_bh(&ax->buflock);
+			spin_unlock_bh(&ax->buflock, bh);
 			netif_start_queue(dev);
 
 			return;
@@ -513,7 +517,7 @@ static void ax_encaps(struct net_device *dev, unsigned char *icp, int len)
 			count = kiss_esc(p, ax->xbuff, len);
 		}
   	}
-	spin_unlock_bh(&ax->buflock);
+	spin_unlock_bh(&ax->buflock, bh);
 
 	set_bit(TTY_DO_WRITE_WAKEUP, &ax->tty->flags);
 	actual = ax->tty->ops->write(ax->tty, ax->xbuff, count);

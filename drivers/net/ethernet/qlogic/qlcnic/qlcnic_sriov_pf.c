@@ -855,13 +855,14 @@ static void qlcnic_83xx_cfg_default_mac_vlan(struct qlcnic_adapter *adapter,
 					     struct qlcnic_vf_info *vf,
 					     int opcode)
 {
+	unsigned int bh;
 	struct qlcnic_sriov *sriov;
 	u16 vlan;
 	int i;
 
 	sriov = adapter->ahw->sriov;
 
-	spin_lock_bh(&vf->vlan_list_lock);
+	bh = spin_lock_bh(&vf->vlan_list_lock, SOFTIRQ_ALL_MASK);
 	if (vf->num_vlan) {
 		for (i = 0; i < sriov->num_allowed_vlans; i++) {
 			vlan = vf->sriov_vlans[i];
@@ -870,7 +871,7 @@ static void qlcnic_83xx_cfg_default_mac_vlan(struct qlcnic_adapter *adapter,
 							    opcode);
 		}
 	}
-	spin_unlock_bh(&vf->vlan_list_lock);
+	spin_unlock_bh(&vf->vlan_list_lock, bh);
 
 	if (vf->vp->vlan_mode != QLC_PVID_MODE) {
 		if (qlcnic_83xx_pf_check(adapter) &&

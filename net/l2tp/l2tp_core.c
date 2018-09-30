@@ -304,6 +304,7 @@ EXPORT_SYMBOL_GPL(l2tp_session_get_by_ifname);
 int l2tp_session_register(struct l2tp_session *session,
 			  struct l2tp_tunnel *tunnel)
 {
+	unsigned int bh;
 	struct l2tp_session *session_walk;
 	struct hlist_head *g_head;
 	struct hlist_head *head;
@@ -328,7 +329,7 @@ int l2tp_session_register(struct l2tp_session *session,
 		pn = l2tp_pernet(tunnel->l2tp_net);
 		g_head = l2tp_session_id_hash_2(pn, session->session_id);
 
-		spin_lock_bh(&pn->l2tp_session_hlist_lock);
+		bh = spin_lock_bh(&pn->l2tp_session_hlist_lock, SOFTIRQ_ALL_MASK);
 
 		hlist_for_each_entry(session_walk, g_head, global_hlist)
 			if (session_walk->session_id == session->session_id) {
@@ -339,7 +340,7 @@ int l2tp_session_register(struct l2tp_session *session,
 		l2tp_tunnel_inc_refcount(tunnel);
 		hlist_add_head_rcu(&session->global_hlist, g_head);
 
-		spin_unlock_bh(&pn->l2tp_session_hlist_lock);
+		spin_unlock_bh(&pn->l2tp_session_hlist_lock, bh);
 	} else {
 		l2tp_tunnel_inc_refcount(tunnel);
 	}
@@ -350,7 +351,7 @@ int l2tp_session_register(struct l2tp_session *session,
 	return 0;
 
 err_tlock_pnlock:
-	spin_unlock_bh(&pn->l2tp_session_hlist_lock);
+	spin_unlock_bh(&pn->l2tp_session_hlist_lock, bh);
 err_tlock:
 	write_unlock_bh(&tunnel->hlist_lock);
 
@@ -367,11 +368,12 @@ EXPORT_SYMBOL_GPL(l2tp_session_register);
  */
 static void l2tp_recv_queue_skb(struct l2tp_session *session, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct sk_buff *skbp;
 	struct sk_buff *tmp;
 	u32 ns = L2TP_SKB_CB(skb)->ns;
 
-	spin_lock_bh(&session->reorder_q.lock);
+	bh = spin_lock_bh(&session->reorder_q.lock, SOFTIRQ_ALL_MASK);
 	skb_queue_walk_safe(&session->reorder_q, skbp, tmp) {
 		if (L2TP_SKB_CB(skbp)->ns > ns) {
 			__skb_queue_before(&session->reorder_q, skbp, skb);
@@ -387,7 +389,7 @@ static void l2tp_recv_queue_skb(struct l2tp_session *session, struct sk_buff *sk
 	__skb_queue_tail(&session->reorder_q, skb);
 
 out:
-	spin_unlock_bh(&session->reorder_q.lock);
+	spin_unlock_bh(&session->reorder_q.lock, bh);
 }
 
 /* Dequeue a single skb.
@@ -428,6 +430,7 @@ static void l2tp_recv_dequeue_skb(struct l2tp_session *session, struct sk_buff *
  */
 static void l2tp_recv_dequeue(struct l2tp_session *session)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	struct sk_buff *tmp;
 
@@ -436,7 +439,7 @@ static void l2tp_recv_dequeue(struct l2tp_session *session)
 	 * in-sequence packets behind it.
 	 */
 start:
-	spin_lock_bh(&session->reorder_q.lock);
+	bh = spin_lock_bh(&session->reorder_q.lock, SOFTIRQ_ALL_MASK);
 	skb_queue_walk_safe(&session->reorder_q, skb, tmp) {
 		if (time_after(jiffies, L2TP_SKB_CB(skb)->expires)) {
 			atomic_long_inc(&session->stats.rx_seq_discards);
@@ -481,7 +484,7 @@ start:
 	}
 
 out:
-	spin_unlock_bh(&session->reorder_q.lock);
+	spin_unlock_bh(&session->reorder_q.lock, bh);
 }
 
 static int l2tp_seq_check_rx_window(struct l2tp_session *session, u32 nr)
@@ -1247,6 +1250,7 @@ static void l2tp_udp_encap_destroy(struct sock *sk)
 /* Workqueue tunnel deletion function */
 static void l2tp_tunnel_del_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct l2tp_tunnel *tunnel = container_of(work, struct l2tp_tunnel,
 						  del_work);
 	struct sock *sk = tunnel->sock;
@@ -1267,9 +1271,9 @@ static void l2tp_tunnel_del_work(struct work_struct *work)
 
 	/* Remove the tunnel struct from the tunnel list */
 	pn = l2tp_pernet(tunnel->l2tp_net);
-	spin_lock_bh(&pn->l2tp_tunnel_list_lock);
+	bh = spin_lock_bh(&pn->l2tp_tunnel_list_lock, SOFTIRQ_ALL_MASK);
 	list_del_rcu(&tunnel->list);
-	spin_unlock_bh(&pn->l2tp_tunnel_list_lock);
+	spin_unlock_bh(&pn->l2tp_tunnel_list_lock, bh);
 
 	/* drop initial ref */
 	l2tp_tunnel_dec_refcount(tunnel);
@@ -1472,6 +1476,7 @@ static int l2tp_validate_socket(const struct sock *sk, const struct net *net,
 int l2tp_tunnel_register(struct l2tp_tunnel *tunnel, struct net *net,
 			 struct l2tp_tunnel_cfg *cfg)
 {
+	unsigned int bh;
 	struct l2tp_tunnel *tunnel_walk;
 	struct l2tp_net *pn;
 	struct socket *sock;
@@ -1502,17 +1507,17 @@ int l2tp_tunnel_register(struct l2tp_tunnel *tunnel, struct net *net,
 
 	pn = l2tp_pernet(net);
 
-	spin_lock_bh(&pn->l2tp_tunnel_list_lock);
+	bh = spin_lock_bh(&pn->l2tp_tunnel_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(tunnel_walk, &pn->l2tp_tunnel_list, list) {
 		if (tunnel_walk->tunnel_id == tunnel->tunnel_id) {
-			spin_unlock_bh(&pn->l2tp_tunnel_list_lock);
+			spin_unlock_bh(&pn->l2tp_tunnel_list_lock, bh);
 
 			ret = -EEXIST;
 			goto err_sock;
 		}
 	}
 	list_add_rcu(&tunnel->list, &pn->l2tp_tunnel_list);
-	spin_unlock_bh(&pn->l2tp_tunnel_list_lock);
+	spin_unlock_bh(&pn->l2tp_tunnel_list_lock, bh);
 
 	if (tunnel->encap == L2TP_ENCAPTYPE_UDP) {
 		struct udp_tunnel_sock_cfg udp_cfg = {
@@ -1583,6 +1588,7 @@ EXPORT_SYMBOL_GPL(l2tp_session_free);
  */
 void __l2tp_session_unhash(struct l2tp_session *session)
 {
+	unsigned int bh;
 	struct l2tp_tunnel *tunnel = session->tunnel;
 
 	/* Remove the session from core hashes */
@@ -1595,9 +1601,9 @@ void __l2tp_session_unhash(struct l2tp_session *session)
 		/* For L2TPv3 we have a per-net hash: remove from there, too */
 		if (tunnel->version != L2TP_HDR_VER_2) {
 			struct l2tp_net *pn = l2tp_pernet(tunnel->l2tp_net);
-			spin_lock_bh(&pn->l2tp_session_hlist_lock);
+			bh = spin_lock_bh(&pn->l2tp_session_hlist_lock, SOFTIRQ_ALL_MASK);
 			hlist_del_init_rcu(&session->global_hlist);
-			spin_unlock_bh(&pn->l2tp_session_hlist_lock);
+			spin_unlock_bh(&pn->l2tp_session_hlist_lock, bh);
 			synchronize_rcu();
 		}
 	}

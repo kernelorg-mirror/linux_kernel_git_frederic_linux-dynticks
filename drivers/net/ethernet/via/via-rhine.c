@@ -1542,23 +1542,25 @@ static void rhine_update_vcam(struct net_device *dev)
 
 static int rhine_vlan_rx_add_vid(struct net_device *dev, __be16 proto, u16 vid)
 {
+	unsigned int bh;
 	struct rhine_private *rp = netdev_priv(dev);
 
-	spin_lock_bh(&rp->lock);
+	bh = spin_lock_bh(&rp->lock, SOFTIRQ_ALL_MASK);
 	set_bit(vid, rp->active_vlans);
 	rhine_update_vcam(dev);
-	spin_unlock_bh(&rp->lock);
+	spin_unlock_bh(&rp->lock, bh);
 	return 0;
 }
 
 static int rhine_vlan_rx_kill_vid(struct net_device *dev, __be16 proto, u16 vid)
 {
+	unsigned int bh;
 	struct rhine_private *rp = netdev_priv(dev);
 
-	spin_lock_bh(&rp->lock);
+	bh = spin_lock_bh(&rp->lock, SOFTIRQ_ALL_MASK);
 	clear_bit(vid, rp->active_vlans);
 	rhine_update_vcam(dev);
-	spin_unlock_bh(&rp->lock);
+	spin_unlock_bh(&rp->lock, bh);
 	return 0;
 }
 
@@ -1732,6 +1734,7 @@ out_free_irq:
 
 static void rhine_reset_task(struct work_struct *work)
 {
+	unsigned int bh;
 	struct rhine_private *rp = container_of(work, struct rhine_private,
 						reset_task);
 	struct net_device *dev = rp->dev;
@@ -1743,7 +1746,7 @@ static void rhine_reset_task(struct work_struct *work)
 
 	napi_disable(&rp->napi);
 	netif_tx_disable(dev);
-	spin_lock_bh(&rp->lock);
+	bh = spin_lock_bh(&rp->lock, SOFTIRQ_ALL_MASK);
 
 	/* clear all descriptors */
 	free_tbufs(dev);
@@ -1755,7 +1758,7 @@ static void rhine_reset_task(struct work_struct *work)
 	rhine_chip_reset(dev);
 	init_registers(dev);
 
-	spin_unlock_bh(&rp->lock);
+	spin_unlock_bh(&rp->lock, bh);
 
 	netif_trans_update(dev); /* prevent tx timeout */
 	dev->stats.tx_errors++;
@@ -2224,12 +2227,13 @@ out_unlock:
 static void
 rhine_get_stats64(struct net_device *dev, struct rtnl_link_stats64 *stats)
 {
+	unsigned int bh;
 	struct rhine_private *rp = netdev_priv(dev);
 	unsigned int start;
 
-	spin_lock_bh(&rp->lock);
+	bh = spin_lock_bh(&rp->lock, SOFTIRQ_ALL_MASK);
 	rhine_update_rx_crc_and_missed_errord(rp);
-	spin_unlock_bh(&rp->lock);
+	spin_unlock_bh(&rp->lock, bh);
 
 	netdev_stats_to_stats64(stats, &dev->stats);
 
@@ -2549,6 +2553,7 @@ static int rhine_suspend(struct device *device)
 
 static int rhine_resume(struct device *device)
 {
+	unsigned int bh;
 	struct net_device *dev = dev_get_drvdata(device);
 	struct rhine_private *rp = netdev_priv(dev);
 
@@ -2561,9 +2566,9 @@ static int rhine_resume(struct device *device)
 	alloc_tbufs(dev);
 	rhine_reset_rbufs(rp);
 	rhine_task_enable(rp);
-	spin_lock_bh(&rp->lock);
+	bh = spin_lock_bh(&rp->lock, SOFTIRQ_ALL_MASK);
 	init_registers(dev);
-	spin_unlock_bh(&rp->lock);
+	spin_unlock_bh(&rp->lock, bh);
 
 	netif_device_attach(dev);
 

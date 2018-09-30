@@ -643,16 +643,17 @@ flush:
 static void
 ppp_sync_flush_output(struct syncppp *ap)
 {
+	unsigned int bh;
 	int done = 0;
 
-	spin_lock_bh(&ap->xmit_lock);
+	bh = spin_lock_bh(&ap->xmit_lock, SOFTIRQ_ALL_MASK);
 	if (ap->tpkt != NULL) {
 		kfree_skb(ap->tpkt);
 		ap->tpkt = NULL;
 		clear_bit(XMIT_FULL, &ap->xmit_flags);
 		done = 1;
 	}
-	spin_unlock_bh(&ap->xmit_lock);
+	spin_unlock_bh(&ap->xmit_lock, bh);
 	if (done)
 		ppp_output_wakeup(&ap->chan);
 }

@@ -145,6 +145,7 @@ EXPORT_SYMBOL_GPL(dccp_create_openreq_child);
 struct sock *dccp_check_req(struct sock *sk, struct sk_buff *skb,
 			    struct request_sock *req)
 {
+	unsigned int bh;
 	struct sock *child = NULL;
 	struct dccp_request_sock *dreq = dccp_rsk(req);
 	bool own_req;
@@ -154,7 +155,7 @@ struct sock *dccp_check_req(struct sock *sk, struct sk_buff *skb,
 	 * a protection for them, now this code runs without being protected
 	 * by the parent (listener) lock.
 	 */
-	spin_lock_bh(&dreq->dreq_lock);
+	bh = spin_lock_bh(&dreq->dreq_lock, SOFTIRQ_ALL_MASK);
 
 	/* Check for retransmitted REQUEST */
 	if (dccp_hdr(skb)->dccph_type == DCCP_PKT_REQUEST) {
@@ -208,7 +209,7 @@ drop:
 
 	inet_csk_reqsk_queue_drop(sk, req);
 out:
-	spin_unlock_bh(&dreq->dreq_lock);
+	spin_unlock_bh(&dreq->dreq_lock, bh);
 	return child;
 }
 

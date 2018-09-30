@@ -71,6 +71,7 @@ DEFINE_SIMPLE_ATTRIBUTE(lowpan_ctx_flag_c_fops, lowpan_ctx_flag_c_get,
 
 static int lowpan_ctx_plen_set(void *data, u64 val)
 {
+	unsigned int bh;
 	struct lowpan_iphc_ctx *ctx = data;
 	struct lowpan_iphc_ctx_table *t =
 		container_of(ctx, struct lowpan_iphc_ctx_table, table[ctx->id]);
@@ -78,22 +79,23 @@ static int lowpan_ctx_plen_set(void *data, u64 val)
 	if (val > 128)
 		return -EINVAL;
 
-	spin_lock_bh(&t->lock);
+	bh = spin_lock_bh(&t->lock, SOFTIRQ_ALL_MASK);
 	ctx->plen = val;
-	spin_unlock_bh(&t->lock);
+	spin_unlock_bh(&t->lock, bh);
 
 	return 0;
 }
 
 static int lowpan_ctx_plen_get(void *data, u64 *val)
 {
+	unsigned int bh;
 	struct lowpan_iphc_ctx *ctx = data;
 	struct lowpan_iphc_ctx_table *t =
 		container_of(ctx, struct lowpan_iphc_ctx_table, table[ctx->id]);
 
-	spin_lock_bh(&t->lock);
+	bh = spin_lock_bh(&t->lock, SOFTIRQ_ALL_MASK);
 	*val = ctx->plen;
-	spin_unlock_bh(&t->lock);
+	spin_unlock_bh(&t->lock, bh);
 	return 0;
 }
 
@@ -102,11 +104,12 @@ DEFINE_SIMPLE_ATTRIBUTE(lowpan_ctx_plen_fops, lowpan_ctx_plen_get,
 
 static int lowpan_ctx_pfx_show(struct seq_file *file, void *offset)
 {
+	unsigned int bh;
 	struct lowpan_iphc_ctx *ctx = file->private;
 	struct lowpan_iphc_ctx_table *t =
 		container_of(ctx, struct lowpan_iphc_ctx_table, table[ctx->id]);
 
-	spin_lock_bh(&t->lock);
+	bh = spin_lock_bh(&t->lock, SOFTIRQ_ALL_MASK);
 	seq_printf(file, "%04x:%04x:%04x:%04x:%04x:%04x:%04x:%04x\n",
 		   be16_to_cpu(ctx->pfx.s6_addr16[0]),
 		   be16_to_cpu(ctx->pfx.s6_addr16[1]),
@@ -116,7 +119,7 @@ static int lowpan_ctx_pfx_show(struct seq_file *file, void *offset)
 		   be16_to_cpu(ctx->pfx.s6_addr16[5]),
 		   be16_to_cpu(ctx->pfx.s6_addr16[6]),
 		   be16_to_cpu(ctx->pfx.s6_addr16[7]));
-	spin_unlock_bh(&t->lock);
+	spin_unlock_bh(&t->lock, bh);
 
 	return 0;
 }
@@ -130,6 +133,7 @@ static ssize_t lowpan_ctx_pfx_write(struct file *fp,
 				    const char __user *user_buf, size_t count,
 				    loff_t *ppos)
 {
+	unsigned int bh;
 	char buf[128] = {};
 	struct seq_file *file = fp->private_data;
 	struct lowpan_iphc_ctx *ctx = file->private;
@@ -152,10 +156,10 @@ static ssize_t lowpan_ctx_pfx_write(struct file *fp,
 		goto out;
 	}
 
-	spin_lock_bh(&t->lock);
+	bh = spin_lock_bh(&t->lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < 8; i++)
 		ctx->pfx.s6_addr16[i] = cpu_to_be16(addr[i] & 0xffff);
-	spin_unlock_bh(&t->lock);
+	spin_unlock_bh(&t->lock, bh);
 
 out:
 	return status;
@@ -213,13 +217,14 @@ static int lowpan_dev_debugfs_ctx_init(struct net_device *dev,
 
 static int lowpan_context_show(struct seq_file *file, void *offset)
 {
+	unsigned int bh;
 	struct lowpan_iphc_ctx_table *t = file->private;
 	int i;
 
 	seq_printf(file, "%3s|%-43s|%c\n", "cid", "prefix", 'C');
 	seq_puts(file, "-------------------------------------------------\n");
 
-	spin_lock_bh(&t->lock);
+	bh = spin_lock_bh(&t->lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < LOWPAN_IPHC_CTX_TABLE_SIZE; i++) {
 		if (!lowpan_iphc_ctx_is_active(&t->table[i]))
 			continue;
@@ -228,7 +233,7 @@ static int lowpan_context_show(struct seq_file *file, void *offset)
 			   &t->table[i].pfx, t->table[i].plen,
 			   lowpan_iphc_ctx_is_compression(&t->table[i]));
 	}
-	spin_unlock_bh(&t->lock);
+	spin_unlock_bh(&t->lock, bh);
 
 	return 0;
 }

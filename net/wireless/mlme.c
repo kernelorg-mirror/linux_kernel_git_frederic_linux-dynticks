@@ -427,11 +427,12 @@ struct cfg80211_mgmt_registration {
 static void
 cfg80211_process_mlme_unregistrations(struct cfg80211_registered_device *rdev)
 {
+	unsigned int bh;
 	struct cfg80211_mgmt_registration *reg;
 
 	ASSERT_RTNL();
 
-	spin_lock_bh(&rdev->mlme_unreg_lock);
+	bh = spin_lock_bh(&rdev->mlme_unreg_lock, SOFTIRQ_ALL_MASK);
 	while ((reg = list_first_entry_or_null(&rdev->mlme_unreg,
 					       struct cfg80211_mgmt_registration,
 					       list))) {
@@ -447,9 +448,9 @@ cfg80211_process_mlme_unregistrations(struct cfg80211_registered_device *rdev)
 
 		kfree(reg);
 
-		spin_lock_bh(&rdev->mlme_unreg_lock);
+		spin_lock_bh(&rdev->mlme_unreg_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&rdev->mlme_unreg_lock);
+	spin_unlock_bh(&rdev->mlme_unreg_lock, bh);
 }
 
 void cfg80211_mlme_unreg_wk(struct work_struct *wk)
@@ -468,6 +469,7 @@ int cfg80211_mlme_register_mgmt(struct wireless_dev *wdev, u32 snd_portid,
 				u16 frame_type, const u8 *match_data,
 				int match_len)
 {
+	unsigned int bh;
 	struct wiphy *wiphy = wdev->wiphy;
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
 	struct cfg80211_mgmt_registration *reg, *nreg;
@@ -491,7 +493,7 @@ int cfg80211_mlme_register_mgmt(struct wireless_dev *wdev, u32 snd_portid,
 	if (!nreg)
 		return -ENOMEM;
 
-	spin_lock_bh(&wdev->mgmt_registrations_lock);
+	bh = spin_lock_bh(&wdev->mgmt_registrations_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(reg, &wdev->mgmt_registrations, list) {
 		int mlen = min(match_len, reg->match_len);
@@ -516,7 +518,7 @@ int cfg80211_mlme_register_mgmt(struct wireless_dev *wdev, u32 snd_portid,
 	nreg->frame_type = cpu_to_le16(frame_type);
 	nreg->wdev = wdev;
 	list_add(&nreg->list, &wdev->mgmt_registrations);
-	spin_unlock_bh(&wdev->mgmt_registrations_lock);
+	spin_unlock_bh(&wdev->mgmt_registrations_lock, bh);
 
 	/* process all unregistrations to avoid driver confusion */
 	cfg80211_process_mlme_unregistrations(rdev);
@@ -527,18 +529,19 @@ int cfg80211_mlme_register_mgmt(struct wireless_dev *wdev, u32 snd_portid,
 	return 0;
 
  out:
-	spin_unlock_bh(&wdev->mgmt_registrations_lock);
+	spin_unlock_bh(&wdev->mgmt_registrations_lock, bh);
 
 	return err;
 }
 
 void cfg80211_mlme_unregister_socket(struct wireless_dev *wdev, u32 nlportid)
 {
+	unsigned int bh;
 	struct wiphy *wiphy = wdev->wiphy;
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
 	struct cfg80211_mgmt_registration *reg, *tmp;
 
-	spin_lock_bh(&wdev->mgmt_registrations_lock);
+	bh = spin_lock_bh(&wdev->mgmt_registrations_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe(reg, tmp, &wdev->mgmt_registrations, list) {
 		if (reg->nlportid != nlportid)
@@ -552,7 +555,7 @@ void cfg80211_mlme_unregister_socket(struct wireless_dev *wdev, u32 nlportid)
 		schedule_work(&rdev->mlme_unreg_wk);
 	}
 
-	spin_unlock_bh(&wdev->mgmt_registrations_lock);
+	spin_unlock_bh(&wdev->mgmt_registrations_lock, bh);
 
 	if (nlportid && rdev->crit_proto_nlportid == nlportid) {
 		rdev->crit_proto_nlportid = 0;
@@ -565,13 +568,14 @@ void cfg80211_mlme_unregister_socket(struct wireless_dev *wdev, u32 nlportid)
 
 void cfg80211_mlme_purge_registrations(struct wireless_dev *wdev)
 {
+	unsigned int bh;
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wdev->wiphy);
 
-	spin_lock_bh(&wdev->mgmt_registrations_lock);
+	bh = spin_lock_bh(&wdev->mgmt_registrations_lock, SOFTIRQ_ALL_MASK);
 	spin_lock(&rdev->mlme_unreg_lock);
 	list_splice_tail_init(&wdev->mgmt_registrations, &rdev->mlme_unreg);
 	spin_unlock(&rdev->mlme_unreg_lock);
-	spin_unlock_bh(&wdev->mgmt_registrations_lock);
+	spin_unlock_bh(&wdev->mgmt_registrations_lock, bh);
 
 	cfg80211_process_mlme_unregistrations(rdev);
 }
@@ -695,6 +699,7 @@ int cfg80211_mlme_mgmt_tx(struct cfg80211_registered_device *rdev,
 bool cfg80211_rx_mgmt(struct wireless_dev *wdev, int freq, int sig_dbm,
 		      const u8 *buf, size_t len, u32 flags)
 {
+	unsigned int bh;
 	struct wiphy *wiphy = wdev->wiphy;
 	struct cfg80211_registered_device *rdev = wiphy_to_rdev(wiphy);
 	struct cfg80211_mgmt_registration *reg;
@@ -719,7 +724,7 @@ bool cfg80211_rx_mgmt(struct wireless_dev *wdev, int freq, int sig_dbm,
 	data = buf + ieee80211_hdrlen(mgmt->frame_control);
 	data_len = len - ieee80211_hdrlen(mgmt->frame_control);
 
-	spin_lock_bh(&wdev->mgmt_registrations_lock);
+	bh = spin_lock_bh(&wdev->mgmt_registrations_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(reg, &wdev->mgmt_registrations, list) {
 		if (reg->frame_type != ftype)
@@ -743,7 +748,7 @@ bool cfg80211_rx_mgmt(struct wireless_dev *wdev, int freq, int sig_dbm,
 		break;
 	}
 
-	spin_unlock_bh(&wdev->mgmt_registrations_lock);
+	spin_unlock_bh(&wdev->mgmt_registrations_lock, bh);
 
 	trace_cfg80211_return_bool(result);
 	return result;

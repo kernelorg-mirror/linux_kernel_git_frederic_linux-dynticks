@@ -373,10 +373,11 @@ ath5k_ani_lower_immunity(struct ath5k_hw *ah, struct ath5k_ani_state *as)
 static int
 ath5k_hw_ani_get_listen_time(struct ath5k_hw *ah, struct ath5k_ani_state *as)
 {
+	unsigned int bh;
 	struct ath_common *common = ath5k_hw_common(ah);
 	int listen;
 
-	spin_lock_bh(&common->cc_lock);
+	bh = spin_lock_bh(&common->cc_lock, SOFTIRQ_ALL_MASK);
 
 	ath_hw_cycle_counters_update(common);
 	memcpy(&as->last_cc, &common->cc_ani, sizeof(as->last_cc));
@@ -384,7 +385,7 @@ ath5k_hw_ani_get_listen_time(struct ath5k_hw *ah, struct ath5k_ani_state *as)
 	/* clears common->cc_ani */
 	listen = ath_hw_get_listen_time(common);
 
-	spin_unlock_bh(&common->cc_lock);
+	spin_unlock_bh(&common->cc_lock, bh);
 
 	return listen;
 }

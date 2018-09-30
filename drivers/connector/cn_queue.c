@@ -75,6 +75,7 @@ int cn_queue_add_callback(struct cn_queue_dev *dev, const char *name,
 			  void (*callback)(struct cn_msg *,
 					   struct netlink_skb_parms *))
 {
+	unsigned int bh;
 	struct cn_callback_entry *cbq, *__cbq;
 	int found = 0;
 
@@ -82,7 +83,7 @@ int cn_queue_add_callback(struct cn_queue_dev *dev, const char *name,
 	if (!cbq)
 		return -ENOMEM;
 
-	spin_lock_bh(&dev->queue_lock);
+	bh = spin_lock_bh(&dev->queue_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(__cbq, &dev->queue_list, callback_entry) {
 		if (cn_cb_equal(&__cbq->id.id, id)) {
 			found = 1;
@@ -91,7 +92,7 @@ int cn_queue_add_callback(struct cn_queue_dev *dev, const char *name,
 	}
 	if (!found)
 		list_add_tail(&cbq->callback_entry, &dev->queue_list);
-	spin_unlock_bh(&dev->queue_lock);
+	spin_unlock_bh(&dev->queue_lock, bh);
 
 	if (found) {
 		cn_queue_release_callback(cbq);
@@ -106,10 +107,11 @@ int cn_queue_add_callback(struct cn_queue_dev *dev, const char *name,
 
 void cn_queue_del_callback(struct cn_queue_dev *dev, struct cb_id *id)
 {
+	unsigned int bh;
 	struct cn_callback_entry *cbq, *n;
 	int found = 0;
 
-	spin_lock_bh(&dev->queue_lock);
+	bh = spin_lock_bh(&dev->queue_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(cbq, n, &dev->queue_list, callback_entry) {
 		if (cn_cb_equal(&cbq->id.id, id)) {
 			list_del(&cbq->callback_entry);
@@ -117,7 +119,7 @@ void cn_queue_del_callback(struct cn_queue_dev *dev, struct cb_id *id)
 			break;
 		}
 	}
-	spin_unlock_bh(&dev->queue_lock);
+	spin_unlock_bh(&dev->queue_lock, bh);
 
 	if (found)
 		cn_queue_release_callback(cbq);
@@ -143,12 +145,13 @@ struct cn_queue_dev *cn_queue_alloc_dev(const char *name, struct sock *nls)
 
 void cn_queue_free_dev(struct cn_queue_dev *dev)
 {
+	unsigned int bh;
 	struct cn_callback_entry *cbq, *n;
 
-	spin_lock_bh(&dev->queue_lock);
+	bh = spin_lock_bh(&dev->queue_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(cbq, n, &dev->queue_list, callback_entry)
 		list_del(&cbq->callback_entry);
-	spin_unlock_bh(&dev->queue_lock);
+	spin_unlock_bh(&dev->queue_lock, bh);
 
 	while (atomic_read(&dev->refcnt)) {
 		pr_info("Waiting for %s to become free: refcnt=%d.\n",

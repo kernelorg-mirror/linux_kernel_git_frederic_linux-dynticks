@@ -129,9 +129,10 @@ struct datalink_proto *register_snap_client(const unsigned char *desc,
 							   struct packet_type *,
 							   struct net_device *))
 {
+	unsigned int bh;
 	struct datalink_proto *proto = NULL;
 
-	spin_lock_bh(&snap_lock);
+	bh = spin_lock_bh(&snap_lock, SOFTIRQ_ALL_MASK);
 
 	if (find_snap_client(desc))
 		goto out;
@@ -145,7 +146,7 @@ struct datalink_proto *register_snap_client(const unsigned char *desc,
 		list_add_rcu(&proto->node, &snap_list);
 	}
 out:
-	spin_unlock_bh(&snap_lock);
+	spin_unlock_bh(&snap_lock, bh);
 
 	return proto;
 }
@@ -155,9 +156,10 @@ out:
  */
 void unregister_snap_client(struct datalink_proto *proto)
 {
-	spin_lock_bh(&snap_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&snap_lock, SOFTIRQ_ALL_MASK);
 	list_del_rcu(&proto->node);
-	spin_unlock_bh(&snap_lock);
+	spin_unlock_bh(&snap_lock, bh);
 
 	synchronize_net();
 

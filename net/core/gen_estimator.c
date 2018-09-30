@@ -170,7 +170,7 @@ int gen_new_estimator(struct gnet_stats_basic_packed *bstats,
 	est->last_packets = b.packets;
 
 	if (lock)
-		spin_lock_bh(lock);
+		bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 	old = rcu_dereference_protected(*rate_est, 1);
 	if (old) {
 		del_timer_sync(&old->timer);
@@ -184,7 +184,7 @@ int gen_new_estimator(struct gnet_stats_basic_packed *bstats,
 
 	rcu_assign_pointer(*rate_est, est);
 	if (lock)
-		spin_unlock_bh(lock);
+		spin_unlock_bh(lock, bh);
 	if (old)
 		kfree_rcu(old, rcu);
 	return 0;

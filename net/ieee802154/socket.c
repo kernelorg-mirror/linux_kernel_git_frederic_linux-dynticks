@@ -541,6 +541,7 @@ out:
 
 static int dgram_ioctl(struct sock *sk, int cmd, unsigned long arg)
 {
+	unsigned int bh;
 	switch (cmd) {
 	case SIOCOUTQ:
 	{
@@ -555,7 +556,7 @@ static int dgram_ioctl(struct sock *sk, int cmd, unsigned long arg)
 		unsigned long amount;
 
 		amount = 0;
-		spin_lock_bh(&sk->sk_receive_queue.lock);
+		bh = spin_lock_bh(&sk->sk_receive_queue.lock, SOFTIRQ_ALL_MASK);
 		skb = skb_peek(&sk->sk_receive_queue);
 		if (skb) {
 			/* We will only return the amount
@@ -564,7 +565,7 @@ static int dgram_ioctl(struct sock *sk, int cmd, unsigned long arg)
 			 */
 			amount = skb->len - ieee802154_hdr_length(skb);
 		}
-		spin_unlock_bh(&sk->sk_receive_queue.lock);
+		spin_unlock_bh(&sk->sk_receive_queue.lock, bh);
 		return put_user(amount, (int __user *)arg);
 	}
 	}

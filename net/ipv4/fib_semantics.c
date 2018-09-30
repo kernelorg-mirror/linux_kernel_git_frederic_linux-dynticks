@@ -244,7 +244,8 @@ EXPORT_SYMBOL_GPL(free_fib_info);
 
 void fib_release_info(struct fib_info *fi)
 {
-	spin_lock_bh(&fib_info_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&fib_info_lock, SOFTIRQ_ALL_MASK);
 	if (fi && --fi->fib_treeref == 0) {
 		hlist_del(&fi->fib_hash);
 		if (fi->fib_prefsrc)
@@ -257,7 +258,7 @@ void fib_release_info(struct fib_info *fi)
 		fi->fib_dead = 1;
 		fib_info_put(fi);
 	}
-	spin_unlock_bh(&fib_info_lock);
+	spin_unlock_bh(&fib_info_lock, bh);
 }
 
 static inline int nh_comp(const struct fib_info *fi, const struct fib_info *ofi)
@@ -936,11 +937,12 @@ static void fib_info_hash_move(struct hlist_head *new_info_hash,
 			       struct hlist_head *new_laddrhash,
 			       unsigned int new_size)
 {
+	unsigned int bh;
 	struct hlist_head *old_info_hash, *old_laddrhash;
 	unsigned int old_size = fib_info_hash_size;
 	unsigned int i, bytes;
 
-	spin_lock_bh(&fib_info_lock);
+	bh = spin_lock_bh(&fib_info_lock, SOFTIRQ_ALL_MASK);
 	old_info_hash = fib_info_hash;
 	old_laddrhash = fib_info_laddrhash;
 	fib_info_hash_size = new_size;
@@ -977,7 +979,7 @@ static void fib_info_hash_move(struct hlist_head *new_info_hash,
 	}
 	fib_info_laddrhash = new_laddrhash;
 
-	spin_unlock_bh(&fib_info_lock);
+	spin_unlock_bh(&fib_info_lock, bh);
 
 	bytes = old_size * sizeof(struct hlist_head *);
 	fib_info_hash_free(old_info_hash, bytes);
@@ -1028,6 +1030,7 @@ fib_convert_metrics(struct fib_info *fi, const struct fib_config *cfg)
 struct fib_info *fib_create_info(struct fib_config *cfg,
 				 struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	int err;
 	struct fib_info *fi = NULL;
 	struct fib_info *ofi;
@@ -1254,7 +1257,7 @@ link_it:
 
 	fi->fib_treeref++;
 	refcount_set(&fi->fib_clntref, 1);
-	spin_lock_bh(&fib_info_lock);
+	bh = spin_lock_bh(&fib_info_lock, SOFTIRQ_ALL_MASK);
 	hlist_add_head(&fi->fib_hash,
 		       &fib_info_hash[fib_info_hashfn(fi)]);
 	if (fi->fib_prefsrc) {
@@ -1273,7 +1276,7 @@ link_it:
 		head = &fib_info_devhash[hash];
 		hlist_add_head(&nexthop_nh->nh_hash, head);
 	} endfor_nexthops(fi)
-	spin_unlock_bh(&fib_info_lock);
+	spin_unlock_bh(&fib_info_lock, bh);
 	return fi;
 
 err_inval:

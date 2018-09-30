@@ -48,6 +48,7 @@ static bool mesh_peer_tbtt_adjusting(struct ieee802_11_elems *ie)
 
 void mesh_sync_adjust_tsf(struct ieee80211_sub_if_data *sdata)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
 	/* sdata->vif.bss_conf.beacon_int in 1024us units, 0.04% */
@@ -55,7 +56,7 @@ void mesh_sync_adjust_tsf(struct ieee80211_sub_if_data *sdata)
 	u64 tsf;
 	u64 tsfdelta;
 
-	spin_lock_bh(&ifmsh->sync_offset_lock);
+	bh = spin_lock_bh(&ifmsh->sync_offset_lock, SOFTIRQ_ALL_MASK);
 	if (ifmsh->sync_offset_clockdrift_max < beacon_int_fraction) {
 		msync_dbg(sdata, "TSF : max clockdrift=%lld; adjusting\n",
 			  (long long) ifmsh->sync_offset_clockdrift_max);
@@ -68,7 +69,7 @@ void mesh_sync_adjust_tsf(struct ieee80211_sub_if_data *sdata)
 		tsfdelta = -beacon_int_fraction;
 		ifmsh->sync_offset_clockdrift_max -= beacon_int_fraction;
 	}
-	spin_unlock_bh(&ifmsh->sync_offset_lock);
+	spin_unlock_bh(&ifmsh->sync_offset_lock, bh);
 
 	if (local->ops->offset_tsf) {
 		drv_offset_tsf(local, sdata, tsfdelta);
@@ -85,6 +86,7 @@ static void mesh_sync_offset_rx_bcn_presp(struct ieee80211_sub_if_data *sdata,
 				   struct ieee802_11_elems *elems,
 				   struct ieee80211_rx_status *rx_status)
 {
+	unsigned int bh;
 	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
 	struct ieee80211_local *local = sdata->local;
 	struct sta_info *sta;
@@ -150,10 +152,10 @@ static void mesh_sync_offset_rx_bcn_presp(struct ieee80211_sub_if_data *sdata,
 			goto no_sync;
 		}
 
-		spin_lock_bh(&ifmsh->sync_offset_lock);
+		bh = spin_lock_bh(&ifmsh->sync_offset_lock, SOFTIRQ_ALL_MASK);
 		if (t_clockdrift > ifmsh->sync_offset_clockdrift_max)
 			ifmsh->sync_offset_clockdrift_max = t_clockdrift;
-		spin_unlock_bh(&ifmsh->sync_offset_lock);
+		spin_unlock_bh(&ifmsh->sync_offset_lock, bh);
 	} else {
 		sta->mesh->t_offset_setpoint = sta->mesh->t_offset - TOFFSET_SET_MARGIN;
 		set_sta_flag(sta, WLAN_STA_TOFFSET_KNOWN);
@@ -170,12 +172,13 @@ no_sync:
 static void mesh_sync_offset_adjust_tsf(struct ieee80211_sub_if_data *sdata,
 					 struct beacon_data *beacon)
 {
+	unsigned int bh;
 	struct ieee80211_if_mesh *ifmsh = &sdata->u.mesh;
 
 	WARN_ON(ifmsh->mesh_sp_id != IEEE80211_SYNC_METHOD_NEIGHBOR_OFFSET);
 	WARN_ON(!rcu_read_lock_held());
 
-	spin_lock_bh(&ifmsh->sync_offset_lock);
+	bh = spin_lock_bh(&ifmsh->sync_offset_lock, SOFTIRQ_ALL_MASK);
 
 	if (ifmsh->sync_offset_clockdrift_max > TOFFSET_MINIMUM_ADJUSTMENT) {
 		/* Since ajusting the tsf here would
@@ -193,7 +196,7 @@ static void mesh_sync_offset_adjust_tsf(struct ieee80211_sub_if_data *sdata,
 			  (long long)ifmsh->sync_offset_clockdrift_max);
 		ifmsh->sync_offset_clockdrift_max = 0;
 	}
-	spin_unlock_bh(&ifmsh->sync_offset_lock);
+	spin_unlock_bh(&ifmsh->sync_offset_lock, bh);
 }
 
 static const struct sync_method sync_methods[] = {

@@ -506,6 +506,7 @@ static void rtl92ee_dm_find_minimum_rssi(struct ieee80211_hw *hw)
 
 static void rtl92ee_dm_check_rssi_monitor(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct dig_t *dm_dig = &rtlpriv->dm_digtable;
 	struct rtl_mac *mac = rtl_mac(rtlpriv);
@@ -519,7 +520,7 @@ static void rtl92ee_dm_check_rssi_monitor(struct ieee80211_hw *hw)
 	    mac->opmode == NL80211_IFTYPE_ADHOC ||
 	    mac->opmode == NL80211_IFTYPE_MESH_POINT) {
 		/* AP & ADHOC & MESH */
-		spin_lock_bh(&rtlpriv->locks.entry_list_lock);
+		bh = spin_lock_bh(&rtlpriv->locks.entry_list_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(drv_priv, &rtlpriv->entry_list, list) {
 			struct rssi_sta *stat = &drv_priv->rssi_stat;
 
@@ -534,7 +535,7 @@ static void rtl92ee_dm_check_rssi_monitor(struct ieee80211_hw *hw)
 			h2c[0] = ++i;
 			rtl92ee_fill_h2c_cmd(hw, H2C_92E_RSSI_REPORT, 4, h2c);
 		}
-		spin_unlock_bh(&rtlpriv->locks.entry_list_lock);
+		spin_unlock_bh(&rtlpriv->locks.entry_list_lock, bh);
 
 		/* If associated entry is found */
 		if (max != 0) {
@@ -1075,6 +1076,7 @@ void rtl92ee_dm_init(struct ieee80211_hw *hw)
 
 static void rtl92ee_dm_common_info_self_update(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_sta_info *drv_priv;
 	u8 cnt = 0;
@@ -1090,11 +1092,11 @@ static void rtl92ee_dm_common_info_self_update(struct ieee80211_hw *hw)
 	if (rtlpriv->mac80211.opmode == NL80211_IFTYPE_AP ||
 	    rtlpriv->mac80211.opmode == NL80211_IFTYPE_ADHOC ||
 	    rtlpriv->mac80211.opmode == NL80211_IFTYPE_MESH_POINT) {
-		spin_lock_bh(&rtlpriv->locks.entry_list_lock);
+		bh = spin_lock_bh(&rtlpriv->locks.entry_list_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(drv_priv, &rtlpriv->entry_list, list) {
 			cnt++;
 		}
-		spin_unlock_bh(&rtlpriv->locks.entry_list_lock);
+		spin_unlock_bh(&rtlpriv->locks.entry_list_lock, bh);
 
 		if (cnt == 1)
 			rtlpriv->dm.one_entry_only = true;

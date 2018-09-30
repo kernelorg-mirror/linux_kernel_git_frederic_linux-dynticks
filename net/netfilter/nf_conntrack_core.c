@@ -1925,6 +1925,7 @@ static int iter_net_only(struct nf_conn *i, void *data)
 static void
 __nf_ct_unconfirmed_destroy(struct net *net)
 {
+	unsigned int bh;
 	int cpu;
 
 	for_each_possible_cpu(cpu) {
@@ -1934,7 +1935,7 @@ __nf_ct_unconfirmed_destroy(struct net *net)
 
 		pcpu = per_cpu_ptr(net->ct.pcpu_lists, cpu);
 
-		spin_lock_bh(&pcpu->lock);
+		bh = spin_lock_bh(&pcpu->lock, SOFTIRQ_ALL_MASK);
 		hlist_nulls_for_each_entry(h, n, &pcpu->unconfirmed, hnnode) {
 			struct nf_conn *ct;
 
@@ -1945,7 +1946,7 @@ __nf_ct_unconfirmed_destroy(struct net *net)
 			 */
 			set_bit(IPS_DYING_BIT, &ct->status);
 		}
-		spin_unlock_bh(&pcpu->lock);
+		spin_unlock_bh(&pcpu->lock, bh);
 		cond_resched();
 	}
 }

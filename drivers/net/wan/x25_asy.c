@@ -120,6 +120,7 @@ static void x25_asy_free(struct x25_asy *sl)
 
 static int x25_asy_change_mtu(struct net_device *dev, int newmtu)
 {
+	unsigned int bh;
 	struct x25_asy *sl = netdev_priv(dev);
 	unsigned char *xbuff, *rbuff;
 	int len;
@@ -134,7 +135,7 @@ static int x25_asy_change_mtu(struct net_device *dev, int newmtu)
 		return -ENOMEM;
 	}
 
-	spin_lock_bh(&sl->lock);
+	bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 	xbuff    = xchg(&sl->xbuff, xbuff);
 	if (sl->xleft)  {
 		if (sl->xleft <= len)  {
@@ -160,7 +161,7 @@ static int x25_asy_change_mtu(struct net_device *dev, int newmtu)
 	dev->mtu    = newmtu;
 	sl->buffsize = len;
 
-	spin_unlock_bh(&sl->lock);
+	spin_unlock_bh(&sl->lock, bh);
 
 	kfree(xbuff);
 	kfree(rbuff);
@@ -795,6 +796,7 @@ static int __init init_x25_asy(void)
 
 static void __exit exit_x25_asy(void)
 {
+	unsigned int bh;
 	struct net_device *dev;
 	int i;
 
@@ -803,11 +805,11 @@ static void __exit exit_x25_asy(void)
 		if (dev) {
 			struct x25_asy *sl = netdev_priv(dev);
 
-			spin_lock_bh(&sl->lock);
+			bh = spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
 			if (sl->tty)
 				tty_hangup(sl->tty);
 
-			spin_unlock_bh(&sl->lock);
+			spin_unlock_bh(&sl->lock, bh);
 			/*
 			 * VSV = if dev->start==0, then device
 			 * unregistered while close proc.

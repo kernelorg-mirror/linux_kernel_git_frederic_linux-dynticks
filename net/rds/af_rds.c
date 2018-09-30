@@ -58,6 +58,7 @@ DECLARE_WAIT_QUEUE_HEAD(rds_poll_waitq);
  */
 static int rds_release(struct socket *sock)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 	struct rds_sock *rs;
 
@@ -80,10 +81,10 @@ static int rds_release(struct socket *sock)
 	rds_notify_queue_get(rs, NULL);
 	rds_notify_msg_zcopy_purge(&rs->rs_zcookie_queue);
 
-	spin_lock_bh(&rds_sock_lock);
+	bh = spin_lock_bh(&rds_sock_lock, SOFTIRQ_ALL_MASK);
 	list_del_init(&rs->rs_item);
 	rds_sock_count--;
-	spin_unlock_bh(&rds_sock_lock);
+	spin_unlock_bh(&rds_sock_lock, bh);
 
 	rds_trans_put(rs->rs_transport);
 
@@ -628,6 +629,7 @@ static void rds_sock_destruct(struct sock *sk)
 
 static int __rds_create(struct socket *sock, struct sock *sk, int protocol)
 {
+	unsigned int bh;
 	struct rds_sock *rs;
 
 	sock_init_data(sock, sk);
@@ -647,10 +649,10 @@ static int __rds_create(struct socket *sock, struct sock *sk, int protocol)
 	rs->rs_rdma_keys = RB_ROOT;
 	rs->rs_rx_traces = 0;
 
-	spin_lock_bh(&rds_sock_lock);
+	bh = spin_lock_bh(&rds_sock_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&rs->rs_item, &rds_sock_list);
 	rds_sock_count++;
-	spin_unlock_bh(&rds_sock_lock);
+	spin_unlock_bh(&rds_sock_lock, bh);
 
 	return 0;
 }
@@ -690,13 +692,14 @@ static void rds_sock_inc_info(struct socket *sock, unsigned int len,
 			      struct rds_info_iterator *iter,
 			      struct rds_info_lengths *lens)
 {
+	unsigned int bh;
 	struct rds_sock *rs;
 	struct rds_incoming *inc;
 	unsigned int total = 0;
 
 	len /= sizeof(struct rds_info_message);
 
-	spin_lock_bh(&rds_sock_lock);
+	bh = spin_lock_bh(&rds_sock_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(rs, &rds_sock_list, rs_item) {
 		read_lock(&rs->rs_recv_lock);
@@ -714,7 +717,7 @@ static void rds_sock_inc_info(struct socket *sock, unsigned int len,
 		read_unlock(&rs->rs_recv_lock);
 	}
 
-	spin_unlock_bh(&rds_sock_lock);
+	spin_unlock_bh(&rds_sock_lock, bh);
 
 	lens->nr = total;
 	lens->each = sizeof(struct rds_info_message);
@@ -724,12 +727,13 @@ static void rds_sock_info(struct socket *sock, unsigned int len,
 			  struct rds_info_iterator *iter,
 			  struct rds_info_lengths *lens)
 {
+	unsigned int bh;
 	struct rds_info_socket sinfo;
 	struct rds_sock *rs;
 
 	len /= sizeof(struct rds_info_socket);
 
-	spin_lock_bh(&rds_sock_lock);
+	bh = spin_lock_bh(&rds_sock_lock, SOFTIRQ_ALL_MASK);
 
 	if (len < rds_sock_count)
 		goto out;
@@ -750,7 +754,7 @@ out:
 	lens->nr = rds_sock_count;
 	lens->each = sizeof(struct rds_info_socket);
 
-	spin_unlock_bh(&rds_sock_lock);
+	spin_unlock_bh(&rds_sock_lock, bh);
 }
 
 static void rds_exit(void)

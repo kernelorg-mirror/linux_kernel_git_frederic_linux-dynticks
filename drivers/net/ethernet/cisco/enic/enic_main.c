@@ -180,11 +180,12 @@ static void enic_unset_affinity_hint(struct enic *enic)
 static void enic_udp_tunnel_add(struct net_device *netdev,
 				struct udp_tunnel_info *ti)
 {
+	unsigned int bh;
 	struct enic *enic = netdev_priv(netdev);
 	__be16 port = ti->port;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 
 	if (ti->type != UDP_TUNNEL_TYPE_VXLAN) {
 		netdev_info(netdev, "udp_tnl: only vxlan tunnel offload supported");
@@ -240,16 +241,17 @@ error:
 	netdev_info(netdev, "failed to offload udp port: %d, sa_family: %d, type: %d",
 		    ntohs(port), ti->sa_family, ti->type);
 unlock:
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 }
 
 static void enic_udp_tunnel_del(struct net_device *netdev,
 				struct udp_tunnel_info *ti)
 {
+	unsigned int bh;
 	struct enic *enic = netdev_priv(netdev);
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 
 	if ((ntohs(ti->port) != enic->vxlan.vxlan_udp_port_number) ||
 	    ti->type != UDP_TUNNEL_TYPE_VXLAN) {
@@ -272,7 +274,7 @@ static void enic_udp_tunnel_del(struct net_device *netdev,
 		    ntohs(ti->port), ti->sa_family);
 
 unlock:
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 }
 
 static netdev_features_t enic_features_check(struct sk_buff *skb,
@@ -1882,9 +1884,10 @@ static void enic_set_rx_coal_setting(struct enic *enic)
 
 static int enic_dev_notify_set(struct enic *enic)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	switch (vnic_dev_get_intr_mode(enic->vdev)) {
 	case VNIC_DEV_INTR_MODE_INTX:
 		err = vnic_dev_notify_set(enic->vdev,
@@ -1898,7 +1901,7 @@ static int enic_dev_notify_set(struct enic *enic)
 		err = vnic_dev_notify_set(enic->vdev, -1 /* no intr */);
 		break;
 	}
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
@@ -2209,6 +2212,7 @@ static int enic_dev_hang_reset(struct enic *enic)
 
 int __enic_set_rsskey(struct enic *enic)
 {
+	unsigned int bh;
 	union vnic_rss_key *rss_key_buf_va;
 	dma_addr_t rss_key_buf_pa;
 	int i, kidx, bidx, err;
@@ -2224,11 +2228,11 @@ int __enic_set_rsskey(struct enic *enic)
 		bidx = i % ENIC_RSS_BYTES_PER_KEY;
 		rss_key_buf_va->key[kidx].b[bidx] = enic->rss_key[i];
 	}
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = enic_set_rss_key(enic,
 		rss_key_buf_pa,
 		sizeof(union vnic_rss_key));
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	pci_free_consistent(enic->pdev, sizeof(union vnic_rss_key),
 		rss_key_buf_va, rss_key_buf_pa);
@@ -2245,6 +2249,7 @@ static int enic_set_rsskey(struct enic *enic)
 
 static int enic_set_rsscpu(struct enic *enic, u8 rss_hash_bits)
 {
+	unsigned int bh;
 	dma_addr_t rss_cpu_buf_pa;
 	union vnic_rss_cpu *rss_cpu_buf_va = NULL;
 	unsigned int i;
@@ -2258,11 +2263,11 @@ static int enic_set_rsscpu(struct enic *enic, u8 rss_hash_bits)
 	for (i = 0; i < (1 << rss_hash_bits); i++)
 		(*rss_cpu_buf_va).cpu[i/4].b[i%4] = i % enic->rq_count;
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = enic_set_rss_cpu(enic,
 		rss_cpu_buf_pa,
 		sizeof(union vnic_rss_cpu));
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	pci_free_consistent(enic->pdev, sizeof(union vnic_rss_cpu),
 		rss_cpu_buf_va, rss_cpu_buf_pa);
@@ -2273,6 +2278,7 @@ static int enic_set_rsscpu(struct enic *enic, u8 rss_hash_bits)
 static int enic_set_niccfg(struct enic *enic, u8 rss_default_cpu,
 	u8 rss_hash_type, u8 rss_hash_bits, u8 rss_base_cpu, u8 rss_enable)
 {
+	unsigned int bh;
 	const u8 tso_ipid_split_en = 0;
 	const u8 ig_vlan_strip_en = 1;
 	int err;
@@ -2280,19 +2286,20 @@ static int enic_set_niccfg(struct enic *enic, u8 rss_default_cpu,
 	/* Enable VLAN tag stripping.
 	*/
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	err = enic_set_nic_cfg(enic,
 		rss_default_cpu, rss_hash_type,
 		rss_hash_bits, rss_base_cpu,
 		rss_enable, tso_ipid_split_en,
 		ig_vlan_strip_en);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 
 	return err;
 }
 
 static int enic_set_rss_nic_cfg(struct enic *enic)
 {
+	unsigned int bh;
 	struct device *dev = enic_get_dev(enic);
 	const u8 rss_default_cpu = 0;
 	const u8 rss_hash_bits = 7;
@@ -2301,9 +2308,9 @@ static int enic_set_rss_nic_cfg(struct enic *enic)
 	int res;
 	u8 rss_enable = ENIC_SETTING(enic, RSS) && (enic->rq_count > 1);
 
-	spin_lock_bh(&enic->devcmd_lock);
+	bh = spin_lock_bh(&enic->devcmd_lock, SOFTIRQ_ALL_MASK);
 	res = vnic_dev_capable_rss_hash_type(enic->vdev, &rss_hash_type);
-	spin_unlock_bh(&enic->devcmd_lock);
+	spin_unlock_bh(&enic->devcmd_lock, bh);
 	if (res) {
 		/* defaults for old adapters
 		 */

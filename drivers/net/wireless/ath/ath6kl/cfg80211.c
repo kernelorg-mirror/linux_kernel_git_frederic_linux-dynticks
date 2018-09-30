@@ -1537,12 +1537,13 @@ static struct wireless_dev *ath6kl_cfg80211_add_iface(struct wiphy *wiphy,
 static int ath6kl_cfg80211_del_iface(struct wiphy *wiphy,
 				     struct wireless_dev *wdev)
 {
+	unsigned int bh;
 	struct ath6kl *ar = wiphy_priv(wiphy);
 	struct ath6kl_vif *vif = netdev_priv(wdev->netdev);
 
-	spin_lock_bh(&ar->list_lock);
+	bh = spin_lock_bh(&ar->list_lock, SOFTIRQ_ALL_MASK);
 	list_del(&vif->list);
-	spin_unlock_bh(&ar->list_lock);
+	spin_unlock_bh(&ar->list_lock, bh);
 
 	ath6kl_cfg80211_vif_stop(vif, test_bit(WMI_READY, &ar->flag));
 
@@ -2220,6 +2221,7 @@ static int ath6kl_wow_suspend_vif(struct ath6kl_vif *vif,
 
 static int ath6kl_wow_suspend(struct ath6kl *ar, struct cfg80211_wowlan *wow)
 {
+	unsigned int bh;
 	struct ath6kl_vif *first_vif, *vif;
 	int ret = 0;
 	u32 filter = 0;
@@ -2235,7 +2237,7 @@ static int ath6kl_wow_suspend(struct ath6kl *ar, struct cfg80211_wowlan *wow)
 		return -EINVAL;
 
 	/* install filters for each connected vif */
-	spin_lock_bh(&ar->list_lock);
+	bh = spin_lock_bh(&ar->list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(vif, &ar->vif_list, list) {
 		if (!test_bit(CONNECTED, &vif->flags) ||
 		    !ath6kl_cfg80211_ready(vif))
@@ -2246,7 +2248,7 @@ static int ath6kl_wow_suspend(struct ath6kl *ar, struct cfg80211_wowlan *wow)
 		if (ret)
 			break;
 	}
-	spin_unlock_bh(&ar->list_lock);
+	spin_unlock_bh(&ar->list_lock, bh);
 
 	if (!connected)
 		return -ENOTCONN;
@@ -2303,6 +2305,7 @@ static int ath6kl_wow_resume_vif(struct ath6kl_vif *vif)
 
 static int ath6kl_wow_resume(struct ath6kl *ar)
 {
+	unsigned int bh;
 	struct ath6kl_vif *vif;
 	int ret;
 
@@ -2321,7 +2324,7 @@ static int ath6kl_wow_resume(struct ath6kl *ar)
 		goto cleanup;
 	}
 
-	spin_lock_bh(&ar->list_lock);
+	bh = spin_lock_bh(&ar->list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(vif, &ar->vif_list, list) {
 		if (!test_bit(CONNECTED, &vif->flags) ||
 		    !ath6kl_cfg80211_ready(vif))
@@ -2330,7 +2333,7 @@ static int ath6kl_wow_resume(struct ath6kl *ar)
 		if (ret)
 			break;
 	}
-	spin_unlock_bh(&ar->list_lock);
+	spin_unlock_bh(&ar->list_lock, bh);
 
 	if (ret)
 		goto cleanup;
@@ -3104,6 +3107,7 @@ static bool ath6kl_mgmt_powersave_ap(struct ath6kl_vif *vif,
 				     bool *more_data,
 				     bool no_cck)
 {
+	unsigned int bh;
 	struct ieee80211_mgmt *mgmt;
 	struct ath6kl_sta *conn;
 	bool is_psq_empty = false;
@@ -3134,12 +3138,12 @@ static bool ath6kl_mgmt_powersave_ap(struct ath6kl_vif *vif,
 			mgmt_buf->len = len;
 			mgmt_buf->no_cck = no_cck;
 			memcpy(mgmt_buf->buf, buf, len);
-			spin_lock_bh(&conn->psq_lock);
+			bh = spin_lock_bh(&conn->psq_lock, SOFTIRQ_ALL_MASK);
 			is_psq_empty = skb_queue_empty(&conn->psq) &&
 					(conn->mgmt_psq_len == 0);
 			list_add_tail(&mgmt_buf->list, &conn->mgmt_psq);
 			conn->mgmt_psq_len++;
-			spin_unlock_bh(&conn->psq_lock);
+			spin_unlock_bh(&conn->psq_lock, bh);
 
 			/*
 			 * If this is the first pkt getting queued
@@ -3156,10 +3160,10 @@ static bool ath6kl_mgmt_powersave_ap(struct ath6kl_vif *vif,
 		 * This tx is because of a PsPoll.
 		 * Determine if MoreData bit has to be set.
 		 */
-		spin_lock_bh(&conn->psq_lock);
+		bh = spin_lock_bh(&conn->psq_lock, SOFTIRQ_ALL_MASK);
 		if (!skb_queue_empty(&conn->psq) || (conn->mgmt_psq_len != 0))
 			*more_data = true;
-		spin_unlock_bh(&conn->psq_lock);
+		spin_unlock_bh(&conn->psq_lock, bh);
 	}
 
 	return false;
@@ -3781,6 +3785,7 @@ struct wireless_dev *ath6kl_interface_add(struct ath6kl *ar, const char *name,
 					  enum nl80211_iftype type,
 					  u8 fw_vif_idx, u8 nw_type)
 {
+	unsigned int bh;
 	struct net_device *ndev;
 	struct ath6kl_vif *vif;
 
@@ -3834,9 +3839,9 @@ struct wireless_dev *ath6kl_interface_add(struct ath6kl *ar, const char *name,
 	if (type == NL80211_IFTYPE_ADHOC)
 		ar->ibss_if_active = true;
 
-	spin_lock_bh(&ar->list_lock);
+	bh = spin_lock_bh(&ar->list_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&vif->list, &ar->vif_list);
-	spin_unlock_bh(&ar->list_lock);
+	spin_unlock_bh(&ar->list_lock, bh);
 
 	return &vif->wdev;
 

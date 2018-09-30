@@ -578,9 +578,9 @@ ip_set_test(ip_set_id_t index, const struct sk_buff *skb,
 	if (ret == -EAGAIN) {
 		/* Type requests element to be completed */
 		pr_debug("element must be completed, ADD is triggered\n");
-		spin_lock_bh(&set->lock);
+		bh = spin_lock_bh(&set->lock, SOFTIRQ_ALL_MASK);
 		set->variant->kadt(set, skb, par, IPSET_ADD, opt);
-		spin_unlock_bh(&set->lock);
+		spin_unlock_bh(&set->lock, bh);
 		ret = 1;
 	} else {
 		/* --return-nomatch: invert matched element */
@@ -599,6 +599,7 @@ int
 ip_set_add(ip_set_id_t index, const struct sk_buff *skb,
 	   const struct xt_action_param *par, struct ip_set_adt_opt *opt)
 {
+	unsigned int bh;
 	struct ip_set *set = ip_set_rcu_get(xt_net(par), index);
 	int ret;
 
@@ -609,9 +610,9 @@ ip_set_add(ip_set_id_t index, const struct sk_buff *skb,
 	    !(opt->family == set->family || set->family == NFPROTO_UNSPEC))
 		return -IPSET_ERR_TYPE_MISMATCH;
 
-	spin_lock_bh(&set->lock);
+	bh = spin_lock_bh(&set->lock, SOFTIRQ_ALL_MASK);
 	ret = set->variant->kadt(set, skb, par, IPSET_ADD, opt);
-	spin_unlock_bh(&set->lock);
+	spin_unlock_bh(&set->lock, bh);
 
 	return ret;
 }
@@ -621,6 +622,7 @@ int
 ip_set_del(ip_set_id_t index, const struct sk_buff *skb,
 	   const struct xt_action_param *par, struct ip_set_adt_opt *opt)
 {
+	unsigned int bh;
 	struct ip_set *set = ip_set_rcu_get(xt_net(par), index);
 	int ret = 0;
 
@@ -631,9 +633,9 @@ ip_set_del(ip_set_id_t index, const struct sk_buff *skb,
 	    !(opt->family == set->family || set->family == NFPROTO_UNSPEC))
 		return -IPSET_ERR_TYPE_MISMATCH;
 
-	spin_lock_bh(&set->lock);
+	bh = spin_lock_bh(&set->lock, SOFTIRQ_ALL_MASK);
 	ret = set->variant->kadt(set, skb, par, IPSET_DEL, opt);
-	spin_unlock_bh(&set->lock);
+	spin_unlock_bh(&set->lock, bh);
 
 	return ret;
 }
@@ -1087,11 +1089,12 @@ out:
 static void
 ip_set_flush_set(struct ip_set *set)
 {
+	unsigned int bh;
 	pr_debug("set: %s\n",  set->name);
 
-	spin_lock_bh(&set->lock);
+	bh = spin_lock_bh(&set->lock, SOFTIRQ_ALL_MASK);
 	set->variant->flush(set);
-	spin_unlock_bh(&set->lock);
+	spin_unlock_bh(&set->lock, bh);
 }
 
 static int ip_set_flush(struct net *net, struct sock *ctnl, struct sk_buff *skb,
@@ -1492,14 +1495,15 @@ call_ad(struct sock *ctnl, struct sk_buff *skb, struct ip_set *set,
 	struct nlattr *tb[], enum ipset_adt adt,
 	u32 flags, bool use_lineno)
 {
+	unsigned int bh;
 	int ret;
 	u32 lineno = 0;
 	bool eexist = flags & IPSET_FLAG_EXIST, retried = false;
 
 	do {
-		spin_lock_bh(&set->lock);
+		bh = spin_lock_bh(&set->lock, SOFTIRQ_ALL_MASK);
 		ret = set->variant->uadt(set, tb, adt, &lineno, flags, retried);
-		spin_unlock_bh(&set->lock);
+		spin_unlock_bh(&set->lock, bh);
 		retried = true;
 	} while (ret == -EAGAIN &&
 		 set->variant->resize &&

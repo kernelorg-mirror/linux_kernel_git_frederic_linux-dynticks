@@ -65,11 +65,12 @@ static int alloc_defdata(struct tcf_defact *d, const struct nlattr *defdata)
 static void reset_policy(struct tcf_defact *d, const struct nlattr *defdata,
 			 struct tc_defact *p)
 {
-	spin_lock_bh(&d->tcf_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&d->tcf_lock, SOFTIRQ_ALL_MASK);
 	d->tcf_action = p->action;
 	memset(d->tcfd_defdata, 0, SIMP_MAX_DATA);
 	nla_strlcpy(d->tcfd_defdata, defdata, SIMP_MAX_DATA);
-	spin_unlock_bh(&d->tcf_lock);
+	spin_unlock_bh(&d->tcf_lock, bh);
 }
 
 static const struct nla_policy simple_policy[TCA_DEF_MAX + 1] = {
@@ -150,6 +151,7 @@ static int tcf_simp_init(struct net *net, struct nlattr *nla,
 static int tcf_simp_dump(struct sk_buff *skb, struct tc_action *a,
 			 int bind, int ref)
 {
+	unsigned int bh;
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tcf_defact *d = to_defact(a);
 	struct tc_defact opt = {
@@ -159,7 +161,7 @@ static int tcf_simp_dump(struct sk_buff *skb, struct tc_action *a,
 	};
 	struct tcf_t t;
 
-	spin_lock_bh(&d->tcf_lock);
+	bh = spin_lock_bh(&d->tcf_lock, SOFTIRQ_ALL_MASK);
 	opt.action = d->tcf_action;
 	if (nla_put(skb, TCA_DEF_PARMS, sizeof(opt), &opt) ||
 	    nla_put_string(skb, TCA_DEF_DATA, d->tcfd_defdata))
@@ -168,12 +170,12 @@ static int tcf_simp_dump(struct sk_buff *skb, struct tc_action *a,
 	tcf_tm_dump(&t, &d->tcf_tm);
 	if (nla_put_64bit(skb, TCA_DEF_TM, sizeof(t), &t, TCA_DEF_PAD))
 		goto nla_put_failure;
-	spin_unlock_bh(&d->tcf_lock);
+	spin_unlock_bh(&d->tcf_lock, bh);
 
 	return skb->len;
 
 nla_put_failure:
-	spin_unlock_bh(&d->tcf_lock);
+	spin_unlock_bh(&d->tcf_lock, bh);
 	nlmsg_trim(skb, b);
 	return -1;
 }

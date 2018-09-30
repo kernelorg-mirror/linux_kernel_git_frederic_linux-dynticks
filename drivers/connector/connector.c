@@ -74,6 +74,7 @@ static int cn_already_initialized;
 int cn_netlink_send_mult(struct cn_msg *msg, u16 len, u32 portid, u32 __group,
 	gfp_t gfp_mask)
 {
+	unsigned int bh;
 	struct cn_callback_entry *__cbq;
 	unsigned int size;
 	struct sk_buff *skb;
@@ -86,7 +87,7 @@ int cn_netlink_send_mult(struct cn_msg *msg, u16 len, u32 portid, u32 __group,
 	if (portid || __group) {
 		group = __group;
 	} else {
-		spin_lock_bh(&dev->cbdev->queue_lock);
+		bh = spin_lock_bh(&dev->cbdev->queue_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(__cbq, &dev->cbdev->queue_list,
 				    callback_entry) {
 			if (cn_cb_equal(&__cbq->id.id, &msg->id)) {
@@ -95,7 +96,7 @@ int cn_netlink_send_mult(struct cn_msg *msg, u16 len, u32 portid, u32 __group,
 				break;
 			}
 		}
-		spin_unlock_bh(&dev->cbdev->queue_lock);
+		spin_unlock_bh(&dev->cbdev->queue_lock, bh);
 
 		if (!found)
 			return -ENODEV;
@@ -143,6 +144,7 @@ EXPORT_SYMBOL_GPL(cn_netlink_send);
  */
 static int cn_call_callback(struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct nlmsghdr *nlh;
 	struct cn_callback_entry *i, *cbq = NULL;
 	struct cn_dev *dev = &cdev;
@@ -155,7 +157,7 @@ static int cn_call_callback(struct sk_buff *skb)
 	if (nlh->nlmsg_len < NLMSG_HDRLEN + sizeof(struct cn_msg) + msg->len)
 		return -EINVAL;
 
-	spin_lock_bh(&dev->cbdev->queue_lock);
+	bh = spin_lock_bh(&dev->cbdev->queue_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(i, &dev->cbdev->queue_list, callback_entry) {
 		if (cn_cb_equal(&i->id.id, &msg->id)) {
 			refcount_inc(&i->refcnt);
@@ -163,7 +165,7 @@ static int cn_call_callback(struct sk_buff *skb)
 			break;
 		}
 	}
-	spin_unlock_bh(&dev->cbdev->queue_lock);
+	spin_unlock_bh(&dev->cbdev->queue_lock, bh);
 
 	if (cbq != NULL) {
 		cbq->callback(msg, nsp);
@@ -242,12 +244,13 @@ EXPORT_SYMBOL_GPL(cn_del_callback);
 
 static int __maybe_unused cn_proc_show(struct seq_file *m, void *v)
 {
+	unsigned int bh;
 	struct cn_queue_dev *dev = cdev.cbdev;
 	struct cn_callback_entry *cbq;
 
 	seq_printf(m, "Name            ID\n");
 
-	spin_lock_bh(&dev->queue_lock);
+	bh = spin_lock_bh(&dev->queue_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(cbq, &dev->queue_list, callback_entry) {
 		seq_printf(m, "%-15s %u:%u\n",
@@ -256,7 +259,7 @@ static int __maybe_unused cn_proc_show(struct seq_file *m, void *v)
 			   cbq->id.id.val);
 	}
 
-	spin_unlock_bh(&dev->queue_lock);
+	spin_unlock_bh(&dev->queue_lock, bh);
 
 	return 0;
 }

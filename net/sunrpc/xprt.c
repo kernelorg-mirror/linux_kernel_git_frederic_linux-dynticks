@@ -270,11 +270,12 @@ EXPORT_SYMBOL_GPL(xprt_reserve_xprt_cong);
 
 static inline int xprt_lock_write(struct rpc_xprt *xprt, struct rpc_task *task)
 {
+	unsigned int bh;
 	int retval;
 
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	retval = xprt->ops->reserve_xprt(xprt, task);
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 	return retval;
 }
 
@@ -378,9 +379,10 @@ EXPORT_SYMBOL_GPL(xprt_release_xprt_cong);
 
 static inline void xprt_release_write(struct rpc_xprt *xprt, struct rpc_task *task)
 {
-	spin_lock_bh(&xprt->transport_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	xprt->ops->release_xprt(xprt, task);
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 }
 
 /*
@@ -513,14 +515,15 @@ EXPORT_SYMBOL_GPL(xprt_wait_for_buffer_space);
  */
 void xprt_write_space(struct rpc_xprt *xprt)
 {
-	spin_lock_bh(&xprt->transport_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	if (xprt->snd_task) {
 		dprintk("RPC:       write space: waking waiting task on "
 				"xprt %p\n", xprt);
 		rpc_wake_up_queued_task_on_wq(xprtiod_workqueue,
 				&xprt->pending, xprt->snd_task);
 	}
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 }
 EXPORT_SYMBOL_GPL(xprt_write_space);
 
@@ -580,6 +583,7 @@ static void xprt_reset_majortimeo(struct rpc_rqst *req)
  */
 int xprt_adjust_timeout(struct rpc_rqst *req)
 {
+	unsigned int bh;
 	struct rpc_xprt *xprt = req->rq_xprt;
 	const struct rpc_timeout *to = req->rq_task->tk_client->cl_timeout;
 	int status = 0;
@@ -597,9 +601,9 @@ int xprt_adjust_timeout(struct rpc_rqst *req)
 		req->rq_retries = 0;
 		xprt_reset_majortimeo(req);
 		/* Reset the RTT counters == "slow start" */
-		spin_lock_bh(&xprt->transport_lock);
+		bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 		rpc_init_rtt(req->rq_task->tk_client->cl_rtt, to->to_initval);
-		spin_unlock_bh(&xprt->transport_lock);
+		spin_unlock_bh(&xprt->transport_lock, bh);
 		status = -ETIMEDOUT;
 	}
 
@@ -628,11 +632,12 @@ static void xprt_autoclose(struct work_struct *work)
  */
 void xprt_disconnect_done(struct rpc_xprt *xprt)
 {
+	unsigned int bh;
 	dprintk("RPC:       disconnected transport %p\n", xprt);
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	xprt_clear_connected(xprt);
 	xprt_wake_pending_tasks(xprt, -EAGAIN);
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 }
 EXPORT_SYMBOL_GPL(xprt_disconnect_done);
 
@@ -643,14 +648,15 @@ EXPORT_SYMBOL_GPL(xprt_disconnect_done);
  */
 void xprt_force_disconnect(struct rpc_xprt *xprt)
 {
+	unsigned int bh;
 	/* Don't race with the test_bit() in xprt_clear_locked() */
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	set_bit(XPRT_CLOSE_WAIT, &xprt->state);
 	/* Try to schedule an autoclose RPC call */
 	if (test_and_set_bit(XPRT_LOCKED, &xprt->state) == 0)
 		queue_work(xprtiod_workqueue, &xprt->task_cleanup);
 	xprt_wake_pending_tasks(xprt, -EAGAIN);
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 }
 EXPORT_SYMBOL_GPL(xprt_force_disconnect);
 
@@ -667,8 +673,9 @@ EXPORT_SYMBOL_GPL(xprt_force_disconnect);
  */
 void xprt_conditional_disconnect(struct rpc_xprt *xprt, unsigned int cookie)
 {
+	unsigned int bh;
 	/* Don't race with the test_bit() in xprt_clear_locked() */
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	if (cookie != xprt->connect_cookie)
 		goto out;
 	if (test_bit(XPRT_CLOSING, &xprt->state))
@@ -679,7 +686,7 @@ void xprt_conditional_disconnect(struct rpc_xprt *xprt, unsigned int cookie)
 		queue_work(xprtiod_workqueue, &xprt->task_cleanup);
 	xprt_wake_pending_tasks(xprt, -EAGAIN);
 out:
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 }
 
 static bool
@@ -719,9 +726,10 @@ bool xprt_lock_connect(struct rpc_xprt *xprt,
 		struct rpc_task *task,
 		void *cookie)
 {
+	unsigned int bh;
 	bool ret = false;
 
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	if (!test_bit(XPRT_LOCKED, &xprt->state))
 		goto out;
 	if (xprt->snd_task != task)
@@ -730,13 +738,14 @@ bool xprt_lock_connect(struct rpc_xprt *xprt,
 	xprt->snd_task = cookie;
 	ret = true;
 out:
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 	return ret;
 }
 
 void xprt_unlock_connect(struct rpc_xprt *xprt, void *cookie)
 {
-	spin_lock_bh(&xprt->transport_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	if (xprt->snd_task != cookie)
 		goto out;
 	if (!test_bit(XPRT_LOCKED, &xprt->state))
@@ -745,7 +754,7 @@ void xprt_unlock_connect(struct rpc_xprt *xprt, void *cookie)
 	xprt->ops->release_xprt(xprt, NULL);
 	xprt_schedule_autodisconnect(xprt);
 out:
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 	wake_up_bit(&xprt->state, XPRT_LOCKED);
 }
 
@@ -963,13 +972,14 @@ static void xprt_timer(struct rpc_task *task)
  */
 bool xprt_prepare_transmit(struct rpc_task *task)
 {
+	unsigned int bh;
 	struct rpc_rqst	*req = task->tk_rqstp;
 	struct rpc_xprt	*xprt = req->rq_xprt;
 	bool ret = false;
 
 	dprintk("RPC: %5u xprt_prepare_transmit\n", task->tk_pid);
 
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	if (!req->rq_bytes_sent) {
 		if (req->rq_reply_bytes_recvd) {
 			task->tk_status = req->rq_reply_bytes_recvd;
@@ -989,7 +999,7 @@ bool xprt_prepare_transmit(struct rpc_task *task)
 	}
 	ret = true;
 out_unlock:
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 	return ret;
 }
 
@@ -1006,6 +1016,7 @@ void xprt_end_transmit(struct rpc_task *task)
  */
 void xprt_transmit(struct rpc_task *task)
 {
+	unsigned int bh;
 	struct rpc_rqst	*req = task->tk_rqstp;
 	struct rpc_xprt	*xprt = req->rq_xprt;
 	unsigned int connect_cookie;
@@ -1043,7 +1054,7 @@ void xprt_transmit(struct rpc_task *task)
 
 	dprintk("RPC: %5u xmit complete\n", task->tk_pid);
 	task->tk_flags |= RPC_TASK_SENT;
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 
 	xprt->ops->set_retrans_timeout(task);
 
@@ -1052,7 +1063,7 @@ void xprt_transmit(struct rpc_task *task)
 	xprt->stat.bklog_u += xprt->backlog.qlen;
 	xprt->stat.sending_u += xprt->sending.qlen;
 	xprt->stat.pending_u += xprt->pending.qlen;
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 
 	req->rq_connect_cookie = connect_cookie;
 	if (rpc_reply_expected(task) && !READ_ONCE(req->rq_reply_bytes_recvd)) {
@@ -1339,6 +1350,7 @@ void xprt_request_init(struct rpc_task *task)
  */
 void xprt_release(struct rpc_task *task)
 {
+	unsigned int bh;
 	struct rpc_xprt	*xprt;
 	struct rpc_rqst	*req = task->tk_rqstp;
 
@@ -1362,13 +1374,13 @@ void xprt_release(struct rpc_task *task)
 		xprt_wait_on_pinned_rqst(req);
 	}
 	spin_unlock(&xprt->recv_lock);
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	xprt->ops->release_xprt(xprt, task);
 	if (xprt->ops->release_request)
 		xprt->ops->release_request(task);
 	xprt->last_used = jiffies;
 	xprt_schedule_autodisconnect(xprt);
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 	if (req->rq_buffer)
 		xprt->ops->buf_free(task);
 	xprt_inject_disconnect(xprt);

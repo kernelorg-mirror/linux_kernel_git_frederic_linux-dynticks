@@ -232,12 +232,13 @@ static void rtnl_net_notifyid(struct net *net, int cmd, int id);
  */
 int peernet2id_alloc(struct net *net, struct net *peer)
 {
+	unsigned int bh;
 	bool alloc = false, alive = false;
 	int id;
 
 	if (refcount_read(&net->count) == 0)
 		return NETNSA_NSID_NOT_ASSIGNED;
-	spin_lock_bh(&net->nsid_lock);
+	bh = spin_lock_bh(&net->nsid_lock, SOFTIRQ_ALL_MASK);
 	/*
 	 * When peer is obtained from RCU lists, we may race with
 	 * its cleanup. Check whether it's alive, and this guarantees
@@ -247,7 +248,7 @@ int peernet2id_alloc(struct net *net, struct net *peer)
 	if (maybe_get_net(peer))
 		alive = alloc = true;
 	id = __peernet2id_alloc(net, peer, &alloc);
-	spin_unlock_bh(&net->nsid_lock);
+	spin_unlock_bh(&net->nsid_lock, bh);
 	if (alloc && id >= 0)
 		rtnl_net_notifyid(net, RTM_NEWNSID, id);
 	if (alive)
@@ -259,11 +260,12 @@ EXPORT_SYMBOL_GPL(peernet2id_alloc);
 /* This function returns, if assigned, the id of a peer netns. */
 int peernet2id(struct net *net, struct net *peer)
 {
+	unsigned int bh;
 	int id;
 
-	spin_lock_bh(&net->nsid_lock);
+	bh = spin_lock_bh(&net->nsid_lock, SOFTIRQ_ALL_MASK);
 	id = __peernet2id(net, peer);
-	spin_unlock_bh(&net->nsid_lock);
+	spin_unlock_bh(&net->nsid_lock, bh);
 	return id;
 }
 EXPORT_SYMBOL(peernet2id);
@@ -478,6 +480,7 @@ EXPORT_SYMBOL_GPL(net_ns_get_ownership);
 
 static void unhash_nsid(struct net *net, struct net *last)
 {
+	unsigned int bh;
 	struct net *tmp;
 	/* This function is only called from cleanup_net() work,
 	 * and this work is the only process, that may delete
@@ -488,19 +491,19 @@ static void unhash_nsid(struct net *net, struct net *last)
 	for_each_net(tmp) {
 		int id;
 
-		spin_lock_bh(&tmp->nsid_lock);
+		bh = spin_lock_bh(&tmp->nsid_lock, SOFTIRQ_ALL_MASK);
 		id = __peernet2id(tmp, net);
 		if (id >= 0)
 			idr_remove(&tmp->netns_ids, id);
-		spin_unlock_bh(&tmp->nsid_lock);
+		spin_unlock_bh(&tmp->nsid_lock, bh);
 		if (id >= 0)
 			rtnl_net_notifyid(tmp, RTM_DELNSID, id);
 		if (tmp == last)
 			break;
 	}
-	spin_lock_bh(&net->nsid_lock);
+	bh = spin_lock_bh(&net->nsid_lock, SOFTIRQ_ALL_MASK);
 	idr_destroy(&net->netns_ids);
-	spin_unlock_bh(&net->nsid_lock);
+	spin_unlock_bh(&net->nsid_lock, bh);
 }
 
 static LLIST_HEAD(cleanup_list);
@@ -674,6 +677,7 @@ static const struct nla_policy rtnl_net_policy[NETNSA_MAX + 1] = {
 static int rtnl_net_newid(struct sk_buff *skb, struct nlmsghdr *nlh,
 			  struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct nlattr *tb[NETNSA_MAX + 1];
 	struct nlattr *nla;
@@ -706,9 +710,9 @@ static int rtnl_net_newid(struct sk_buff *skb, struct nlmsghdr *nlh,
 		return PTR_ERR(peer);
 	}
 
-	spin_lock_bh(&net->nsid_lock);
+	bh = spin_lock_bh(&net->nsid_lock, SOFTIRQ_ALL_MASK);
 	if (__peernet2id(net, peer) >= 0) {
-		spin_unlock_bh(&net->nsid_lock);
+		spin_unlock_bh(&net->nsid_lock, bh);
 		err = -EEXIST;
 		NL_SET_BAD_ATTR(extack, nla);
 		NL_SET_ERR_MSG(extack,
@@ -717,7 +721,7 @@ static int rtnl_net_newid(struct sk_buff *skb, struct nlmsghdr *nlh,
 	}
 
 	err = alloc_netid(net, peer, nsid);
-	spin_unlock_bh(&net->nsid_lock);
+	spin_unlock_bh(&net->nsid_lock, bh);
 	if (err >= 0) {
 		rtnl_net_notifyid(net, RTM_NEWNSID, err);
 		err = 0;
@@ -844,6 +848,7 @@ cont:
 
 static int rtnl_net_dumpid(struct sk_buff *skb, struct netlink_callback *cb)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct rtnl_net_dump_cb net_cb = {
 		.net = net,
@@ -853,9 +858,9 @@ static int rtnl_net_dumpid(struct sk_buff *skb, struct netlink_callback *cb)
 		.s_idx = cb->args[0],
 	};
 
-	spin_lock_bh(&net->nsid_lock);
+	bh = spin_lock_bh(&net->nsid_lock, SOFTIRQ_ALL_MASK);
 	idr_for_each(&net->netns_ids, rtnl_net_dumpid_one, &net_cb);
-	spin_unlock_bh(&net->nsid_lock);
+	spin_unlock_bh(&net->nsid_lock, bh);
 
 	cb->args[0] = net_cb.idx;
 	return skb->len;

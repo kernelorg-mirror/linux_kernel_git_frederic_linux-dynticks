@@ -374,6 +374,7 @@ void ath_rx_cleanup(struct ath_softc *sc)
 
 u32 ath_calcrxfilter(struct ath_softc *sc)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	u32 rfilt;
 
@@ -387,7 +388,7 @@ u32 ath_calcrxfilter(struct ath_softc *sc)
 	if (sc->hw->conf.radar_enabled)
 		rfilt |= ATH9K_RX_FILTER_PHYRADAR | ATH9K_RX_FILTER_PHYERR;
 
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 
 	if (sc->cur_chan->rxfilter & FIF_PROBE_REQ)
 		rfilt |= ATH9K_RX_FILTER_PROBEREQ;
@@ -431,7 +432,7 @@ u32 ath_calcrxfilter(struct ath_softc *sc)
 	    test_bit(ATH_OP_SCANNING, &common->op_flags))
 		rfilt |= ATH9K_RX_FILTER_BEACON;
 
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 
 	return rfilt;
 
@@ -810,6 +811,7 @@ static int ath9k_rx_skb_preprocess(struct ath_softc *sc,
 				   struct ieee80211_rx_status *rx_status,
 				   bool *decrypt_error, u64 tsf)
 {
+	unsigned int bh;
 	struct ieee80211_hw *hw = sc->hw;
 	struct ath_hw *ah = sc->sc_ah;
 	struct ath_common *common = ath9k_hw_common(ah);
@@ -889,13 +891,13 @@ static int ath9k_rx_skb_preprocess(struct ath_softc *sc,
 	 * everything but the rate is checked here, the rate check is done
 	 * separately to avoid doing two lookups for a rate for each frame.
 	 */
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 	if (!ath9k_cmn_rx_accept(common, hdr, rx_status, rx_stats, decrypt_error,
 				 sc->cur_chan->rxfilter)) {
-		spin_unlock_bh(&sc->chan_lock);
+		spin_unlock_bh(&sc->chan_lock, bh);
 		return -EINVAL;
 	}
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 
 	if (ath_is_mybeacon(common, hdr)) {
 		RX_STAT_INC(rx_beacons);
@@ -1006,6 +1008,7 @@ static void ath_rx_count_airtime(struct ath_softc *sc,
 				 struct ath_rx_status *rs,
 				 struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ath_node *an;
 	struct ath_acq *acq;
 	struct ath_vif *avp;
@@ -1055,11 +1058,11 @@ static void ath_rx_count_airtime(struct ath_softc *sc,
 	}
 
  	if (!!(sc->airtime_flags & AIRTIME_USE_RX)) {
-		spin_lock_bh(&acq->lock);
+		bh = spin_lock_bh(&acq->lock, SOFTIRQ_ALL_MASK);
 		an->airtime_deficit[acno] -= airtime;
 		if (an->airtime_deficit[acno] <= 0)
 			__ath_tx_queue_tid(sc, ATH_AN_2_TID(an, tidno));
-		spin_unlock_bh(&acq->lock);
+		spin_unlock_bh(&acq->lock, bh);
 	}
 	ath_debug_airtime(sc, an, airtime, 0);
 exit:

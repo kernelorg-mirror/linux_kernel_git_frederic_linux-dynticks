@@ -128,26 +128,27 @@ static inline void arpq_enqueue(struct l2t_entry *e, struct sk_buff *skb)
 int t3_l2t_send_slow(struct t3cdev *dev, struct sk_buff *skb,
 		     struct l2t_entry *e)
 {
+	unsigned int bh;
 again:
 	switch (e->state) {
 	case L2T_STATE_STALE:	/* entry is stale, kick off revalidation */
 		neigh_event_send(e->neigh, NULL);
-		spin_lock_bh(&e->lock);
+		bh = spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 		if (e->state == L2T_STATE_STALE)
 			e->state = L2T_STATE_VALID;
-		spin_unlock_bh(&e->lock);
+		spin_unlock_bh(&e->lock, bh);
 		/* fall through */
 	case L2T_STATE_VALID:	/* fast-path, send the packet on */
 		return cxgb3_ofld_send(dev, skb);
 	case L2T_STATE_RESOLVING:
-		spin_lock_bh(&e->lock);
+		bh = spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 		if (e->state != L2T_STATE_RESOLVING) {
 			/* ARP already completed */
-			spin_unlock_bh(&e->lock);
+			spin_unlock_bh(&e->lock, bh);
 			goto again;
 		}
 		arpq_enqueue(e, skb);
-		spin_unlock_bh(&e->lock);
+		spin_unlock_bh(&e->lock, bh);
 
 		/*
 		 * Only the first packet added to the arpq should kick off
@@ -163,7 +164,7 @@ again:
 			if (!skb)
 				break;
 
-			spin_lock_bh(&e->lock);
+			spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 			if (!skb_queue_empty(&e->arpq))
 				setup_l2e_send_pending(dev, skb, e);
 			else	/* we lost the race */
@@ -178,26 +179,27 @@ EXPORT_SYMBOL(t3_l2t_send_slow);
 
 void t3_l2t_send_event(struct t3cdev *dev, struct l2t_entry *e)
 {
+	unsigned int bh;
 again:
 	switch (e->state) {
 	case L2T_STATE_STALE:	/* entry is stale, kick off revalidation */
 		neigh_event_send(e->neigh, NULL);
-		spin_lock_bh(&e->lock);
+		bh = spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 		if (e->state == L2T_STATE_STALE) {
 			e->state = L2T_STATE_VALID;
 		}
-		spin_unlock_bh(&e->lock);
+		spin_unlock_bh(&e->lock, bh);
 		return;
 	case L2T_STATE_VALID:	/* fast-path, send the packet on */
 		return;
 	case L2T_STATE_RESOLVING:
-		spin_lock_bh(&e->lock);
+		bh = spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 		if (e->state != L2T_STATE_RESOLVING) {
 			/* ARP already completed */
-			spin_unlock_bh(&e->lock);
+			spin_unlock_bh(&e->lock, bh);
 			goto again;
 		}
-		spin_unlock_bh(&e->lock);
+		spin_unlock_bh(&e->lock, bh);
 
 		/*
 		 * Only the first packet added to the arpq should kick off
@@ -263,14 +265,15 @@ found:
  */
 void t3_l2e_free(struct l2t_data *d, struct l2t_entry *e)
 {
-	spin_lock_bh(&e->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 	if (atomic_read(&e->refcnt) == 0) {	/* hasn't been recycled */
 		if (e->neigh) {
 			neigh_release(e->neigh);
 			e->neigh = NULL;
 		}
 	}
-	spin_unlock_bh(&e->lock);
+	spin_unlock_bh(&e->lock, bh);
 	atomic_inc(&d->nfree);
 }
 

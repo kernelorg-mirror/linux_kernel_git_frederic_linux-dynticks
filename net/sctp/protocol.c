@@ -616,11 +616,12 @@ static void sctp_v4_ecn_capable(struct sock *sk)
 
 static void sctp_addr_wq_timeout_handler(struct timer_list *t)
 {
+	unsigned int bh;
 	struct net *net = from_timer(net, t, sctp.addr_wq_timer);
 	struct sctp_sockaddr_entry *addrw, *temp;
 	struct sctp_sock *sp;
 
-	spin_lock_bh(&net->sctp.addr_wq_lock);
+	bh = spin_lock_bh(&net->sctp.addr_wq_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe(addrw, temp, &net->sctp.addr_waitq, list) {
 		pr_debug("%s: the first ent in wq:%p is addr:%pISc for cmd:%d at "
@@ -671,21 +672,22 @@ free_next:
 		list_del(&addrw->list);
 		kfree(addrw);
 	}
-	spin_unlock_bh(&net->sctp.addr_wq_lock);
+	spin_unlock_bh(&net->sctp.addr_wq_lock, bh);
 }
 
 static void sctp_free_addr_wq(struct net *net)
 {
+	unsigned int bh;
 	struct sctp_sockaddr_entry *addrw;
 	struct sctp_sockaddr_entry *temp;
 
-	spin_lock_bh(&net->sctp.addr_wq_lock);
+	bh = spin_lock_bh(&net->sctp.addr_wq_lock, SOFTIRQ_ALL_MASK);
 	del_timer(&net->sctp.addr_wq_timer);
 	list_for_each_entry_safe(addrw, temp, &net->sctp.addr_waitq, list) {
 		list_del(&addrw->list);
 		kfree(addrw);
 	}
-	spin_unlock_bh(&net->sctp.addr_wq_lock);
+	spin_unlock_bh(&net->sctp.addr_wq_lock, bh);
 }
 
 /* lookup the entry for the same address in the addr_waitq
@@ -714,6 +716,7 @@ static struct sctp_sockaddr_entry *sctp_addr_wq_lookup(struct net *net,
 
 void sctp_addr_wq_mgmt(struct net *net, struct sctp_sockaddr_entry *addr, int cmd)
 {
+	unsigned int bh;
 	struct sctp_sockaddr_entry *addrw;
 	unsigned long timeo_val;
 
@@ -723,7 +726,7 @@ void sctp_addr_wq_mgmt(struct net *net, struct sctp_sockaddr_entry *addr, int cm
 	 * new address after a couple of addition and deletion of that address
 	 */
 
-	spin_lock_bh(&net->sctp.addr_wq_lock);
+	bh = spin_lock_bh(&net->sctp.addr_wq_lock, SOFTIRQ_ALL_MASK);
 	/* Offsets existing events in addr_wq */
 	addrw = sctp_addr_wq_lookup(net, addr);
 	if (addrw) {
@@ -735,14 +738,14 @@ void sctp_addr_wq_mgmt(struct net *net, struct sctp_sockaddr_entry *addr, int cm
 			list_del(&addrw->list);
 			kfree(addrw);
 		}
-		spin_unlock_bh(&net->sctp.addr_wq_lock);
+		spin_unlock_bh(&net->sctp.addr_wq_lock, bh);
 		return;
 	}
 
 	/* OK, we have to add the new address to the wait queue */
 	addrw = kmemdup(addr, sizeof(struct sctp_sockaddr_entry), GFP_ATOMIC);
 	if (addrw == NULL) {
-		spin_unlock_bh(&net->sctp.addr_wq_lock);
+		spin_unlock_bh(&net->sctp.addr_wq_lock, bh);
 		return;
 	}
 	addrw->state = cmd;
@@ -756,7 +759,7 @@ void sctp_addr_wq_mgmt(struct net *net, struct sctp_sockaddr_entry *addr, int cm
 		timeo_val += msecs_to_jiffies(SCTP_ADDRESS_TICK_DELAY);
 		mod_timer(&net->sctp.addr_wq_timer, timeo_val);
 	}
-	spin_unlock_bh(&net->sctp.addr_wq_lock);
+	spin_unlock_bh(&net->sctp.addr_wq_lock, bh);
 }
 
 /* Event handler for inet address addition/deletion events.
@@ -768,6 +771,7 @@ void sctp_addr_wq_mgmt(struct net *net, struct sctp_sockaddr_entry *addr, int cm
 static int sctp_inetaddr_event(struct notifier_block *this, unsigned long ev,
 			       void *ptr)
 {
+	unsigned int bh;
 	struct in_ifaddr *ifa = (struct in_ifaddr *)ptr;
 	struct sctp_sockaddr_entry *addr = NULL;
 	struct sctp_sockaddr_entry *temp;
@@ -782,14 +786,14 @@ static int sctp_inetaddr_event(struct notifier_block *this, unsigned long ev,
 			addr->a.v4.sin_port = 0;
 			addr->a.v4.sin_addr.s_addr = ifa->ifa_local;
 			addr->valid = 1;
-			spin_lock_bh(&net->sctp.local_addr_lock);
+			bh = spin_lock_bh(&net->sctp.local_addr_lock, SOFTIRQ_ALL_MASK);
 			list_add_tail_rcu(&addr->list, &net->sctp.local_addr_list);
 			sctp_addr_wq_mgmt(net, addr, SCTP_ADDR_NEW);
-			spin_unlock_bh(&net->sctp.local_addr_lock);
+			spin_unlock_bh(&net->sctp.local_addr_lock, bh);
 		}
 		break;
 	case NETDEV_DOWN:
-		spin_lock_bh(&net->sctp.local_addr_lock);
+		bh = spin_lock_bh(&net->sctp.local_addr_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry_safe(addr, temp,
 					&net->sctp.local_addr_list, list) {
 			if (addr->a.sa.sa_family == AF_INET &&
@@ -802,7 +806,7 @@ static int sctp_inetaddr_event(struct notifier_block *this, unsigned long ev,
 				break;
 			}
 		}
-		spin_unlock_bh(&net->sctp.local_addr_lock);
+		spin_unlock_bh(&net->sctp.local_addr_lock, bh);
 		if (found)
 			kfree_rcu(addr, rcu);
 		break;

@@ -214,12 +214,13 @@ static void batadv_tvlv_container_remove(struct batadv_priv *bat_priv,
 void batadv_tvlv_container_unregister(struct batadv_priv *bat_priv,
 				      u8 type, u8 version)
 {
+	unsigned int bh;
 	struct batadv_tvlv_container *tvlv;
 
-	spin_lock_bh(&bat_priv->tvlv.container_list_lock);
+	bh = spin_lock_bh(&bat_priv->tvlv.container_list_lock, SOFTIRQ_ALL_MASK);
 	tvlv = batadv_tvlv_container_get(bat_priv, type, version);
 	batadv_tvlv_container_remove(bat_priv, tvlv);
-	spin_unlock_bh(&bat_priv->tvlv.container_list_lock);
+	spin_unlock_bh(&bat_priv->tvlv.container_list_lock, bh);
 }
 
 /**
@@ -238,6 +239,7 @@ void batadv_tvlv_container_register(struct batadv_priv *bat_priv,
 				    u8 type, u8 version,
 				    void *tvlv_value, u16 tvlv_value_len)
 {
+	unsigned int bh;
 	struct batadv_tvlv_container *tvlv_old, *tvlv_new;
 
 	if (!tvlv_value)
@@ -255,13 +257,13 @@ void batadv_tvlv_container_register(struct batadv_priv *bat_priv,
 	INIT_HLIST_NODE(&tvlv_new->list);
 	kref_init(&tvlv_new->refcount);
 
-	spin_lock_bh(&bat_priv->tvlv.container_list_lock);
+	bh = spin_lock_bh(&bat_priv->tvlv.container_list_lock, SOFTIRQ_ALL_MASK);
 	tvlv_old = batadv_tvlv_container_get(bat_priv, type, version);
 	batadv_tvlv_container_remove(bat_priv, tvlv_old);
 
 	kref_get(&tvlv_new->refcount);
 	hlist_add_head(&tvlv_new->list, &bat_priv->tvlv.container_list);
-	spin_unlock_bh(&bat_priv->tvlv.container_list_lock);
+	spin_unlock_bh(&bat_priv->tvlv.container_list_lock, bh);
 
 	/* don't return reference to new tvlv_container */
 	batadv_tvlv_container_put(tvlv_new);
@@ -318,13 +320,14 @@ u16 batadv_tvlv_container_ogm_append(struct batadv_priv *bat_priv,
 				     unsigned char **packet_buff,
 				     int *packet_buff_len, int packet_min_len)
 {
+	unsigned int bh;
 	struct batadv_tvlv_container *tvlv;
 	struct batadv_tvlv_hdr *tvlv_hdr;
 	u16 tvlv_value_len;
 	void *tvlv_value;
 	bool ret;
 
-	spin_lock_bh(&bat_priv->tvlv.container_list_lock);
+	bh = spin_lock_bh(&bat_priv->tvlv.container_list_lock, SOFTIRQ_ALL_MASK);
 	tvlv_value_len = batadv_tvlv_container_list_size(bat_priv);
 
 	ret = batadv_tvlv_realloc_packet_buff(packet_buff, packet_buff_len,
@@ -349,7 +352,7 @@ u16 batadv_tvlv_container_ogm_append(struct batadv_priv *bat_priv,
 	}
 
 end:
-	spin_unlock_bh(&bat_priv->tvlv.container_list_lock);
+	spin_unlock_bh(&bat_priv->tvlv.container_list_lock, bh);
 	return tvlv_value_len;
 }
 
@@ -527,6 +530,7 @@ void batadv_tvlv_handler_register(struct batadv_priv *bat_priv,
 					      u16 tvlv_value_len),
 				  u8 type, u8 version, u8 flags)
 {
+	unsigned int bh;
 	struct batadv_tvlv_handler *tvlv_handler;
 
 	tvlv_handler = batadv_tvlv_handler_get(bat_priv, type, version);
@@ -547,10 +551,10 @@ void batadv_tvlv_handler_register(struct batadv_priv *bat_priv,
 	kref_init(&tvlv_handler->refcount);
 	INIT_HLIST_NODE(&tvlv_handler->list);
 
-	spin_lock_bh(&bat_priv->tvlv.handler_list_lock);
+	bh = spin_lock_bh(&bat_priv->tvlv.handler_list_lock, SOFTIRQ_ALL_MASK);
 	kref_get(&tvlv_handler->refcount);
 	hlist_add_head_rcu(&tvlv_handler->list, &bat_priv->tvlv.handler_list);
-	spin_unlock_bh(&bat_priv->tvlv.handler_list_lock);
+	spin_unlock_bh(&bat_priv->tvlv.handler_list_lock, bh);
 
 	/* don't return reference to new tvlv_handler */
 	batadv_tvlv_handler_put(tvlv_handler);
@@ -566,6 +570,7 @@ void batadv_tvlv_handler_register(struct batadv_priv *bat_priv,
 void batadv_tvlv_handler_unregister(struct batadv_priv *bat_priv,
 				    u8 type, u8 version)
 {
+	unsigned int bh;
 	struct batadv_tvlv_handler *tvlv_handler;
 
 	tvlv_handler = batadv_tvlv_handler_get(bat_priv, type, version);
@@ -573,9 +578,9 @@ void batadv_tvlv_handler_unregister(struct batadv_priv *bat_priv,
 		return;
 
 	batadv_tvlv_handler_put(tvlv_handler);
-	spin_lock_bh(&bat_priv->tvlv.handler_list_lock);
+	bh = spin_lock_bh(&bat_priv->tvlv.handler_list_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_rcu(&tvlv_handler->list);
-	spin_unlock_bh(&bat_priv->tvlv.handler_list_lock);
+	spin_unlock_bh(&bat_priv->tvlv.handler_list_lock, bh);
 	batadv_tvlv_handler_put(tvlv_handler);
 }
 

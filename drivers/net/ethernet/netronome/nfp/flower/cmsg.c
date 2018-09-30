@@ -154,6 +154,7 @@ int nfp_flower_cmsg_portreify(struct nfp_repr *repr, bool exists)
 static bool
 nfp_flower_process_mtu_ack(struct nfp_app *app, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct nfp_flower_priv *app_priv = app->priv;
 	struct nfp_flower_cmsg_portmod *msg;
 
@@ -162,19 +163,19 @@ nfp_flower_process_mtu_ack(struct nfp_app *app, struct sk_buff *skb)
 	if (!(msg->info & NFP_FLOWER_CMSG_PORTMOD_MTU_CHANGE_ONLY))
 		return false;
 
-	spin_lock_bh(&app_priv->mtu_conf.lock);
+	bh = spin_lock_bh(&app_priv->mtu_conf.lock, SOFTIRQ_ALL_MASK);
 	if (!app_priv->mtu_conf.requested_val ||
 	    app_priv->mtu_conf.portnum != be32_to_cpu(msg->portnum) ||
 	    be16_to_cpu(msg->mtu) != app_priv->mtu_conf.requested_val) {
 		/* Not an ack for requested MTU change. */
-		spin_unlock_bh(&app_priv->mtu_conf.lock);
+		spin_unlock_bh(&app_priv->mtu_conf.lock, bh);
 		return false;
 	}
 
 	app_priv->mtu_conf.ack = true;
 	app_priv->mtu_conf.requested_val = 0;
 	wake_up(&app_priv->mtu_conf.wait_q);
-	spin_unlock_bh(&app_priv->mtu_conf.lock);
+	spin_unlock_bh(&app_priv->mtu_conf.lock, bh);
 
 	return true;
 }
@@ -281,6 +282,7 @@ out:
 
 void nfp_flower_cmsg_process_rx(struct work_struct *work)
 {
+	unsigned int bh;
 	struct sk_buff_head cmsg_joined;
 	struct nfp_flower_priv *priv;
 	struct sk_buff *skb;
@@ -288,11 +290,11 @@ void nfp_flower_cmsg_process_rx(struct work_struct *work)
 	priv = container_of(work, struct nfp_flower_priv, cmsg_work);
 	skb_queue_head_init(&cmsg_joined);
 
-	spin_lock_bh(&priv->cmsg_skbs_high.lock);
+	bh = spin_lock_bh(&priv->cmsg_skbs_high.lock, SOFTIRQ_ALL_MASK);
 	skb_queue_splice_tail_init(&priv->cmsg_skbs_high, &cmsg_joined);
-	spin_unlock_bh(&priv->cmsg_skbs_high.lock);
+	spin_unlock_bh(&priv->cmsg_skbs_high.lock, bh);
 
-	spin_lock_bh(&priv->cmsg_skbs_low.lock);
+	spin_lock_bh(&priv->cmsg_skbs_low.lock, SOFTIRQ_ALL_MASK);
 	skb_queue_splice_tail_init(&priv->cmsg_skbs_low, &cmsg_joined);
 	spin_unlock_bh(&priv->cmsg_skbs_low.lock);
 

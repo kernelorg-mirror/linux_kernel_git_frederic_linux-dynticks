@@ -317,14 +317,15 @@ bad_state:
  */
 static bool rxrpc_receiving_reply(struct rxrpc_call *call)
 {
+	unsigned int bh;
 	struct rxrpc_ack_summary summary = { 0 };
 	unsigned long now, timo;
 	rxrpc_seq_t top = READ_ONCE(call->tx_top);
 
 	if (call->ackr_reason) {
-		spin_lock_bh(&call->lock);
+		bh = spin_lock_bh(&call->lock, SOFTIRQ_ALL_MASK);
 		call->ackr_reason = 0;
-		spin_unlock_bh(&call->lock);
+		spin_unlock_bh(&call->lock, bh);
 		now = jiffies;
 		timo = now + MAX_JIFFY_OFFSET;
 		WRITE_ONCE(call->resend_at, timo);
@@ -645,10 +646,11 @@ found:
  */
 static void rxrpc_input_check_for_lost_ack(struct rxrpc_call *call)
 {
+	unsigned int bh;
 	rxrpc_seq_t top, bottom, seq;
 	bool resend = false;
 
-	spin_lock_bh(&call->lock);
+	bh = spin_lock_bh(&call->lock, SOFTIRQ_ALL_MASK);
 
 	bottom = call->tx_hard_ack + 1;
 	top = call->acks_lost_top;
@@ -667,7 +669,7 @@ static void rxrpc_input_check_for_lost_ack(struct rxrpc_call *call)
 		}
 	}
 
-	spin_unlock_bh(&call->lock);
+	spin_unlock_bh(&call->lock, bh);
 
 	if (resend && !test_and_set_bit(RXRPC_CALL_EV_RESEND, &call->events))
 		rxrpc_queue_call(call);
@@ -708,6 +710,7 @@ static void rxrpc_input_ping_response(struct rxrpc_call *call,
 static void rxrpc_input_ackinfo(struct rxrpc_call *call, struct sk_buff *skb,
 				struct rxrpc_ackinfo *ackinfo)
 {
+	unsigned int bh;
 	struct rxrpc_skb_priv *sp = rxrpc_skb(skb);
 	struct rxrpc_peer *peer;
 	unsigned int mtu;
@@ -736,10 +739,10 @@ static void rxrpc_input_ackinfo(struct rxrpc_call *call, struct sk_buff *skb,
 
 	peer = call->peer;
 	if (mtu < peer->maxdata) {
-		spin_lock_bh(&peer->lock);
+		bh = spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 		peer->maxdata = mtu;
 		peer->mtu = mtu + peer->hdrsize;
-		spin_unlock_bh(&peer->lock);
+		spin_unlock_bh(&peer->lock, bh);
 		_net("Net MTU %u (maxdata %u)", peer->mtu, peer->maxdata);
 	}
 

@@ -915,6 +915,7 @@ static int
 llsec_update_devkey_record(struct mac802154_llsec_device *dev,
 			   const struct ieee802154_llsec_key_id *in_key)
 {
+	unsigned int bh;
 	struct mac802154_llsec_device_key *devkey;
 
 	devkey = llsec_devkey_find(dev, in_key);
@@ -928,7 +929,7 @@ llsec_update_devkey_record(struct mac802154_llsec_device *dev,
 
 		next->devkey.key_id = *in_key;
 
-		spin_lock_bh(&dev->lock);
+		bh = spin_lock_bh(&dev->lock, SOFTIRQ_ALL_MASK);
 
 		devkey = llsec_devkey_find(dev, in_key);
 		if (!devkey)
@@ -936,7 +937,7 @@ llsec_update_devkey_record(struct mac802154_llsec_device *dev,
 		else
 			kzfree(next);
 
-		spin_unlock_bh(&dev->lock);
+		spin_unlock_bh(&dev->lock, bh);
 	}
 
 	return 0;
@@ -947,6 +948,7 @@ llsec_update_devkey_info(struct mac802154_llsec_device *dev,
 			 const struct ieee802154_llsec_key_id *in_key,
 			 u32 frame_counter)
 {
+	unsigned int bh;
 	struct mac802154_llsec_device_key *devkey = NULL;
 
 	if (dev->dev.key_mode == IEEE802154_LLSEC_DEVKEY_RESTRICT) {
@@ -962,11 +964,11 @@ llsec_update_devkey_info(struct mac802154_llsec_device *dev,
 			return rc;
 	}
 
-	spin_lock_bh(&dev->lock);
+	bh = spin_lock_bh(&dev->lock, SOFTIRQ_ALL_MASK);
 
 	if ((!devkey && frame_counter < dev->dev.frame_counter) ||
 	    (devkey && frame_counter < devkey->devkey.frame_counter)) {
-		spin_unlock_bh(&dev->lock);
+		spin_unlock_bh(&dev->lock, bh);
 		return -EINVAL;
 	}
 
@@ -975,7 +977,7 @@ llsec_update_devkey_info(struct mac802154_llsec_device *dev,
 	else
 		dev->dev.frame_counter = frame_counter + 1;
 
-	spin_unlock_bh(&dev->lock);
+	spin_unlock_bh(&dev->lock, bh);
 
 	return 0;
 }

@@ -2099,6 +2099,7 @@ int r8152_submit_rx(struct r8152 *tp, struct rx_agg *agg, gfp_t mem_flags)
 
 static void rtl_drop_queued_tx(struct r8152 *tp)
 {
+	unsigned int bh;
 	struct net_device_stats *stats = &tp->netdev->stats;
 	struct sk_buff_head skb_head, *tx_queue = &tp->tx_queue;
 	struct sk_buff *skb;
@@ -2107,9 +2108,9 @@ static void rtl_drop_queued_tx(struct r8152 *tp)
 		return;
 
 	__skb_queue_head_init(&skb_head);
-	spin_lock_bh(&tx_queue->lock);
+	bh = spin_lock_bh(&tx_queue->lock, SOFTIRQ_ALL_MASK);
 	skb_queue_splice_init(tx_queue, &skb_head);
-	spin_unlock_bh(&tx_queue->lock);
+	spin_unlock_bh(&tx_queue->lock, bh);
 
 	while ((skb = __skb_dequeue(&skb_head))) {
 		dev_kfree_skb(skb);

@@ -312,6 +312,7 @@ int wil_addba_rx_request(struct wil6210_priv *wil, u8 mid,
 			 __le16 ba_timeout, __le16 ba_seq_ctrl)
 __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 {
+	unsigned int bh;
 	u16 param_set = le16_to_cpu(ba_param_set);
 	u16 agg_timeout = le16_to_cpu(ba_timeout);
 	u16 seq_ctrl = le16_to_cpu(ba_seq_ctrl);
@@ -383,10 +384,10 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 
 	/* apply */
 	r = wil_tid_ampdu_rx_alloc(wil, agg_wsize, ssn);
-	spin_lock_bh(&sta->tid_rx_lock);
+	bh = spin_lock_bh(&sta->tid_rx_lock, SOFTIRQ_ALL_MASK);
 	wil_tid_ampdu_rx_free(wil, sta->tid_rx[tid]);
 	sta->tid_rx[tid] = r;
-	spin_unlock_bh(&sta->tid_rx_lock);
+	spin_unlock_bh(&sta->tid_rx_lock, bh);
 
 out:
 	return rc;

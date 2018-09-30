@@ -36,6 +36,7 @@
 
 void ieee80211_configure_filter(struct ieee80211_local *local)
 {
+	unsigned int bh;
 	u64 mc;
 	unsigned int changed_flags;
 	unsigned int new_flags = 0;
@@ -65,11 +66,11 @@ void ieee80211_configure_filter(struct ieee80211_local *local)
 	if (local->fif_pspoll)
 		new_flags |= FIF_PSPOLL;
 
-	spin_lock_bh(&local->filter_lock);
+	bh = spin_lock_bh(&local->filter_lock, SOFTIRQ_ALL_MASK);
 	changed_flags = local->filter_flags ^ new_flags;
 
 	mc = drv_prepare_multicast(local, &local->mc_list);
-	spin_unlock_bh(&local->filter_lock);
+	spin_unlock_bh(&local->filter_lock, bh);
 
 	/* be a bit nasty */
 	new_flags |= (1<<31);

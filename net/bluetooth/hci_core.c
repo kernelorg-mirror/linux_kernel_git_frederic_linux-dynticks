@@ -3586,6 +3586,7 @@ static void hci_add_acl_hdr(struct sk_buff *skb, __u16 handle, __u16 flags)
 static void hci_queue_acl(struct hci_chan *chan, struct sk_buff_head *queue,
 			  struct sk_buff *skb, __u16 flags)
 {
+	unsigned int bh;
 	struct hci_conn *conn = chan->conn;
 	struct hci_dev *hdev = conn->hdev;
 	struct sk_buff *list;
@@ -3624,7 +3625,7 @@ static void hci_queue_acl(struct hci_chan *chan, struct sk_buff_head *queue,
 		 * called from softirq and using normal spin lock could cause
 		 * deadlocks.
 		 */
-		spin_lock_bh(&queue->lock);
+		bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 
 		__skb_queue_tail(queue, skb);
 
@@ -3641,7 +3642,7 @@ static void hci_queue_acl(struct hci_chan *chan, struct sk_buff_head *queue,
 			__skb_queue_tail(queue, skb);
 		} while (list);
 
-		spin_unlock_bh(&queue->lock);
+		spin_unlock_bh(&queue->lock, bh);
 	}
 }
 

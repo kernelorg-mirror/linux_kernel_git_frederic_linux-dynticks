@@ -1367,6 +1367,7 @@ static void iucv_process_message_q(struct sock *sk)
 static int iucv_sock_recvmsg(struct socket *sock, struct msghdr *msg,
 			     size_t len, int flags)
 {
+	unsigned int bh;
 	int noblock = flags & MSG_DONTWAIT;
 	struct sock *sk = sock->sk;
 	struct iucv_sock *iucv = iucv_sk(sk);
@@ -1449,7 +1450,7 @@ static int iucv_sock_recvmsg(struct socket *sock, struct msghdr *msg,
 		}
 
 		/* Queue backlog skbs */
-		spin_lock_bh(&iucv->message_q.lock);
+		bh = spin_lock_bh(&iucv->message_q.lock, SOFTIRQ_ALL_MASK);
 		rskb = skb_dequeue(&iucv->backlog_skb_q);
 		while (rskb) {
 			IUCV_SKB_CB(rskb)->offset = 0;
@@ -1473,7 +1474,7 @@ static int iucv_sock_recvmsg(struct socket *sock, struct msghdr *msg,
 				}
 			}
 		}
-		spin_unlock_bh(&iucv->message_q.lock);
+		spin_unlock_bh(&iucv->message_q.lock, bh);
 	}
 
 done:

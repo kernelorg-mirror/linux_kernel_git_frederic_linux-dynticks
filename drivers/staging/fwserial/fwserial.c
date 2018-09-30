@@ -104,12 +104,13 @@ struct fwtty_transaction {
 #ifdef DEBUG
 static inline void debug_short_write(struct fwtty_port *port, int c, int n)
 {
+	unsigned int bh;
 	int avail;
 
 	if (n < c) {
-		spin_lock_bh(&port->lock);
+		bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 		avail = dma_fifo_avail(&port->tx_fifo);
-		spin_unlock_bh(&port->lock);
+		spin_unlock_bh(&port->lock, bh);
 		fwtty_dbg(port, "short write: avail:%d req:%d wrote:%d\n",
 			  avail, c, n);
 	}
@@ -125,9 +126,10 @@ static struct fwtty_peer *__fwserial_peer_by_node_id(struct fw_card *card,
 
 static void fwtty_profile_fifo(struct fwtty_port *port, unsigned int *stat)
 {
-	spin_lock_bh(&port->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	fwtty_profile_data(stat, dma_fifo_avail(&port->tx_fifo));
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 }
 
 static void fwtty_dump_profile(struct seq_file *m, struct stats *stats)
@@ -276,9 +278,10 @@ static void __fwtty_restart_tx(struct fwtty_port *port)
 
 static void fwtty_restart_tx(struct fwtty_port *port)
 {
-	spin_lock_bh(&port->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	__fwtty_restart_tx(port);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 }
 
 /**
@@ -428,16 +431,18 @@ static int __fwtty_write_port_status(struct fwtty_port *port)
  */
 static int fwtty_write_port_status(struct fwtty_port *port)
 {
+	unsigned int bh;
 	int err;
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	err = __fwtty_write_port_status(port);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 	return err;
 }
 
 static void fwtty_throttle_port(struct fwtty_port *port)
 {
+	unsigned int bh;
 	struct tty_struct *tty;
 	unsigned int old;
 
@@ -445,7 +450,7 @@ static void fwtty_throttle_port(struct fwtty_port *port)
 	if (!tty)
 		return;
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 
 	old = port->mctrl;
 	port->mctrl |= OOB_RX_THROTTLE;
@@ -454,7 +459,7 @@ static void fwtty_throttle_port(struct fwtty_port *port)
 	if (~old & OOB_RX_THROTTLE)
 		__fwtty_write_port_status(port);
 
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 
 	tty_kref_put(tty);
 }
@@ -665,6 +670,7 @@ static void fwtty_tx_complete(struct fw_card *card, int rcode,
 			      void *data, size_t length,
 			      struct fwtty_transaction *txn)
 {
+	unsigned int bh;
 	struct fwtty_port *port = txn->port;
 	int len;
 
@@ -672,20 +678,20 @@ static void fwtty_tx_complete(struct fw_card *card, int rcode,
 
 	switch (rcode) {
 	case RCODE_COMPLETE:
-		spin_lock_bh(&port->lock);
+		bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 		dma_fifo_out_complete(&port->tx_fifo, &txn->dma_pended);
 		len = dma_fifo_level(&port->tx_fifo);
-		spin_unlock_bh(&port->lock);
+		spin_unlock_bh(&port->lock, bh);
 
 		port->icount.tx += txn->dma_pended.len;
 		break;
 
 	default:
 		/* TODO: implement retries */
-		spin_lock_bh(&port->lock);
+		bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 		dma_fifo_out_complete(&port->tx_fifo, &txn->dma_pended);
 		len = dma_fifo_level(&port->tx_fifo);
-		spin_unlock_bh(&port->lock);
+		spin_unlock_bh(&port->lock, bh);
 
 		port->stats.dropped += txn->dma_pended.len;
 	}
@@ -696,6 +702,7 @@ static void fwtty_tx_complete(struct fw_card *card, int rcode,
 
 static int fwtty_tx(struct fwtty_port *port, bool drain)
 {
+	unsigned int bh;
 	struct fwtty_peer *peer;
 	struct fwtty_transaction *txn;
 	struct tty_struct *tty;
@@ -727,9 +734,9 @@ static int fwtty_tx(struct fwtty_port *port, bool drain)
 			break;
 		}
 
-		spin_lock_bh(&port->lock);
+		bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 		n = dma_fifo_out_pend(&port->tx_fifo, &txn->dma_pended);
-		spin_unlock_bh(&port->lock);
+		spin_unlock_bh(&port->lock, bh);
 
 		fwtty_dbg(port, "out: %u rem: %d\n", txn->dma_pended.len, n);
 
@@ -764,7 +771,7 @@ static int fwtty_tx(struct fwtty_port *port, bool drain)
 	}
 
 	if (n >= 0 || n == -EAGAIN || n == -ENOMEM || n == -ENODATA) {
-		spin_lock_bh(&port->lock);
+		bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 		len = dma_fifo_out_level(&port->tx_fifo);
 		if (len) {
 			unsigned long delay = (n == -ENOMEM) ? HZ : 1;
@@ -772,7 +779,7 @@ static int fwtty_tx(struct fwtty_port *port, bool drain)
 			schedule_delayed_work(&port->drain, delay);
 		}
 		len = dma_fifo_level(&port->tx_fifo);
-		spin_unlock_bh(&port->lock);
+		spin_unlock_bh(&port->lock, bh);
 
 		/* wakeup the writer */
 		if (drain && len < WAKEUP_CHARS)
@@ -884,11 +891,12 @@ static void fwtty_port_put(struct fwtty_port *port)
 
 static void fwtty_port_dtr_rts(struct tty_port *tty_port, int on)
 {
+	unsigned int bh;
 	struct fwtty_port *port = to_port(tty_port, port);
 
 	fwtty_dbg(port, "on/off: %d\n", on);
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	/* Don't change carrier state if this is a console */
 	if (!port->port.console) {
 		if (on)
@@ -898,7 +906,7 @@ static void fwtty_port_dtr_rts(struct tty_port *tty_port, int on)
 	}
 
 	__fwtty_write_port_status(port);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 }
 
 /**
@@ -972,6 +980,7 @@ static unsigned int set_termios(struct fwtty_port *port, struct tty_struct *tty)
 static int fwtty_port_activate(struct tty_port *tty_port,
 			       struct tty_struct *tty)
 {
+	unsigned int bh;
 	struct fwtty_port *port = to_port(tty_port, port);
 	unsigned int baud;
 	int err;
@@ -986,7 +995,7 @@ static int fwtty_port_activate(struct tty_port *tty_port,
 	if (err)
 		return err;
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 
 	baud = set_termios(port, tty);
 
@@ -1001,7 +1010,7 @@ static int fwtty_port_activate(struct tty_port *tty_port,
 		tty->hw_stopped = 1;
 
 	__fwtty_write_port_status(port);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 
 	clear_bit(TTY_IO_ERROR, &tty->flags);
 
@@ -1016,6 +1025,7 @@ static int fwtty_port_activate(struct tty_port *tty_port,
  */
 static void fwtty_port_shutdown(struct tty_port *tty_port)
 {
+	unsigned int bh;
 	struct fwtty_port *port = to_port(tty_port, port);
 
 	/* TODO: cancel outstanding transactions */
@@ -1023,13 +1033,13 @@ static void fwtty_port_shutdown(struct tty_port *tty_port)
 	cancel_delayed_work_sync(&port->emit_breaks);
 	cancel_delayed_work_sync(&port->drain);
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	port->flags = 0;
 	port->break_ctl = 0;
 	port->overrun = 0;
 	__fwtty_write_port_status(port);
 	dma_fifo_free(&port->tx_fifo);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 }
 
 static int fwtty_open(struct tty_struct *tty, struct file *fp)
@@ -1089,18 +1099,19 @@ static int fwloop_install(struct tty_driver *driver, struct tty_struct *tty)
 
 static int fwtty_write(struct tty_struct *tty, const unsigned char *buf, int c)
 {
+	unsigned int bh;
 	struct fwtty_port *port = tty->driver_data;
 	int n, len;
 
 	fwtty_dbg(port, "%d\n", c);
 	fwtty_profile_data(port->stats.writes, c);
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	n = dma_fifo_in(&port->tx_fifo, buf, c);
 	len = dma_fifo_out_level(&port->tx_fifo);
 	if (len < DRAIN_THRESHOLD)
 		schedule_delayed_work(&port->drain, 1);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 
 	if (len >= DRAIN_THRESHOLD)
 		fwtty_tx(port, false);
@@ -1112,12 +1123,13 @@ static int fwtty_write(struct tty_struct *tty, const unsigned char *buf, int c)
 
 static int fwtty_write_room(struct tty_struct *tty)
 {
+	unsigned int bh;
 	struct fwtty_port *port = tty->driver_data;
 	int n;
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	n = dma_fifo_avail(&port->tx_fifo);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 
 	fwtty_dbg(port, "%d\n", n);
 
@@ -1126,12 +1138,13 @@ static int fwtty_write_room(struct tty_struct *tty)
 
 static int fwtty_chars_in_buffer(struct tty_struct *tty)
 {
+	unsigned int bh;
 	struct fwtty_port *port = tty->driver_data;
 	int n;
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	n = dma_fifo_level(&port->tx_fifo);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 
 	fwtty_dbg(port, "%d\n", n);
 
@@ -1167,18 +1180,19 @@ static void fwtty_throttle(struct tty_struct *tty)
 
 static void fwtty_unthrottle(struct tty_struct *tty)
 {
+	unsigned int bh;
 	struct fwtty_port *port = tty->driver_data;
 
 	fwtty_dbg(port, "CRTSCTS: %d\n", C_CRTSCTS(tty) != 0);
 
 	fwtty_profile_fifo(port, port->stats.unthrottle);
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	port->mctrl &= ~OOB_RX_THROTTLE;
 	if (C_CRTSCTS(tty))
 		port->mctrl |= TIOCM_RTS;
 	__fwtty_write_port_status(port);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 }
 
 static int check_msr_delta(struct fwtty_port *port, unsigned long mask,
@@ -1281,10 +1295,11 @@ static int fwtty_ioctl(struct tty_struct *tty, unsigned int cmd,
 
 static void fwtty_set_termios(struct tty_struct *tty, struct ktermios *old)
 {
+	unsigned int bh;
 	struct fwtty_port *port = tty->driver_data;
 	unsigned int baud;
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	baud = set_termios(port, tty);
 
 	if ((baud == 0) && (old->c_cflag & CBAUD)) {
@@ -1296,7 +1311,7 @@ static void fwtty_set_termios(struct tty_struct *tty, struct ktermios *old)
 			port->mctrl |= TIOCM_DTR;
 	}
 	__fwtty_write_port_status(port);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 
 	if (old->c_cflag & CRTSCTS) {
 		if (!C_CRTSCTS(tty)) {
@@ -1320,6 +1335,7 @@ static void fwtty_set_termios(struct tty_struct *tty, struct ktermios *old)
  */
 static int fwtty_break_ctl(struct tty_struct *tty, int state)
 {
+	unsigned int bh;
 	struct fwtty_port *port = tty->driver_data;
 	long ret;
 
@@ -1337,13 +1353,13 @@ static int fwtty_break_ctl(struct tty_struct *tty, int state)
 		}
 	}
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	port->break_ctl = (state == -1);
 	__fwtty_write_port_status(port);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 
 	if (state == 0) {
-		spin_lock_bh(&port->lock);
+		spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 		dma_fifo_reset(&port->tx_fifo);
 		clear_bit(STOP_TX, &port->flags);
 		spin_unlock_bh(&port->lock);
@@ -1353,12 +1369,13 @@ static int fwtty_break_ctl(struct tty_struct *tty, int state)
 
 static int fwtty_tiocmget(struct tty_struct *tty)
 {
+	unsigned int bh;
 	struct fwtty_port *port = tty->driver_data;
 	unsigned int tiocm;
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	tiocm = (port->mctrl & MCTRL_MASK) | (port->mstatus & ~MCTRL_MASK);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 
 	fwtty_dbg(port, "%x\n", tiocm);
 
@@ -1368,17 +1385,18 @@ static int fwtty_tiocmget(struct tty_struct *tty)
 static int fwtty_tiocmset(struct tty_struct *tty,
 			  unsigned int set, unsigned int clear)
 {
+	unsigned int bh;
 	struct fwtty_port *port = tty->driver_data;
 
 	fwtty_dbg(port, "set: %x clear: %x\n", set, clear);
 
 	/* TODO: simulate loopback if TIOCM_LOOP set */
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	port->mctrl &= ~(clear & MCTRL_MASK & 0xffff);
 	port->mctrl |= set & MCTRL_MASK & 0xffff;
 	__fwtty_write_port_status(port);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 	return 0;
 }
 
@@ -1661,7 +1679,7 @@ static void fwserial_virt_plug_complete(struct fwtty_peer *peer,
 	peer_set_state(peer, FWPS_ATTACHED);
 
 	/* reconfigure tx_fifo optimally for this peer */
-	spin_lock_bh(&port->lock);
+	spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	port->max_payload = min(peer->max_payload, peer->fifo_len);
 	dma_fifo_change_tx_limit(&port->tx_fifo, port->max_payload);
 	spin_unlock_bh(&peer->port->lock);
@@ -1709,6 +1727,7 @@ static inline int fwserial_send_mgmt_sync(struct fwtty_peer *peer,
 static struct fwtty_port *fwserial_claim_port(struct fwtty_peer *peer,
 					      int index)
 {
+	unsigned int bh;
 	struct fwtty_port *port;
 
 	if (index < 0 || index >= num_ports)
@@ -1718,12 +1737,12 @@ static struct fwtty_port *fwserial_claim_port(struct fwtty_peer *peer,
 	synchronize_rcu();
 
 	port = peer->serial->ports[index];
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 	if (!rcu_access_pointer(port->peer))
 		rcu_assign_pointer(port->peer, peer);
 	else
 		port = ERR_PTR(-EBUSY);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 
 	return port;
 }
@@ -1736,6 +1755,7 @@ static struct fwtty_port *fwserial_claim_port(struct fwtty_peer *peer,
  */
 static struct fwtty_port *fwserial_find_port(struct fwtty_peer *peer)
 {
+	unsigned int bh;
 	struct fwtty_port **ports = peer->serial->ports;
 	int i;
 
@@ -1746,32 +1766,33 @@ static struct fwtty_port *fwserial_find_port(struct fwtty_peer *peer)
 
 	/* find an unattached port (but not the loopback port, if present) */
 	for (i = 0; i < num_ttys; ++i) {
-		spin_lock_bh(&ports[i]->lock);
+		bh = spin_lock_bh(&ports[i]->lock, SOFTIRQ_ALL_MASK);
 		if (!ports[i]->peer) {
 			/* claim port */
 			rcu_assign_pointer(ports[i]->peer, peer);
-			spin_unlock_bh(&ports[i]->lock);
+			spin_unlock_bh(&ports[i]->lock, bh);
 			return ports[i];
 		}
-		spin_unlock_bh(&ports[i]->lock);
+		spin_unlock_bh(&ports[i]->lock, bh);
 	}
 	return NULL;
 }
 
 static void fwserial_release_port(struct fwtty_port *port, bool reset)
 {
+	unsigned int bh;
 	/* drop carrier (and all other line status) */
 	if (reset)
 		fwtty_update_port_status(port, 0);
 
-	spin_lock_bh(&port->lock);
+	bh = spin_lock_bh(&port->lock, SOFTIRQ_ALL_MASK);
 
 	/* reset dma fifo max transmission size back to S100 */
 	port->max_payload = link_speed_to_max_payload(SCODE_100);
 	dma_fifo_change_tx_limit(&port->tx_fifo, port->max_payload);
 
 	RCU_INIT_POINTER(port->peer, NULL);
-	spin_unlock_bh(&port->lock);
+	spin_unlock_bh(&port->lock, bh);
 
 	if (port->port.console && port->fwcon_ops->notify)
 		(*port->fwcon_ops->notify)(FWCON_NOTIFY_DETACH, port->con_data);
@@ -1779,17 +1800,18 @@ static void fwserial_release_port(struct fwtty_port *port, bool reset)
 
 static void fwserial_plug_timeout(struct timer_list *t)
 {
+	unsigned int bh;
 	struct fwtty_peer *peer = from_timer(peer, t, timer);
 	struct fwtty_port *port;
 
-	spin_lock_bh(&peer->lock);
+	bh = spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 	if (peer->state != FWPS_PLUG_PENDING) {
-		spin_unlock_bh(&peer->lock);
+		spin_unlock_bh(&peer->lock, bh);
 		return;
 	}
 
 	port = peer_revert_state(peer);
-	spin_unlock_bh(&peer->lock);
+	spin_unlock_bh(&peer->lock, bh);
 
 	if (port)
 		fwserial_release_port(port, false);
@@ -1803,6 +1825,7 @@ static void fwserial_plug_timeout(struct timer_list *t)
  */
 static int fwserial_connect_peer(struct fwtty_peer *peer)
 {
+	unsigned int bh;
 	struct fwtty_port *port;
 	struct fwserial_mgmt_pkt *pkt;
 	int err, rcode;
@@ -1818,7 +1841,7 @@ static int fwserial_connect_peer(struct fwtty_peer *peer)
 		goto free_pkt;
 	}
 
-	spin_lock_bh(&peer->lock);
+	bh = spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 
 	/* only initiate VIRT_CABLE_PLUG if peer is currently not attached */
 	if (peer->state != FWPS_NOT_ATTACHED) {
@@ -1836,7 +1859,7 @@ static int fwserial_connect_peer(struct fwtty_peer *peer)
 
 	rcode = fwserial_send_mgmt_sync(peer, pkt);
 
-	spin_lock_bh(&peer->lock);
+	spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 	if (peer->state == FWPS_PLUG_PENDING && rcode != RCODE_COMPLETE) {
 		if (rcode == RCODE_CONFLICT_ERROR)
 			err = -EAGAIN;
@@ -1853,7 +1876,7 @@ cancel_timer:
 	del_timer(&peer->timer);
 	peer_revert_state(peer);
 release_port:
-	spin_unlock_bh(&peer->lock);
+	spin_unlock_bh(&peer->lock, bh);
 	fwserial_release_port(port, false);
 free_pkt:
 	kfree(pkt);
@@ -2023,6 +2046,7 @@ static void fwserial_peer_workfn(struct work_struct *work)
  */
 static int fwserial_add_peer(struct fw_serial *serial, struct fw_unit *unit)
 {
+	unsigned int bh;
 	struct device *dev = &unit->device;
 	struct fw_device  *parent = fw_parent_device(unit);
 	struct fwtty_peer *peer;
@@ -2089,11 +2113,11 @@ static int fwserial_add_peer(struct fw_serial *serial, struct fw_unit *unit)
 			if (!IS_ERR(port)) {
 				struct virt_plug_params params;
 
-				spin_lock_bh(&peer->lock);
+				bh = spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 				peer->port = port;
 				fill_plug_params(&params, port);
 				fwserial_virt_plug_complete(peer, &params);
-				spin_unlock_bh(&peer->lock);
+				spin_unlock_bh(&peer->lock, bh);
 
 				fwtty_write_port_status(port);
 			}
@@ -2120,14 +2144,14 @@ static void fwserial_remove_peer(struct fwtty_peer *peer)
 {
 	struct fwtty_port *port;
 
-	spin_lock_bh(&peer->lock);
+	spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 	peer_set_state(peer, FWPS_GONE);
 	spin_unlock_bh(&peer->lock);
 
 	cancel_delayed_work_sync(&peer->connect);
 	cancel_work_sync(&peer->work);
 
-	spin_lock_bh(&peer->lock);
+	spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 	/* if this unit is the local unit, clear link */
 	if (peer == peer->serial->self)
 		peer->serial->self = NULL;
@@ -2508,6 +2532,7 @@ static struct fw_address_handler fwserial_mgmt_addr_handler;
  */
 static void fwserial_handle_plug_req(struct work_struct *work)
 {
+	unsigned int bh;
 	struct fwtty_peer *peer = to_peer(work, work);
 	struct virt_plug_params *plug_req = &peer->work_params.plug_req;
 	struct fwtty_port *port;
@@ -2520,7 +2545,7 @@ static void fwserial_handle_plug_req(struct work_struct *work)
 
 	port = fwserial_find_port(peer);
 
-	spin_lock_bh(&peer->lock);
+	bh = spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 
 	switch (peer->state) {
 	case FWPS_NOT_ATTACHED:
@@ -2556,7 +2581,7 @@ static void fwserial_handle_plug_req(struct work_struct *work)
 
 	rcode = fwserial_send_mgmt_sync(peer, pkt);
 
-	spin_lock_bh(&peer->lock);
+	spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 	if (peer->state == FWPS_PLUG_RESPONDING) {
 		if (rcode == RCODE_COMPLETE) {
 			struct fwtty_port *tmp = peer->port;
@@ -2565,14 +2590,14 @@ static void fwserial_handle_plug_req(struct work_struct *work)
 			spin_unlock_bh(&peer->lock);
 
 			fwtty_write_port_status(tmp);
-			spin_lock_bh(&peer->lock);
+			spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 		} else {
 			fwtty_err(&peer->unit, "PLUG_RSP error (%d)\n", rcode);
 			port = peer_revert_state(peer);
 		}
 	}
 cleanup:
-	spin_unlock_bh(&peer->lock);
+	spin_unlock_bh(&peer->lock, bh);
 	if (port)
 		fwserial_release_port(port, false);
 	kfree(pkt);
@@ -2580,6 +2605,7 @@ cleanup:
 
 static void fwserial_handle_unplug_req(struct work_struct *work)
 {
+	unsigned int bh;
 	struct fwtty_peer *peer = to_peer(work, work);
 	struct fwtty_port *port = NULL;
 	struct fwserial_mgmt_pkt *pkt;
@@ -2589,7 +2615,7 @@ static void fwserial_handle_unplug_req(struct work_struct *work)
 	if (!pkt)
 		return;
 
-	spin_lock_bh(&peer->lock);
+	bh = spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 
 	switch (peer->state) {
 	case FWPS_ATTACHED:
@@ -2615,7 +2641,7 @@ static void fwserial_handle_unplug_req(struct work_struct *work)
 
 	rcode = fwserial_send_mgmt_sync(peer, pkt);
 
-	spin_lock_bh(&peer->lock);
+	spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 	if (peer->state == FWPS_UNPLUG_RESPONDING) {
 		if (rcode != RCODE_COMPLETE)
 			fwtty_err(&peer->unit, "UNPLUG_RSP error (%d)\n",
@@ -2623,7 +2649,7 @@ static void fwserial_handle_unplug_req(struct work_struct *work)
 		port = peer_revert_state(peer);
 	}
 cleanup:
-	spin_unlock_bh(&peer->lock);
+	spin_unlock_bh(&peer->lock, bh);
 	if (port)
 		fwserial_release_port(port, true);
 	kfree(pkt);
@@ -2634,6 +2660,7 @@ static int fwserial_parse_mgmt_write(struct fwtty_peer *peer,
 				     unsigned long long addr,
 				     size_t len)
 {
+	unsigned int bh;
 	struct fwtty_port *port = NULL;
 	bool reset = false;
 	int rcode;
@@ -2645,7 +2672,7 @@ static int fwserial_parse_mgmt_write(struct fwtty_peer *peer,
 	    len != mgmt_pkt_expected_len(pkt->hdr.code))
 		return RCODE_DATA_ERROR;
 
-	spin_lock_bh(&peer->lock);
+	bh = spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 	if (peer->state == FWPS_GONE) {
 		/*
 		 * This should never happen - it would mean that the
@@ -2654,7 +2681,7 @@ static int fwserial_parse_mgmt_write(struct fwtty_peer *peer,
 		 * processed before we rec'd this transaction
 		 */
 		fwtty_err(&peer->unit, "peer already removed\n");
-		spin_unlock_bh(&peer->lock);
+		spin_unlock_bh(&peer->lock, bh);
 		return RCODE_ADDRESS_ERROR;
 	}
 
@@ -2690,7 +2717,7 @@ static int fwserial_parse_mgmt_write(struct fwtty_peer *peer,
 			spin_unlock_bh(&peer->lock);
 
 			fwtty_write_port_status(tmp);
-			spin_lock_bh(&peer->lock);
+			spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 		}
 		break;
 
@@ -2720,7 +2747,7 @@ static int fwserial_parse_mgmt_write(struct fwtty_peer *peer,
 			  be16_to_cpu(pkt->hdr.code));
 		rcode = RCODE_DATA_ERROR;
 	}
-	spin_unlock_bh(&peer->lock);
+	spin_unlock_bh(&peer->lock, bh);
 
 	if (port)
 		fwserial_release_port(port, reset);

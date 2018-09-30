@@ -1949,10 +1949,11 @@ struct platform_driver bcm63xx_enet_driver = {
 static int bcmenet_sw_mdio_read(struct bcm_enet_priv *priv,
 				int ext, int phy_id, int location)
 {
+	unsigned int bh;
 	u32 reg;
 	int ret;
 
-	spin_lock_bh(&priv->enetsw_mdio_lock);
+	bh = spin_lock_bh(&priv->enetsw_mdio_lock, SOFTIRQ_ALL_MASK);
 	enetsw_writel(priv, 0, ENETSW_MDIOC_REG);
 
 	reg = ENETSW_MDIOC_RD_MASK |
@@ -1965,7 +1966,7 @@ static int bcmenet_sw_mdio_read(struct bcm_enet_priv *priv,
 	enetsw_writel(priv, reg, ENETSW_MDIOC_REG);
 	udelay(50);
 	ret = enetsw_readw(priv, ENETSW_MDIOD_REG);
-	spin_unlock_bh(&priv->enetsw_mdio_lock);
+	spin_unlock_bh(&priv->enetsw_mdio_lock, bh);
 	return ret;
 }
 
@@ -1973,9 +1974,10 @@ static void bcmenet_sw_mdio_write(struct bcm_enet_priv *priv,
 				 int ext, int phy_id, int location,
 				 uint16_t data)
 {
+	unsigned int bh;
 	u32 reg;
 
-	spin_lock_bh(&priv->enetsw_mdio_lock);
+	bh = spin_lock_bh(&priv->enetsw_mdio_lock, SOFTIRQ_ALL_MASK);
 	enetsw_writel(priv, 0, ENETSW_MDIOC_REG);
 
 	reg = ENETSW_MDIOC_WR_MASK |
@@ -1989,7 +1991,7 @@ static void bcmenet_sw_mdio_write(struct bcm_enet_priv *priv,
 
 	enetsw_writel(priv, reg, ENETSW_MDIOC_REG);
 	udelay(50);
-	spin_unlock_bh(&priv->enetsw_mdio_lock);
+	spin_unlock_bh(&priv->enetsw_mdio_lock, bh);
 }
 
 static inline int bcm_enet_port_is_rgmii(int portid)

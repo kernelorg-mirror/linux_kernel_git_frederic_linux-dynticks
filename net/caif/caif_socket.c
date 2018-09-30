@@ -897,6 +897,7 @@ out:
  */
 static int caif_release(struct socket *sock)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 	struct caifsock *cf_sk = container_of(sk, struct caifsock, sk);
 
@@ -910,9 +911,9 @@ static int caif_release(struct socket *sock)
 	 * caif_queue_rcv_skb checks SOCK_DEAD holding the queue lock,
 	 * this ensures no packets when sock is dead.
 	 */
-	spin_lock_bh(&sk->sk_receive_queue.lock);
+	bh = spin_lock_bh(&sk->sk_receive_queue.lock, SOFTIRQ_ALL_MASK);
 	sock_set_flag(sk, SOCK_DEAD);
-	spin_unlock_bh(&sk->sk_receive_queue.lock);
+	spin_unlock_bh(&sk->sk_receive_queue.lock, bh);
 	sock->sk = NULL;
 
 	WARN_ON(IS_ERR(cf_sk->debugfs_socket_dir));

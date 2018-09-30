@@ -309,6 +309,7 @@ static irqreturn_t mv_xor_v2_interrupt_handler(int irq, void *data)
 static dma_cookie_t
 mv_xor_v2_tx_submit(struct dma_async_tx_descriptor *tx)
 {
+	unsigned int bh;
 	void *dest_hw_desc;
 	dma_cookie_t cookie;
 	struct mv_xor_v2_sw_desc *sw_desc =
@@ -321,7 +322,7 @@ mv_xor_v2_tx_submit(struct dma_async_tx_descriptor *tx)
 		__func__, sw_desc, &sw_desc->async_tx);
 
 	/* assign coookie */
-	spin_lock_bh(&xor_dev->lock);
+	bh = spin_lock_bh(&xor_dev->lock, SOFTIRQ_ALL_MASK);
 	cookie = dma_cookie_assign(tx);
 
 	/* copy the HW descriptor from the SW descriptor to the DESQ */
@@ -334,7 +335,7 @@ mv_xor_v2_tx_submit(struct dma_async_tx_descriptor *tx)
 	if (xor_dev->hw_queue_idx >= MV_XOR_V2_DESC_NUM)
 		xor_dev->hw_queue_idx = 0;
 
-	spin_unlock_bh(&xor_dev->lock);
+	spin_unlock_bh(&xor_dev->lock, bh);
 
 	return cookie;
 }
@@ -345,14 +346,15 @@ mv_xor_v2_tx_submit(struct dma_async_tx_descriptor *tx)
 static struct mv_xor_v2_sw_desc	*
 mv_xor_v2_prep_sw_desc(struct mv_xor_v2_device *xor_dev)
 {
+	unsigned int bh;
 	struct mv_xor_v2_sw_desc *sw_desc;
 	bool found = false;
 
 	/* Lock the channel */
-	spin_lock_bh(&xor_dev->lock);
+	bh = spin_lock_bh(&xor_dev->lock, SOFTIRQ_ALL_MASK);
 
 	if (list_empty(&xor_dev->free_sw_desc)) {
-		spin_unlock_bh(&xor_dev->lock);
+		spin_unlock_bh(&xor_dev->lock, bh);
 		/* schedule tasklet to free some descriptors */
 		tasklet_schedule(&xor_dev->irq_tasklet);
 		return NULL;
@@ -366,14 +368,14 @@ mv_xor_v2_prep_sw_desc(struct mv_xor_v2_device *xor_dev)
 	}
 
 	if (!found) {
-		spin_unlock_bh(&xor_dev->lock);
+		spin_unlock_bh(&xor_dev->lock, bh);
 		return NULL;
 	}
 
 	list_del(&sw_desc->free_list);
 
 	/* Release the channel */
-	spin_unlock_bh(&xor_dev->lock);
+	spin_unlock_bh(&xor_dev->lock, bh);
 
 	return sw_desc;
 }
@@ -525,10 +527,11 @@ mv_xor_v2_prep_dma_interrupt(struct dma_chan *chan, unsigned long flags)
  */
 static void mv_xor_v2_issue_pending(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct mv_xor_v2_device *xor_dev =
 		container_of(chan, struct mv_xor_v2_device, dmachan);
 
-	spin_lock_bh(&xor_dev->lock);
+	bh = spin_lock_bh(&xor_dev->lock, SOFTIRQ_ALL_MASK);
 
 	/*
 	 * update the engine with the number of descriptors to
@@ -537,7 +540,7 @@ static void mv_xor_v2_issue_pending(struct dma_chan *chan)
 	mv_xor_v2_add_desc_to_desq(xor_dev, xor_dev->npendings);
 	xor_dev->npendings = 0;
 
-	spin_unlock_bh(&xor_dev->lock);
+	spin_unlock_bh(&xor_dev->lock, bh);
 }
 
 static inline
@@ -562,6 +565,7 @@ int mv_xor_v2_get_pending_params(struct mv_xor_v2_device *xor_dev,
  */
 static void mv_xor_v2_tasklet(unsigned long data)
 {
+	unsigned int bh;
 	struct mv_xor_v2_device *xor_dev = (struct mv_xor_v2_device *) data;
 	int pending_ptr, num_of_pending, i;
 	struct mv_xor_v2_sw_desc *next_pending_sw_desc = NULL;
@@ -597,14 +601,14 @@ static void mv_xor_v2_tasklet(unsigned long data)
 		dma_run_dependencies(&next_pending_sw_desc->async_tx);
 
 		/* Lock the channel */
-		spin_lock_bh(&xor_dev->lock);
+		bh = spin_lock_bh(&xor_dev->lock, SOFTIRQ_ALL_MASK);
 
 		/* add the SW descriptor to the free descriptors list */
 		list_add(&next_pending_sw_desc->free_list,
 			 &xor_dev->free_sw_desc);
 
 		/* Release the channel */
-		spin_unlock_bh(&xor_dev->lock);
+		spin_unlock_bh(&xor_dev->lock, bh);
 
 		/* increment the next descriptor */
 		pending_ptr++;

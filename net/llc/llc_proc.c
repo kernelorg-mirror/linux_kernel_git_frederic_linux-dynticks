@@ -33,12 +33,13 @@ static void llc_ui_format_mac(struct seq_file *seq, u8 *addr)
 
 static struct sock *llc_get_sk_idx(loff_t pos)
 {
+	unsigned int bh;
 	struct llc_sap *sap;
 	struct sock *sk = NULL;
 	int i;
 
 	list_for_each_entry_rcu(sap, &llc_sap_list, node) {
-		spin_lock_bh(&sap->sk_lock);
+		bh = spin_lock_bh(&sap->sk_lock, SOFTIRQ_ALL_MASK);
 		for (i = 0; i < LLC_SK_LADDR_HASH_ENTRIES; i++) {
 			struct hlist_nulls_head *head = &sap->sk_laddr_hash[i];
 			struct hlist_nulls_node *node;
@@ -49,7 +50,7 @@ static struct sock *llc_get_sk_idx(loff_t pos)
 				--pos;
 			}
 		}
-		spin_unlock_bh(&sap->sk_lock);
+		spin_unlock_bh(&sap->sk_lock, bh);
 	}
 	sk = NULL;
 found:
@@ -80,6 +81,7 @@ out:
 
 static void *llc_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 {
+	unsigned int bh;
 	struct sock* sk, *next;
 	struct llc_sock *llc;
 	struct llc_sap *sap;
@@ -102,11 +104,11 @@ static void *llc_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 		goto out;
 	spin_unlock_bh(&sap->sk_lock);
 	list_for_each_entry_continue_rcu(sap, &llc_sap_list, node) {
-		spin_lock_bh(&sap->sk_lock);
+		bh = spin_lock_bh(&sap->sk_lock, SOFTIRQ_ALL_MASK);
 		sk = laddr_hash_next(sap, -1);
 		if (sk)
 			break; /* keep the lock */
-		spin_unlock_bh(&sap->sk_lock);
+		spin_unlock_bh(&sap->sk_lock, bh);
 	}
 out:
 	return sk;

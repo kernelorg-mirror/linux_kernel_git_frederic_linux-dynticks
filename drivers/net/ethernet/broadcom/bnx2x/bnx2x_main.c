@@ -521,6 +521,7 @@ void bnx2x_prep_dmae_with_comp(struct bnx2x *bp,
 int bnx2x_issue_dmae_with_comp(struct bnx2x *bp, struct dmae_command *dmae,
 			       u32 *comp)
 {
+	unsigned int bh;
 	int cnt = CHIP_REV_IS_SLOW(bp) ? (400000) : 4000;
 	int rc = 0;
 
@@ -531,7 +532,7 @@ int bnx2x_issue_dmae_with_comp(struct bnx2x *bp, struct dmae_command *dmae,
 	 * from ndo_set_rx_mode() flow that may be called from BH.
 	 */
 
-	spin_lock_bh(&bp->dmae_lock);
+	bh = spin_lock_bh(&bp->dmae_lock, SOFTIRQ_ALL_MASK);
 
 	/* reset completion */
 	*comp = 0;
@@ -560,7 +561,7 @@ int bnx2x_issue_dmae_with_comp(struct bnx2x *bp, struct dmae_command *dmae,
 
 unlock:
 
-	spin_unlock_bh(&bp->dmae_lock);
+	spin_unlock_bh(&bp->dmae_lock, bh);
 
 	return rc;
 }
@@ -3859,6 +3860,7 @@ static bool bnx2x_is_contextless_ramrod(int cmd, int cmd_type)
 int bnx2x_sp_post(struct bnx2x *bp, int command, int cid,
 		  u32 data_hi, u32 data_lo, int cmd_type)
 {
+	unsigned int bh;
 	struct eth_spe *spe;
 	u16 type;
 	bool common = bnx2x_is_contextless_ramrod(command, cmd_type);
@@ -3870,18 +3872,18 @@ int bnx2x_sp_post(struct bnx2x *bp, int command, int cid,
 	}
 #endif
 
-	spin_lock_bh(&bp->spq_lock);
+	bh = spin_lock_bh(&bp->spq_lock, SOFTIRQ_ALL_MASK);
 
 	if (common) {
 		if (!atomic_read(&bp->eq_spq_left)) {
 			BNX2X_ERR("BUG! EQ ring full!\n");
-			spin_unlock_bh(&bp->spq_lock);
+			spin_unlock_bh(&bp->spq_lock, bh);
 			bnx2x_panic();
 			return -EBUSY;
 		}
 	} else if (!atomic_read(&bp->cq_spq_left)) {
 			BNX2X_ERR("BUG! SPQ ring full!\n");
-			spin_unlock_bh(&bp->spq_lock);
+			spin_unlock_bh(&bp->spq_lock, bh);
 			bnx2x_panic();
 			return -EBUSY;
 	}
@@ -3930,7 +3932,7 @@ int bnx2x_sp_post(struct bnx2x *bp, int command, int cid,
 	   atomic_read(&bp->cq_spq_left), atomic_read(&bp->eq_spq_left));
 
 	bnx2x_sp_prod_update(bp);
-	spin_unlock_bh(&bp->spq_lock);
+	spin_unlock_bh(&bp->spq_lock, bh);
 	return 0;
 }
 
@@ -14545,6 +14547,7 @@ static int bnx2x_set_iscsi_eth_mac_addr(struct bnx2x *bp)
 /* count denotes the number of new completions we have seen */
 static void bnx2x_cnic_sp_post(struct bnx2x *bp, int count)
 {
+	unsigned int bh;
 	struct eth_spe *spe;
 	int cxt_index, cxt_offset;
 
@@ -14553,7 +14556,7 @@ static void bnx2x_cnic_sp_post(struct bnx2x *bp, int count)
 		return;
 #endif
 
-	spin_lock_bh(&bp->spq_lock);
+	bh = spin_lock_bh(&bp->spq_lock, SOFTIRQ_ALL_MASK);
 	BUG_ON(bp->cnic_spq_pending < count);
 	bp->cnic_spq_pending -= count;
 
@@ -14621,12 +14624,13 @@ static void bnx2x_cnic_sp_post(struct bnx2x *bp, int count)
 			bp->cnic_kwq_cons++;
 	}
 	bnx2x_sp_prod_update(bp);
-	spin_unlock_bh(&bp->spq_lock);
+	spin_unlock_bh(&bp->spq_lock, bh);
 }
 
 static int bnx2x_cnic_sp_queue(struct net_device *dev,
 			       struct kwqe_16 *kwqes[], u32 count)
 {
+	unsigned int bh;
 	struct bnx2x *bp = netdev_priv(dev);
 	int i;
 
@@ -14643,7 +14647,7 @@ static int bnx2x_cnic_sp_queue(struct net_device *dev,
 		return -EAGAIN;
 	}
 
-	spin_lock_bh(&bp->spq_lock);
+	bh = spin_lock_bh(&bp->spq_lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < count; i++) {
 		struct eth_spe *spe = (struct eth_spe *)kwqes[i];
@@ -14667,7 +14671,7 @@ static int bnx2x_cnic_sp_queue(struct net_device *dev,
 			bp->cnic_kwq_prod++;
 	}
 
-	spin_unlock_bh(&bp->spq_lock);
+	spin_unlock_bh(&bp->spq_lock, bh);
 
 	if (bp->cnic_spq_pending < bp->cnic_eth_dev.max_kwqe_pending)
 		bnx2x_cnic_sp_post(bp, 0);

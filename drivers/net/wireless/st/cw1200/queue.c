@@ -93,6 +93,7 @@ static void __cw1200_queue_gc(struct cw1200_queue *queue,
 			      struct list_head *head,
 			      bool unlock)
 {
+	unsigned int bh;
 	struct cw1200_queue_stats *stats = queue->stats;
 	struct cw1200_queue_item *item = NULL, *tmp;
 	bool wakeup_stats = false;
@@ -102,11 +103,11 @@ static void __cw1200_queue_gc(struct cw1200_queue *queue,
 			break;
 		--queue->num_queued;
 		--queue->link_map_cache[item->txpriv.link_id];
-		spin_lock_bh(&stats->lock);
+		bh = spin_lock_bh(&stats->lock, SOFTIRQ_ALL_MASK);
 		--stats->num_queued;
 		if (!--stats->link_map_cache[item->txpriv.link_id])
 			wakeup_stats = true;
-		spin_unlock_bh(&stats->lock);
+		spin_unlock_bh(&stats->lock, bh);
 		cw1200_debug_tx_ttl(stats->priv);
 		cw1200_queue_register_post_gc(head, item);
 		item->skb = NULL;
@@ -132,13 +133,14 @@ static void __cw1200_queue_gc(struct cw1200_queue *queue,
 
 static void cw1200_queue_gc(struct timer_list *t)
 {
+	unsigned int bh;
 	LIST_HEAD(list);
 	struct cw1200_queue *queue =
 		from_timer(queue, t, gc);
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	__cw1200_queue_gc(queue, &list, true);
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 	cw1200_queue_post_gc(queue->stats, &list);
 }
 
@@ -202,12 +204,13 @@ int cw1200_queue_init(struct cw1200_queue *queue,
 
 int cw1200_queue_clear(struct cw1200_queue *queue)
 {
+	unsigned int bh;
 	int i;
 	LIST_HEAD(gc_list);
 	struct cw1200_queue_stats *stats = queue->stats;
 	struct cw1200_queue_item *item, *tmp;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	queue->generation++;
 	list_splice_tail_init(&queue->queue, &queue->pending);
 	list_for_each_entry_safe(item, tmp, &queue->pending, head) {
@@ -219,7 +222,7 @@ int cw1200_queue_clear(struct cw1200_queue *queue)
 	queue->num_queued = 0;
 	queue->num_pending = 0;
 
-	spin_lock_bh(&stats->lock);
+	spin_lock_bh(&stats->lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < stats->map_capacity; ++i) {
 		stats->num_queued -= queue->link_map_cache[i];
 		stats->link_map_cache[i] -= queue->link_map_cache[i];
@@ -230,7 +233,7 @@ int cw1200_queue_clear(struct cw1200_queue *queue)
 		queue->overfull = false;
 		__cw1200_queue_unlock(queue);
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 	wake_up(&stats->wait_link_id_empty);
 	cw1200_queue_post_gc(stats, &gc_list);
 	return 0;
@@ -257,6 +260,7 @@ void cw1200_queue_deinit(struct cw1200_queue *queue)
 size_t cw1200_queue_get_num_queued(struct cw1200_queue *queue,
 				   u32 link_id_map)
 {
+	unsigned int bh;
 	size_t ret;
 	int i, bit;
 	size_t map_capacity = queue->stats->map_capacity;
@@ -264,7 +268,7 @@ size_t cw1200_queue_get_num_queued(struct cw1200_queue *queue,
 	if (!link_id_map)
 		return 0;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	if (link_id_map == (u32)-1) {
 		ret = queue->num_queued - queue->num_pending;
 	} else {
@@ -274,7 +278,7 @@ size_t cw1200_queue_get_num_queued(struct cw1200_queue *queue,
 				ret += queue->link_map_cache[i];
 		}
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 	return ret;
 }
 
@@ -282,6 +286,7 @@ int cw1200_queue_put(struct cw1200_queue *queue,
 		     struct sk_buff *skb,
 		     struct cw1200_txpriv *txpriv)
 {
+	unsigned int bh;
 	int ret = 0;
 	LIST_HEAD(gc_list);
 	struct cw1200_queue_stats *stats = queue->stats;
@@ -289,7 +294,7 @@ int cw1200_queue_put(struct cw1200_queue *queue,
 	if (txpriv->link_id >= queue->stats->map_capacity)
 		return -EINVAL;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	if (!WARN_ON(list_empty(&queue->free_pool))) {
 		struct cw1200_queue_item *item = list_first_entry(
 			&queue->free_pool, struct cw1200_queue_item, head);
@@ -308,7 +313,7 @@ int cw1200_queue_put(struct cw1200_queue *queue,
 		++queue->num_queued;
 		++queue->link_map_cache[txpriv->link_id];
 
-		spin_lock_bh(&stats->lock);
+		spin_lock_bh(&stats->lock, SOFTIRQ_ALL_MASK);
 		++stats->num_queued;
 		++stats->link_map_cache[txpriv->link_id];
 		spin_unlock_bh(&stats->lock);
@@ -326,7 +331,7 @@ int cw1200_queue_put(struct cw1200_queue *queue,
 	} else {
 		ret = -ENOENT;
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 	return ret;
 }
 
@@ -336,12 +341,13 @@ int cw1200_queue_get(struct cw1200_queue *queue,
 		     struct ieee80211_tx_info **tx_info,
 		     const struct cw1200_txpriv **txpriv)
 {
+	unsigned int bh;
 	int ret = -ENOENT;
 	struct cw1200_queue_item *item;
 	struct cw1200_queue_stats *stats = queue->stats;
 	bool wakeup_stats = false;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(item, &queue->queue, head) {
 		if (link_id_map & BIT(item->txpriv.link_id)) {
 			ret = 0;
@@ -359,13 +365,13 @@ int cw1200_queue_get(struct cw1200_queue *queue,
 		--queue->link_map_cache[item->txpriv.link_id];
 		item->xmit_timestamp = jiffies;
 
-		spin_lock_bh(&stats->lock);
+		spin_lock_bh(&stats->lock, SOFTIRQ_ALL_MASK);
 		--stats->num_queued;
 		if (!--stats->link_map_cache[item->txpriv.link_id])
 			wakeup_stats = true;
 		spin_unlock_bh(&stats->lock);
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 	if (wakeup_stats)
 		wake_up(&stats->wait_link_id_empty);
 	return ret;
@@ -373,6 +379,7 @@ int cw1200_queue_get(struct cw1200_queue *queue,
 
 int cw1200_queue_requeue(struct cw1200_queue *queue, u32 packet_id)
 {
+	unsigned int bh;
 	int ret = 0;
 	u8 queue_generation, queue_id, item_generation, item_id;
 	struct cw1200_queue_item *item;
@@ -383,7 +390,7 @@ int cw1200_queue_requeue(struct cw1200_queue *queue, u32 packet_id)
 
 	item = &queue->pool[item_id];
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	BUG_ON(queue_id != queue->queue_id);
 	if (queue_generation != queue->generation) {
 		ret = -ENOENT;
@@ -397,7 +404,7 @@ int cw1200_queue_requeue(struct cw1200_queue *queue, u32 packet_id)
 		--queue->num_pending;
 		++queue->link_map_cache[item->txpriv.link_id];
 
-		spin_lock_bh(&stats->lock);
+		spin_lock_bh(&stats->lock, SOFTIRQ_ALL_MASK);
 		++stats->num_queued;
 		++stats->link_map_cache[item->txpriv.link_id];
 		spin_unlock_bh(&stats->lock);
@@ -409,21 +416,22 @@ int cw1200_queue_requeue(struct cw1200_queue *queue, u32 packet_id)
 							    item_id);
 		list_move(&item->head, &queue->queue);
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 	return ret;
 }
 
 int cw1200_queue_requeue_all(struct cw1200_queue *queue)
 {
+	unsigned int bh;
 	struct cw1200_queue_item *item, *tmp;
 	struct cw1200_queue_stats *stats = queue->stats;
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe_reverse(item, tmp, &queue->pending, head) {
 		--queue->num_pending;
 		++queue->link_map_cache[item->txpriv.link_id];
 
-		spin_lock_bh(&stats->lock);
+		spin_lock_bh(&stats->lock, SOFTIRQ_ALL_MASK);
 		++stats->num_queued;
 		++stats->link_map_cache[item->txpriv.link_id];
 		spin_unlock_bh(&stats->lock);
@@ -435,13 +443,14 @@ int cw1200_queue_requeue_all(struct cw1200_queue *queue)
 							    item - queue->pool);
 		list_move(&item->head, &queue->queue);
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 
 	return 0;
 }
 
 int cw1200_queue_remove(struct cw1200_queue *queue, u32 packet_id)
 {
+	unsigned int bh;
 	int ret = 0;
 	u8 queue_generation, queue_id, item_generation, item_id;
 	struct cw1200_queue_item *item;
@@ -454,7 +463,7 @@ int cw1200_queue_remove(struct cw1200_queue *queue, u32 packet_id)
 
 	item = &queue->pool[item_id];
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	BUG_ON(queue_id != queue->queue_id);
 	if (queue_generation != queue->generation) {
 		ret = -ENOENT;
@@ -483,7 +492,7 @@ int cw1200_queue_remove(struct cw1200_queue *queue, u32 packet_id)
 			__cw1200_queue_unlock(queue);
 		}
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 
 	if (gc_skb)
 		stats->skb_dtor(stats->priv, gc_skb, &gc_txpriv);
@@ -495,6 +504,7 @@ int cw1200_queue_get_skb(struct cw1200_queue *queue, u32 packet_id,
 			 struct sk_buff **skb,
 			 const struct cw1200_txpriv **txpriv)
 {
+	unsigned int bh;
 	int ret = 0;
 	u8 queue_generation, queue_id, item_generation, item_id;
 	struct cw1200_queue_item *item;
@@ -503,7 +513,7 @@ int cw1200_queue_get_skb(struct cw1200_queue *queue, u32 packet_id,
 
 	item = &queue->pool[item_id];
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	BUG_ON(queue_id != queue->queue_id);
 	if (queue_generation != queue->generation) {
 		ret = -ENOENT;
@@ -517,32 +527,35 @@ int cw1200_queue_get_skb(struct cw1200_queue *queue, u32 packet_id,
 		*skb = item->skb;
 		*txpriv = &item->txpriv;
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 	return ret;
 }
 
 void cw1200_queue_lock(struct cw1200_queue *queue)
 {
-	spin_lock_bh(&queue->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	__cw1200_queue_lock(queue);
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 }
 
 void cw1200_queue_unlock(struct cw1200_queue *queue)
 {
-	spin_lock_bh(&queue->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	__cw1200_queue_unlock(queue);
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 }
 
 bool cw1200_queue_get_xmit_timestamp(struct cw1200_queue *queue,
 				     unsigned long *timestamp,
 				     u32 pending_frame_id)
 {
+	unsigned int bh;
 	struct cw1200_queue_item *item;
 	bool ret;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	ret = !list_empty(&queue->pending);
 	if (ret) {
 		list_for_each_entry(item, &queue->pending, head) {
@@ -552,16 +565,17 @@ bool cw1200_queue_get_xmit_timestamp(struct cw1200_queue *queue,
 					*timestamp = item->xmit_timestamp;
 		}
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 	return ret;
 }
 
 bool cw1200_queue_stats_is_empty(struct cw1200_queue_stats *stats,
 				 u32 link_id_map)
 {
+	unsigned int bh;
 	bool empty = true;
 
-	spin_lock_bh(&stats->lock);
+	bh = spin_lock_bh(&stats->lock, SOFTIRQ_ALL_MASK);
 	if (link_id_map == (u32)-1) {
 		empty = stats->num_queued == 0;
 	} else {
@@ -575,7 +589,7 @@ bool cw1200_queue_stats_is_empty(struct cw1200_queue_stats *stats,
 			}
 		}
 	}
-	spin_unlock_bh(&stats->lock);
+	spin_unlock_bh(&stats->lock, bh);
 
 	return empty;
 }

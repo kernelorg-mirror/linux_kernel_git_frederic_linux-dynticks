@@ -67,11 +67,12 @@ MODULE_ALIAS("ip6t_limit");
 static bool
 limit_mt(const struct sk_buff *skb, struct xt_action_param *par)
 {
+	unsigned int bh;
 	const struct xt_rateinfo *r = par->matchinfo;
 	struct xt_limit_priv *priv = r->master;
 	unsigned long now = jiffies;
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	priv->credit += (now - xchg(&priv->prev, now)) * CREDITS_PER_JIFFY;
 	if (priv->credit > r->credit_cap)
 		priv->credit = r->credit_cap;
@@ -79,11 +80,11 @@ limit_mt(const struct sk_buff *skb, struct xt_action_param *par)
 	if (priv->credit >= r->cost) {
 		/* We're not limited. */
 		priv->credit -= r->cost;
-		spin_unlock_bh(&priv->lock);
+		spin_unlock_bh(&priv->lock, bh);
 		return true;
 	}
 
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 	return false;
 }
 

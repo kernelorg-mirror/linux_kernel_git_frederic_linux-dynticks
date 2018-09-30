@@ -170,16 +170,17 @@ static int qeth_l2_remove_mac(struct qeth_card *card, u8 *mac)
 
 static void qeth_l2_del_all_macs(struct qeth_card *card)
 {
+	unsigned int bh;
 	struct qeth_mac *mac;
 	struct hlist_node *tmp;
 	int i;
 
-	spin_lock_bh(&card->mclock);
+	bh = spin_lock_bh(&card->mclock, SOFTIRQ_ALL_MASK);
 	hash_for_each_safe(card->mac_htable, i, tmp, mac, hnode) {
 		hash_del(&mac->hnode);
 		kfree(mac);
 	}
-	spin_unlock_bh(&card->mclock);
+	spin_unlock_bh(&card->mclock, bh);
 }
 
 static int qeth_l2_get_cast_type(struct qeth_card *card, struct sk_buff *skb)
@@ -590,6 +591,7 @@ static void qeth_l2_add_mac(struct qeth_card *card, struct netdev_hw_addr *ha)
 
 static void qeth_l2_set_rx_mode(struct net_device *dev)
 {
+	unsigned int bh;
 	struct qeth_card *card = dev->ml_priv;
 	struct netdev_hw_addr *ha;
 	struct qeth_mac *mac;
@@ -605,7 +607,7 @@ static void qeth_l2_set_rx_mode(struct net_device *dev)
 	    (card->state != CARD_STATE_UP))
 		return;
 
-	spin_lock_bh(&card->mclock);
+	bh = spin_lock_bh(&card->mclock, SOFTIRQ_ALL_MASK);
 
 	netdev_for_each_mc_addr(ha, dev)
 		qeth_l2_add_mac(card, ha);
@@ -633,7 +635,7 @@ static void qeth_l2_set_rx_mode(struct net_device *dev)
 		}
 	}
 
-	spin_unlock_bh(&card->mclock);
+	spin_unlock_bh(&card->mclock, bh);
 
 	if (qeth_adp_supported(card, IPA_SETADP_SET_PROMISC_MODE))
 		qeth_setadp_promisc_mode(card);

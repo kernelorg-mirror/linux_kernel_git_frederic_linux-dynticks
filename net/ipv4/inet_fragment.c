@@ -70,6 +70,7 @@ EXPORT_SYMBOL(inet_frags_fini);
 
 static void inet_frags_free_cb(void *ptr, void *arg)
 {
+	unsigned int bh;
 	struct inet_frag_queue *fq = ptr;
 
 	/* If we can not cancel the timer, it means this frag_queue
@@ -79,12 +80,12 @@ static void inet_frags_free_cb(void *ptr, void *arg)
 	if (!del_timer(&fq->timer))
 		return;
 
-	spin_lock_bh(&fq->lock);
+	bh = spin_lock_bh(&fq->lock, SOFTIRQ_ALL_MASK);
 	if (!(fq->flags & INET_FRAG_COMPLETE)) {
 		fq->flags |= INET_FRAG_COMPLETE;
 		refcount_dec(&fq->refcnt);
 	}
-	spin_unlock_bh(&fq->lock);
+	spin_unlock_bh(&fq->lock, bh);
 
 	inet_frag_put(fq);
 }

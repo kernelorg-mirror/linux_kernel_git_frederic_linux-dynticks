@@ -2532,10 +2532,10 @@ static int pktgen_output_ipsec(struct sk_buff *skb, struct pktgen_dev *pkt_dev)
 		XFRM_INC_STATS(net, LINUX_MIB_XFRMOUTSTATEPROTOERROR);
 		goto error;
 	}
-	spin_lock_bh(&x->lock);
+	bh = spin_lock_bh(&x->lock, SOFTIRQ_ALL_MASK);
 	x->curlft.bytes += skb->len;
 	x->curlft.packets++;
-	spin_unlock_bh(&x->lock);
+	spin_unlock_bh(&x->lock, bh);
 error:
 	return err;
 }

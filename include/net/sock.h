@@ -1515,7 +1515,7 @@ static inline void unlock_sock_fast(struct sock *sk, bool slow,
 	if (slow)
 		release_sock(sk);
 	else
-		spin_unlock_bh(&sk->sk_lock.slock);
+		spin_unlock_bh(&sk->sk_lock.slock, bh);
 }
 
 /* Used by processes to "lock" a socket state, so that

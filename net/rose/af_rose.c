@@ -153,9 +153,10 @@ int rosecmpm(rose_address *addr1, rose_address *addr2, unsigned short mask)
  */
 static void rose_remove_socket(struct sock *sk)
 {
-	spin_lock_bh(&rose_list_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&rose_list_lock, SOFTIRQ_ALL_MASK);
 	sk_del_node_init(sk);
-	spin_unlock_bh(&rose_list_lock);
+	spin_unlock_bh(&rose_list_lock, bh);
 }
 
 /*
@@ -164,9 +165,10 @@ static void rose_remove_socket(struct sock *sk)
  */
 void rose_kill_by_neigh(struct rose_neigh *neigh)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	spin_lock_bh(&rose_list_lock);
+	bh = spin_lock_bh(&rose_list_lock, SOFTIRQ_ALL_MASK);
 	sk_for_each(s, &rose_list) {
 		struct rose_sock *rose = rose_sk(s);
 
@@ -176,7 +178,7 @@ void rose_kill_by_neigh(struct rose_neigh *neigh)
 			rose->neighbour = NULL;
 		}
 	}
-	spin_unlock_bh(&rose_list_lock);
+	spin_unlock_bh(&rose_list_lock, bh);
 }
 
 /*
@@ -184,9 +186,10 @@ void rose_kill_by_neigh(struct rose_neigh *neigh)
  */
 static void rose_kill_by_device(struct net_device *dev)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	spin_lock_bh(&rose_list_lock);
+	bh = spin_lock_bh(&rose_list_lock, SOFTIRQ_ALL_MASK);
 	sk_for_each(s, &rose_list) {
 		struct rose_sock *rose = rose_sk(s);
 
@@ -197,7 +200,7 @@ static void rose_kill_by_device(struct net_device *dev)
 			rose->device = NULL;
 		}
 	}
-	spin_unlock_bh(&rose_list_lock);
+	spin_unlock_bh(&rose_list_lock, bh);
 }
 
 /*
@@ -232,10 +235,11 @@ static int rose_device_event(struct notifier_block *this,
  */
 static void rose_insert_socket(struct sock *sk)
 {
+	unsigned int bh;
 
-	spin_lock_bh(&rose_list_lock);
+	bh = spin_lock_bh(&rose_list_lock, SOFTIRQ_ALL_MASK);
 	sk_add_node(sk, &rose_list);
-	spin_unlock_bh(&rose_list_lock);
+	spin_unlock_bh(&rose_list_lock, bh);
 }
 
 /*
@@ -244,9 +248,10 @@ static void rose_insert_socket(struct sock *sk)
  */
 static struct sock *rose_find_listener(rose_address *addr, ax25_address *call)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	spin_lock_bh(&rose_list_lock);
+	bh = spin_lock_bh(&rose_list_lock, SOFTIRQ_ALL_MASK);
 	sk_for_each(s, &rose_list) {
 		struct rose_sock *rose = rose_sk(s);
 
@@ -266,7 +271,7 @@ static struct sock *rose_find_listener(rose_address *addr, ax25_address *call)
 	}
 	s = NULL;
 found:
-	spin_unlock_bh(&rose_list_lock);
+	spin_unlock_bh(&rose_list_lock, bh);
 	return s;
 }
 
@@ -275,9 +280,10 @@ found:
  */
 struct sock *rose_find_socket(unsigned int lci, struct rose_neigh *neigh)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	spin_lock_bh(&rose_list_lock);
+	bh = spin_lock_bh(&rose_list_lock, SOFTIRQ_ALL_MASK);
 	sk_for_each(s, &rose_list) {
 		struct rose_sock *rose = rose_sk(s);
 
@@ -286,7 +292,7 @@ struct sock *rose_find_socket(unsigned int lci, struct rose_neigh *neigh)
 	}
 	s = NULL;
 found:
-	spin_unlock_bh(&rose_list_lock);
+	spin_unlock_bh(&rose_list_lock, bh);
 	return s;
 }
 
@@ -1378,7 +1384,7 @@ static int rose_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 static void *rose_info_start(struct seq_file *seq, loff_t *pos)
 	__acquires(rose_list_lock)
 {
-	spin_lock_bh(&rose_list_lock);
+	spin_lock_bh(&rose_list_lock, SOFTIRQ_ALL_MASK);
 	return seq_hlist_start_head(&rose_list, *pos);
 }
 

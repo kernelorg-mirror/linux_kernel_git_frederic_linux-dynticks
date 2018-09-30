@@ -1247,6 +1247,7 @@ Must be very very cautious...
 struct xmit_frame *rtw_alloc_xmitframe(struct xmit_priv *pxmitpriv)
 				/* _queue *pfree_xmit_queue) */
 {
+	unsigned int bh;
 	/*
 		Please remember to use all the osdep_service api,
 		and lock/unlock or _enter/_exit critical to protect
@@ -1255,7 +1256,7 @@ struct xmit_frame *rtw_alloc_xmitframe(struct xmit_priv *pxmitpriv)
 	struct xmit_frame *pxframe;
 	struct __queue *pfree_xmit_queue = &pxmitpriv->free_xmit_queue;
 
-	spin_lock_bh(&pfree_xmit_queue->lock);
+	bh = spin_lock_bh(&pfree_xmit_queue->lock, SOFTIRQ_ALL_MASK);
 	pxframe = list_first_entry_or_null(&pfree_xmit_queue->queue,
 					   struct xmit_frame, list);
 	if (!pxframe) {
@@ -1286,13 +1287,14 @@ struct xmit_frame *rtw_alloc_xmitframe(struct xmit_priv *pxmitpriv)
 		pxframe->agg_num = 1;
 		pxframe->ack_report = 0;
 	}
-	spin_unlock_bh(&pfree_xmit_queue->lock);
+	spin_unlock_bh(&pfree_xmit_queue->lock, bh);
 
 	return pxframe;
 }
 
 s32 rtw_free_xmitframe(struct xmit_priv *pxmitpriv, struct xmit_frame *pxmitframe)
 {
+	unsigned int bh;
 	struct __queue *pfree_xmit_queue = &pxmitpriv->free_xmit_queue;
 	struct adapter *padapter = pxmitpriv->adapter;
 	struct sk_buff *pndis_pkt = NULL;
@@ -1302,7 +1304,7 @@ s32 rtw_free_xmitframe(struct xmit_priv *pxmitpriv, struct xmit_frame *pxmitfram
 		goto exit;
 	}
 
-	spin_lock_bh(&pfree_xmit_queue->lock);
+	bh = spin_lock_bh(&pfree_xmit_queue->lock, SOFTIRQ_ALL_MASK);
 
 	list_del_init(&pxmitframe->list);
 
@@ -1316,7 +1318,7 @@ s32 rtw_free_xmitframe(struct xmit_priv *pxmitpriv, struct xmit_frame *pxmitfram
 	pxmitpriv->free_xmitframe_cnt++;
 	RT_TRACE(_module_rtl871x_xmit_c_, _drv_debug_, ("%s:free_xmitframe_cnt=%d\n", __func__, pxmitpriv->free_xmitframe_cnt));
 
-	spin_unlock_bh(&pfree_xmit_queue->lock);
+	spin_unlock_bh(&pfree_xmit_queue->lock, bh);
 
 	if (pndis_pkt)
 		rtw_os_pkt_complete(padapter, pndis_pkt);
@@ -1327,10 +1329,11 @@ exit:
 
 void rtw_free_xmitframe_queue(struct xmit_priv *pxmitpriv, struct __queue *pframequeue)
 {
+	unsigned int bh;
 	struct list_head *plist, *phead;
 	struct	xmit_frame	*pxmitframe;
 
-	spin_lock_bh(&pframequeue->lock);
+	bh = spin_lock_bh(&pframequeue->lock, SOFTIRQ_ALL_MASK);
 
 	phead = get_list_head(pframequeue);
 	plist = phead->next;
@@ -1342,7 +1345,7 @@ void rtw_free_xmitframe_queue(struct xmit_priv *pxmitpriv, struct __queue *pfram
 
 		rtw_free_xmitframe(pxmitpriv, pxmitframe);
 	}
-	spin_unlock_bh(&pframequeue->lock);
+	spin_unlock_bh(&pframequeue->lock, bh);
 }
 
 s32 rtw_xmitframe_enqueue(struct adapter *padapter, struct xmit_frame *pxmitframe)
@@ -1379,6 +1382,7 @@ static struct xmit_frame *dequeue_one_xmitframe(struct xmit_priv *pxmitpriv, str
 
 struct xmit_frame *rtw_dequeue_xframe(struct xmit_priv *pxmitpriv, struct hw_xmit *phwxmit_i, int entry)
 {
+	unsigned int bh;
 	struct list_head *sta_plist, *sta_phead;
 	struct hw_xmit *phwxmit;
 	struct tx_servq *ptxservq = NULL;
@@ -1397,7 +1401,7 @@ struct xmit_frame *rtw_dequeue_xframe(struct xmit_priv *pxmitpriv, struct hw_xmi
 			inx[j] = pxmitpriv->wmm_para_seq[j];
 	}
 
-	spin_lock_bh(&pxmitpriv->lock);
+	bh = spin_lock_bh(&pxmitpriv->lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < entry; i++) {
 		phwxmit = phwxmit_i + inx[i];
@@ -1425,7 +1429,7 @@ struct xmit_frame *rtw_dequeue_xframe(struct xmit_priv *pxmitpriv, struct hw_xmi
 		}
 	}
 exit:
-	spin_unlock_bh(&pxmitpriv->lock);
+	spin_unlock_bh(&pxmitpriv->lock, bh);
 	return pxmitframe;
 }
 
@@ -1584,6 +1588,7 @@ u32 rtw_get_ff_hwaddr(struct xmit_frame *pxmitframe)
  */
 s32 rtw_xmit(struct adapter *padapter, struct sk_buff **ppkt)
 {
+	unsigned int bh;
 	struct xmit_priv *pxmitpriv = &padapter->xmitpriv;
 	struct xmit_frame *pxmitframe = NULL;
 	s32 res;
@@ -1609,12 +1614,12 @@ s32 rtw_xmit(struct adapter *padapter, struct sk_buff **ppkt)
 	pxmitframe->attrib.qsel = pxmitframe->attrib.priority;
 
 #ifdef CONFIG_88EU_AP_MODE
-	spin_lock_bh(&pxmitpriv->lock);
+	bh = spin_lock_bh(&pxmitpriv->lock, SOFTIRQ_ALL_MASK);
 	if (xmitframe_enqueue_for_sleeping_sta(padapter, pxmitframe)) {
 		spin_unlock_bh(&pxmitpriv->lock);
 		return 1;
 	}
-	spin_unlock_bh(&pxmitpriv->lock);
+	spin_unlock_bh(&pxmitpriv->lock, bh);
 #endif
 
 	if (rtw_hal_xmit(padapter, pxmitframe) == false)
@@ -1627,6 +1632,7 @@ s32 rtw_xmit(struct adapter *padapter, struct sk_buff **ppkt)
 
 int xmitframe_enqueue_for_sleeping_sta(struct adapter *padapter, struct xmit_frame *pxmitframe)
 {
+	unsigned int bh;
 	int ret = false;
 	struct sta_info *psta = NULL;
 	struct sta_priv *pstapriv = &padapter->stapriv;
@@ -1652,7 +1658,7 @@ int xmitframe_enqueue_for_sleeping_sta(struct adapter *padapter, struct xmit_fra
 	}
 
 	if (bmcst) {
-		spin_lock_bh(&psta->sleep_q.lock);
+		bh = spin_lock_bh(&psta->sleep_q.lock, SOFTIRQ_ALL_MASK);
 
 		if (pstapriv->sta_dz_bitmap) {/* if any one sta is in ps mode */
 			list_del_init(&pxmitframe->list);
@@ -1669,12 +1675,12 @@ int xmitframe_enqueue_for_sleeping_sta(struct adapter *padapter, struct xmit_fra
 			ret = true;
 		}
 
-		spin_unlock_bh(&psta->sleep_q.lock);
+		spin_unlock_bh(&psta->sleep_q.lock, bh);
 
 		return ret;
 	}
 
-	spin_lock_bh(&psta->sleep_q.lock);
+	bh = spin_lock_bh(&psta->sleep_q.lock, SOFTIRQ_ALL_MASK);
 
 	if (psta->state&WIFI_SLEEP_STATE) {
 		u8 wmmps_ac = 0;
@@ -1722,7 +1728,7 @@ int xmitframe_enqueue_for_sleeping_sta(struct adapter *padapter, struct xmit_fra
 		}
 	}
 
-	spin_unlock_bh(&psta->sleep_q.lock);
+	spin_unlock_bh(&psta->sleep_q.lock, bh);
 
 	return ret;
 }
@@ -1757,6 +1763,7 @@ static void dequeue_xmitframes_to_sleeping_queue(struct adapter *padapter, struc
 
 void stop_sta_xmit(struct adapter *padapter, struct sta_info *psta)
 {
+	unsigned int bh;
 	struct sta_info *psta_bmc;
 	struct sta_xmit_priv *pstaxmitpriv;
 	struct sta_priv *pstapriv = &padapter->stapriv;
@@ -1767,7 +1774,7 @@ void stop_sta_xmit(struct adapter *padapter, struct sta_info *psta)
 	/* for BC/MC Frames */
 	psta_bmc = rtw_get_bcmc_stainfo(padapter);
 
-	spin_lock_bh(&pxmitpriv->lock);
+	bh = spin_lock_bh(&pxmitpriv->lock, SOFTIRQ_ALL_MASK);
 
 	psta->state |= WIFI_SLEEP_STATE;
 
@@ -1790,18 +1797,19 @@ void stop_sta_xmit(struct adapter *padapter, struct sta_info *psta)
 	dequeue_xmitframes_to_sleeping_queue(padapter, psta_bmc, &pstaxmitpriv->be_q.sta_pending);
 	list_del_init(&pstaxmitpriv->be_q.tx_pending);
 
-	spin_unlock_bh(&pxmitpriv->lock);
+	spin_unlock_bh(&pxmitpriv->lock, bh);
 }
 
 void wakeup_sta_to_xmit(struct adapter *padapter, struct sta_info *psta)
 {
+	unsigned int bh;
 	u8 update_mask = 0, wmmps_ac = 0;
 	struct sta_info *psta_bmc;
 	struct list_head *xmitframe_plist, *xmitframe_phead;
 	struct xmit_frame *pxmitframe = NULL;
 	struct sta_priv *pstapriv = &padapter->stapriv;
 
-	spin_lock_bh(&psta->sleep_q.lock);
+	bh = spin_lock_bh(&psta->sleep_q.lock, SOFTIRQ_ALL_MASK);
 
 	xmitframe_phead = get_list_head(&psta->sleep_q);
 	xmitframe_plist = xmitframe_phead->next;
@@ -1855,7 +1863,7 @@ void wakeup_sta_to_xmit(struct adapter *padapter, struct sta_info *psta)
 		spin_unlock_bh(&psta->sleep_q.lock);
 		if (rtw_hal_xmit(padapter, pxmitframe))
 			rtw_os_xmit_complete(padapter, pxmitframe);
-		spin_lock_bh(&psta->sleep_q.lock);
+		spin_lock_bh(&psta->sleep_q.lock, SOFTIRQ_ALL_MASK);
 	}
 
 	if (psta->sleepq_len == 0) {
@@ -1874,7 +1882,7 @@ void wakeup_sta_to_xmit(struct adapter *padapter, struct sta_info *psta)
 		pstapriv->sta_dz_bitmap &= ~BIT(psta->aid);
 	}
 
-	spin_unlock_bh(&psta->sleep_q.lock);
+	spin_unlock_bh(&psta->sleep_q.lock, bh);
 
 	/* for BC/MC Frames */
 	psta_bmc = rtw_get_bcmc_stainfo(padapter);
@@ -1882,7 +1890,7 @@ void wakeup_sta_to_xmit(struct adapter *padapter, struct sta_info *psta)
 		return;
 
 	if ((pstapriv->sta_dz_bitmap&0xfffe) == 0x0) { /* no any sta in ps mode */
-		spin_lock_bh(&psta_bmc->sleep_q.lock);
+		spin_lock_bh(&psta_bmc->sleep_q.lock, SOFTIRQ_ALL_MASK);
 
 		xmitframe_phead = get_list_head(&psta_bmc->sleep_q);
 		xmitframe_plist = xmitframe_phead->next;
@@ -1905,7 +1913,7 @@ void wakeup_sta_to_xmit(struct adapter *padapter, struct sta_info *psta)
 			spin_unlock_bh(&psta_bmc->sleep_q.lock);
 			if (rtw_hal_xmit(padapter, pxmitframe))
 				rtw_os_xmit_complete(padapter, pxmitframe);
-			spin_lock_bh(&psta_bmc->sleep_q.lock);
+			spin_lock_bh(&psta_bmc->sleep_q.lock, SOFTIRQ_ALL_MASK);
 		}
 
 		if (psta_bmc->sleepq_len == 0) {
@@ -1924,12 +1932,13 @@ void wakeup_sta_to_xmit(struct adapter *padapter, struct sta_info *psta)
 
 void xmit_delivery_enabled_frames(struct adapter *padapter, struct sta_info *psta)
 {
+	unsigned int bh;
 	u8 wmmps_ac = 0;
 	struct list_head *xmitframe_plist, *xmitframe_phead;
 	struct xmit_frame *pxmitframe = NULL;
 	struct sta_priv *pstapriv = &padapter->stapriv;
 
-	spin_lock_bh(&psta->sleep_q.lock);
+	bh = spin_lock_bh(&psta->sleep_q.lock, SOFTIRQ_ALL_MASK);
 
 	xmitframe_phead = get_list_head(&psta->sleep_q);
 	xmitframe_plist = xmitframe_phead->next;
@@ -1988,7 +1997,7 @@ void xmit_delivery_enabled_frames(struct adapter *padapter, struct sta_info *pst
 		}
 	}
 
-	spin_unlock_bh(&psta->sleep_q.lock);
+	spin_unlock_bh(&psta->sleep_q.lock, bh);
 }
 
 #endif

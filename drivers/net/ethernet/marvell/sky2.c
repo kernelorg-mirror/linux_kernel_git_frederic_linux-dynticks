@@ -808,15 +808,17 @@ static void sky2_enable_rx_tx(struct sky2_port *sky2)
 /* Force a renegotiation */
 static void sky2_phy_reinit(struct sky2_port *sky2)
 {
-	spin_lock_bh(&sky2->phy_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&sky2->phy_lock, SOFTIRQ_ALL_MASK);
 	sky2_phy_init(sky2->hw, sky2->port);
 	sky2_enable_rx_tx(sky2);
-	spin_unlock_bh(&sky2->phy_lock);
+	spin_unlock_bh(&sky2->phy_lock, bh);
 }
 
 /* Put device in state to listen for Wake On Lan */
 static void sky2_wol_init(struct sky2_port *sky2)
 {
+	unsigned int bh;
 	struct sky2_hw *hw = sky2->hw;
 	unsigned port = sky2->port;
 	enum flow_control save_mode;
@@ -838,10 +840,10 @@ static void sky2_wol_init(struct sky2_port *sky2)
 	sky2->advertising &= ~(ADVERTISED_1000baseT_Half|ADVERTISED_1000baseT_Full);
 	sky2->flow_mode = FC_NONE;
 
-	spin_lock_bh(&sky2->phy_lock);
+	bh = spin_lock_bh(&sky2->phy_lock, SOFTIRQ_ALL_MASK);
 	sky2_phy_power_up(hw, port);
 	sky2_phy_init(hw, port);
-	spin_unlock_bh(&sky2->phy_lock);
+	spin_unlock_bh(&sky2->phy_lock, bh);
 
 	sky2->flow_mode = save_mode;
 	sky2->advertising = ctrl;
@@ -907,6 +909,7 @@ static void sky2_set_tx_stfwd(struct sky2_hw *hw, unsigned port)
 
 static void sky2_mac_init(struct sky2_hw *hw, unsigned port)
 {
+	unsigned int bh;
 	struct sky2_port *sky2 = netdev_priv(hw->dev[port]);
 	u16 reg;
 	u32 rx_reg;
@@ -937,10 +940,10 @@ static void sky2_mac_init(struct sky2_hw *hw, unsigned port)
 	/* Enable Transmit FIFO Underrun */
 	sky2_write8(hw, SK_REG(port, GMAC_IRQ_MSK), GMAC_DEF_MSK);
 
-	spin_lock_bh(&sky2->phy_lock);
+	bh = spin_lock_bh(&sky2->phy_lock, SOFTIRQ_ALL_MASK);
 	sky2_phy_power_up(hw, port);
 	sky2_phy_init(hw, port);
-	spin_unlock_bh(&sky2->phy_lock);
+	spin_unlock_bh(&sky2->phy_lock, bh);
 
 	/* MIB clear */
 	reg = gma_read16(hw, port, GM_PHY_ADDR);
@@ -1378,6 +1381,7 @@ static void sky2_rx_clean(struct sky2_port *sky2)
 /* Basic MII support */
 static int sky2_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 {
+	unsigned int bh;
 	struct mii_ioctl_data *data = if_mii(ifr);
 	struct sky2_port *sky2 = netdev_priv(dev);
 	struct sky2_hw *hw = sky2->hw;
@@ -1394,19 +1398,19 @@ static int sky2_ioctl(struct net_device *dev, struct ifreq *ifr, int cmd)
 	case SIOCGMIIREG: {
 		u16 val = 0;
 
-		spin_lock_bh(&sky2->phy_lock);
+		bh = spin_lock_bh(&sky2->phy_lock, SOFTIRQ_ALL_MASK);
 		err = __gm_phy_read(hw, sky2->port, data->reg_num & 0x1f, &val);
-		spin_unlock_bh(&sky2->phy_lock);
+		spin_unlock_bh(&sky2->phy_lock, bh);
 
 		data->val_out = val;
 		break;
 	}
 
 	case SIOCSMIIREG:
-		spin_lock_bh(&sky2->phy_lock);
+		bh = spin_lock_bh(&sky2->phy_lock, SOFTIRQ_ALL_MASK);
 		err = gm_phy_write(hw, sky2->port, data->reg_num & 0x1f,
 				   data->val_in);
-		spin_unlock_bh(&sky2->phy_lock);
+		spin_unlock_bh(&sky2->phy_lock, bh);
 		break;
 	}
 	return err;
@@ -2078,6 +2082,7 @@ static void sky2_tx_reset(struct sky2_hw *hw, unsigned port)
 
 static void sky2_hw_down(struct sky2_port *sky2)
 {
+	unsigned int bh;
 	struct sky2_hw *hw = sky2->hw;
 	unsigned port = sky2->port;
 	u16 ctrl;
@@ -2113,9 +2118,9 @@ static void sky2_hw_down(struct sky2_port *sky2)
 
 	sky2_rx_stop(sky2);
 
-	spin_lock_bh(&sky2->phy_lock);
+	bh = spin_lock_bh(&sky2->phy_lock, SOFTIRQ_ALL_MASK);
 	sky2_phy_power_down(hw, port);
-	spin_unlock_bh(&sky2->phy_lock);
+	spin_unlock_bh(&sky2->phy_lock, bh);
 
 	sky2_tx_reset(hw, port);
 
@@ -3948,10 +3953,11 @@ static void sky2_get_stats(struct net_device *dev,
  */
 static void sky2_led(struct sky2_port *sky2, enum led_mode mode)
 {
+	unsigned int bh;
 	struct sky2_hw *hw = sky2->hw;
 	unsigned port = sky2->port;
 
-	spin_lock_bh(&sky2->phy_lock);
+	bh = spin_lock_bh(&sky2->phy_lock, SOFTIRQ_ALL_MASK);
 	if (hw->chip_id == CHIP_ID_YUKON_EC_U ||
 	    hw->chip_id == CHIP_ID_YUKON_EX ||
 	    hw->chip_id == CHIP_ID_YUKON_SUPR) {
@@ -3999,7 +4005,7 @@ static void sky2_led(struct sky2_port *sky2, enum led_mode mode)
 				     PHY_M_LED_MO_RX(mode) |
 				     PHY_M_LED_MO_TX(mode));
 
-	spin_unlock_bh(&sky2->phy_lock);
+	spin_unlock_bh(&sky2->phy_lock, bh);
 }
 
 /* blink LED's for finding board */

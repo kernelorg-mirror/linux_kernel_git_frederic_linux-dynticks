@@ -314,17 +314,19 @@ static LIST_HEAD(nf_ct_helper_expectfn_list);
 
 void nf_ct_helper_expectfn_register(struct nf_ct_helper_expectfn *n)
 {
-	spin_lock_bh(&nf_conntrack_expect_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 	list_add_rcu(&n->head, &nf_ct_helper_expectfn_list);
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 }
 EXPORT_SYMBOL_GPL(nf_ct_helper_expectfn_register);
 
 void nf_ct_helper_expectfn_unregister(struct nf_ct_helper_expectfn *n)
 {
-	spin_lock_bh(&nf_conntrack_expect_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&nf_conntrack_expect_lock, SOFTIRQ_ALL_MASK);
 	list_del_rcu(&n->head);
-	spin_unlock_bh(&nf_conntrack_expect_lock);
+	spin_unlock_bh(&nf_conntrack_expect_lock, bh);
 }
 EXPORT_SYMBOL_GPL(nf_ct_helper_expectfn_unregister);
 

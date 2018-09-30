@@ -54,12 +54,13 @@ struct rose_neigh *rose_loopback_neigh;
 static int __must_check rose_add_node(struct rose_route_struct *rose_route,
 	struct net_device *dev)
 {
+	unsigned int bh;
 	struct rose_node  *rose_node, *rose_tmpn, *rose_tmpp;
 	struct rose_neigh *rose_neigh;
 	int i, res = 0;
 
-	spin_lock_bh(&rose_node_list_lock);
-	spin_lock_bh(&rose_neigh_list_lock);
+	bh = spin_lock_bh(&rose_node_list_lock, SOFTIRQ_ALL_MASK);
+	spin_lock_bh(&rose_neigh_list_lock, SOFTIRQ_ALL_MASK);
 
 	rose_node = rose_node_list;
 	while (rose_node != NULL) {
@@ -194,7 +195,7 @@ static int __must_check rose_add_node(struct rose_route_struct *rose_route,
 
 out:
 	spin_unlock_bh(&rose_neigh_list_lock);
-	spin_unlock_bh(&rose_node_list_lock);
+	spin_unlock_bh(&rose_node_list_lock, bh);
 
 	return res;
 }
@@ -295,12 +296,13 @@ static void rose_remove_route(struct rose_route *rose_route)
 static int rose_del_node(struct rose_route_struct *rose_route,
 	struct net_device *dev)
 {
+	unsigned int bh;
 	struct rose_node  *rose_node;
 	struct rose_neigh *rose_neigh;
 	int i, err = 0;
 
-	spin_lock_bh(&rose_node_list_lock);
-	spin_lock_bh(&rose_neigh_list_lock);
+	bh = spin_lock_bh(&rose_node_list_lock, SOFTIRQ_ALL_MASK);
+	spin_lock_bh(&rose_neigh_list_lock, SOFTIRQ_ALL_MASK);
 
 	rose_node = rose_node_list;
 	while (rose_node != NULL) {
@@ -361,7 +363,7 @@ static int rose_del_node(struct rose_route_struct *rose_route,
 
 out:
 	spin_unlock_bh(&rose_neigh_list_lock);
-	spin_unlock_bh(&rose_node_list_lock);
+	spin_unlock_bh(&rose_node_list_lock, bh);
 
 	return err;
 }
@@ -371,6 +373,7 @@ out:
  */
 void rose_add_loopback_neigh(void)
 {
+	unsigned int bh;
 	struct rose_neigh *sn;
 
 	rose_loopback_neigh = kmalloc(sizeof(struct rose_neigh), GFP_KERNEL);
@@ -394,10 +397,10 @@ void rose_add_loopback_neigh(void)
 	timer_setup(&sn->ftimer, NULL, 0);
 	timer_setup(&sn->t0timer, NULL, 0);
 
-	spin_lock_bh(&rose_neigh_list_lock);
+	bh = spin_lock_bh(&rose_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	sn->next = rose_neigh_list;
 	rose_neigh_list           = sn;
-	spin_unlock_bh(&rose_neigh_list_lock);
+	spin_unlock_bh(&rose_neigh_list_lock, bh);
 }
 
 /*
@@ -405,10 +408,11 @@ void rose_add_loopback_neigh(void)
  */
 int rose_add_loopback_node(rose_address *address)
 {
+	unsigned int bh;
 	struct rose_node *rose_node;
 	int err = 0;
 
-	spin_lock_bh(&rose_node_list_lock);
+	bh = spin_lock_bh(&rose_node_list_lock, SOFTIRQ_ALL_MASK);
 
 	rose_node = rose_node_list;
 	while (rose_node != NULL) {
@@ -440,7 +444,7 @@ int rose_add_loopback_node(rose_address *address)
 	rose_loopback_neigh->count++;
 
 out:
-	spin_unlock_bh(&rose_node_list_lock);
+	spin_unlock_bh(&rose_node_list_lock, bh);
 
 	return err;
 }
@@ -450,9 +454,10 @@ out:
  */
 void rose_del_loopback_node(rose_address *address)
 {
+	unsigned int bh;
 	struct rose_node *rose_node;
 
-	spin_lock_bh(&rose_node_list_lock);
+	bh = spin_lock_bh(&rose_node_list_lock, SOFTIRQ_ALL_MASK);
 
 	rose_node = rose_node_list;
 	while (rose_node != NULL) {
@@ -471,7 +476,7 @@ void rose_del_loopback_node(rose_address *address)
 	rose_loopback_neigh->count--;
 
 out:
-	spin_unlock_bh(&rose_node_list_lock);
+	spin_unlock_bh(&rose_node_list_lock, bh);
 }
 
 /*
@@ -479,12 +484,13 @@ out:
  */
 void rose_rt_device_down(struct net_device *dev)
 {
+	unsigned int bh;
 	struct rose_neigh *s, *rose_neigh;
 	struct rose_node  *t, *rose_node;
 	int i;
 
-	spin_lock_bh(&rose_node_list_lock);
-	spin_lock_bh(&rose_neigh_list_lock);
+	bh = spin_lock_bh(&rose_node_list_lock, SOFTIRQ_ALL_MASK);
+	spin_lock_bh(&rose_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	rose_neigh = rose_neigh_list;
 	while (rose_neigh != NULL) {
 		s          = rose_neigh;
@@ -523,7 +529,7 @@ void rose_rt_device_down(struct net_device *dev)
 		rose_remove_neigh(s);
 	}
 	spin_unlock_bh(&rose_neigh_list_lock);
-	spin_unlock_bh(&rose_node_list_lock);
+	spin_unlock_bh(&rose_node_list_lock, bh);
 }
 
 #if 0 /* Currently unused */
@@ -534,7 +540,7 @@ void rose_route_device_down(struct net_device *dev)
 {
 	struct rose_route *s, *rose_route;
 
-	spin_lock_bh(&rose_route_list_lock);
+	spin_lock_bh(&rose_route_list_lock, SOFTIRQ_ALL_MASK);
 	rose_route = rose_route_list;
 	while (rose_route != NULL) {
 		s          = rose_route;
@@ -554,11 +560,12 @@ void rose_route_device_down(struct net_device *dev)
  */
 static int rose_clear_routes(void)
 {
+	unsigned int bh;
 	struct rose_neigh *s, *rose_neigh;
 	struct rose_node  *t, *rose_node;
 
-	spin_lock_bh(&rose_node_list_lock);
-	spin_lock_bh(&rose_neigh_list_lock);
+	bh = spin_lock_bh(&rose_node_list_lock, SOFTIRQ_ALL_MASK);
+	spin_lock_bh(&rose_neigh_list_lock, SOFTIRQ_ALL_MASK);
 
 	rose_neigh = rose_neigh_list;
 	rose_node  = rose_node_list;
@@ -581,7 +588,7 @@ static int rose_clear_routes(void)
 	}
 
 	spin_unlock_bh(&rose_neigh_list_lock);
-	spin_unlock_bh(&rose_node_list_lock);
+	spin_unlock_bh(&rose_node_list_lock, bh);
 
 	return 0;
 }
@@ -677,12 +684,13 @@ struct rose_route *rose_route_free_lci(unsigned int lci, struct rose_neigh *neig
 struct rose_neigh *rose_get_neigh(rose_address *addr, unsigned char *cause,
 	unsigned char *diagnostic, int route_frame)
 {
+	unsigned int bh;
 	struct rose_neigh *res = NULL;
 	struct rose_node *node;
 	int failed = 0;
 	int i;
 
-	if (!route_frame) spin_lock_bh(&rose_node_list_lock);
+	if (!route_frame) bh = spin_lock_bh(&rose_node_list_lock, SOFTIRQ_ALL_MASK);
 	for (node = rose_node_list; node != NULL; node = node->next) {
 		if (rosecmpm(addr, &node->address, node->mask) == 0) {
 			for (i = 0; i < node->count; i++) {
@@ -717,7 +725,7 @@ struct rose_neigh *rose_get_neigh(rose_address *addr, unsigned char *cause,
 	}
 
 out:
-	if (!route_frame) spin_unlock_bh(&rose_node_list_lock);
+	if (!route_frame) spin_unlock_bh(&rose_node_list_lock, bh);
 	return res;
 }
 
@@ -765,6 +773,7 @@ int rose_rt_ioctl(unsigned int cmd, void __user *arg)
 
 static void rose_del_route_by_neigh(struct rose_neigh *rose_neigh)
 {
+	unsigned int bh;
 	struct rose_route *rose_route, *s;
 
 	rose_neigh->restarted = 0;
@@ -774,7 +783,7 @@ static void rose_del_route_by_neigh(struct rose_neigh *rose_neigh)
 
 	skb_queue_purge(&rose_neigh->queue);
 
-	spin_lock_bh(&rose_route_list_lock);
+	bh = spin_lock_bh(&rose_route_list_lock, SOFTIRQ_ALL_MASK);
 
 	rose_route = rose_route_list;
 
@@ -802,7 +811,7 @@ static void rose_del_route_by_neigh(struct rose_neigh *rose_neigh)
 
 		rose_route = rose_route->next;
 	}
-	spin_unlock_bh(&rose_route_list_lock);
+	spin_unlock_bh(&rose_route_list_lock, bh);
 }
 
 /*
@@ -812,9 +821,10 @@ static void rose_del_route_by_neigh(struct rose_neigh *rose_neigh)
  */
 void rose_link_failed(ax25_cb *ax25, int reason)
 {
+	unsigned int bh;
 	struct rose_neigh *rose_neigh;
 
-	spin_lock_bh(&rose_neigh_list_lock);
+	bh = spin_lock_bh(&rose_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	rose_neigh = rose_neigh_list;
 	while (rose_neigh != NULL) {
 		if (rose_neigh->ax25 == ax25)
@@ -829,7 +839,7 @@ void rose_link_failed(ax25_cb *ax25, int reason)
 		rose_del_route_by_neigh(rose_neigh);
 		rose_kill_by_neigh(rose_neigh);
 	}
-	spin_unlock_bh(&rose_neigh_list_lock);
+	spin_unlock_bh(&rose_neigh_list_lock, bh);
 }
 
 /*
@@ -853,6 +863,7 @@ void rose_link_device_down(struct net_device *dev)
  */
 int rose_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 {
+	unsigned int bh;
 	struct rose_neigh *rose_neigh, *new_neigh;
 	struct rose_route *rose_route;
 	struct rose_facilities_struct facilities;
@@ -877,8 +888,8 @@ int rose_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 	src_addr  = (rose_address *)(skb->data + ROSE_CALL_REQ_SRC_ADDR_OFF);
 	dest_addr = (rose_address *)(skb->data + ROSE_CALL_REQ_DEST_ADDR_OFF);
 
-	spin_lock_bh(&rose_neigh_list_lock);
-	spin_lock_bh(&rose_route_list_lock);
+	bh = spin_lock_bh(&rose_neigh_list_lock, SOFTIRQ_ALL_MASK);
+	spin_lock_bh(&rose_route_list_lock, SOFTIRQ_ALL_MASK);
 
 	rose_neigh = rose_neigh_list;
 	while (rose_neigh != NULL) {
@@ -1077,7 +1088,7 @@ int rose_route_frame(struct sk_buff *skb, ax25_cb *ax25)
 
 out:
 	spin_unlock_bh(&rose_route_list_lock);
-	spin_unlock_bh(&rose_neigh_list_lock);
+	spin_unlock_bh(&rose_neigh_list_lock, bh);
 
 	return res;
 }
@@ -1090,7 +1101,7 @@ static void *rose_node_start(struct seq_file *seq, loff_t *pos)
 	struct rose_node *rose_node;
 	int i = 1;
 
-	spin_lock_bh(&rose_node_list_lock);
+	spin_lock_bh(&rose_node_list_lock, SOFTIRQ_ALL_MASK);
 	if (*pos == 0)
 		return SEQ_START_TOKEN;
 
@@ -1156,7 +1167,7 @@ static void *rose_neigh_start(struct seq_file *seq, loff_t *pos)
 	struct rose_neigh *rose_neigh;
 	int i = 1;
 
-	spin_lock_bh(&rose_neigh_list_lock);
+	spin_lock_bh(&rose_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	if (*pos == 0)
 		return SEQ_START_TOKEN;
 
@@ -1227,7 +1238,7 @@ static void *rose_route_start(struct seq_file *seq, loff_t *pos)
 	struct rose_route *rose_route;
 	int i = 1;
 
-	spin_lock_bh(&rose_route_list_lock);
+	spin_lock_bh(&rose_route_list_lock, SOFTIRQ_ALL_MASK);
 	if (*pos == 0)
 		return SEQ_START_TOKEN;
 

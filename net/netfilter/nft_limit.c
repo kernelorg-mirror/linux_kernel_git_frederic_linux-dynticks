@@ -30,10 +30,11 @@ struct nft_limit {
 
 static inline bool nft_limit_eval(struct nft_limit *limit, u64 cost)
 {
+	unsigned int bh;
 	u64 now, tokens;
 	s64 delta;
 
-	spin_lock_bh(&limit->lock);
+	bh = spin_lock_bh(&limit->lock, SOFTIRQ_ALL_MASK);
 	now = ktime_get_ns();
 	tokens = limit->tokens + now - limit->last;
 	if (tokens > limit->tokens_max)
@@ -43,11 +44,11 @@ static inline bool nft_limit_eval(struct nft_limit *limit, u64 cost)
 	delta = tokens - cost;
 	if (delta >= 0) {
 		limit->tokens = delta;
-		spin_unlock_bh(&limit->lock);
+		spin_unlock_bh(&limit->lock, bh);
 		return limit->invert;
 	}
 	limit->tokens = tokens;
-	spin_unlock_bh(&limit->lock);
+	spin_unlock_bh(&limit->lock, bh);
 	return !limit->invert;
 }
 

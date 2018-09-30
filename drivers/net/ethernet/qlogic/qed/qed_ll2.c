@@ -134,7 +134,8 @@ static int qed_ll2_alloc_buffer(struct qed_dev *cdev,
 static int qed_ll2_dealloc_buffer(struct qed_dev *cdev,
 				 struct qed_ll2_buffer *buffer)
 {
-	spin_lock_bh(&cdev->ll2->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&cdev->ll2->lock, SOFTIRQ_ALL_MASK);
 
 	dma_unmap_single(&cdev->pdev->dev, buffer->phys_addr,
 			 cdev->ll2->rx_size, DMA_FROM_DEVICE);
@@ -145,7 +146,7 @@ static int qed_ll2_dealloc_buffer(struct qed_dev *cdev,
 	if (!cdev->ll2->rx_cnt)
 		DP_INFO(cdev, "All LL2 entries were removed\n");
 
-	spin_unlock_bh(&cdev->ll2->lock);
+	spin_unlock_bh(&cdev->ll2->lock, bh);
 
 	return 0;
 }
@@ -2252,6 +2253,7 @@ out:
 
 static int qed_ll2_start(struct qed_dev *cdev, struct qed_ll2_params *params)
 {
+	unsigned int bh;
 	struct qed_ll2_buffer *buffer, *tmp_buffer;
 	enum qed_ll2_conn_type conn_type;
 	struct qed_ll2_acquire_data data;
@@ -2316,7 +2318,7 @@ static int qed_ll2_start(struct qed_dev *cdev, struct qed_ll2_params *params)
 	}
 
 	/* Post all Rx buffers to FW */
-	spin_lock_bh(&cdev->ll2->lock);
+	bh = spin_lock_bh(&cdev->ll2->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(buffer, tmp_buffer, &cdev->ll2->list, list) {
 		rc = qed_ll2_post_rx_buffer(QED_LEADING_HWFN(cdev),
 					    cdev->ll2->handle,
@@ -2333,7 +2335,7 @@ static int qed_ll2_start(struct qed_dev *cdev, struct qed_ll2_params *params)
 			cdev->ll2->rx_cnt++;
 		}
 	}
-	spin_unlock_bh(&cdev->ll2->lock);
+	spin_unlock_bh(&cdev->ll2->lock, bh);
 
 	if (!cdev->ll2->rx_cnt) {
 		DP_INFO(cdev, "Failed passing even a single Rx buffer\n");

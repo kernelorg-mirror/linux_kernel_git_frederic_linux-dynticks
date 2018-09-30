@@ -589,6 +589,7 @@ static int rsxx_eeh_frozen(struct pci_dev *dev)
 
 static void rsxx_eeh_failure(struct pci_dev *dev)
 {
+	unsigned int bh;
 	struct rsxx_cardinfo *card = pci_get_drvdata(dev);
 	int i;
 	int cnt = 0;
@@ -599,11 +600,11 @@ static void rsxx_eeh_failure(struct pci_dev *dev)
 	card->halt = 1;
 
 	for (i = 0; i < card->n_targets; i++) {
-		spin_lock_bh(&card->ctrl[i].queue_lock);
+		bh = spin_lock_bh(&card->ctrl[i].queue_lock, SOFTIRQ_ALL_MASK);
 		cnt = rsxx_cleanup_dma_queue(&card->ctrl[i],
 					     &card->ctrl[i].queue,
 					     COMPLETE_DMA);
-		spin_unlock_bh(&card->ctrl[i].queue_lock);
+		spin_unlock_bh(&card->ctrl[i].queue_lock, bh);
 
 		cnt += rsxx_dma_cancel(&card->ctrl[i]);
 

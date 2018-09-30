@@ -560,6 +560,7 @@ void iwl_mvm_reorder_timer_expired(struct timer_list *t)
 static void iwl_mvm_del_ba(struct iwl_mvm *mvm, int queue,
 			   struct iwl_mvm_delba_data *data)
 {
+	unsigned int bh;
 	struct iwl_mvm_baid_data *ba_data;
 	struct ieee80211_sta *sta;
 	struct iwl_mvm_reorder_buffer *reorder_buf;
@@ -581,11 +582,11 @@ static void iwl_mvm_del_ba(struct iwl_mvm *mvm, int queue,
 	reorder_buf = &ba_data->reorder_buf[queue];
 
 	/* release all frames that are in the reorder buffer to the stack */
-	spin_lock_bh(&reorder_buf->lock);
+	bh = spin_lock_bh(&reorder_buf->lock, SOFTIRQ_ALL_MASK);
 	iwl_mvm_release_frames(mvm, sta, NULL, ba_data, reorder_buf,
 			       ieee80211_sn_add(reorder_buf->head_sn,
 						reorder_buf->buf_size));
-	spin_unlock_bh(&reorder_buf->lock);
+	spin_unlock_bh(&reorder_buf->lock, bh);
 	del_timer_sync(&reorder_buf->reorder_timer);
 
 out:
@@ -634,6 +635,7 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 			    struct sk_buff *skb,
 			    struct iwl_rx_mpdu_desc *desc)
 {
+	unsigned int bh;
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *)skb->data;
 	struct iwl_mvm_sta *mvm_sta;
 	struct iwl_mvm_baid_data *baid_data;
@@ -699,11 +701,11 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 	buffer = &baid_data->reorder_buf[queue];
 	entries = &baid_data->entries[queue * baid_data->entries_per_queue];
 
-	spin_lock_bh(&buffer->lock);
+	bh = spin_lock_bh(&buffer->lock, SOFTIRQ_ALL_MASK);
 
 	if (!buffer->valid) {
 		if (reorder & IWL_RX_MPDU_REORDER_BA_OLD_SN) {
-			spin_unlock_bh(&buffer->lock);
+			spin_unlock_bh(&buffer->lock, bh);
 			return false;
 		}
 		buffer->valid = true;
@@ -741,7 +743,7 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 		   (!amsdu || last_subframe))
 			buffer->head_sn = nssn;
 		/* No need to update AMSDU last SN - we are moving the head */
-		spin_unlock_bh(&buffer->lock);
+		spin_unlock_bh(&buffer->lock, bh);
 		return false;
 	}
 
@@ -757,7 +759,7 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 		if (!amsdu || last_subframe)
 			buffer->head_sn = ieee80211_sn_inc(buffer->head_sn);
 		/* No need to update AMSDU last SN - we are moving the head */
-		spin_unlock_bh(&buffer->lock);
+		spin_unlock_bh(&buffer->lock, bh);
 		return false;
 	}
 
@@ -802,12 +804,12 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 	if (!amsdu || last_subframe)
 		iwl_mvm_release_frames(mvm, sta, napi, baid_data, buffer, nssn);
 
-	spin_unlock_bh(&buffer->lock);
+	spin_unlock_bh(&buffer->lock, bh);
 	return true;
 
 drop:
 	kfree_skb(skb);
-	spin_unlock_bh(&buffer->lock);
+	spin_unlock_bh(&buffer->lock, bh);
 	return true;
 }
 
@@ -1435,6 +1437,7 @@ out:
 void iwl_mvm_rx_frame_release(struct iwl_mvm *mvm, struct napi_struct *napi,
 			      struct iwl_rx_cmd_buffer *rxb, int queue)
 {
+	unsigned int bh;
 	struct iwl_rx_packet *pkt = rxb_addr(rxb);
 	struct iwl_frame_release *release = (void *)pkt->data;
 	struct ieee80211_sta *sta;
@@ -1461,10 +1464,10 @@ void iwl_mvm_rx_frame_release(struct iwl_mvm *mvm, struct napi_struct *napi,
 
 	reorder_buf = &ba_data->reorder_buf[queue];
 
-	spin_lock_bh(&reorder_buf->lock);
+	bh = spin_lock_bh(&reorder_buf->lock, SOFTIRQ_ALL_MASK);
 	iwl_mvm_release_frames(mvm, sta, napi, ba_data, reorder_buf,
 			       le16_to_cpu(release->nssn));
-	spin_unlock_bh(&reorder_buf->lock);
+	spin_unlock_bh(&reorder_buf->lock, bh);
 
 out:
 	rcu_read_unlock();

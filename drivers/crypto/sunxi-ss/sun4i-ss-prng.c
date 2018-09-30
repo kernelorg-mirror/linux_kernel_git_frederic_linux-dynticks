@@ -15,6 +15,7 @@ int sun4i_ss_prng_seed(struct crypto_rng *tfm, const u8 *seed,
 int sun4i_ss_prng_generate(struct crypto_rng *tfm, const u8 *src,
 			   unsigned int slen, u8 *dst, unsigned int dlen)
 {
+	unsigned int bh;
 	struct sun4i_ss_alg_template *algt;
 	struct rng_alg *alg = crypto_rng_alg(tfm);
 	int i;
@@ -28,7 +29,7 @@ int sun4i_ss_prng_generate(struct crypto_rng *tfm, const u8 *src,
 	algt = container_of(alg, struct sun4i_ss_alg_template, alg.rng);
 	ss = algt->ss;
 
-	spin_lock_bh(&ss->slock);
+	bh = spin_lock_bh(&ss->slock, SOFTIRQ_ALL_MASK);
 
 	writel(mode, ss->base + SS_CTL);
 
@@ -51,6 +52,6 @@ int sun4i_ss_prng_generate(struct crypto_rng *tfm, const u8 *src,
 	}
 
 	writel(0, ss->base + SS_CTL);
-	spin_unlock_bh(&ss->slock);
+	spin_unlock_bh(&ss->slock, bh);
 	return 0;
 }

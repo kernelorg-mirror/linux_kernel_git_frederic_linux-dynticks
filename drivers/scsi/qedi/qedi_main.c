@@ -190,13 +190,14 @@ static void qedi_free_uio(struct qedi_uio_dev *udev)
 
 static void qedi_reset_uio_rings(struct qedi_uio_dev *udev)
 {
+	unsigned int bh;
 	struct qedi_ctx *qedi = NULL;
 	struct qedi_uio_ctrl *uctrl = NULL;
 
 	qedi = udev->qedi;
 	uctrl = udev->uctrl;
 
-	spin_lock_bh(&qedi->ll2_lock);
+	bh = spin_lock_bh(&qedi->ll2_lock, SOFTIRQ_ALL_MASK);
 	uctrl->host_rx_cons = 0;
 	uctrl->hw_rx_prod = 0;
 	uctrl->hw_rx_bd_prod = 0;
@@ -204,7 +205,7 @@ static void qedi_reset_uio_rings(struct qedi_uio_dev *udev)
 
 	memset(udev->ll2_ring, 0, udev->ll2_ring_size);
 	memset(udev->ll2_buf, 0, udev->ll2_buf_size);
-	spin_unlock_bh(&qedi->ll2_lock);
+	spin_unlock_bh(&qedi->ll2_lock, bh);
 }
 
 static int __qedi_alloc_uio_rings(struct qedi_uio_dev *udev)
@@ -655,6 +656,7 @@ exit_setup_shost:
 
 static int qedi_ll2_rx(void *cookie, struct sk_buff *skb, u32 arg1, u32 arg2)
 {
+	unsigned int bh;
 	struct qedi_ctx *qedi = (struct qedi_ctx *)cookie;
 	struct qedi_uio_dev *udev;
 	struct qedi_uio_ctrl *uctrl;
@@ -693,19 +695,19 @@ static int qedi_ll2_rx(void *cookie, struct sk_buff *skb, u32 arg1, u32 arg2)
 	if (work->vlan_id)
 		__vlan_insert_tag(work->skb, htons(ETH_P_8021Q), work->vlan_id);
 
-	spin_lock_bh(&qedi->ll2_lock);
+	bh = spin_lock_bh(&qedi->ll2_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&work->list, &qedi->ll2_skb_list);
 
 	++uctrl->hw_rx_prod_cnt;
 	prod = (uctrl->hw_rx_prod + 1) % RX_RING;
 	if (prod != uctrl->host_rx_cons) {
 		uctrl->hw_rx_prod = prod;
-		spin_unlock_bh(&qedi->ll2_lock);
+		spin_unlock_bh(&qedi->ll2_lock, bh);
 		wake_up_process(qedi->ll2_recv_thread);
 		return 0;
 	}
 
-	spin_unlock_bh(&qedi->ll2_lock);
+	spin_unlock_bh(&qedi->ll2_lock, bh);
 	return 0;
 }
 
@@ -752,27 +754,29 @@ static int qedi_ll2_process_skb(struct qedi_ctx *qedi, struct sk_buff *skb,
 
 static void qedi_ll2_free_skbs(struct qedi_ctx *qedi)
 {
+	unsigned int bh;
 	struct skb_work_list *work, *work_tmp;
 
-	spin_lock_bh(&qedi->ll2_lock);
+	bh = spin_lock_bh(&qedi->ll2_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(work, work_tmp, &qedi->ll2_skb_list, list) {
 		list_del(&work->list);
 		if (work->skb)
 			kfree_skb(work->skb);
 		kfree(work);
 	}
-	spin_unlock_bh(&qedi->ll2_lock);
+	spin_unlock_bh(&qedi->ll2_lock, bh);
 }
 
 static int qedi_ll2_recv_thread(void *arg)
 {
+	unsigned int bh;
 	struct qedi_ctx *qedi = (struct qedi_ctx *)arg;
 	struct skb_work_list *work, *work_tmp;
 
 	set_user_nice(current, -20);
 
 	while (!kthread_should_stop()) {
-		spin_lock_bh(&qedi->ll2_lock);
+		bh = spin_lock_bh(&qedi->ll2_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry_safe(work, work_tmp, &qedi->ll2_skb_list,
 					 list) {
 			list_del(&work->list);
@@ -781,7 +785,7 @@ static int qedi_ll2_recv_thread(void *arg)
 			kfree(work);
 		}
 		set_current_state(TASK_INTERRUPTIBLE);
-		spin_unlock_bh(&qedi->ll2_lock);
+		spin_unlock_bh(&qedi->ll2_lock, bh);
 		schedule();
 	}
 
@@ -1854,11 +1858,12 @@ static int qedi_cpu_online(unsigned int cpu)
 
 static int qedi_cpu_offline(unsigned int cpu)
 {
+	unsigned int bh;
 	struct qedi_percpu_s *p = this_cpu_ptr(&qedi_percpu);
 	struct qedi_work *work, *tmp;
 	struct task_struct *thread;
 
-	spin_lock_bh(&p->p_work_lock);
+	bh = spin_lock_bh(&p->p_work_lock, SOFTIRQ_ALL_MASK);
 	thread = p->iothread;
 	p->iothread = NULL;
 
@@ -1869,7 +1874,7 @@ static int qedi_cpu_offline(unsigned int cpu)
 			kfree(work);
 	}
 
-	spin_unlock_bh(&p->p_work_lock);
+	spin_unlock_bh(&p->p_work_lock, bh);
 	if (thread)
 		kthread_stop(thread);
 	return 0;

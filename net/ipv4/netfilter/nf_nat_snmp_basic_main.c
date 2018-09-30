@@ -165,6 +165,7 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 		struct nf_conn *ct,
 		enum ip_conntrack_info ctinfo)
 {
+	unsigned int bh;
 	int dir = CTINFO2DIR(ctinfo);
 	unsigned int ret;
 	const struct iphdr *iph = ip_hdr(skb);
@@ -195,9 +196,9 @@ static int help(struct sk_buff *skb, unsigned int protoff,
 		return NF_DROP;
 	}
 
-	spin_lock_bh(&snmp_lock);
+	bh = spin_lock_bh(&snmp_lock, SOFTIRQ_ALL_MASK);
 	ret = snmp_translate(ct, dir, skb);
-	spin_unlock_bh(&snmp_lock);
+	spin_unlock_bh(&snmp_lock, bh);
 	return ret;
 }
 

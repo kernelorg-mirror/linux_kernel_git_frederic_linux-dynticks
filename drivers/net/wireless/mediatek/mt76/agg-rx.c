@@ -123,6 +123,7 @@ mt76_rx_aggr_reorder_work(struct work_struct *work)
 static void
 mt76_rx_aggr_check_ctl(struct sk_buff *skb, struct sk_buff_head *frames)
 {
+	unsigned int bh;
 	struct mt76_rx_status *status = (struct mt76_rx_status *) skb->cb;
 	struct ieee80211_bar *bar = (struct ieee80211_bar *) skb->data;
 	struct mt76_wcid *wcid = status->wcid;
@@ -141,14 +142,15 @@ mt76_rx_aggr_check_ctl(struct sk_buff *skb, struct sk_buff_head *frames)
 	if (!tid)
 		return;
 
-	spin_lock_bh(&tid->lock);
+	bh = spin_lock_bh(&tid->lock, SOFTIRQ_ALL_MASK);
 	mt76_rx_aggr_release_frames(tid, frames, seqno);
 	mt76_rx_aggr_release_head(tid, frames);
-	spin_unlock_bh(&tid->lock);
+	spin_unlock_bh(&tid->lock, bh);
 }
 
 void mt76_rx_aggr_reorder(struct sk_buff *skb, struct sk_buff_head *frames)
 {
+	unsigned int bh;
 	struct mt76_rx_status *status = (struct mt76_rx_status *) skb->cb;
 	struct ieee80211_hdr *hdr = (struct ieee80211_hdr *) skb->data;
 	struct mt76_wcid *wcid = status->wcid;
@@ -180,7 +182,7 @@ void mt76_rx_aggr_reorder(struct sk_buff *skb, struct sk_buff_head *frames)
 		return;
 
 	status->flag |= RX_FLAG_DUP_VALIDATED;
-	spin_lock_bh(&tid->lock);
+	bh = spin_lock_bh(&tid->lock, SOFTIRQ_ALL_MASK);
 
 	if (tid->stopped)
 		goto out;
@@ -237,7 +239,7 @@ void mt76_rx_aggr_reorder(struct sk_buff *skb, struct sk_buff_head *frames)
 	ieee80211_queue_delayed_work(tid->dev->hw, &tid->reorder_work, REORDER_TIMEOUT);
 
 out:
-	spin_unlock_bh(&tid->lock);
+	spin_unlock_bh(&tid->lock, bh);
 }
 
 int mt76_rx_aggr_start(struct mt76_dev *dev, struct mt76_wcid *wcid, u8 tidno,
@@ -265,12 +267,13 @@ EXPORT_SYMBOL_GPL(mt76_rx_aggr_start);
 
 static void mt76_rx_aggr_shutdown(struct mt76_dev *dev, struct mt76_rx_tid *tid)
 {
+	unsigned int bh;
 	u8 size = tid->size;
 	int i;
 
 	cancel_delayed_work(&tid->reorder_work);
 
-	spin_lock_bh(&tid->lock);
+	bh = spin_lock_bh(&tid->lock, SOFTIRQ_ALL_MASK);
 
 	tid->stopped = true;
 	for (i = 0; tid->nframes && i < size; i++) {
@@ -283,7 +286,7 @@ static void mt76_rx_aggr_shutdown(struct mt76_dev *dev, struct mt76_rx_tid *tid)
 		dev_kfree_skb(skb);
 	}
 
-	spin_unlock_bh(&tid->lock);
+	spin_unlock_bh(&tid->lock, bh);
 }
 
 void mt76_rx_aggr_stop(struct mt76_dev *dev, struct mt76_wcid *wcid, u8 tidno)

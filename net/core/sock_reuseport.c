@@ -54,12 +54,13 @@ static struct sock_reuseport *__reuseport_alloc(unsigned int max_socks)
 
 int reuseport_alloc(struct sock *sk, bool bind_inany)
 {
+	unsigned int bh;
 	struct sock_reuseport *reuse;
 
 	/* bh lock used since this function call may precede hlist lock in
 	 * soft irq of receive path or setsockopt from process context
 	 */
-	spin_lock_bh(&reuseport_lock);
+	bh = spin_lock_bh(&reuseport_lock, SOFTIRQ_ALL_MASK);
 
 	/* Allocation attempts can occur concurrently via the setsockopt path
 	 * and the bind/hash path.  Nothing to do when we lose the race.
@@ -78,7 +79,7 @@ int reuseport_alloc(struct sock *sk, bool bind_inany)
 
 	reuse = __reuseport_alloc(INIT_SOCKS);
 	if (!reuse) {
-		spin_unlock_bh(&reuseport_lock);
+		spin_unlock_bh(&reuseport_lock, bh);
 		return -ENOMEM;
 	}
 
@@ -88,7 +89,7 @@ int reuseport_alloc(struct sock *sk, bool bind_inany)
 	rcu_assign_pointer(sk->sk_reuseport_cb, reuse);
 
 out:
-	spin_unlock_bh(&reuseport_lock);
+	spin_unlock_bh(&reuseport_lock, bh);
 
 	return 0;
 }
@@ -148,6 +149,7 @@ static void reuseport_free_rcu(struct rcu_head *head)
  */
 int reuseport_add_sock(struct sock *sk, struct sock *sk2, bool bind_inany)
 {
+	unsigned int bh;
 	struct sock_reuseport *old_reuse, *reuse;
 
 	if (!rcu_access_pointer(sk2->sk_reuseport_cb)) {
@@ -157,20 +159,20 @@ int reuseport_add_sock(struct sock *sk, struct sock *sk2, bool bind_inany)
 			return err;
 	}
 
-	spin_lock_bh(&reuseport_lock);
+	bh = spin_lock_bh(&reuseport_lock, SOFTIRQ_ALL_MASK);
 	reuse = rcu_dereference_protected(sk2->sk_reuseport_cb,
 					  lockdep_is_held(&reuseport_lock));
 	old_reuse = rcu_dereference_protected(sk->sk_reuseport_cb,
 					     lockdep_is_held(&reuseport_lock));
 	if (old_reuse && old_reuse->num_socks != 1) {
-		spin_unlock_bh(&reuseport_lock);
+		spin_unlock_bh(&reuseport_lock, bh);
 		return -EBUSY;
 	}
 
 	if (reuse->num_socks == reuse->max_socks) {
 		reuse = reuseport_grow(reuse);
 		if (!reuse) {
-			spin_unlock_bh(&reuseport_lock);
+			spin_unlock_bh(&reuseport_lock, bh);
 			return -ENOMEM;
 		}
 	}
@@ -181,7 +183,7 @@ int reuseport_add_sock(struct sock *sk, struct sock *sk2, bool bind_inany)
 	reuse->num_socks++;
 	rcu_assign_pointer(sk->sk_reuseport_cb, reuse);
 
-	spin_unlock_bh(&reuseport_lock);
+	spin_unlock_bh(&reuseport_lock, bh);
 
 	if (old_reuse)
 		call_rcu(&old_reuse->rcu, reuseport_free_rcu);
@@ -190,10 +192,11 @@ int reuseport_add_sock(struct sock *sk, struct sock *sk2, bool bind_inany)
 
 void reuseport_detach_sock(struct sock *sk)
 {
+	unsigned int bh;
 	struct sock_reuseport *reuse;
 	int i;
 
-	spin_lock_bh(&reuseport_lock);
+	bh = spin_lock_bh(&reuseport_lock, SOFTIRQ_ALL_MASK);
 	reuse = rcu_dereference_protected(sk->sk_reuseport_cb,
 					  lockdep_is_held(&reuseport_lock));
 
@@ -215,7 +218,7 @@ void reuseport_detach_sock(struct sock *sk)
 			break;
 		}
 	}
-	spin_unlock_bh(&reuseport_lock);
+	spin_unlock_bh(&reuseport_lock, bh);
 }
 EXPORT_SYMBOL(reuseport_detach_sock);
 
@@ -304,6 +307,7 @@ EXPORT_SYMBOL(reuseport_select_sock);
 
 int reuseport_attach_prog(struct sock *sk, struct bpf_prog *prog)
 {
+	unsigned int bh;
 	struct sock_reuseport *reuse;
 	struct bpf_prog *old_prog;
 
@@ -317,13 +321,13 @@ int reuseport_attach_prog(struct sock *sk, struct bpf_prog *prog)
 		return -EINVAL;
 	}
 
-	spin_lock_bh(&reuseport_lock);
+	bh = spin_lock_bh(&reuseport_lock, SOFTIRQ_ALL_MASK);
 	reuse = rcu_dereference_protected(sk->sk_reuseport_cb,
 					  lockdep_is_held(&reuseport_lock));
 	old_prog = rcu_dereference_protected(reuse->prog,
 					     lockdep_is_held(&reuseport_lock));
 	rcu_assign_pointer(reuse->prog, prog);
-	spin_unlock_bh(&reuseport_lock);
+	spin_unlock_bh(&reuseport_lock, bh);
 
 	sk_reuseport_prog_free(old_prog);
 	return 0;

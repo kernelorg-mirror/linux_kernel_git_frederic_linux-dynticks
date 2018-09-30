@@ -110,9 +110,10 @@ struct switchdev_deferred_item {
 
 static struct switchdev_deferred_item *switchdev_deferred_dequeue(void)
 {
+	unsigned int bh;
 	struct switchdev_deferred_item *dfitem;
 
-	spin_lock_bh(&deferred_lock);
+	bh = spin_lock_bh(&deferred_lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&deferred)) {
 		dfitem = NULL;
 		goto unlock;
@@ -121,7 +122,7 @@ static struct switchdev_deferred_item *switchdev_deferred_dequeue(void)
 				  struct switchdev_deferred_item, list);
 	list_del(&dfitem->list);
 unlock:
-	spin_unlock_bh(&deferred_lock);
+	spin_unlock_bh(&deferred_lock, bh);
 	return dfitem;
 }
 
@@ -158,6 +159,7 @@ static int switchdev_deferred_enqueue(struct net_device *dev,
 				      const void *data, size_t data_len,
 				      switchdev_deferred_func_t *func)
 {
+	unsigned int bh;
 	struct switchdev_deferred_item *dfitem;
 
 	dfitem = kmalloc(sizeof(*dfitem) + data_len, GFP_ATOMIC);
@@ -167,9 +169,9 @@ static int switchdev_deferred_enqueue(struct net_device *dev,
 	dfitem->func = func;
 	memcpy(dfitem->data, data, data_len);
 	dev_hold(dev);
-	spin_lock_bh(&deferred_lock);
+	bh = spin_lock_bh(&deferred_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&dfitem->list, &deferred);
-	spin_unlock_bh(&deferred_lock);
+	spin_unlock_bh(&deferred_lock, bh);
 	schedule_work(&deferred_process_work);
 	return 0;
 }

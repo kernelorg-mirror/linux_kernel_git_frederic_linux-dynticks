@@ -503,6 +503,7 @@ static int safexcel_handle_inv_result(struct safexcel_crypto_priv *priv,
 				      struct crypto_async_request *base,
 				      bool *should_complete, int *ret)
 {
+	unsigned int bh;
 	struct safexcel_cipher_ctx *ctx = crypto_tfm_ctx(base->tfm);
 	struct safexcel_result_desc *rdesc;
 	int ndesc = 0, enq_ret;
@@ -538,9 +539,9 @@ static int safexcel_handle_inv_result(struct safexcel_crypto_priv *priv,
 	ring = safexcel_select_ring(priv);
 	ctx->base.ring = ring;
 
-	spin_lock_bh(&priv->ring[ring].queue_lock);
+	bh = spin_lock_bh(&priv->ring[ring].queue_lock, SOFTIRQ_ALL_MASK);
 	enq_ret = crypto_enqueue_request(&priv->ring[ring].queue, base);
-	spin_unlock_bh(&priv->ring[ring].queue_lock);
+	spin_unlock_bh(&priv->ring[ring].queue_lock, bh);
 
 	if (enq_ret != -EINPROGRESS)
 		*ret = enq_ret;
@@ -663,6 +664,7 @@ static int safexcel_cipher_exit_inv(struct crypto_tfm *tfm,
 				    struct safexcel_cipher_req *sreq,
 				    struct safexcel_inv_result *result)
 {
+	unsigned int bh;
 	struct safexcel_cipher_ctx *ctx = crypto_tfm_ctx(tfm);
 	struct safexcel_crypto_priv *priv = ctx->priv;
 	int ring = ctx->base.ring;
@@ -673,9 +675,9 @@ static int safexcel_cipher_exit_inv(struct crypto_tfm *tfm,
 	ctx->base.exit_inv = true;
 	sreq->needs_inv = true;
 
-	spin_lock_bh(&priv->ring[ring].queue_lock);
+	bh = spin_lock_bh(&priv->ring[ring].queue_lock, SOFTIRQ_ALL_MASK);
 	crypto_enqueue_request(&priv->ring[ring].queue, base);
-	spin_unlock_bh(&priv->ring[ring].queue_lock);
+	spin_unlock_bh(&priv->ring[ring].queue_lock, bh);
 
 	queue_work(priv->ring[ring].workqueue,
 		   &priv->ring[ring].work_data.work);
@@ -727,6 +729,7 @@ static int safexcel_queue_req(struct crypto_async_request *base,
 			enum safexcel_cipher_direction dir, u32 mode,
 			enum safexcel_cipher_alg alg)
 {
+	unsigned int bh;
 	struct safexcel_cipher_ctx *ctx = crypto_tfm_ctx(base->tfm);
 	struct safexcel_crypto_priv *priv = ctx->priv;
 	int ret, ring;
@@ -752,9 +755,9 @@ static int safexcel_queue_req(struct crypto_async_request *base,
 
 	ring = ctx->base.ring;
 
-	spin_lock_bh(&priv->ring[ring].queue_lock);
+	bh = spin_lock_bh(&priv->ring[ring].queue_lock, SOFTIRQ_ALL_MASK);
 	ret = crypto_enqueue_request(&priv->ring[ring].queue, base);
-	spin_unlock_bh(&priv->ring[ring].queue_lock);
+	spin_unlock_bh(&priv->ring[ring].queue_lock, bh);
 
 	queue_work(priv->ring[ring].workqueue,
 		   &priv->ring[ring].work_data.work);

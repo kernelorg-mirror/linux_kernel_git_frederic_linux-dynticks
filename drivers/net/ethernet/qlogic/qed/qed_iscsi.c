@@ -727,6 +727,7 @@ nomem:
 static int qed_iscsi_allocate_connection(struct qed_hwfn *p_hwfn,
 					 struct qed_iscsi_conn **p_out_conn)
 {
+	unsigned int bh;
 	u16 uhq_num_elements = 0, xhq_num_elements = 0, r2tq_num_elements = 0;
 	struct scsi_terminate_extra_params *p_q_cnts = NULL;
 	struct qed_iscsi_pf_params *p_params = NULL;
@@ -735,17 +736,17 @@ static int qed_iscsi_allocate_connection(struct qed_hwfn *p_hwfn,
 	int rc = 0;
 
 	/* Try finding a free connection that can be used */
-	spin_lock_bh(&p_hwfn->p_iscsi_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_iscsi_info->lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&p_hwfn->p_iscsi_info->free_list))
 		p_conn = list_first_entry(&p_hwfn->p_iscsi_info->free_list,
 					  struct qed_iscsi_conn, list_entry);
 	if (p_conn) {
 		list_del(&p_conn->list_entry);
-		spin_unlock_bh(&p_hwfn->p_iscsi_info->lock);
+		spin_unlock_bh(&p_hwfn->p_iscsi_info->lock, bh);
 		*p_out_conn = p_conn;
 		return 0;
 	}
-	spin_unlock_bh(&p_hwfn->p_iscsi_info->lock);
+	spin_unlock_bh(&p_hwfn->p_iscsi_info->lock, bh);
 
 	/* Need to allocate a new connection */
 	p_params = &p_hwfn->pf_params.iscsi_pf_params;
@@ -829,13 +830,14 @@ static int qed_iscsi_acquire_connection(struct qed_hwfn *p_hwfn,
 					struct qed_iscsi_conn *p_in_conn,
 					struct qed_iscsi_conn **p_out_conn)
 {
+	unsigned int bh;
 	struct qed_iscsi_conn *p_conn = NULL;
 	int rc = 0;
 	u32 icid;
 
-	spin_lock_bh(&p_hwfn->p_iscsi_info->lock);
+	bh = spin_lock_bh(&p_hwfn->p_iscsi_info->lock, SOFTIRQ_ALL_MASK);
 	rc = qed_cxt_acquire_cid(p_hwfn, PROTOCOLID_ISCSI, &icid);
-	spin_unlock_bh(&p_hwfn->p_iscsi_info->lock);
+	spin_unlock_bh(&p_hwfn->p_iscsi_info->lock, bh);
 	if (rc)
 		return rc;
 
@@ -849,7 +851,7 @@ static int qed_iscsi_acquire_connection(struct qed_hwfn *p_hwfn,
 		rc = qed_iscsi_setup_connection(p_conn);
 
 	if (rc) {
-		spin_lock_bh(&p_hwfn->p_iscsi_info->lock);
+		spin_lock_bh(&p_hwfn->p_iscsi_info->lock, SOFTIRQ_ALL_MASK);
 		qed_cxt_release_cid(p_hwfn, icid);
 		spin_unlock_bh(&p_hwfn->p_iscsi_info->lock);
 		return rc;
@@ -867,10 +869,11 @@ static int qed_iscsi_acquire_connection(struct qed_hwfn *p_hwfn,
 static void qed_iscsi_release_connection(struct qed_hwfn *p_hwfn,
 					 struct qed_iscsi_conn *p_conn)
 {
-	spin_lock_bh(&p_hwfn->p_iscsi_info->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&p_hwfn->p_iscsi_info->lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&p_conn->list_entry, &p_hwfn->p_iscsi_info->free_list);
 	qed_cxt_release_cid(p_hwfn, p_conn->icid);
-	spin_unlock_bh(&p_hwfn->p_iscsi_info->lock);
+	spin_unlock_bh(&p_hwfn->p_iscsi_info->lock, bh);
 }
 
 static void qed_iscsi_free_connection(struct qed_hwfn *p_hwfn,

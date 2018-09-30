@@ -351,10 +351,11 @@ batadv_nc_purge_orig_nc_nodes(struct batadv_priv *bat_priv,
 			      bool (*to_purge)(struct batadv_priv *,
 					       struct batadv_nc_node *))
 {
+	unsigned int bh;
 	struct batadv_nc_node *nc_node, *nc_node_tmp;
 
 	/* For each nc_node in list */
-	spin_lock_bh(lock);
+	bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(nc_node, nc_node_tmp, list, list) {
 		/* if an helper function has been passed as parameter,
 		 * ask it if the entry has to be purged or not
@@ -368,7 +369,7 @@ batadv_nc_purge_orig_nc_nodes(struct batadv_priv *bat_priv,
 		list_del_rcu(&nc_node->list);
 		batadv_nc_node_put(nc_node);
 	}
-	spin_unlock_bh(lock);
+	spin_unlock_bh(lock, bh);
 }
 
 /**
@@ -439,6 +440,7 @@ static void batadv_nc_purge_paths(struct batadv_priv *bat_priv,
 				  bool (*to_purge)(struct batadv_priv *,
 						   struct batadv_nc_path *))
 {
+	unsigned int bh;
 	struct hlist_head *head;
 	struct hlist_node *node_tmp;
 	struct batadv_nc_path *nc_path;
@@ -450,7 +452,7 @@ static void batadv_nc_purge_paths(struct batadv_priv *bat_priv,
 		lock = &hash->list_locks[i];
 
 		/* For each nc_path in this bin */
-		spin_lock_bh(lock);
+		bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 		hlist_for_each_entry_safe(nc_path, node_tmp, head, hash_entry) {
 			/* if an helper function has been passed as parameter,
 			 * ask it if the entry has to be purged or not
@@ -479,7 +481,7 @@ static void batadv_nc_purge_paths(struct batadv_priv *bat_priv,
 			hlist_del_rcu(&nc_path->hash_entry);
 			batadv_nc_path_put(nc_path);
 		}
-		spin_unlock_bh(lock);
+		spin_unlock_bh(lock, bh);
 	}
 }
 
@@ -681,6 +683,7 @@ batadv_nc_process_nc_paths(struct batadv_priv *bat_priv,
 					      struct batadv_nc_path *,
 					      struct batadv_nc_packet *))
 {
+	unsigned int bh;
 	struct hlist_head *head;
 	struct batadv_nc_packet *nc_packet, *nc_packet_tmp;
 	struct batadv_nc_path *nc_path;
@@ -698,14 +701,14 @@ batadv_nc_process_nc_paths(struct batadv_priv *bat_priv,
 		rcu_read_lock();
 		hlist_for_each_entry_rcu(nc_path, head, hash_entry) {
 			/* Loop packets */
-			spin_lock_bh(&nc_path->packet_list_lock);
+			bh = spin_lock_bh(&nc_path->packet_list_lock, SOFTIRQ_ALL_MASK);
 			list_for_each_entry_safe(nc_packet, nc_packet_tmp,
 						 &nc_path->packet_list, list) {
 				ret = process_fn(bat_priv, nc_path, nc_packet);
 				if (!ret)
 					break;
 			}
-			spin_unlock_bh(&nc_path->packet_list_lock);
+			spin_unlock_bh(&nc_path->packet_list_lock, bh);
 		}
 		rcu_read_unlock();
 	}
@@ -850,6 +853,7 @@ batadv_nc_get_nc_node(struct batadv_priv *bat_priv,
 		      struct batadv_orig_node *orig_neigh_node,
 		      bool in_coding)
 {
+	unsigned int bh;
 	struct batadv_nc_node *nc_node;
 	spinlock_t *lock; /* Used to lock list selected by "int in_coding" */
 	struct list_head *list;
@@ -885,10 +889,10 @@ batadv_nc_get_nc_node(struct batadv_priv *bat_priv,
 		   nc_node->addr, nc_node->orig_node->orig);
 
 	/* Add nc_node to orig_node */
-	spin_lock_bh(lock);
+	bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 	kref_get(&nc_node->refcount);
 	list_add_tail_rcu(&nc_node->list, list);
-	spin_unlock_bh(lock);
+	spin_unlock_bh(lock, bh);
 
 	return nc_node;
 }
@@ -1281,6 +1285,7 @@ batadv_nc_path_search(struct batadv_priv *bat_priv,
 		      struct sk_buff *skb,
 		      u8 *eth_dst)
 {
+	unsigned int bh;
 	struct batadv_nc_path *nc_path, nc_path_key;
 	struct batadv_nc_packet *nc_packet_out = NULL;
 	struct batadv_nc_packet *nc_packet, *nc_packet_tmp;
@@ -1304,9 +1309,9 @@ batadv_nc_path_search(struct batadv_priv *bat_priv,
 		if (!batadv_compare_eth(nc_path->next_hop, out_nc_node->addr))
 			continue;
 
-		spin_lock_bh(&nc_path->packet_list_lock);
+		bh = spin_lock_bh(&nc_path->packet_list_lock, SOFTIRQ_ALL_MASK);
 		if (list_empty(&nc_path->packet_list)) {
-			spin_unlock_bh(&nc_path->packet_list_lock);
+			spin_unlock_bh(&nc_path->packet_list_lock, bh);
 			continue;
 		}
 
@@ -1323,7 +1328,7 @@ batadv_nc_path_search(struct batadv_priv *bat_priv,
 			break;
 		}
 
-		spin_unlock_bh(&nc_path->packet_list_lock);
+		spin_unlock_bh(&nc_path->packet_list_lock, bh);
 		break;
 	}
 	rcu_read_unlock();
@@ -1484,6 +1489,7 @@ static bool batadv_nc_skb_add_to_path(struct sk_buff *skb,
 				      struct batadv_neigh_node *neigh_node,
 				      __be32 packet_id)
 {
+	unsigned int bh;
 	struct batadv_nc_packet *nc_packet;
 
 	nc_packet = kzalloc(sizeof(*nc_packet), GFP_ATOMIC);
@@ -1498,9 +1504,9 @@ static bool batadv_nc_skb_add_to_path(struct sk_buff *skb,
 	nc_packet->nc_path = nc_path;
 
 	/* Add coding packet to list */
-	spin_lock_bh(&nc_path->packet_list_lock);
+	bh = spin_lock_bh(&nc_path->packet_list_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&nc_packet->list, &nc_path->packet_list);
-	spin_unlock_bh(&nc_path->packet_list_lock);
+	spin_unlock_bh(&nc_path->packet_list_lock, bh);
 
 	return true;
 }
@@ -1751,6 +1757,7 @@ batadv_nc_find_decoding_packet(struct batadv_priv *bat_priv,
 			       struct ethhdr *ethhdr,
 			       struct batadv_coded_packet *coded)
 {
+	unsigned int bh;
 	struct batadv_hashtable *hash = bat_priv->nc.decoding_hash;
 	struct batadv_nc_packet *tmp_nc_packet, *nc_packet = NULL;
 	struct batadv_nc_path *nc_path, nc_path_key;
@@ -1778,7 +1785,7 @@ batadv_nc_find_decoding_packet(struct batadv_priv *bat_priv,
 	rcu_read_lock();
 	hlist_for_each_entry_rcu(nc_path, &hash->table[index], hash_entry) {
 		/* Find matching nc_packet */
-		spin_lock_bh(&nc_path->packet_list_lock);
+		bh = spin_lock_bh(&nc_path->packet_list_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(tmp_nc_packet,
 				    &nc_path->packet_list, list) {
 			if (packet_id == tmp_nc_packet->packet_id) {
@@ -1788,7 +1795,7 @@ batadv_nc_find_decoding_packet(struct batadv_priv *bat_priv,
 				break;
 			}
 		}
-		spin_unlock_bh(&nc_path->packet_list_lock);
+		spin_unlock_bh(&nc_path->packet_list_lock, bh);
 
 		if (nc_packet)
 			break;

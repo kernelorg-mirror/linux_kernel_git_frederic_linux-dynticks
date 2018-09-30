@@ -301,13 +301,14 @@ static void __td_start_next(struct timb_dma_chan *td_chan)
 
 static dma_cookie_t td_tx_submit(struct dma_async_tx_descriptor *txd)
 {
+	unsigned int bh;
 	struct timb_dma_desc *td_desc = container_of(txd, struct timb_dma_desc,
 		txd);
 	struct timb_dma_chan *td_chan = container_of(txd->chan,
 		struct timb_dma_chan, chan);
 	dma_cookie_t cookie;
 
-	spin_lock_bh(&td_chan->lock);
+	bh = spin_lock_bh(&td_chan->lock, SOFTIRQ_ALL_MASK);
 	cookie = dma_cookie_assign(txd);
 
 	if (list_empty(&td_chan->active_list)) {
@@ -322,7 +323,7 @@ static dma_cookie_t td_tx_submit(struct dma_async_tx_descriptor *txd)
 		list_add_tail(&td_desc->desc_node, &td_chan->queue);
 	}
 
-	spin_unlock_bh(&td_chan->lock);
+	spin_unlock_bh(&td_chan->lock, bh);
 
 	return cookie;
 }
@@ -378,19 +379,21 @@ static void td_free_desc(struct timb_dma_desc *td_desc)
 static void td_desc_put(struct timb_dma_chan *td_chan,
 	struct timb_dma_desc *td_desc)
 {
+	unsigned int bh;
 	dev_dbg(chan2dev(&td_chan->chan), "Putting desc: %p\n", td_desc);
 
-	spin_lock_bh(&td_chan->lock);
+	bh = spin_lock_bh(&td_chan->lock, SOFTIRQ_ALL_MASK);
 	list_add(&td_desc->desc_node, &td_chan->free_list);
-	spin_unlock_bh(&td_chan->lock);
+	spin_unlock_bh(&td_chan->lock, bh);
 }
 
 static struct timb_dma_desc *td_desc_get(struct timb_dma_chan *td_chan)
 {
+	unsigned int bh;
 	struct timb_dma_desc *td_desc, *_td_desc;
 	struct timb_dma_desc *ret = NULL;
 
-	spin_lock_bh(&td_chan->lock);
+	bh = spin_lock_bh(&td_chan->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(td_desc, _td_desc, &td_chan->free_list,
 		desc_node) {
 		if (async_tx_test_ack(&td_desc->txd)) {
@@ -401,13 +404,14 @@ static struct timb_dma_desc *td_desc_get(struct timb_dma_chan *td_chan)
 		dev_dbg(chan2dev(&td_chan->chan), "desc %p not ACKed\n",
 			td_desc);
 	}
-	spin_unlock_bh(&td_chan->lock);
+	spin_unlock_bh(&td_chan->lock, bh);
 
 	return ret;
 }
 
 static int td_alloc_chan_resources(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct timb_dma_chan *td_chan =
 		container_of(chan, struct timb_dma_chan, chan);
 	int i;
@@ -430,15 +434,16 @@ static int td_alloc_chan_resources(struct dma_chan *chan)
 		td_desc_put(td_chan, td_desc);
 	}
 
-	spin_lock_bh(&td_chan->lock);
+	bh = spin_lock_bh(&td_chan->lock, SOFTIRQ_ALL_MASK);
 	dma_cookie_init(chan);
-	spin_unlock_bh(&td_chan->lock);
+	spin_unlock_bh(&td_chan->lock, bh);
 
 	return 0;
 }
 
 static void td_free_chan_resources(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct timb_dma_chan *td_chan =
 		container_of(chan, struct timb_dma_chan, chan);
 	struct timb_dma_desc *td_desc, *_td_desc;
@@ -450,9 +455,9 @@ static void td_free_chan_resources(struct dma_chan *chan)
 	BUG_ON(!list_empty(&td_chan->active_list));
 	BUG_ON(!list_empty(&td_chan->queue));
 
-	spin_lock_bh(&td_chan->lock);
+	bh = spin_lock_bh(&td_chan->lock, SOFTIRQ_ALL_MASK);
 	list_splice_init(&td_chan->free_list, &list);
-	spin_unlock_bh(&td_chan->lock);
+	spin_unlock_bh(&td_chan->lock, bh);
 
 	list_for_each_entry_safe(td_desc, _td_desc, &list, desc_node) {
 		dev_dbg(chan2dev(chan), "%s: Freeing desc: %p\n", __func__,
@@ -477,11 +482,12 @@ static enum dma_status td_tx_status(struct dma_chan *chan, dma_cookie_t cookie,
 
 static void td_issue_pending(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct timb_dma_chan *td_chan =
 		container_of(chan, struct timb_dma_chan, chan);
 
 	dev_dbg(chan2dev(chan), "%s: Entry\n", __func__);
-	spin_lock_bh(&td_chan->lock);
+	bh = spin_lock_bh(&td_chan->lock, SOFTIRQ_ALL_MASK);
 
 	if (!list_empty(&td_chan->active_list))
 		/* transfer ongoing */
@@ -491,7 +497,7 @@ static void td_issue_pending(struct dma_chan *chan)
 	if (list_empty(&td_chan->active_list) && !list_empty(&td_chan->queue))
 		__td_start_next(td_chan);
 
-	spin_unlock_bh(&td_chan->lock);
+	spin_unlock_bh(&td_chan->lock, bh);
 }
 
 static struct dma_async_tx_descriptor *td_prep_slave_sg(struct dma_chan *chan,
@@ -552,6 +558,7 @@ static struct dma_async_tx_descriptor *td_prep_slave_sg(struct dma_chan *chan,
 
 static int td_terminate_all(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct timb_dma_chan *td_chan =
 		container_of(chan, struct timb_dma_chan, chan);
 	struct timb_dma_desc *td_desc, *_td_desc;
@@ -559,14 +566,14 @@ static int td_terminate_all(struct dma_chan *chan)
 	dev_dbg(chan2dev(chan), "%s: Entry\n", __func__);
 
 	/* first the easy part, put the queue into the free list */
-	spin_lock_bh(&td_chan->lock);
+	bh = spin_lock_bh(&td_chan->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(td_desc, _td_desc, &td_chan->queue,
 		desc_node)
 		list_move(&td_desc->desc_node, &td_chan->free_list);
 
 	/* now tear down the running */
 	__td_finish(td_chan);
-	spin_unlock_bh(&td_chan->lock);
+	spin_unlock_bh(&td_chan->lock, bh);
 
 	return 0;
 }

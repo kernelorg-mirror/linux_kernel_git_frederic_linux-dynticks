@@ -469,6 +469,7 @@ void rxrpc_get_call(struct rxrpc_call *call, enum rxrpc_call_trace op)
  */
 void rxrpc_release_call(struct rxrpc_sock *rx, struct rxrpc_call *call)
 {
+	unsigned int bh;
 	const void *here = __builtin_return_address(0);
 	struct rxrpc_connection *conn = call->conn;
 	bool put = false;
@@ -481,10 +482,10 @@ void rxrpc_release_call(struct rxrpc_sock *rx, struct rxrpc_call *call)
 
 	ASSERTCMP(call->state, ==, RXRPC_CALL_COMPLETE);
 
-	spin_lock_bh(&call->lock);
+	bh = spin_lock_bh(&call->lock, SOFTIRQ_ALL_MASK);
 	if (test_and_set_bit(RXRPC_CALL_RELEASED, &call->flags))
 		BUG();
-	spin_unlock_bh(&call->lock);
+	spin_unlock_bh(&call->lock, bh);
 
 	del_timer_sync(&call->timer);
 

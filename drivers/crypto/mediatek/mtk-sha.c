@@ -155,10 +155,11 @@ static inline void mtk_sha_ring_shift(struct mtk_ring *ring,
 
 static struct mtk_cryp *mtk_sha_find_dev(struct mtk_sha_ctx *tctx)
 {
+	unsigned int bh;
 	struct mtk_cryp *cryp = NULL;
 	struct mtk_cryp *tmp;
 
-	spin_lock_bh(&mtk_sha.lock);
+	bh = spin_lock_bh(&mtk_sha.lock, SOFTIRQ_ALL_MASK);
 	if (!tctx->cryp) {
 		list_for_each_entry(tmp, &mtk_sha.dev_list, sha_list) {
 			cryp = tmp;
@@ -176,7 +177,7 @@ static struct mtk_cryp *mtk_sha_find_dev(struct mtk_sha_ctx *tctx)
 	tctx->id = cryp->rec;
 	cryp->rec = !cryp->rec;
 
-	spin_unlock_bh(&mtk_sha.lock);
+	spin_unlock_bh(&mtk_sha.lock, bh);
 
 	return cryp;
 }

@@ -533,31 +533,33 @@ void br_received_tcn_bpdu(struct net_bridge_port *p)
 /* Change bridge STP parameter */
 int br_set_hello_time(struct net_bridge *br, unsigned long val)
 {
+	unsigned int bh;
 	unsigned long t = clock_t_to_jiffies(val);
 
 	if (t < BR_MIN_HELLO_TIME || t > BR_MAX_HELLO_TIME)
 		return -ERANGE;
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	br->bridge_hello_time = t;
 	if (br_is_root_bridge(br))
 		br->hello_time = br->bridge_hello_time;
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 	return 0;
 }
 
 int br_set_max_age(struct net_bridge *br, unsigned long val)
 {
+	unsigned int bh;
 	unsigned long t = clock_t_to_jiffies(val);
 
 	if (t < BR_MIN_MAX_AGE || t > BR_MAX_MAX_AGE)
 		return -ERANGE;
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	br->bridge_max_age = t;
 	if (br_is_root_bridge(br))
 		br->max_age = br->bridge_max_age;
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 	return 0;
 
 }
@@ -590,6 +592,7 @@ int __set_ageing_time(struct net_device *dev, unsigned long t)
  */
 int br_set_ageing_time(struct net_bridge *br, clock_t ageing_time)
 {
+	unsigned int bh;
 	unsigned long t = clock_t_to_jiffies(ageing_time);
 	int err;
 
@@ -597,10 +600,10 @@ int br_set_ageing_time(struct net_bridge *br, clock_t ageing_time)
 	if (err)
 		return err;
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	br->bridge_ageing_time = t;
 	br->ageing_time = t;
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 
 	mod_delayed_work(system_long_wq, &br->gc_work, 0);
 
@@ -645,10 +648,11 @@ void __br_set_forward_delay(struct net_bridge *br, unsigned long t)
 
 int br_set_forward_delay(struct net_bridge *br, unsigned long val)
 {
+	unsigned int bh;
 	unsigned long t = clock_t_to_jiffies(val);
 	int err = -ERANGE;
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	if (br->stp_enabled != BR_NO_STP &&
 	    (t < BR_MIN_FORWARD_DELAY || t > BR_MAX_FORWARD_DELAY))
 		goto unlock;
@@ -657,6 +661,6 @@ int br_set_forward_delay(struct net_bridge *br, unsigned long val)
 	err = 0;
 
 unlock:
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 	return err;
 }

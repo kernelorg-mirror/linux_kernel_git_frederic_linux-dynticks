@@ -794,6 +794,7 @@ static int hfa384x_setup_bap(struct net_device *dev, u16 bap, u16 id,
 static int hfa384x_get_rid(struct net_device *dev, u16 rid, void *buf, int len,
 			   int exact_len)
 {
+	unsigned int bh;
 	struct hostap_interface *iface;
 	local_info_t *local;
 	int res, rlen = 0;
@@ -826,7 +827,7 @@ static int hfa384x_get_rid(struct net_device *dev, u16 rid, void *buf, int len,
 		return res;
 	}
 
-	spin_lock_bh(&local->baplock);
+	bh = spin_lock_bh(&local->baplock, SOFTIRQ_ALL_MASK);
 
 	res = hfa384x_setup_bap(dev, BAP0, rid, 0);
 	if (res)
@@ -853,7 +854,7 @@ static int hfa384x_get_rid(struct net_device *dev, u16 rid, void *buf, int len,
 	res = hfa384x_from_bap(dev, BAP0, buf, len);
 
 unlock:
-	spin_unlock_bh(&local->baplock);
+	spin_unlock_bh(&local->baplock, bh);
 	mutex_unlock(&local->rid_bap_mtx);
 
 	if (res) {
@@ -872,6 +873,7 @@ unlock:
 
 static int hfa384x_set_rid(struct net_device *dev, u16 rid, void *buf, int len)
 {
+	unsigned int bh;
 	struct hostap_interface *iface;
 	local_info_t *local;
 	struct hfa384x_rid_hdr rec;
@@ -899,13 +901,13 @@ static int hfa384x_set_rid(struct net_device *dev, u16 rid, void *buf, int len)
 	if (res)
 		return res;
 
-	spin_lock_bh(&local->baplock);
+	bh = spin_lock_bh(&local->baplock, SOFTIRQ_ALL_MASK);
 	res = hfa384x_setup_bap(dev, BAP0, rid, 0);
 	if (!res)
 		res = hfa384x_to_bap(dev, BAP0, &rec, sizeof(rec));
 	if (!res)
 		res = hfa384x_to_bap(dev, BAP0, buf, len);
-	spin_unlock_bh(&local->baplock);
+	spin_unlock_bh(&local->baplock, bh);
 
 	if (res) {
 		printk(KERN_DEBUG "%s: hfa384x_set_rid (rid=%04x, len=%d) - "
@@ -2959,6 +2961,7 @@ struct set_tim_data {
 
 static int prism2_set_tim(struct net_device *dev, int aid, int set)
 {
+	unsigned int bh;
 	struct list_head *ptr;
 	struct set_tim_data *new_entry;
 	struct hostap_interface *iface;
@@ -2974,7 +2977,7 @@ static int prism2_set_tim(struct net_device *dev, int aid, int set)
 	new_entry->aid = aid;
 	new_entry->set = set;
 
-	spin_lock_bh(&local->set_tim_lock);
+	bh = spin_lock_bh(&local->set_tim_lock, SOFTIRQ_ALL_MASK);
 	list_for_each(ptr, &local->set_tim_list) {
 		struct set_tim_data *entry =
 			list_entry(ptr, struct set_tim_data, list);
@@ -2990,7 +2993,7 @@ static int prism2_set_tim(struct net_device *dev, int aid, int set)
 	}
 	if (new_entry)
 		list_add_tail(&new_entry->list, &local->set_tim_list);
-	spin_unlock_bh(&local->set_tim_lock);
+	spin_unlock_bh(&local->set_tim_lock, bh);
 
 	schedule_work(&local->set_tim_queue);
 
@@ -3000,19 +3003,20 @@ static int prism2_set_tim(struct net_device *dev, int aid, int set)
 
 static void handle_set_tim_queue(struct work_struct *work)
 {
+	unsigned int bh;
 	local_info_t *local = container_of(work, local_info_t, set_tim_queue);
 	struct set_tim_data *entry;
 	u16 val;
 
 	for (;;) {
 		entry = NULL;
-		spin_lock_bh(&local->set_tim_lock);
+		bh = spin_lock_bh(&local->set_tim_lock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&local->set_tim_list)) {
 			entry = list_entry(local->set_tim_list.next,
 					   struct set_tim_data, list);
 			list_del(&entry->list);
 		}
-		spin_unlock_bh(&local->set_tim_lock);
+		spin_unlock_bh(&local->set_tim_lock, bh);
 		if (!entry)
 			break;
 

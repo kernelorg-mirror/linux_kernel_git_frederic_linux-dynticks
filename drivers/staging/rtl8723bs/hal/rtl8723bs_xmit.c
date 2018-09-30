@@ -199,6 +199,7 @@ s32 rtl8723bs_xmit_buf_handler(struct adapter *padapter)
  */
 static s32 xmit_xmitframes(struct adapter *padapter, struct xmit_priv *pxmitpriv)
 {
+	unsigned int bh;
 	s32 err, ret;
 	u32 k = 0;
 	struct hw_xmit *hwxmits, *phwxmit;
@@ -247,7 +248,7 @@ static s32 xmit_xmitframes(struct adapter *padapter, struct xmit_priv *pxmitpriv
 
 		max_xmit_len = rtw_hal_get_sdio_tx_max_length(padapter, inx[idx]);
 
-		spin_lock_bh(&pxmitpriv->lock);
+		bh = spin_lock_bh(&pxmitpriv->lock, SOFTIRQ_ALL_MASK);
 
 		sta_phead = get_list_head(phwxmit->sta_queue);
 		sta_plist = get_next(sta_phead);
@@ -376,7 +377,7 @@ static s32 xmit_xmitframes(struct adapter *padapter, struct xmit_priv *pxmitpriv
 			if (err)
 				break;
 		}
-		spin_unlock_bh(&pxmitpriv->lock);
+		spin_unlock_bh(&pxmitpriv->lock, bh);
 
 		/*  dump xmit_buf to hw tx fifo */
 		if (pxmitbuf) {
@@ -414,6 +415,7 @@ static s32 xmit_xmitframes(struct adapter *padapter, struct xmit_priv *pxmitpriv
  */
 static s32 rtl8723bs_xmit_handler(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct xmit_priv *pxmitpriv;
 	s32 ret;
 
@@ -443,9 +445,9 @@ next:
 		return _FAIL;
 	}
 
-	spin_lock_bh(&pxmitpriv->lock);
+	bh = spin_lock_bh(&pxmitpriv->lock, SOFTIRQ_ALL_MASK);
 	ret = rtw_txframes_pending(padapter);
-	spin_unlock_bh(&pxmitpriv->lock);
+	spin_unlock_bh(&pxmitpriv->lock, bh);
 	if (ret == 0) {
 		return _SUCCESS;
 	}
@@ -463,7 +465,7 @@ next:
 		goto next;
 	}
 
-	spin_lock_bh(&pxmitpriv->lock);
+	spin_lock_bh(&pxmitpriv->lock, SOFTIRQ_ALL_MASK);
 	ret = rtw_txframes_pending(padapter);
 	spin_unlock_bh(&pxmitpriv->lock);
 	if (ret == 1) {
@@ -562,6 +564,7 @@ s32 rtl8723bs_hal_xmit(
 	struct adapter *padapter, struct xmit_frame *pxmitframe
 )
 {
+	unsigned int bh;
 	struct xmit_priv *pxmitpriv;
 	s32 err;
 
@@ -579,9 +582,9 @@ s32 rtl8723bs_hal_xmit(
 			rtw_issue_addbareq_cmd(padapter, pxmitframe);
 	}
 
-	spin_lock_bh(&pxmitpriv->lock);
+	bh = spin_lock_bh(&pxmitpriv->lock, SOFTIRQ_ALL_MASK);
 	err = rtw_xmitframe_enqueue(padapter, pxmitframe);
-	spin_unlock_bh(&pxmitpriv->lock);
+	spin_unlock_bh(&pxmitpriv->lock, bh);
 	if (err != _SUCCESS) {
 		RT_TRACE(_module_hal_xmit_c_, _drv_err_, ("rtl8723bs_hal_xmit: enqueue xmitframe fail\n"));
 		rtw_free_xmitframe(pxmitpriv, pxmitframe);
@@ -642,6 +645,7 @@ s32 rtl8723bs_init_xmit_priv(struct adapter *padapter)
 
 void rtl8723bs_free_xmit_priv(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct hal_com_data *phal;
 	struct xmit_priv *pxmitpriv;
 	struct xmit_buf *pxmitbuf;
@@ -656,14 +660,14 @@ void rtl8723bs_free_xmit_priv(struct adapter *padapter)
 	phead = get_list_head(pqueue);
 	INIT_LIST_HEAD(&tmplist);
 
-	spin_lock_bh(&pqueue->lock);
+	bh = spin_lock_bh(&pqueue->lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&pqueue->queue)) {
 		/*  Insert tmplist to end of queue, and delete phead */
 		/*  then tmplist become head of queue. */
 		list_add_tail(&tmplist, phead);
 		list_del_init(phead);
 	}
-	spin_unlock_bh(&pqueue->lock);
+	spin_unlock_bh(&pqueue->lock, bh);
 
 	phead = &tmplist;
 	while (list_empty(phead) == false) {

@@ -837,6 +837,7 @@ static void qed_init_qm_info(struct qed_hwfn *p_hwfn)
  */
 int qed_qm_reconf(struct qed_hwfn *p_hwfn, struct qed_ptt *p_ptt)
 {
+	unsigned int bh;
 	struct qed_qm_info *qm_info = &p_hwfn->qm_info;
 	bool b_rc;
 	int rc;
@@ -845,10 +846,10 @@ int qed_qm_reconf(struct qed_hwfn *p_hwfn, struct qed_ptt *p_ptt)
 	qed_init_qm_info(p_hwfn);
 
 	/* stop PF's qm queues */
-	spin_lock_bh(&qm_lock);
+	bh = spin_lock_bh(&qm_lock, SOFTIRQ_ALL_MASK);
 	b_rc = qed_send_qm_stop_cmd(p_hwfn, p_ptt, false, true,
 				    qm_info->start_pq, qm_info->num_pqs);
-	spin_unlock_bh(&qm_lock);
+	spin_unlock_bh(&qm_lock, bh);
 	if (!b_rc)
 		return -EINVAL;
 
@@ -865,7 +866,7 @@ int qed_qm_reconf(struct qed_hwfn *p_hwfn, struct qed_ptt *p_ptt)
 		return rc;
 
 	/* start PF's qm queues */
-	spin_lock_bh(&qm_lock);
+	spin_lock_bh(&qm_lock, SOFTIRQ_ALL_MASK);
 	b_rc = qed_send_qm_stop_cmd(p_hwfn, p_ptt, true, true,
 				    qm_info->start_pq, qm_info->num_pqs);
 	spin_unlock_bh(&qm_lock);

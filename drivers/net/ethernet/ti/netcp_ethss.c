@@ -1919,6 +1919,7 @@ static void keystone_get_ethtool_stats(struct net_device *ndev,
 				       struct ethtool_stats *stats,
 				       uint64_t *data)
 {
+	unsigned int bh;
 	struct netcp_intf *netcp = netdev_priv(ndev);
 	struct gbe_intf *gbe_intf;
 	struct gbe_priv *gbe_dev;
@@ -1928,12 +1929,12 @@ static void keystone_get_ethtool_stats(struct net_device *ndev,
 		return;
 
 	gbe_dev = gbe_intf->gbe_dev;
-	spin_lock_bh(&gbe_dev->hw_stats_lock);
+	bh = spin_lock_bh(&gbe_dev->hw_stats_lock, SOFTIRQ_ALL_MASK);
 	if (IS_SS_ID_VER_14(gbe_dev))
 		gbe_update_stats_ver14(gbe_dev, data);
 	else
 		gbe_update_stats(gbe_dev, data);
-	spin_unlock_bh(&gbe_dev->hw_stats_lock);
+	spin_unlock_bh(&gbe_dev->hw_stats_lock, bh);
 }
 
 static int keystone_get_link_ksettings(struct net_device *ndev,
@@ -3560,6 +3561,7 @@ static int set_gbenu_ethss_priv(struct gbe_priv *gbe_dev,
 static int gbe_probe(struct netcp_device *netcp_device, struct device *dev,
 		     struct device_node *node, void **inst_priv)
 {
+	unsigned int bh;
 	struct device_node *interfaces, *interface;
 	struct device_node *secondary_ports;
 	struct cpsw_ale_params ale_params;
@@ -3724,14 +3726,14 @@ static int gbe_probe(struct netcp_device *netcp_device, struct device *dev,
 	/* initialize host port */
 	gbe_init_host_port(gbe_dev);
 
-	spin_lock_bh(&gbe_dev->hw_stats_lock);
+	bh = spin_lock_bh(&gbe_dev->hw_stats_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < gbe_dev->num_stats_mods; i++) {
 		if (IS_SS_ID_VER_14(gbe_dev))
 			gbe_reset_mod_stats_ver14(gbe_dev, i);
 		else
 			gbe_reset_mod_stats(gbe_dev, i);
 	}
-	spin_unlock_bh(&gbe_dev->hw_stats_lock);
+	spin_unlock_bh(&gbe_dev->hw_stats_lock, bh);
 
 	timer_setup(&gbe_dev->timer, netcp_ethss_timer, 0);
 	gbe_dev->timer.expires	 = jiffies + GBE_TIMER_INTERVAL;

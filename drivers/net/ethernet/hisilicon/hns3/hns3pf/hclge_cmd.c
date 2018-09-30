@@ -194,6 +194,7 @@ static bool hclge_is_special_opcode(u16 opcode)
  **/
 int hclge_cmd_send(struct hclge_hw *hw, struct hclge_desc *desc, int num)
 {
+	unsigned int bh;
 	struct hclge_dev *hdev = container_of(hw, struct hclge_dev, hw);
 	struct hclge_desc *desc_to_use;
 	bool complete = false;
@@ -203,11 +204,11 @@ int hclge_cmd_send(struct hclge_hw *hw, struct hclge_desc *desc, int num)
 	u16 opcode, desc_ret;
 	int ntc;
 
-	spin_lock_bh(&hw->cmq.csq.lock);
+	bh = spin_lock_bh(&hw->cmq.csq.lock, SOFTIRQ_ALL_MASK);
 
 	if (num > hclge_ring_space(&hw->cmq.csq) ||
 	    test_bit(HCLGE_STATE_CMD_DISABLE, &hdev->state)) {
-		spin_unlock_bh(&hw->cmq.csq.lock);
+		spin_unlock_bh(&hw->cmq.csq.lock, bh);
 		return -EBUSY;
 	}
 
@@ -278,7 +279,7 @@ int hclge_cmd_send(struct hclge_hw *hw, struct hclge_desc *desc, int num)
 		dev_warn(&hdev->pdev->dev,
 			 "cleaned %d, need to clean %d\n", handle, num);
 
-	spin_unlock_bh(&hw->cmq.csq.lock);
+	spin_unlock_bh(&hw->cmq.csq.lock, bh);
 
 	return retval;
 }

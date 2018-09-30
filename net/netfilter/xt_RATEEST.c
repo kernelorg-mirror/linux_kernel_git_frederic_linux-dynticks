@@ -96,13 +96,14 @@ EXPORT_SYMBOL_GPL(xt_rateest_put);
 static unsigned int
 xt_rateest_tg(struct sk_buff *skb, const struct xt_action_param *par)
 {
+	unsigned int bh;
 	const struct xt_rateest_target_info *info = par->targinfo;
 	struct gnet_stats_basic_packed *stats = &info->est->bstats;
 
-	spin_lock_bh(&info->est->lock);
+	bh = spin_lock_bh(&info->est->lock, SOFTIRQ_ALL_MASK);
 	stats->bytes += skb->len;
 	stats->packets++;
-	spin_unlock_bh(&info->est->lock);
+	spin_unlock_bh(&info->est->lock, bh);
 
 	return XT_CONTINUE;
 }

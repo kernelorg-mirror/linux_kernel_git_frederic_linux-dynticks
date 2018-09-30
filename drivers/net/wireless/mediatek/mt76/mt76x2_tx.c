@@ -128,6 +128,7 @@ mt76x2_resync_beacon_timer(struct mt76x2_dev *dev)
 
 void mt76x2_pre_tbtt_tasklet(unsigned long arg)
 {
+	unsigned int bh;
 	struct mt76x2_dev *dev = (struct mt76x2_dev *) arg;
 	struct mt76_queue *q = &dev->mt76.q_tx[MT_TXQ_PSD];
 	struct beacon_bc_data data = {};
@@ -160,7 +161,7 @@ void mt76x2_pre_tbtt_tasklet(unsigned long arg)
 		mt76_skb_set_moredata(data.tail[i], false);
 	}
 
-	spin_lock_bh(&q->lock);
+	bh = spin_lock_bh(&q->lock, SOFTIRQ_ALL_MASK);
 	while ((skb = __skb_dequeue(&data.q)) != NULL) {
 		struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 		struct ieee80211_vif *vif = info->control.vif;
@@ -169,6 +170,6 @@ void mt76x2_pre_tbtt_tasklet(unsigned long arg)
 		mt76_dma_tx_queue_skb(&dev->mt76, q, skb, &mvif->group_wcid,
 				      NULL);
 	}
-	spin_unlock_bh(&q->lock);
+	spin_unlock_bh(&q->lock, bh);
 }
 

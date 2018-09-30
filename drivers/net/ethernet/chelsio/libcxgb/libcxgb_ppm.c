@@ -119,20 +119,21 @@ static void ppm_mark_entries(struct cxgbi_ppm *ppm, int i, int count,
 static int ppm_get_cpu_entries(struct cxgbi_ppm *ppm, unsigned int count,
 			       unsigned long caller_data)
 {
+	unsigned int bh;
 	struct cxgbi_ppm_pool *pool;
 	unsigned int cpu;
 	int i;
 
 	cpu = get_cpu();
 	pool = per_cpu_ptr(ppm->pool, cpu);
-	spin_lock_bh(&pool->lock);
+	bh = spin_lock_bh(&pool->lock, SOFTIRQ_ALL_MASK);
 	put_cpu();
 
 	i = ppm_find_unused_entries(pool->bmap, ppm->pool_index_max,
 				    pool->next, count, 0);
 	if (i < 0) {
 		pool->next = 0;
-		spin_unlock_bh(&pool->lock);
+		spin_unlock_bh(&pool->lock, bh);
 		return -ENOSPC;
 	}
 
@@ -140,7 +141,7 @@ static int ppm_get_cpu_entries(struct cxgbi_ppm *ppm, unsigned int count,
 	if (pool->next >= ppm->pool_index_max)
 		pool->next = 0;
 
-	spin_unlock_bh(&pool->lock);
+	spin_unlock_bh(&pool->lock, bh);
 
 	pr_debug("%s: cpu %u, idx %d + %d (%d), next %u.\n",
 		 __func__, cpu, i, count, i + cpu * ppm->pool_index_max,
@@ -155,14 +156,15 @@ static int ppm_get_cpu_entries(struct cxgbi_ppm *ppm, unsigned int count,
 static int ppm_get_entries(struct cxgbi_ppm *ppm, unsigned int count,
 			   unsigned long caller_data)
 {
+	unsigned int bh;
 	int i;
 
-	spin_lock_bh(&ppm->map_lock);
+	bh = spin_lock_bh(&ppm->map_lock, SOFTIRQ_ALL_MASK);
 	i = ppm_find_unused_entries(ppm->ppod_bmap, ppm->bmap_index_max,
 				    ppm->next, count, 0);
 	if (i < 0) {
 		ppm->next = 0;
-		spin_unlock_bh(&ppm->map_lock);
+		spin_unlock_bh(&ppm->map_lock, bh);
 		pr_debug("ippm: NO suitable entries %u available.\n",
 			 count);
 		return -ENOSPC;
@@ -172,7 +174,7 @@ static int ppm_get_entries(struct cxgbi_ppm *ppm, unsigned int count,
 	if (ppm->next >= ppm->bmap_index_max)
 		ppm->next = 0;
 
-	spin_unlock_bh(&ppm->map_lock);
+	spin_unlock_bh(&ppm->map_lock, bh);
 
 	pr_debug("%s: idx %d + %d (%d), next %u, caller_data 0x%lx.\n",
 		 __func__, i, count, i + ppm->pool_rsvd, ppm->next,
@@ -186,6 +188,7 @@ static int ppm_get_entries(struct cxgbi_ppm *ppm, unsigned int count,
 
 static void ppm_unmark_entries(struct cxgbi_ppm *ppm, int i, int count)
 {
+	unsigned int bh;
 	pr_debug("%s: idx %d + %d.\n", __func__, i, count);
 
 	if (i < ppm->pool_rsvd) {
@@ -196,24 +199,24 @@ static void ppm_unmark_entries(struct cxgbi_ppm *ppm, int i, int count)
 		i %= ppm->pool_index_max;
 
 		pool = per_cpu_ptr(ppm->pool, cpu);
-		spin_lock_bh(&pool->lock);
+		bh = spin_lock_bh(&pool->lock, SOFTIRQ_ALL_MASK);
 		bitmap_clear(pool->bmap, i, count);
 
 		if (i < pool->next)
 			pool->next = i;
-		spin_unlock_bh(&pool->lock);
+		spin_unlock_bh(&pool->lock, bh);
 
 		pr_debug("%s: cpu %u, idx %d, next %u.\n",
 			 __func__, cpu, i, pool->next);
 	} else {
-		spin_lock_bh(&ppm->map_lock);
+		bh = spin_lock_bh(&ppm->map_lock, SOFTIRQ_ALL_MASK);
 
 		i -= ppm->pool_rsvd;
 		bitmap_clear(ppm->ppod_bmap, i, count);
 
 		if (i < ppm->next)
 			ppm->next = i;
-		spin_unlock_bh(&ppm->map_lock);
+		spin_unlock_bh(&ppm->map_lock, bh);
 
 		pr_debug("%s: idx %d, next %u.\n", __func__, i, ppm->next);
 	}

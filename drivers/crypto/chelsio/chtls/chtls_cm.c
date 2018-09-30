@@ -1307,7 +1307,9 @@ static DEFINE_SPINLOCK(reap_list_lock);
  */
 DECLARE_TASK_FUNC(process_reap_list, task_param)
 {
-	spin_lock_bh(&reap_list_lock);
+	unsigned int bh;
+
+	bh = spin_lock_bh(&reap_list_lock, SOFTIRQ_ALL_MASK);
 	while (reap_list) {
 		struct sock *sk = reap_list;
 		struct chtls_sock *csk = rcu_dereference_sk_user_data(sk);
@@ -1326,7 +1328,7 @@ DECLARE_TASK_FUNC(process_reap_list, task_param)
 		sock_put(sk);
 		spin_lock(&reap_list_lock);
 	}
-	spin_unlock_bh(&reap_list_lock);
+	spin_unlock_bh(&reap_list_lock, bh);
 }
 
 static DECLARE_WORK(reap_task, process_reap_list);
@@ -1838,12 +1840,13 @@ static void send_abort_rpl(struct sock *sk, struct sk_buff *skb,
 static void t4_defer_reply(struct sk_buff *skb, struct chtls_dev *cdev,
 			   defer_handler_t handler)
 {
+	unsigned int bh;
 	DEFERRED_SKB_CB(skb)->handler = handler;
-	spin_lock_bh(&cdev->deferq.lock);
+	bh = spin_lock_bh(&cdev->deferq.lock, SOFTIRQ_ALL_MASK);
 	__skb_queue_tail(&cdev->deferq, skb);
 	if (skb_queue_len(&cdev->deferq) == 1)
 		schedule_work(&cdev->deferq_task);
-	spin_unlock_bh(&cdev->deferq.lock);
+	spin_unlock_bh(&cdev->deferq.lock, bh);
 }
 
 static void chtls_send_abort_rpl(struct sock *sk, struct sk_buff *skb,

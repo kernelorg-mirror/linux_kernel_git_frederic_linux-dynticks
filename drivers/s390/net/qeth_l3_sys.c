@@ -348,6 +348,7 @@ static ssize_t qeth_l3_dev_ipato_enable_show(struct device *dev,
 static ssize_t qeth_l3_dev_ipato_enable_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
+	unsigned int bh;
 	struct qeth_card *card = dev_get_drvdata(dev);
 	bool enable;
 	int rc = 0;
@@ -371,9 +372,9 @@ static ssize_t qeth_l3_dev_ipato_enable_store(struct device *dev,
 
 	if (card->ipato.enabled != enable) {
 		card->ipato.enabled = enable;
-		spin_lock_bh(&card->ip_lock);
+		bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 		qeth_l3_update_ipato(card);
-		spin_unlock_bh(&card->ip_lock);
+		spin_unlock_bh(&card->ip_lock, bh);
 	}
 out:
 	mutex_unlock(&card->conf_mutex);
@@ -399,6 +400,7 @@ static ssize_t qeth_l3_dev_ipato_invert4_store(struct device *dev,
 				struct device_attribute *attr,
 				const char *buf, size_t count)
 {
+	unsigned int bh;
 	struct qeth_card *card = dev_get_drvdata(dev);
 	bool invert;
 	int rc = 0;
@@ -416,9 +418,9 @@ static ssize_t qeth_l3_dev_ipato_invert4_store(struct device *dev,
 
 	if (card->ipato.invert4 != invert) {
 		card->ipato.invert4 = invert;
-		spin_lock_bh(&card->ip_lock);
+		bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 		qeth_l3_update_ipato(card);
-		spin_unlock_bh(&card->ip_lock);
+		spin_unlock_bh(&card->ip_lock, bh);
 	}
 out:
 	mutex_unlock(&card->conf_mutex);
@@ -432,6 +434,7 @@ static QETH_DEVICE_ATTR(ipato_invert4, invert4, 0644,
 static ssize_t qeth_l3_dev_ipato_add_show(char *buf, struct qeth_card *card,
 			enum qeth_prot_versions proto)
 {
+	unsigned int bh;
 	struct qeth_ipato_entry *ipatoe;
 	char addr_str[40];
 	int entry_len; /* length of 1 entry string, differs between v4 and v6 */
@@ -440,7 +443,7 @@ static ssize_t qeth_l3_dev_ipato_add_show(char *buf, struct qeth_card *card,
 	entry_len = (proto == QETH_PROT_IPV4)? 12 : 40;
 	/* add strlen for "/<mask>\n" */
 	entry_len += (proto == QETH_PROT_IPV4)? 5 : 6;
-	spin_lock_bh(&card->ip_lock);
+	bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ipatoe, &card->ipato.entries, entry) {
 		if (ipatoe->proto != proto)
 			continue;
@@ -453,7 +456,7 @@ static ssize_t qeth_l3_dev_ipato_add_show(char *buf, struct qeth_card *card,
 		i += snprintf(buf + i, PAGE_SIZE - i,
 			      "%s/%i\n", addr_str, ipatoe->mask_bits);
 	}
-	spin_unlock_bh(&card->ip_lock);
+	spin_unlock_bh(&card->ip_lock, bh);
 	i += snprintf(buf + i, PAGE_SIZE - i, "\n");
 
 	return i;
@@ -585,6 +588,7 @@ static ssize_t qeth_l3_dev_ipato_invert6_show(struct device *dev,
 static ssize_t qeth_l3_dev_ipato_invert6_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t count)
 {
+	unsigned int bh;
 	struct qeth_card *card = dev_get_drvdata(dev);
 	bool invert;
 	int rc = 0;
@@ -602,9 +606,9 @@ static ssize_t qeth_l3_dev_ipato_invert6_store(struct device *dev,
 
 	if (card->ipato.invert6 != invert) {
 		card->ipato.invert6 = invert;
-		spin_lock_bh(&card->ip_lock);
+		bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 		qeth_l3_update_ipato(card);
-		spin_unlock_bh(&card->ip_lock);
+		spin_unlock_bh(&card->ip_lock, bh);
 	}
 out:
 	mutex_unlock(&card->conf_mutex);
@@ -676,6 +680,7 @@ static ssize_t qeth_l3_dev_ip_add_show(struct device *dev, char *buf,
 				       enum qeth_prot_versions proto,
 				       enum qeth_ip_types type)
 {
+	unsigned int bh;
 	struct qeth_card *card = dev_get_drvdata(dev);
 	struct qeth_ipaddr *ipaddr;
 	char addr_str[40];
@@ -688,7 +693,7 @@ static ssize_t qeth_l3_dev_ip_add_show(struct device *dev, char *buf,
 
 	entry_len = (proto == QETH_PROT_IPV4)? 12 : 40;
 	entry_len += 2; /* \n + terminator */
-	spin_lock_bh(&card->ip_lock);
+	bh = spin_lock_bh(&card->ip_lock, SOFTIRQ_ALL_MASK);
 	hash_for_each(card->ip_htable, i, ipaddr, hnode) {
 		if (ipaddr->proto != proto || ipaddr->type != type)
 			continue;
@@ -702,7 +707,7 @@ static ssize_t qeth_l3_dev_ip_add_show(struct device *dev, char *buf,
 		str_len += snprintf(buf + str_len, PAGE_SIZE - str_len, "%s\n",
 				    addr_str);
 	}
-	spin_unlock_bh(&card->ip_lock);
+	spin_unlock_bh(&card->ip_lock, bh);
 	str_len += snprintf(buf + str_len, PAGE_SIZE - str_len, "\n");
 
 	return str_len;

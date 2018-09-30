@@ -903,19 +903,21 @@ struct iwl_async_handler_entry {
 
 void iwl_mvm_async_handlers_purge(struct iwl_mvm *mvm)
 {
+	unsigned int bh;
 	struct iwl_async_handler_entry *entry, *tmp;
 
-	spin_lock_bh(&mvm->async_handlers_lock);
+	bh = spin_lock_bh(&mvm->async_handlers_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(entry, tmp, &mvm->async_handlers_list, list) {
 		iwl_free_rxb(&entry->rxb);
 		list_del(&entry->list);
 		kfree(entry);
 	}
-	spin_unlock_bh(&mvm->async_handlers_lock);
+	spin_unlock_bh(&mvm->async_handlers_lock, bh);
 }
 
 static void iwl_mvm_async_handlers_wk(struct work_struct *wk)
 {
+	unsigned int bh;
 	struct iwl_mvm *mvm =
 		container_of(wk, struct iwl_mvm, async_handlers_wk);
 	struct iwl_async_handler_entry *entry, *tmp;
@@ -927,9 +929,9 @@ static void iwl_mvm_async_handlers_wk(struct work_struct *wk)
 	 * Sync with Rx path with a lock. Remove all the entries from this list,
 	 * add them to a local one (lock free), and then handle them.
 	 */
-	spin_lock_bh(&mvm->async_handlers_lock);
+	bh = spin_lock_bh(&mvm->async_handlers_lock, SOFTIRQ_ALL_MASK);
 	list_splice_init(&mvm->async_handlers_list, &local_list);
-	spin_unlock_bh(&mvm->async_handlers_lock);
+	spin_unlock_bh(&mvm->async_handlers_lock, bh);
 
 	list_for_each_entry_safe(entry, tmp, &local_list, list) {
 		if (entry->context == RX_HANDLER_ASYNC_LOCKED)
@@ -1087,12 +1089,13 @@ static void iwl_mvm_async_cb(struct iwl_op_mode *op_mode,
 
 static void iwl_mvm_stop_sw_queue(struct iwl_op_mode *op_mode, int hw_queue)
 {
+	unsigned int bh;
 	struct iwl_mvm *mvm = IWL_OP_MODE_GET_MVM(op_mode);
 	unsigned long mq;
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	mq = mvm->hw_queue_to_mac80211[hw_queue];
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	iwl_mvm_stop_mac_queues(mvm, mq);
 }
@@ -1117,12 +1120,13 @@ void iwl_mvm_start_mac_queues(struct iwl_mvm *mvm, unsigned long mq)
 
 static void iwl_mvm_wake_sw_queue(struct iwl_op_mode *op_mode, int hw_queue)
 {
+	unsigned int bh;
 	struct iwl_mvm *mvm = IWL_OP_MODE_GET_MVM(op_mode);
 	unsigned long mq;
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	mq = mvm->hw_queue_to_mac80211[hw_queue];
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	iwl_mvm_start_mac_queues(mvm, mq);
 }
@@ -1287,6 +1291,7 @@ static bool iwl_mvm_disallow_offloading(struct iwl_mvm *mvm,
 					struct ieee80211_vif *vif,
 					struct iwl_d0i3_iter_data *iter_data)
 {
+	unsigned int bh;
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 	struct iwl_mvm_sta *mvmsta;
 	u32 available_tids = 0;
@@ -1300,7 +1305,7 @@ static bool iwl_mvm_disallow_offloading(struct iwl_mvm *mvm,
 	if (!mvmsta)
 		return false;
 
-	spin_lock_bh(&mvmsta->lock);
+	bh = spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 	for (tid = 0; tid < IWL_MAX_TID_COUNT; tid++) {
 		struct iwl_mvm_tid_data *tid_data = &mvmsta->tid_data[tid];
 
@@ -1317,7 +1322,7 @@ static bool iwl_mvm_disallow_offloading(struct iwl_mvm *mvm,
 
 		available_tids |= BIT(tid);
 	}
-	spin_unlock_bh(&mvmsta->lock);
+	spin_unlock_bh(&mvmsta->lock, bh);
 
 	/*
 	 * disallow protocol offloading if we have no available tid
@@ -1539,6 +1544,7 @@ static void iwl_mvm_d0i3_exit_work_iter(void *_data, u8 *mac,
 
 void iwl_mvm_d0i3_enable_tx(struct iwl_mvm *mvm, __le16 *qos_seq)
 {
+	unsigned int bh;
 	struct ieee80211_sta *sta = NULL;
 	struct iwl_mvm_sta *mvm_ap_sta;
 	int i;
@@ -1546,7 +1552,7 @@ void iwl_mvm_d0i3_enable_tx(struct iwl_mvm *mvm, __le16 *qos_seq)
 
 	lockdep_assert_held(&mvm->mutex);
 
-	spin_lock_bh(&mvm->d0i3_tx_lock);
+	bh = spin_lock_bh(&mvm->d0i3_tx_lock, SOFTIRQ_ALL_MASK);
 
 	if (mvm->d0i3_ap_sta_id == IWL_MVM_INVALID_STA)
 		goto out;
@@ -1590,7 +1596,7 @@ out:
 	if (wake_queues)
 		ieee80211_wake_queues(mvm->hw);
 
-	spin_unlock_bh(&mvm->d0i3_tx_lock);
+	spin_unlock_bh(&mvm->d0i3_tx_lock, bh);
 }
 
 static void iwl_mvm_d0i3_exit_work(struct work_struct *wk)

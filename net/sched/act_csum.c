@@ -49,6 +49,7 @@ static int tcf_csum_init(struct net *net, struct nlattr *nla,
 			 int bind, bool rtnl_held,
 			 struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct tc_action_net *tn = net_generic(net, csum_net_id);
 	struct tcf_csum_params *params_new;
 	struct nlattr *tb[TCA_CSUM_MAX + 1];
@@ -96,11 +97,11 @@ static int tcf_csum_init(struct net *net, struct nlattr *nla,
 	}
 	params_new->update_flags = parm->update_flags;
 
-	spin_lock_bh(&p->tcf_lock);
+	bh = spin_lock_bh(&p->tcf_lock, SOFTIRQ_ALL_MASK);
 	p->tcf_action = parm->action;
 	rcu_swap_protected(p->params, params_new,
 			   lockdep_is_held(&p->tcf_lock));
-	spin_unlock_bh(&p->tcf_lock);
+	spin_unlock_bh(&p->tcf_lock, bh);
 
 	if (params_new)
 		kfree_rcu(params_new, rcu);
@@ -594,6 +595,7 @@ drop:
 static int tcf_csum_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 			 int ref)
 {
+	unsigned int bh;
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tcf_csum *p = to_tcf_csum(a);
 	struct tcf_csum_params *params;
@@ -604,7 +606,7 @@ static int tcf_csum_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 	};
 	struct tcf_t t;
 
-	spin_lock_bh(&p->tcf_lock);
+	bh = spin_lock_bh(&p->tcf_lock, SOFTIRQ_ALL_MASK);
 	params = rcu_dereference_protected(p->params,
 					   lockdep_is_held(&p->tcf_lock));
 	opt.action = p->tcf_action;
@@ -616,12 +618,12 @@ static int tcf_csum_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 	tcf_tm_dump(&t, &p->tcf_tm);
 	if (nla_put_64bit(skb, TCA_CSUM_TM, sizeof(t), &t, TCA_CSUM_PAD))
 		goto nla_put_failure;
-	spin_unlock_bh(&p->tcf_lock);
+	spin_unlock_bh(&p->tcf_lock, bh);
 
 	return skb->len;
 
 nla_put_failure:
-	spin_unlock_bh(&p->tcf_lock);
+	spin_unlock_bh(&p->tcf_lock, bh);
 	nlmsg_trim(skb, b);
 	return -1;
 }

@@ -1951,12 +1951,13 @@ static void qlcnic_sriov_vf_cancel_fw_work(struct qlcnic_adapter *adapter)
 static int qlcnic_sriov_check_vlan_id(struct qlcnic_sriov *sriov,
 				      struct qlcnic_vf_info *vf, u16 vlan_id)
 {
+	unsigned int bh;
 	int i, err = -EINVAL;
 
 	if (!vf->sriov_vlans)
 		return err;
 
-	spin_lock_bh(&vf->vlan_list_lock);
+	bh = spin_lock_bh(&vf->vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < sriov->num_allowed_vlans; i++) {
 		if (vf->sriov_vlans[i] == vlan_id) {
@@ -1965,21 +1966,22 @@ static int qlcnic_sriov_check_vlan_id(struct qlcnic_sriov *sriov,
 		}
 	}
 
-	spin_unlock_bh(&vf->vlan_list_lock);
+	spin_unlock_bh(&vf->vlan_list_lock, bh);
 	return err;
 }
 
 static int qlcnic_sriov_validate_num_vlans(struct qlcnic_sriov *sriov,
 					   struct qlcnic_vf_info *vf)
 {
+	unsigned int bh;
 	int err = 0;
 
-	spin_lock_bh(&vf->vlan_list_lock);
+	bh = spin_lock_bh(&vf->vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	if (vf->num_vlan >= sriov->num_allowed_vlans)
 		err = -EINVAL;
 
-	spin_unlock_bh(&vf->vlan_list_lock);
+	spin_unlock_bh(&vf->vlan_list_lock, bh);
 	return err;
 }
 
@@ -2024,6 +2026,7 @@ static int qlcnic_sriov_validate_vlan_cfg(struct qlcnic_adapter *adapter,
 static void qlcnic_sriov_vlan_operation(struct qlcnic_vf_info *vf, u16 vlan_id,
 					enum qlcnic_vlan_operations opcode)
 {
+	unsigned int bh;
 	struct qlcnic_adapter *adapter = vf->adapter;
 	struct qlcnic_sriov *sriov;
 
@@ -2032,7 +2035,7 @@ static void qlcnic_sriov_vlan_operation(struct qlcnic_vf_info *vf, u16 vlan_id,
 	if (!vf->sriov_vlans)
 		return;
 
-	spin_lock_bh(&vf->vlan_list_lock);
+	bh = spin_lock_bh(&vf->vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	switch (opcode) {
 	case QLC_VLAN_ADD:
@@ -2045,7 +2048,7 @@ static void qlcnic_sriov_vlan_operation(struct qlcnic_vf_info *vf, u16 vlan_id,
 		netdev_err(adapter->netdev, "Invalid VLAN operation\n");
 	}
 
-	spin_unlock_bh(&vf->vlan_list_lock);
+	spin_unlock_bh(&vf->vlan_list_lock, bh);
 	return;
 }
 
@@ -2220,13 +2223,14 @@ void qlcnic_sriov_del_vlan_id(struct qlcnic_sriov *sriov,
 
 bool qlcnic_sriov_check_any_vlan(struct qlcnic_vf_info *vf)
 {
+	unsigned int bh;
 	bool err = false;
 
-	spin_lock_bh(&vf->vlan_list_lock);
+	bh = spin_lock_bh(&vf->vlan_list_lock, SOFTIRQ_ALL_MASK);
 
 	if (vf->num_vlan)
 		err = true;
 
-	spin_unlock_bh(&vf->vlan_list_lock);
+	spin_unlock_bh(&vf->vlan_list_lock, bh);
 	return err;
 }

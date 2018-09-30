@@ -21,6 +21,7 @@ int
 mt76x2_tx_queue_mcu(struct mt76x2_dev *dev, enum mt76_txq_id qid,
 		    struct sk_buff *skb, int cmd, int seq)
 {
+	unsigned int bh;
 	struct mt76_queue *q = &dev->mt76.q_tx[qid];
 	struct mt76_queue_buf buf;
 	dma_addr_t addr;
@@ -39,10 +40,10 @@ mt76x2_tx_queue_mcu(struct mt76x2_dev *dev, enum mt76_txq_id qid,
 
 	buf.addr = addr;
 	buf.len = skb->len;
-	spin_lock_bh(&q->lock);
+	bh = spin_lock_bh(&q->lock, SOFTIRQ_ALL_MASK);
 	mt76_queue_add_buf(dev, q, &buf, 1, tx_info, skb, NULL);
 	mt76_queue_kick(dev, q);
-	spin_unlock_bh(&q->lock);
+	spin_unlock_bh(&q->lock, bh);
 
 	return 0;
 }

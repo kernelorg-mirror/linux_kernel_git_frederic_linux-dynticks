@@ -342,6 +342,7 @@ static inline void process_pending_queue(struct cpt_vf *cptvf,
 					 struct pending_qinfo *pqinfo,
 					 int qno)
 {
+	unsigned int bh;
 	struct pci_dev *pdev = cptvf->pdev;
 	struct pending_queue *pqueue = &pqinfo->queue[qno];
 	struct pending_entry *pentry = NULL;
@@ -350,10 +351,10 @@ static inline void process_pending_queue(struct cpt_vf *cptvf,
 	unsigned char ccode;
 
 	while (1) {
-		spin_lock_bh(&pqueue->lock);
+		bh = spin_lock_bh(&pqueue->lock, SOFTIRQ_ALL_MASK);
 		pentry = &pqueue->head[pqueue->front];
 		if (unlikely(!pentry->busy)) {
-			spin_unlock_bh(&pqueue->lock);
+			spin_unlock_bh(&pqueue->lock, bh);
 			break;
 		}
 
@@ -361,7 +362,7 @@ static inline void process_pending_queue(struct cpt_vf *cptvf,
 		if (unlikely(!info)) {
 			dev_err(&pdev->dev, "Pending Entry post arg NULL\n");
 			pending_queue_inc_front(pqinfo, qno);
-			spin_unlock_bh(&pqueue->lock);
+			spin_unlock_bh(&pqueue->lock, bh);
 			continue;
 		}
 
@@ -378,7 +379,7 @@ static inline void process_pending_queue(struct cpt_vf *cptvf,
 			pentry->post_arg = NULL;
 			pending_queue_inc_front(pqinfo, qno);
 			do_request_cleanup(cptvf, info);
-			spin_unlock_bh(&pqueue->lock);
+			spin_unlock_bh(&pqueue->lock, bh);
 			break;
 		} else if (status->s.compcode == COMPLETION_CODE_INIT) {
 			/* check for timeout */
@@ -392,14 +393,14 @@ static inline void process_pending_queue(struct cpt_vf *cptvf,
 				pentry->post_arg = NULL;
 				pending_queue_inc_front(pqinfo, qno);
 				do_request_cleanup(cptvf, info);
-				spin_unlock_bh(&pqueue->lock);
+				spin_unlock_bh(&pqueue->lock, bh);
 				break;
 			} else if ((*info->alternate_caddr ==
 				(~COMPLETION_CODE_INIT)) &&
 				(info->extra_time < TIME_IN_RESET_COUNT)) {
 				info->time_in = jiffies;
 				info->extra_time++;
-				spin_unlock_bh(&pqueue->lock);
+				spin_unlock_bh(&pqueue->lock, bh);
 				break;
 			}
 		}
@@ -409,7 +410,7 @@ static inline void process_pending_queue(struct cpt_vf *cptvf,
 		pentry->post_arg = NULL;
 		atomic64_dec((&pqueue->pending_count));
 		pending_queue_inc_front(pqinfo, qno);
-		spin_unlock_bh(&pqueue->lock);
+		spin_unlock_bh(&pqueue->lock, bh);
 
 		do_post_process(info->cptvf, info);
 		/*
@@ -422,6 +423,7 @@ static inline void process_pending_queue(struct cpt_vf *cptvf,
 
 int process_request(struct cpt_vf *cptvf, struct cpt_request_info *req)
 {
+	unsigned int bh;
 	int ret = 0, clear = 0, queue = 0;
 	struct cpt_info_buffer *info = NULL;
 	struct cptvf_request *cpt_req = NULL;
@@ -500,10 +502,10 @@ int process_request(struct cpt_vf *cptvf, struct cpt_request_info *req)
 	}
 
 get_pending_entry:
-	spin_lock_bh(&pqueue->lock);
+	bh = spin_lock_bh(&pqueue->lock, SOFTIRQ_ALL_MASK);
 	pentry = get_free_pending_entry(pqueue, cptvf->pqinfo.qlen);
 	if (unlikely(!pentry)) {
-		spin_unlock_bh(&pqueue->lock);
+		spin_unlock_bh(&pqueue->lock, bh);
 		if (clear == 0) {
 			process_pending_queue(cptvf, &cptvf->pqinfo, queue);
 			clear = 1;
@@ -541,7 +543,7 @@ get_pending_entry:
 	cptinst.s.ei3 = vq_cmd.cptr.u64;
 
 	ret = send_cpt_command(cptvf, &cptinst, queue);
-	spin_unlock_bh(&pqueue->lock);
+	spin_unlock_bh(&pqueue->lock, bh);
 	if (unlikely(ret)) {
 		dev_err(&pdev->dev, "Send command failed for AE\n");
 		ret = -EFAULT;

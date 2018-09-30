@@ -51,13 +51,14 @@ static void rs_poll(struct timer_list *);
 
 static int rs_open(struct tty_struct *tty, struct file * filp)
 {
+	unsigned int bh;
 	tty->port = &serial_port;
-	spin_lock_bh(&timer_lock);
+	bh = spin_lock_bh(&timer_lock, SOFTIRQ_ALL_MASK);
 	if (tty->count == 1) {
 		timer_setup(&serial_timer, rs_poll, 0);
 		mod_timer(&serial_timer, jiffies + SERIAL_TIMER_VALUE);
 	}
-	spin_unlock_bh(&timer_lock);
+	spin_unlock_bh(&timer_lock, bh);
 
 	return 0;
 }
@@ -75,10 +76,11 @@ static int rs_open(struct tty_struct *tty, struct file * filp)
  */
 static void rs_close(struct tty_struct *tty, struct file * filp)
 {
-	spin_lock_bh(&timer_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&timer_lock, SOFTIRQ_ALL_MASK);
 	if (tty->count == 1)
 		del_timer_sync(&serial_timer);
-	spin_unlock_bh(&timer_lock);
+	spin_unlock_bh(&timer_lock, bh);
 }
 
 

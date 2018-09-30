@@ -210,6 +210,7 @@ qede_dequeue_fltr_and_config_searcher(struct qede_dev *edev,
 
 void qede_arfs_filter_op(void *dev, void *filter, u8 fw_rc)
 {
+	unsigned int bh;
 	struct qede_arfs_fltr_node *fltr = filter;
 	struct qede_dev *edev = dev;
 
@@ -222,16 +223,16 @@ void qede_arfs_filter_op(void *dev, void *filter, u8 fw_rc)
 			  ntohs(fltr->tuple.src_port),
 			  ntohs(fltr->tuple.dst_port), fltr->rxq_id);
 
-		spin_lock_bh(&edev->arfs->arfs_list_lock);
+		bh = spin_lock_bh(&edev->arfs->arfs_list_lock, SOFTIRQ_ALL_MASK);
 
 		fltr->used = false;
 		clear_bit(QEDE_FLTR_VALID, &fltr->state);
 
-		spin_unlock_bh(&edev->arfs->arfs_list_lock);
+		spin_unlock_bh(&edev->arfs->arfs_list_lock, bh);
 		return;
 	}
 
-	spin_lock_bh(&edev->arfs->arfs_list_lock);
+	bh = spin_lock_bh(&edev->arfs->arfs_list_lock, SOFTIRQ_ALL_MASK);
 
 	fltr->used = false;
 
@@ -249,12 +250,13 @@ void qede_arfs_filter_op(void *dev, void *filter, u8 fw_rc)
 		}
 	}
 
-	spin_unlock_bh(&edev->arfs->arfs_list_lock);
+	spin_unlock_bh(&edev->arfs->arfs_list_lock, bh);
 }
 
 /* Should be called while qede_lock is held */
 void qede_process_arfs_filters(struct qede_dev *edev, bool free_fltr)
 {
+	unsigned int bh;
 	int i;
 
 	for (i = 0; i <= QEDE_RFS_FLW_MASK; i++) {
@@ -270,7 +272,7 @@ void qede_process_arfs_filters(struct qede_dev *edev, bool free_fltr)
 			if (edev->state != QEDE_STATE_OPEN)
 				del = true;
 
-			spin_lock_bh(&edev->arfs->arfs_list_lock);
+			bh = spin_lock_bh(&edev->arfs->arfs_list_lock, SOFTIRQ_ALL_MASK);
 
 			if ((!test_bit(QEDE_FLTR_VALID, &fltr->state) &&
 			     !fltr->used) || free_fltr) {
@@ -290,12 +292,12 @@ void qede_process_arfs_filters(struct qede_dev *edev, bool free_fltr)
 								 false);
 			}
 
-			spin_unlock_bh(&edev->arfs->arfs_list_lock);
+			spin_unlock_bh(&edev->arfs->arfs_list_lock, bh);
 		}
 	}
 
 #ifdef CONFIG_RFS_ACCEL
-	spin_lock_bh(&edev->arfs->arfs_list_lock);
+	bh = spin_lock_bh(&edev->arfs->arfs_list_lock, SOFTIRQ_ALL_MASK);
 
 	if (edev->arfs->filter_count) {
 		set_bit(QEDE_SP_ARFS_CONFIG, &edev->sp_flags);
@@ -303,7 +305,7 @@ void qede_process_arfs_filters(struct qede_dev *edev, bool free_fltr)
 				      QEDE_SP_TASK_POLL_DELAY);
 	}
 
-	spin_unlock_bh(&edev->arfs->arfs_list_lock);
+	spin_unlock_bh(&edev->arfs->arfs_list_lock, bh);
 #endif
 }
 
@@ -453,6 +455,7 @@ qede_alloc_filter(struct qede_dev *edev, int min_hlen)
 int qede_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 		       u16 rxq_index, u32 flow_id)
 {
+	unsigned int bh;
 	struct qede_dev *edev = netdev_priv(dev);
 	struct qede_arfs_fltr_node *n;
 	int min_hlen, rc, tp_offset;
@@ -482,7 +485,7 @@ int qede_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 	ports = (__be16 *)(skb->data + tp_offset);
 	tbl_idx = skb_get_hash_raw(skb) & QEDE_RFS_FLW_MASK;
 
-	spin_lock_bh(&edev->arfs->arfs_list_lock);
+	bh = spin_lock_bh(&edev->arfs->arfs_list_lock, SOFTIRQ_ALL_MASK);
 
 	n = qede_arfs_htbl_key_search(QEDE_ARFS_BUCKET_HEAD(edev, tbl_idx),
 				      skb, ports[0], ports[1], ip_proto);
@@ -544,7 +547,7 @@ int qede_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 
 	qede_configure_arfs_fltr(edev, n, n->rxq_id, true);
 
-	spin_unlock_bh(&edev->arfs->arfs_list_lock);
+	spin_unlock_bh(&edev->arfs->arfs_list_lock, bh);
 
 	set_bit(QEDE_SP_ARFS_CONFIG, &edev->sp_flags);
 	schedule_delayed_work(&edev->sp_task, 0);
@@ -552,7 +555,7 @@ int qede_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 	return n->sw_id;
 
 ret_unlock:
-	spin_unlock_bh(&edev->arfs->arfs_list_lock);
+	spin_unlock_bh(&edev->arfs->arfs_list_lock, bh);
 	return rc;
 }
 #endif

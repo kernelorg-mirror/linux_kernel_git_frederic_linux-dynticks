@@ -169,11 +169,12 @@ static int __init calipso_cache_init(void)
  */
 static void calipso_cache_invalidate(void)
 {
+	unsigned int bh;
 	struct calipso_map_cache_entry *entry, *tmp_entry;
 	u32 iter;
 
 	for (iter = 0; iter < CALIPSO_CACHE_BUCKETS; iter++) {
-		spin_lock_bh(&calipso_cache[iter].lock);
+		bh = spin_lock_bh(&calipso_cache[iter].lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry_safe(entry,
 					 tmp_entry,
 					 &calipso_cache[iter].list, list) {
@@ -181,7 +182,7 @@ static void calipso_cache_invalidate(void)
 			calipso_cache_entry_free(entry);
 		}
 		calipso_cache[iter].size = 0;
-		spin_unlock_bh(&calipso_cache[iter].lock);
+		spin_unlock_bh(&calipso_cache[iter].lock, bh);
 	}
 }
 
@@ -211,6 +212,7 @@ static int calipso_cache_check(const unsigned char *key,
 			       u32 key_len,
 			       struct netlbl_lsm_secattr *secattr)
 {
+	unsigned int bh;
 	u32 bkt;
 	struct calipso_map_cache_entry *entry;
 	struct calipso_map_cache_entry *prev_entry = NULL;
@@ -221,7 +223,7 @@ static int calipso_cache_check(const unsigned char *key,
 
 	hash = calipso_map_cache_hash(key, key_len);
 	bkt = hash & (CALIPSO_CACHE_BUCKETS - 1);
-	spin_lock_bh(&calipso_cache[bkt].lock);
+	bh = spin_lock_bh(&calipso_cache[bkt].lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(entry, &calipso_cache[bkt].list, list) {
 		if (entry->hash == hash &&
 		    entry->key_len == key_len &&
@@ -232,7 +234,7 @@ static int calipso_cache_check(const unsigned char *key,
 			secattr->flags |= NETLBL_SECATTR_CACHE;
 			secattr->type = NETLBL_NLTYPE_CALIPSO;
 			if (!prev_entry) {
-				spin_unlock_bh(&calipso_cache[bkt].lock);
+				spin_unlock_bh(&calipso_cache[bkt].lock, bh);
 				return 0;
 			}
 
@@ -247,12 +249,12 @@ static int calipso_cache_check(const unsigned char *key,
 					   &prev_entry->list);
 			}
 
-			spin_unlock_bh(&calipso_cache[bkt].lock);
+			spin_unlock_bh(&calipso_cache[bkt].lock, bh);
 			return 0;
 		}
 		prev_entry = entry;
 	}
-	spin_unlock_bh(&calipso_cache[bkt].lock);
+	spin_unlock_bh(&calipso_cache[bkt].lock, bh);
 
 	return -ENOENT;
 }
@@ -275,6 +277,7 @@ static int calipso_cache_check(const unsigned char *key,
 static int calipso_cache_add(const unsigned char *calipso_ptr,
 			     const struct netlbl_lsm_secattr *secattr)
 {
+	unsigned int bh;
 	int ret_val = -EPERM;
 	u32 bkt;
 	struct calipso_map_cache_entry *entry = NULL;
@@ -300,7 +303,7 @@ static int calipso_cache_add(const unsigned char *calipso_ptr,
 	entry->lsm_data = secattr->cache;
 
 	bkt = entry->hash & (CALIPSO_CACHE_BUCKETS - 1);
-	spin_lock_bh(&calipso_cache[bkt].lock);
+	bh = spin_lock_bh(&calipso_cache[bkt].lock, SOFTIRQ_ALL_MASK);
 	if (calipso_cache[bkt].size < calipso_cache_bucketsize) {
 		list_add(&entry->list, &calipso_cache[bkt].list);
 		calipso_cache[bkt].size += 1;
@@ -311,7 +314,7 @@ static int calipso_cache_add(const unsigned char *calipso_ptr,
 		list_add(&entry->list, &calipso_cache[bkt].list);
 		calipso_cache_entry_free(old_entry);
 	}
-	spin_unlock_bh(&calipso_cache[bkt].lock);
+	spin_unlock_bh(&calipso_cache[bkt].lock, bh);
 
 	return 0;
 

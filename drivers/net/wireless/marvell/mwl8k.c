@@ -1533,6 +1533,7 @@ static void mwl8k_dump_tx_rings(struct ieee80211_hw *hw)
 
 static int mwl8k_tx_wait_empty(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct mwl8k_priv *priv = hw->priv;
 	DECLARE_COMPLETION_ONSTACK(tx_wait);
 	int retry;
@@ -1565,7 +1566,7 @@ static int mwl8k_tx_wait_empty(struct ieee80211_hw *hw)
 	retry = 1;
 	rc = 0;
 
-	spin_lock_bh(&priv->tx_lock);
+	bh = spin_lock_bh(&priv->tx_lock, SOFTIRQ_ALL_MASK);
 	priv->tx_wait = &tx_wait;
 	while (!rc) {
 		int oldcount;
@@ -1578,13 +1579,13 @@ static int mwl8k_tx_wait_empty(struct ieee80211_hw *hw)
 			    msecs_to_jiffies(MWL8K_TX_WAIT_TIMEOUT_MS));
 
 		if (atomic_read(&priv->watchdog_event_pending)) {
-			spin_lock_bh(&priv->tx_lock);
+			spin_lock_bh(&priv->tx_lock, SOFTIRQ_ALL_MASK);
 			priv->tx_wait = NULL;
 			spin_unlock_bh(&priv->tx_lock);
 			return 0;
 		}
 
-		spin_lock_bh(&priv->tx_lock);
+		spin_lock_bh(&priv->tx_lock, SOFTIRQ_ALL_MASK);
 
 		if (timeout || !priv->pending_tx_pkts) {
 			WARN_ON(priv->pending_tx_pkts);
@@ -1618,7 +1619,7 @@ static int mwl8k_tx_wait_empty(struct ieee80211_hw *hw)
 		rc = -ETIMEDOUT;
 	}
 	priv->tx_wait = NULL;
-	spin_unlock_bh(&priv->tx_lock);
+	spin_unlock_bh(&priv->tx_lock, bh);
 
 	return rc;
 }
@@ -1890,6 +1891,7 @@ mwl8k_txq_xmit(struct ieee80211_hw *hw,
 	       struct ieee80211_sta *sta,
 	       struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct mwl8k_priv *priv = hw->priv;
 	struct ieee80211_tx_info *tx_info;
 	struct mwl8k_vif *mwl8k_vif;
@@ -2051,7 +2053,7 @@ mwl8k_txq_xmit(struct ieee80211_hw *hw,
 		return;
 	}
 
-	spin_lock_bh(&priv->tx_lock);
+	bh = spin_lock_bh(&priv->tx_lock, SOFTIRQ_ALL_MASK);
 
 	txq = priv->txq + index;
 
@@ -2071,7 +2073,7 @@ mwl8k_txq_xmit(struct ieee80211_hw *hw,
 				spin_unlock(&priv->stream_lock);
 			}
 			mwl8k_tx_start(priv);
-			spin_unlock_bh(&priv->tx_lock);
+			spin_unlock_bh(&priv->tx_lock, bh);
 			pci_unmap_single(priv->pdev, dma, skb->len,
 					 PCI_DMA_TODEVICE);
 			dev_kfree_skb(skb);
@@ -2112,7 +2114,7 @@ mwl8k_txq_xmit(struct ieee80211_hw *hw,
 
 	mwl8k_tx_start(priv);
 
-	spin_unlock_bh(&priv->tx_lock);
+	spin_unlock_bh(&priv->tx_lock, bh);
 
 	/* Initiate the ampdu session here */
 	if (start_ba_session) {
@@ -4624,6 +4626,7 @@ static irqreturn_t mwl8k_interrupt(int irq, void *dev_id)
 
 static void mwl8k_tx_poll(unsigned long data)
 {
+	unsigned int bh;
 	struct ieee80211_hw *hw = (struct ieee80211_hw *)data;
 	struct mwl8k_priv *priv = hw->priv;
 	int limit;
@@ -4631,7 +4634,7 @@ static void mwl8k_tx_poll(unsigned long data)
 
 	limit = 32;
 
-	spin_lock_bh(&priv->tx_lock);
+	bh = spin_lock_bh(&priv->tx_lock, SOFTIRQ_ALL_MASK);
 
 	for (i = 0; i < mwl8k_tx_queues(priv); i++)
 		limit -= mwl8k_txq_reclaim(hw, i, limit, 0);
@@ -4641,7 +4644,7 @@ static void mwl8k_tx_poll(unsigned long data)
 		priv->tx_wait = NULL;
 	}
 
-	spin_unlock_bh(&priv->tx_lock);
+	spin_unlock_bh(&priv->tx_lock, bh);
 
 	if (limit) {
 		writel(~MWL8K_A2H_INT_TX_DONE,

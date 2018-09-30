@@ -827,6 +827,7 @@ static void nicvf_rcv_pkt_handler(struct net_device *netdev,
 static int nicvf_cq_intr_handler(struct net_device *netdev, u8 cq_idx,
 				 struct napi_struct *napi, int budget)
 {
+	unsigned int bh;
 	int processed_cqe, work_done = 0, tx_done = 0;
 	int cqe_count, cqe_head;
 	int subdesc_cnt = 0;
@@ -839,7 +840,7 @@ static int nicvf_cq_intr_handler(struct net_device *netdev, u8 cq_idx,
 	struct rcv_queue *rq = &qs->rq[cq_idx];
 	unsigned int tx_pkts = 0, tx_bytes = 0, txq_idx;
 
-	spin_lock_bh(&cq->lock);
+	bh = spin_lock_bh(&cq->lock, SOFTIRQ_ALL_MASK);
 loop:
 	processed_cqe = 0;
 	/* Get no of valid CQ entries to process */
@@ -931,7 +932,7 @@ done:
 	}
 
 out:
-	spin_unlock_bh(&cq->lock);
+	spin_unlock_bh(&cq->lock, bh);
 	return work_done;
 }
 

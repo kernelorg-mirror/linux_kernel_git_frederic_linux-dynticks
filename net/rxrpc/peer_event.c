@@ -106,6 +106,7 @@ static struct rxrpc_peer *rxrpc_lookup_peer_icmp_rcu(struct rxrpc_local *local,
  */
 static void rxrpc_adjust_mtu(struct rxrpc_peer *peer, struct sock_exterr_skb *serr)
 {
+	unsigned int bh;
 	u32 mtu = serr->ee.ee_info;
 
 	_net("Rx ICMP Fragmentation Needed (%d)", mtu);
@@ -131,10 +132,10 @@ static void rxrpc_adjust_mtu(struct rxrpc_peer *peer, struct sock_exterr_skb *se
 	}
 
 	if (mtu < peer->mtu) {
-		spin_lock_bh(&peer->lock);
+		bh = spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 		peer->mtu = mtu;
 		peer->maxdata = peer->mtu - peer->hdrsize;
-		spin_unlock_bh(&peer->lock);
+		spin_unlock_bh(&peer->lock, bh);
 		_net("Net MTU %u (maxdata %u)",
 		     peer->mtu, peer->maxdata);
 	}
@@ -272,6 +273,7 @@ static void rxrpc_store_error(struct rxrpc_peer *peer,
  */
 void rxrpc_peer_error_distributor(struct work_struct *work)
 {
+	unsigned int bh;
 	struct rxrpc_peer *peer =
 		container_of(work, struct rxrpc_peer, error_distributor);
 	struct rxrpc_call *call;
@@ -290,7 +292,7 @@ void rxrpc_peer_error_distributor(struct work_struct *work)
 
 	_debug("ISSUE ERROR %s %d", rxrpc_call_completions[compl], error);
 
-	spin_lock_bh(&peer->lock);
+	bh = spin_lock_bh(&peer->lock, SOFTIRQ_ALL_MASK);
 
 	while (!hlist_empty(&peer->error_targets)) {
 		call = hlist_entry(peer->error_targets.first,
@@ -302,7 +304,7 @@ void rxrpc_peer_error_distributor(struct work_struct *work)
 			rxrpc_notify_socket(call);
 	}
 
-	spin_unlock_bh(&peer->lock);
+	spin_unlock_bh(&peer->lock, bh);
 
 	rxrpc_put_peer(peer);
 	_leave("");
@@ -357,12 +359,13 @@ static void rxrpc_peer_keepalive_dispatch(struct rxrpc_net *rxnet,
 					  time64_t base,
 					  u8 cursor)
 {
+	unsigned int bh;
 	struct rxrpc_peer *peer;
 	const u8 mask = ARRAY_SIZE(rxnet->peer_keepalive) - 1;
 	time64_t keepalive_at;
 	int slot;
 
-	spin_lock_bh(&rxnet->peer_hash_lock);
+	bh = spin_lock_bh(&rxnet->peer_hash_lock, SOFTIRQ_ALL_MASK);
 
 	while (!list_empty(collector)) {
 		peer = list_entry(collector->next,
@@ -390,13 +393,13 @@ static void rxrpc_peer_keepalive_dispatch(struct rxrpc_net *rxnet,
 		 */
 		slot += cursor;
 		slot &= mask;
-		spin_lock_bh(&rxnet->peer_hash_lock);
+		spin_lock_bh(&rxnet->peer_hash_lock, SOFTIRQ_ALL_MASK);
 		list_add_tail(&peer->keepalive_link,
 			      &rxnet->peer_keepalive[slot & mask]);
 		rxrpc_put_peer(peer);
 	}
 
-	spin_unlock_bh(&rxnet->peer_hash_lock);
+	spin_unlock_bh(&rxnet->peer_hash_lock, bh);
 }
 
 /*
@@ -404,6 +407,7 @@ static void rxrpc_peer_keepalive_dispatch(struct rxrpc_net *rxnet,
  */
 void rxrpc_peer_keepalive_worker(struct work_struct *work)
 {
+	unsigned int bh;
 	struct rxrpc_net *rxnet =
 		container_of(work, struct rxrpc_net, peer_keepalive_work);
 	const u8 mask = ARRAY_SIZE(rxnet->peer_keepalive) - 1;
@@ -426,7 +430,7 @@ void rxrpc_peer_keepalive_worker(struct work_struct *work)
 	 * second; the bucket at cursor + 1 goes at now + 1s and so
 	 * on...
 	 */
-	spin_lock_bh(&rxnet->peer_hash_lock);
+	bh = spin_lock_bh(&rxnet->peer_hash_lock, SOFTIRQ_ALL_MASK);
 	list_splice_init(&rxnet->peer_keepalive_new, &collector);
 
 	stop = cursor + ARRAY_SIZE(rxnet->peer_keepalive);
@@ -438,7 +442,7 @@ void rxrpc_peer_keepalive_worker(struct work_struct *work)
 	}
 
 	base = now;
-	spin_unlock_bh(&rxnet->peer_hash_lock);
+	spin_unlock_bh(&rxnet->peer_hash_lock, bh);
 
 	rxnet->peer_keepalive_base = base;
 	rxnet->peer_keepalive_cursor = cursor;

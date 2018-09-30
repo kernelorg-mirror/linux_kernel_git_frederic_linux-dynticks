@@ -575,7 +575,7 @@ __inline static void _clr_fwstate_(struct mlme_priv *pmlmepriv, sint state)
  */
 __inline static void clr_fwstate(struct mlme_priv *pmlmepriv, sint state)
 {
-	spin_lock_bh(&pmlmepriv->lock);
+	spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 	if (check_fwstate(pmlmepriv, state) == true)
 		pmlmepriv->fw_state ^= state;
 	spin_unlock_bh(&pmlmepriv->lock);
@@ -583,7 +583,7 @@ __inline static void clr_fwstate(struct mlme_priv *pmlmepriv, sint state)
 
 __inline static void set_scanned_network_val(struct mlme_priv *pmlmepriv, sint val)
 {
-	spin_lock_bh(&pmlmepriv->lock);
+	spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 	pmlmepriv->num_of_scanned = val;
 	spin_unlock_bh(&pmlmepriv->lock);
 }

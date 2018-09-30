@@ -118,6 +118,7 @@ static size_t rxrpc_fill_out_ack(struct rxrpc_connection *conn,
 int rxrpc_send_ack_packet(struct rxrpc_call *call, bool ping,
 			  rxrpc_serial_t *_serial)
 {
+	unsigned int bh;
 	struct rxrpc_connection *conn = NULL;
 	struct rxrpc_ack_buffer *pkt;
 	struct msghdr msg;
@@ -129,10 +130,10 @@ int rxrpc_send_ack_packet(struct rxrpc_call *call, bool ping,
 	int ret;
 	u8 reason;
 
-	spin_lock_bh(&call->lock);
+	bh = spin_lock_bh(&call->lock, SOFTIRQ_ALL_MASK);
 	if (call->conn)
 		conn = rxrpc_get_connection_maybe(call->conn);
-	spin_unlock_bh(&call->lock);
+	spin_unlock_bh(&call->lock, bh);
 	if (!conn)
 		return -ECONNRESET;
 
@@ -159,7 +160,7 @@ int rxrpc_send_ack_packet(struct rxrpc_call *call, bool ping,
 	pkt->whdr._rsvd		= 0;
 	pkt->whdr.serviceId	= htons(call->service_id);
 
-	spin_lock_bh(&call->lock);
+	spin_lock_bh(&call->lock, SOFTIRQ_ALL_MASK);
 	if (ping) {
 		reason = RXRPC_ACK_PING;
 	} else {
@@ -227,7 +228,7 @@ int rxrpc_send_ack_packet(struct rxrpc_call *call, bool ping,
 					  true, true,
 					  rxrpc_propose_ack_retry_tx);
 		} else {
-			spin_lock_bh(&call->lock);
+			spin_lock_bh(&call->lock, SOFTIRQ_ALL_MASK);
 			if (after(hard_ack, call->ackr_consumed))
 				call->ackr_consumed = hard_ack;
 			if (after(top, call->ackr_seen))
@@ -249,6 +250,7 @@ out:
  */
 int rxrpc_send_abort_packet(struct rxrpc_call *call)
 {
+	unsigned int bh;
 	struct rxrpc_connection *conn = NULL;
 	struct rxrpc_abort_buffer pkt;
 	struct msghdr msg;
@@ -266,10 +268,10 @@ int rxrpc_send_abort_packet(struct rxrpc_call *call)
 	    test_bit(RXRPC_CALL_TX_LAST, &call->flags))
 		return 0;
 
-	spin_lock_bh(&call->lock);
+	bh = spin_lock_bh(&call->lock, SOFTIRQ_ALL_MASK);
 	if (call->conn)
 		conn = rxrpc_get_connection_maybe(call->conn);
-	spin_unlock_bh(&call->lock);
+	spin_unlock_bh(&call->lock, bh);
 	if (!conn)
 		return -ECONNRESET;
 

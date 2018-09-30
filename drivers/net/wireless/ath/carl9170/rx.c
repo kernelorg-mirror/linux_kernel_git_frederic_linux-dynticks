@@ -572,6 +572,7 @@ static void carl9170_ps_beacon(struct ar9170 *ar, void *data, unsigned int len)
 
 static void carl9170_ba_check(struct ar9170 *ar, void *data, unsigned int len)
 {
+	unsigned int bh;
 	struct ieee80211_bar *bar = data;
 	struct carl9170_bar_list_entry *entry;
 	unsigned int queue;
@@ -605,9 +606,9 @@ static void carl9170_ba_check(struct ar9170 *ar, void *data, unsigned int len)
 			tx_info = IEEE80211_SKB_CB(entry_skb);
 			tx_info->flags |= IEEE80211_TX_STAT_ACK;
 
-			spin_lock_bh(&ar->bar_list_lock[queue]);
+			bh = spin_lock_bh(&ar->bar_list_lock[queue], SOFTIRQ_ALL_MASK);
 			list_del_rcu(&entry->list);
-			spin_unlock_bh(&ar->bar_list_lock[queue]);
+			spin_unlock_bh(&ar->bar_list_lock[queue], bh);
 			kfree_rcu(entry, head);
 			break;
 		}

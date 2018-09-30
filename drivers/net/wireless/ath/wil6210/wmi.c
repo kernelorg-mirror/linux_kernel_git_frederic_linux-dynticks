@@ -1221,6 +1221,7 @@ static void wmi_evt_addba_rx_req(struct wil6210_vif *vif, int id,
 static void wmi_evt_delba(struct wil6210_vif *vif, int id, void *d, int len)
 __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 {
+	unsigned int bh;
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	struct wmi_delba_event *evt = d;
 	u8 cid, tid;
@@ -1258,13 +1259,13 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 
 	sta = &wil->sta[cid];
 
-	spin_lock_bh(&sta->tid_rx_lock);
+	bh = spin_lock_bh(&sta->tid_rx_lock, SOFTIRQ_ALL_MASK);
 
 	r = sta->tid_rx[tid];
 	sta->tid_rx[tid] = NULL;
 	wil_tid_ampdu_rx_free(wil, r);
 
-	spin_unlock_bh(&sta->tid_rx_lock);
+	spin_unlock_bh(&sta->tid_rx_lock, bh);
 }
 
 static void
@@ -3334,6 +3335,7 @@ int wil_wmi_rx_desc_ring_add(struct wil6210_priv *wil, int status_ring_id)
 int wil_wmi_tx_desc_ring_add(struct wil6210_vif *vif, int ring_id, int cid,
 			     int tid)
 {
+	unsigned int bh;
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	int sring_id = wil->tx_sring_idx; /* there is only one TX sring */
 	int rc;
@@ -3376,17 +3378,18 @@ int wil_wmi_tx_desc_ring_add(struct wil6210_vif *vif, int ring_id, int cid,
 		return -EINVAL;
 	}
 
-	spin_lock_bh(&txdata->lock);
+	bh = spin_lock_bh(&txdata->lock, SOFTIRQ_ALL_MASK);
 	ring->hwtail = le32_to_cpu(reply.evt.ring_tail_ptr);
 	txdata->mid = vif->mid;
 	txdata->enabled = 1;
-	spin_unlock_bh(&txdata->lock);
+	spin_unlock_bh(&txdata->lock, bh);
 
 	return 0;
 }
 
 int wil_wmi_bcast_desc_ring_add(struct wil6210_vif *vif, int ring_id)
 {
+	unsigned int bh;
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	struct wil_ring *ring = &wil->ring_tx[ring_id];
 	int rc;
@@ -3421,11 +3424,11 @@ int wil_wmi_bcast_desc_ring_add(struct wil6210_vif *vif, int ring_id)
 		return -EINVAL;
 	}
 
-	spin_lock_bh(&txdata->lock);
+	bh = spin_lock_bh(&txdata->lock, SOFTIRQ_ALL_MASK);
 	ring->hwtail = le32_to_cpu(reply.evt.ring_tail_ptr);
 	txdata->mid = vif->mid;
 	txdata->enabled = 1;
-	spin_unlock_bh(&txdata->lock);
+	spin_unlock_bh(&txdata->lock, bh);
 
 	return 0;
 }

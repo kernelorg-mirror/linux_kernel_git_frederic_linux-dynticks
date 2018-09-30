@@ -93,20 +93,22 @@ mlx5_vxlan_lookup_port_locked(struct mlx5_vxlan *vxlan, u16 port)
 
 struct mlx5_vxlan_port *mlx5_vxlan_lookup_port(struct mlx5_vxlan *vxlan, u16 port)
 {
+	unsigned int bh;
 	struct mlx5_vxlan_port *vxlanp;
 
 	if (!mlx5_vxlan_allowed(vxlan))
 		return NULL;
 
-	spin_lock_bh(&vxlan->lock);
+	bh = spin_lock_bh(&vxlan->lock, SOFTIRQ_ALL_MASK);
 	vxlanp = mlx5_vxlan_lookup_port_locked(vxlan, port);
-	spin_unlock_bh(&vxlan->lock);
+	spin_unlock_bh(&vxlan->lock, bh);
 
 	return vxlanp;
 }
 
 int mlx5_vxlan_add_port(struct mlx5_vxlan *vxlan, u16 port)
 {
+	unsigned int bh;
 	struct mlx5_vxlan_port *vxlanp;
 	int ret = -ENOSPC;
 
@@ -138,9 +140,9 @@ int mlx5_vxlan_add_port(struct mlx5_vxlan *vxlan, u16 port)
 	vxlanp->udp_port = port;
 	atomic_set(&vxlanp->refcount, 1);
 
-	spin_lock_bh(&vxlan->lock);
+	bh = spin_lock_bh(&vxlan->lock, SOFTIRQ_ALL_MASK);
 	hash_add(vxlan->htable, &vxlanp->hlist, port);
-	spin_unlock_bh(&vxlan->lock);
+	spin_unlock_bh(&vxlan->lock, bh);
 
 	vxlan->num_ports++;
 	mutex_unlock(&vxlan->sync_lock);
@@ -156,13 +158,14 @@ unlock:
 
 int mlx5_vxlan_del_port(struct mlx5_vxlan *vxlan, u16 port)
 {
+	unsigned int bh;
 	struct mlx5_vxlan_port *vxlanp;
 	bool remove = false;
 	int ret = 0;
 
 	mutex_lock(&vxlan->sync_lock);
 
-	spin_lock_bh(&vxlan->lock);
+	bh = spin_lock_bh(&vxlan->lock, SOFTIRQ_ALL_MASK);
 	vxlanp = mlx5_vxlan_lookup_port_locked(vxlan, port);
 	if (!vxlanp) {
 		ret = -ENOENT;
@@ -175,7 +178,7 @@ int mlx5_vxlan_del_port(struct mlx5_vxlan *vxlan, u16 port)
 	}
 
 out_unlock:
-	spin_unlock_bh(&vxlan->lock);
+	spin_unlock_bh(&vxlan->lock, bh);
 
 	if (remove) {
 		mlx5_vxlan_core_del_port_cmd(vxlan->mdev, port);

@@ -874,6 +874,7 @@ static int vxlan_fdb_add(struct ndmsg *ndm, struct nlattr *tb[],
 			 struct net_device *dev,
 			 const unsigned char *addr, u16 vid, u16 flags)
 {
+	unsigned int bh;
 	struct vxlan_dev *vxlan = netdev_priv(dev);
 	/* struct net *net = dev_net(vxlan->dev); */
 	union vxlan_addr ip;
@@ -898,10 +899,10 @@ static int vxlan_fdb_add(struct ndmsg *ndm, struct nlattr *tb[],
 	if (vxlan->default_dst.remote_ip.sa.sa_family != ip.sa.sa_family)
 		return -EAFNOSUPPORT;
 
-	spin_lock_bh(&vxlan->hash_lock);
+	bh = spin_lock_bh(&vxlan->hash_lock, SOFTIRQ_ALL_MASK);
 	err = vxlan_fdb_update(vxlan, addr, &ip, ndm->ndm_state, flags,
 			       port, src_vni, vni, ifindex, ndm->ndm_flags);
-	spin_unlock_bh(&vxlan->hash_lock);
+	spin_unlock_bh(&vxlan->hash_lock, bh);
 
 	return err;
 }
@@ -944,6 +945,7 @@ static int vxlan_fdb_delete(struct ndmsg *ndm, struct nlattr *tb[],
 			    struct net_device *dev,
 			    const unsigned char *addr, u16 vid)
 {
+	unsigned int bh;
 	struct vxlan_dev *vxlan = netdev_priv(dev);
 	union vxlan_addr ip;
 	__be32 src_vni, vni;
@@ -955,10 +957,10 @@ static int vxlan_fdb_delete(struct ndmsg *ndm, struct nlattr *tb[],
 	if (err)
 		return err;
 
-	spin_lock_bh(&vxlan->hash_lock);
+	bh = spin_lock_bh(&vxlan->hash_lock, SOFTIRQ_ALL_MASK);
 	err = __vxlan_fdb_delete(vxlan, addr, ip, port, src_vni, vni, ifindex,
 				 vid);
-	spin_unlock_bh(&vxlan->hash_lock);
+	spin_unlock_bh(&vxlan->hash_lock, bh);
 
 	return err;
 }
@@ -2373,6 +2375,7 @@ static netdev_tx_t vxlan_xmit(struct sk_buff *skb, struct net_device *dev)
 /* Walk the forwarding table and purge stale entries */
 static void vxlan_cleanup(struct timer_list *t)
 {
+	unsigned int bh;
 	struct vxlan_dev *vxlan = from_timer(vxlan, t, age_timer);
 	unsigned long next_timer = jiffies + FDB_AGE_INTERVAL;
 	unsigned int h;
@@ -2383,7 +2386,7 @@ static void vxlan_cleanup(struct timer_list *t)
 	for (h = 0; h < FDB_HASH_SIZE; ++h) {
 		struct hlist_node *p, *n;
 
-		spin_lock_bh(&vxlan->hash_lock);
+		bh = spin_lock_bh(&vxlan->hash_lock, SOFTIRQ_ALL_MASK);
 		hlist_for_each_safe(p, n, &vxlan->fdb_head[h]) {
 			struct vxlan_fdb *f
 				= container_of(p, struct vxlan_fdb, hlist);
@@ -2405,7 +2408,7 @@ static void vxlan_cleanup(struct timer_list *t)
 			} else if (time_before(timeout, next_timer))
 				next_timer = timeout;
 		}
-		spin_unlock_bh(&vxlan->hash_lock);
+		spin_unlock_bh(&vxlan->hash_lock, bh);
 	}
 
 	mod_timer(&vxlan->age_timer, next_timer);
@@ -2447,13 +2450,14 @@ static int vxlan_init(struct net_device *dev)
 
 static void vxlan_fdb_delete_default(struct vxlan_dev *vxlan, __be32 vni)
 {
+	unsigned int bh;
 	struct vxlan_fdb *f;
 
-	spin_lock_bh(&vxlan->hash_lock);
+	bh = spin_lock_bh(&vxlan->hash_lock, SOFTIRQ_ALL_MASK);
 	f = __vxlan_find_mac(vxlan, all_zeros_mac, vni);
 	if (f)
 		vxlan_fdb_destroy(vxlan, f, true);
-	spin_unlock_bh(&vxlan->hash_lock);
+	spin_unlock_bh(&vxlan->hash_lock, bh);
 }
 
 static void vxlan_uninit(struct net_device *dev)
@@ -2494,9 +2498,10 @@ static int vxlan_open(struct net_device *dev)
 /* Purge the forwarding table */
 static void vxlan_flush(struct vxlan_dev *vxlan, bool do_all)
 {
+	unsigned int bh;
 	unsigned int h;
 
-	spin_lock_bh(&vxlan->hash_lock);
+	bh = spin_lock_bh(&vxlan->hash_lock, SOFTIRQ_ALL_MASK);
 	for (h = 0; h < FDB_HASH_SIZE; ++h) {
 		struct hlist_node *p, *n;
 		hlist_for_each_safe(p, n, &vxlan->fdb_head[h]) {
@@ -2509,7 +2514,7 @@ static void vxlan_flush(struct vxlan_dev *vxlan, bool do_all)
 				vxlan_fdb_destroy(vxlan, f, true);
 		}
 	}
-	spin_unlock_bh(&vxlan->hash_lock);
+	spin_unlock_bh(&vxlan->hash_lock, bh);
 }
 
 /* Cleanup timer and forwarding table on shutdown */
@@ -3470,6 +3475,7 @@ static int vxlan_changelink(struct net_device *dev, struct nlattr *tb[],
 			    struct nlattr *data[],
 			    struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct vxlan_dev *vxlan = netdev_priv(dev);
 	struct vxlan_rdst *dst = &vxlan->default_dst;
 	struct vxlan_rdst old_dst;
@@ -3490,7 +3496,7 @@ static int vxlan_changelink(struct net_device *dev, struct nlattr *tb[],
 
 	/* handle default dst entry */
 	if (!vxlan_addr_equal(&dst->remote_ip, &old_dst.remote_ip)) {
-		spin_lock_bh(&vxlan->hash_lock);
+		bh = spin_lock_bh(&vxlan->hash_lock, SOFTIRQ_ALL_MASK);
 		if (!vxlan_addr_any(&old_dst.remote_ip))
 			__vxlan_fdb_delete(vxlan, all_zeros_mac,
 					   old_dst.remote_ip,
@@ -3509,12 +3515,12 @@ static int vxlan_changelink(struct net_device *dev, struct nlattr *tb[],
 					       dst->remote_ifindex,
 					       NTF_SELF, &f);
 			if (err) {
-				spin_unlock_bh(&vxlan->hash_lock);
+				spin_unlock_bh(&vxlan->hash_lock, bh);
 				return err;
 			}
 			vxlan_fdb_notify(vxlan, f, first_remote_rtnl(f), RTM_NEWNEIGH);
 		}
-		spin_unlock_bh(&vxlan->hash_lock);
+		spin_unlock_bh(&vxlan->hash_lock, bh);
 	}
 
 	return 0;

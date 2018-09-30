@@ -280,7 +280,7 @@ struct cfg80211_bss *rtw_cfg80211_inform_bss(struct adapter *padapter, struct wl
 	}
 
 	/* To reduce PBC Overlap rate */
-	/* spin_lock_bh(&pwdev_priv->scan_req_lock); */
+	/* spin_lock_bh(&pwdev_priv->scan_req_lock, SOFTIRQ_ALL_MASK); */
 	if (adapter_wdev_data(padapter)->scan_request != NULL)
 	{
 		u8 *psr = NULL, sr = 0;
@@ -1377,12 +1377,13 @@ exit:
 
 void rtw_cfg80211_indicate_scan_done(struct adapter *adapter, bool aborted)
 {
+	unsigned int bh;
 	struct rtw_wdev_priv *pwdev_priv = adapter_wdev_data(adapter);
 	struct cfg80211_scan_info info = {
 		.aborted = aborted
 	};
 
-	spin_lock_bh(&pwdev_priv->scan_req_lock);
+	bh = spin_lock_bh(&pwdev_priv->scan_req_lock, SOFTIRQ_ALL_MASK);
 	if (pwdev_priv->scan_request != NULL) {
 		#ifdef DEBUG_CFG80211
 		DBG_871X("%s with scan req\n", __func__);
@@ -1404,7 +1405,7 @@ void rtw_cfg80211_indicate_scan_done(struct adapter *adapter, bool aborted)
 		DBG_871X("%s without scan req\n", __func__);
 		#endif
 	}
-	spin_unlock_bh(&pwdev_priv->scan_req_lock);
+	spin_unlock_bh(&pwdev_priv->scan_req_lock, bh);
 }
 
 void rtw_cfg80211_unlink_bss(struct adapter *padapter, struct wlan_network *pnetwork)
@@ -1429,6 +1430,7 @@ void rtw_cfg80211_unlink_bss(struct adapter *padapter, struct wlan_network *pnet
 
 void rtw_cfg80211_surveydone_event_callback(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct list_head					*plist, *phead;
 	struct	mlme_priv *pmlmepriv = &(padapter->mlmepriv);
 	struct __queue *queue	= &(pmlmepriv->scanned_queue);
@@ -1438,7 +1440,7 @@ void rtw_cfg80211_surveydone_event_callback(struct adapter *padapter)
 	DBG_8192C("%s\n", __func__);
 #endif
 
-	spin_lock_bh(&(pmlmepriv->scanned_queue.lock));
+	bh = spin_lock_bh(&(pmlmepriv->scanned_queue.lock), SOFTIRQ_ALL_MASK);
 
 	phead = get_list_head(queue);
 	plist = get_next(phead);
@@ -1464,7 +1466,7 @@ void rtw_cfg80211_surveydone_event_callback(struct adapter *padapter)
 
 	}
 
-	spin_unlock_bh(&(pmlmepriv->scanned_queue.lock));
+	spin_unlock_bh(&(pmlmepriv->scanned_queue.lock), bh);
 }
 
 static int rtw_cfg80211_set_probe_req_wpsp2pie(struct adapter *padapter, char *buf, int len)
@@ -1511,6 +1513,7 @@ static int rtw_cfg80211_set_probe_req_wpsp2pie(struct adapter *padapter, char *b
 static int cfg80211_rtw_scan(struct wiphy *wiphy
 	, struct cfg80211_scan_request *request)
 {
+	unsigned int bh;
 	struct net_device *ndev = wdev_to_ndev(request->wdev);
 	int i;
 	u8 _status = false;
@@ -1540,9 +1543,9 @@ static int cfg80211_rtw_scan(struct wiphy *wiphy
 	DBG_871X(FUNC_ADPT_FMT"\n", FUNC_ADPT_ARG(padapter));
 /* endif */
 
-	spin_lock_bh(&pwdev_priv->scan_req_lock);
+	bh = spin_lock_bh(&pwdev_priv->scan_req_lock, SOFTIRQ_ALL_MASK);
 	pwdev_priv->scan_request = request;
-	spin_unlock_bh(&pwdev_priv->scan_req_lock);
+	spin_unlock_bh(&pwdev_priv->scan_req_lock, bh);
 
 	if (check_fwstate(pmlmepriv, WIFI_AP_STATE) == true)
 	{
@@ -1626,7 +1629,7 @@ static int cfg80211_rtw_scan(struct wiphy *wiphy
 		ch[i].flags = request->channels[i]->flags;
 	}
 
-	spin_lock_bh(&pmlmepriv->lock);
+	spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 	if (request->n_channels == 1) {
 		for (i = 1;i<survey_times_for_one_ch;i++)
 			memcpy(&ch[i], &ch[0], sizeof(struct rtw_ieee80211_channel));
@@ -2872,6 +2875,7 @@ static int	cfg80211_rtw_add_station(struct wiphy *wiphy, struct net_device *ndev
 static int cfg80211_rtw_del_station(struct wiphy *wiphy, struct net_device *ndev,
 				    struct station_del_parameters *params)
 {
+	unsigned int bh;
 	int ret = 0;
 	struct list_head	*phead, *plist;
 	u8 updated = false;
@@ -2912,7 +2916,7 @@ static int cfg80211_rtw_del_station(struct wiphy *wiphy, struct net_device *ndev
 	}
 
 
-	spin_lock_bh(&pstapriv->asoc_list_lock);
+	bh = spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 
 	phead = &pstapriv->asoc_list;
 	plist = get_next(phead);
@@ -2948,7 +2952,7 @@ static int cfg80211_rtw_del_station(struct wiphy *wiphy, struct net_device *ndev
 
 	}
 
-	spin_unlock_bh(&pstapriv->asoc_list_lock);
+	spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 
 	associated_clients_update(padapter, updated);
 
@@ -2989,6 +2993,7 @@ static struct sta_info *rtw_sta_info_get_by_idx(const int idx, struct sta_priv *
 static int	cfg80211_rtw_dump_station(struct wiphy *wiphy, struct net_device *ndev,
 			       int idx, u8 *mac, struct station_info *sinfo)
 {
+	unsigned int bh;
 
 	int ret = 0;
 	struct adapter *padapter = (struct adapter *)rtw_netdev_priv(ndev);
@@ -2996,9 +3001,9 @@ static int	cfg80211_rtw_dump_station(struct wiphy *wiphy, struct net_device *nde
 	struct sta_priv *pstapriv = &padapter->stapriv;
 	DBG_871X(FUNC_NDEV_FMT"\n", FUNC_NDEV_ARG(ndev));
 
-	spin_lock_bh(&pstapriv->asoc_list_lock);
+	bh = spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 	psta = rtw_sta_info_get_by_idx(idx, pstapriv);
-	spin_unlock_bh(&pstapriv->asoc_list_lock);
+	spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 	if (NULL == psta)
 	{
 		DBG_871X("Station is not found\n");

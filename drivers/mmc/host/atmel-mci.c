@@ -408,6 +408,7 @@ struct atmel_mci_slot {
  */
 static int atmci_req_show(struct seq_file *s, void *v)
 {
+	unsigned int bh;
 	struct atmel_mci_slot	*slot = s->private;
 	struct mmc_request	*mrq;
 	struct mmc_command	*cmd;
@@ -415,7 +416,7 @@ static int atmci_req_show(struct seq_file *s, void *v)
 	struct mmc_data		*data;
 
 	/* Make sure we get a consistent snapshot */
-	spin_lock_bh(&slot->host->lock);
+	bh = spin_lock_bh(&slot->host->lock, SOFTIRQ_ALL_MASK);
 	mrq = slot->mrq;
 
 	if (mrq) {
@@ -441,7 +442,7 @@ static int atmci_req_show(struct seq_file *s, void *v)
 				stop->resp[3], stop->error);
 	}
 
-	spin_unlock_bh(&slot->host->lock);
+	spin_unlock_bh(&slot->host->lock, bh);
 
 	return 0;
 }
@@ -507,6 +508,7 @@ static void atmci_show_status_reg(struct seq_file *s,
 
 static int atmci_regs_show(struct seq_file *s, void *v)
 {
+	unsigned int bh;
 	struct atmel_mci	*host = s->private;
 	u32			*buf;
 	int			ret = 0;
@@ -523,9 +525,9 @@ static int atmci_regs_show(struct seq_file *s, void *v)
 	 * not disabling interrupts, so IMR and SR may not be
 	 * consistent.
 	 */
-	spin_lock_bh(&host->lock);
+	bh = spin_lock_bh(&host->lock, SOFTIRQ_ALL_MASK);
 	memcpy_fromio(buf, host->regs, ATMCI_REGS_SIZE);
-	spin_unlock_bh(&host->lock);
+	spin_unlock_bh(&host->lock, bh);
 
 	pm_runtime_mark_last_busy(&host->pdev->dev);
 	pm_runtime_put_autosuspend(&host->pdev->dev);
@@ -1369,10 +1371,11 @@ static void atmci_start_request(struct atmel_mci *host,
 static void atmci_queue_request(struct atmel_mci *host,
 		struct atmel_mci_slot *slot, struct mmc_request *mrq)
 {
+	unsigned int bh;
 	dev_vdbg(&slot->mmc->class_dev, "queue request: state=%d\n",
 			host->state);
 
-	spin_lock_bh(&host->lock);
+	bh = spin_lock_bh(&host->lock, SOFTIRQ_ALL_MASK);
 	slot->mrq = mrq;
 	if (host->state == STATE_IDLE) {
 		host->state = STATE_SENDING_CMD;
@@ -1381,7 +1384,7 @@ static void atmci_queue_request(struct atmel_mci *host,
 		dev_dbg(&host->pdev->dev, "queue request\n");
 		list_add_tail(&slot->queue_node, &host->queue);
 	}
-	spin_unlock_bh(&host->lock);
+	spin_unlock_bh(&host->lock, bh);
 }
 
 static void atmci_request(struct mmc_host *mmc, struct mmc_request *mrq)
@@ -1419,6 +1422,7 @@ static void atmci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 
 static void atmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 {
+	unsigned int bh;
 	struct atmel_mci_slot	*slot = mmc_priv(mmc);
 	struct atmel_mci	*host = slot->host;
 	unsigned int		i;
@@ -1437,7 +1441,7 @@ static void atmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 		unsigned int clock_min = ~0U;
 		int clkdiv;
 
-		spin_lock_bh(&host->lock);
+		bh = spin_lock_bh(&host->lock, SOFTIRQ_ALL_MASK);
 		if (!host->mode_reg) {
 			atmci_writel(host, ATMCI_CR, ATMCI_CR_SWRST);
 			atmci_writel(host, ATMCI_CR, ATMCI_CR_MCIEN);
@@ -1507,11 +1511,11 @@ static void atmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 			host->need_clock_update = true;
 		}
 
-		spin_unlock_bh(&host->lock);
+		spin_unlock_bh(&host->lock, bh);
 	} else {
 		bool any_slot_active = false;
 
-		spin_lock_bh(&host->lock);
+		bh = spin_lock_bh(&host->lock, SOFTIRQ_ALL_MASK);
 		slot->clock = 0;
 		for (i = 0; i < ATMCI_MAX_NR_SLOTS; i++) {
 			if (host->slot[i] && host->slot[i]->clock) {
@@ -1526,7 +1530,7 @@ static void atmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 			}
 			host->mode_reg = 0;
 		}
-		spin_unlock_bh(&host->lock);
+		spin_unlock_bh(&host->lock, bh);
 	}
 
 	switch (ios->power_mode) {

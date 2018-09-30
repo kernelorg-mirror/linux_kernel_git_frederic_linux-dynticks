@@ -437,11 +437,12 @@ int cxgb4_get_filter_counters(struct net_device *dev, unsigned int fidx,
 
 int cxgb4_get_free_ftid(struct net_device *dev, int family)
 {
+	unsigned int bh;
 	struct adapter *adap = netdev2adap(dev);
 	struct tid_info *t = &adap->tids;
 	int ftid;
 
-	spin_lock_bh(&t->ftid_lock);
+	bh = spin_lock_bh(&t->ftid_lock, SOFTIRQ_ALL_MASK);
 	if (family == PF_INET) {
 		ftid = find_first_zero_bit(t->ftid_bmap, t->nftids);
 		if (ftid >= t->nftids)
@@ -467,17 +468,18 @@ int cxgb4_get_free_ftid(struct net_device *dev, int family)
 		}
 	}
 out_unlock:
-	spin_unlock_bh(&t->ftid_lock);
+	spin_unlock_bh(&t->ftid_lock, bh);
 	return ftid;
 }
 
 static int cxgb4_set_ftid(struct tid_info *t, int fidx, int family,
 			  unsigned int chip_ver)
 {
-	spin_lock_bh(&t->ftid_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&t->ftid_lock, SOFTIRQ_ALL_MASK);
 
 	if (test_bit(fidx, t->ftid_bmap)) {
-		spin_unlock_bh(&t->ftid_lock);
+		spin_unlock_bh(&t->ftid_lock, bh);
 		return -EBUSY;
 	}
 
@@ -490,14 +492,15 @@ static int cxgb4_set_ftid(struct tid_info *t, int fidx, int family,
 			bitmap_allocate_region(t->ftid_bmap, fidx, 1);
 	}
 
-	spin_unlock_bh(&t->ftid_lock);
+	spin_unlock_bh(&t->ftid_lock, bh);
 	return 0;
 }
 
 static void cxgb4_clear_ftid(struct tid_info *t, int fidx, int family,
 			     unsigned int chip_ver)
 {
-	spin_lock_bh(&t->ftid_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&t->ftid_lock, SOFTIRQ_ALL_MASK);
 	if (family == PF_INET) {
 		__clear_bit(fidx, t->ftid_bmap);
 	} else {
@@ -506,7 +509,7 @@ static void cxgb4_clear_ftid(struct tid_info *t, int fidx, int family,
 		else
 			bitmap_release_region(t->ftid_bmap, fidx, 1);
 	}
-	spin_unlock_bh(&t->ftid_lock);
+	spin_unlock_bh(&t->ftid_lock, bh);
 }
 
 /* Delete the filter at a specified index. */

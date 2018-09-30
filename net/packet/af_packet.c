@@ -503,13 +503,14 @@ static void prb_del_retire_blk_timer(struct tpacket_kbdq_core *pkc)
 static void prb_shutdown_retire_blk_timer(struct packet_sock *po,
 		struct sk_buff_head *rb_queue)
 {
+	unsigned int bh;
 	struct tpacket_kbdq_core *pkc;
 
 	pkc = GET_PBDQC_FROM_RB(&po->rx_ring);
 
-	spin_lock_bh(&rb_queue->lock);
+	bh = spin_lock_bh(&rb_queue->lock, SOFTIRQ_ALL_MASK);
 	pkc->delete_blk_timer = 1;
-	spin_unlock_bh(&rb_queue->lock);
+	spin_unlock_bh(&rb_queue->lock, bh);
 
 	prb_del_retire_blk_timer(pkc);
 }
@@ -1266,15 +1267,16 @@ static int __packet_rcv_has_room(struct packet_sock *po, struct sk_buff *skb)
 
 static int packet_rcv_has_room(struct packet_sock *po, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int ret;
 	bool has_room;
 
-	spin_lock_bh(&po->sk.sk_receive_queue.lock);
+	bh = spin_lock_bh(&po->sk.sk_receive_queue.lock, SOFTIRQ_ALL_MASK);
 	ret = __packet_rcv_has_room(po, skb);
 	has_room = ret == ROOM_NORMAL;
 	if (po->pressure == has_room)
 		po->pressure = !has_room;
-	spin_unlock_bh(&po->sk.sk_receive_queue.lock);
+	spin_unlock_bh(&po->sk.sk_receive_queue.lock, bh);
 
 	return ret;
 }
@@ -3844,6 +3846,7 @@ packet_setsockopt(struct socket *sock, int level, int optname, char __user *optv
 static int packet_getsockopt(struct socket *sock, int level, int optname,
 			     char __user *optval, int __user *optlen)
 {
+	unsigned int bh;
 	int len;
 	int val, lv = sizeof(val);
 	struct sock *sk = sock->sk;
@@ -3863,10 +3866,10 @@ static int packet_getsockopt(struct socket *sock, int level, int optname,
 
 	switch (optname) {
 	case PACKET_STATISTICS:
-		spin_lock_bh(&sk->sk_receive_queue.lock);
+		bh = spin_lock_bh(&sk->sk_receive_queue.lock, SOFTIRQ_ALL_MASK);
 		memcpy(&st, &po->stats, sizeof(st));
 		memset(&po->stats, 0, sizeof(po->stats));
-		spin_unlock_bh(&sk->sk_receive_queue.lock);
+		spin_unlock_bh(&sk->sk_receive_queue.lock, bh);
 
 		if (po->tp_version == TPACKET_V3) {
 			lv = sizeof(struct tpacket_stats_v3);
@@ -4032,6 +4035,7 @@ static int packet_notifier(struct notifier_block *this,
 static int packet_ioctl(struct socket *sock, unsigned int cmd,
 			unsigned long arg)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 
 	switch (cmd) {
@@ -4046,11 +4050,11 @@ static int packet_ioctl(struct socket *sock, unsigned int cmd,
 		struct sk_buff *skb;
 		int amount = 0;
 
-		spin_lock_bh(&sk->sk_receive_queue.lock);
+		bh = spin_lock_bh(&sk->sk_receive_queue.lock, SOFTIRQ_ALL_MASK);
 		skb = skb_peek(&sk->sk_receive_queue);
 		if (skb)
 			amount = skb->len;
-		spin_unlock_bh(&sk->sk_receive_queue.lock);
+		spin_unlock_bh(&sk->sk_receive_queue.lock, bh);
 		return put_user(amount, (int __user *)arg);
 	}
 	case SIOCGSTAMP:
@@ -4085,11 +4089,12 @@ static int packet_ioctl(struct socket *sock, unsigned int cmd,
 static __poll_t packet_poll(struct file *file, struct socket *sock,
 				poll_table *wait)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 	struct packet_sock *po = pkt_sk(sk);
 	__poll_t mask = datagram_poll(file, sock, wait);
 
-	spin_lock_bh(&sk->sk_receive_queue.lock);
+	bh = spin_lock_bh(&sk->sk_receive_queue.lock, SOFTIRQ_ALL_MASK);
 	if (po->rx_ring.pg_vec) {
 		if (!packet_previous_rx_frame(po, &po->rx_ring,
 			TP_STATUS_KERNEL))
@@ -4097,13 +4102,13 @@ static __poll_t packet_poll(struct file *file, struct socket *sock,
 	}
 	if (po->pressure && __packet_rcv_has_room(po, NULL) == ROOM_NORMAL)
 		po->pressure = 0;
-	spin_unlock_bh(&sk->sk_receive_queue.lock);
-	spin_lock_bh(&sk->sk_write_queue.lock);
+	spin_unlock_bh(&sk->sk_receive_queue.lock, bh);
+	bh = spin_lock_bh(&sk->sk_write_queue.lock, SOFTIRQ_ALL_MASK);
 	if (po->tx_ring.pg_vec) {
 		if (packet_current_frame(po, &po->tx_ring, TP_STATUS_AVAILABLE))
 			mask |= EPOLLOUT | EPOLLWRNORM;
 	}
-	spin_unlock_bh(&sk->sk_write_queue.lock);
+	spin_unlock_bh(&sk->sk_write_queue.lock, bh);
 	return mask;
 }
 
@@ -4208,6 +4213,7 @@ out_free_pgvec:
 static int packet_set_ring(struct sock *sk, union tpacket_req_u *req_u,
 		int closing, int tx_ring)
 {
+	unsigned int bh;
 	struct pgv *pg_vec = NULL;
 	struct packet_sock *po = pkt_sk(sk);
 	int was_running, order = 0;
@@ -4322,12 +4328,12 @@ static int packet_set_ring(struct sock *sk, union tpacket_req_u *req_u,
 	mutex_lock(&po->pg_vec_lock);
 	if (closing || atomic_read(&po->mapped) == 0) {
 		err = 0;
-		spin_lock_bh(&rb_queue->lock);
+		bh = spin_lock_bh(&rb_queue->lock, SOFTIRQ_ALL_MASK);
 		swap(rb->pg_vec, pg_vec);
 		rb->frame_max = (req->tp_frame_nr - 1);
 		rb->head = 0;
 		rb->frame_size = req->tp_frame_size;
-		spin_unlock_bh(&rb_queue->lock);
+		spin_unlock_bh(&rb_queue->lock, bh);
 
 		swap(rb->pg_vec_order, order);
 		swap(rb->pg_vec_len, req->tp_block_nr);

@@ -103,6 +103,7 @@ int iscsit_na_nopin_timeout(
 	struct iscsi_node_acl *acl,
 	u32 nopin_timeout)
 {
+	unsigned int bh;
 	struct iscsi_node_attrib *a = &acl->node_attrib;
 	struct iscsi_session *sess;
 	struct iscsi_conn *conn;
@@ -130,7 +131,7 @@ int iscsit_na_nopin_timeout(
 	 * Reenable disabled nopin_timeout timer for all iSCSI connections.
 	 */
 	if (!orig_nopin_timeout) {
-		spin_lock_bh(&se_nacl->nacl_sess_lock);
+		bh = spin_lock_bh(&se_nacl->nacl_sess_lock, SOFTIRQ_ALL_MASK);
 		se_sess = se_nacl->nacl_sess;
 		if (se_sess) {
 			sess = se_sess->fabric_sess_ptr;
@@ -148,7 +149,7 @@ int iscsit_na_nopin_timeout(
 			}
 			spin_unlock(&sess->conn_lock);
 		}
-		spin_unlock_bh(&se_nacl->nacl_sess_lock);
+		spin_unlock_bh(&se_nacl->nacl_sess_lock, bh);
 	}
 
 	return 0;

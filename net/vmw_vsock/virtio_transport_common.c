@@ -205,23 +205,25 @@ static void virtio_transport_dec_rx_pkt(struct virtio_vsock_sock *vvs,
 
 void virtio_transport_inc_tx_pkt(struct virtio_vsock_sock *vvs, struct virtio_vsock_pkt *pkt)
 {
-	spin_lock_bh(&vvs->tx_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&vvs->tx_lock, SOFTIRQ_ALL_MASK);
 	pkt->hdr.fwd_cnt = cpu_to_le32(vvs->fwd_cnt);
 	pkt->hdr.buf_alloc = cpu_to_le32(vvs->buf_alloc);
-	spin_unlock_bh(&vvs->tx_lock);
+	spin_unlock_bh(&vvs->tx_lock, bh);
 }
 EXPORT_SYMBOL_GPL(virtio_transport_inc_tx_pkt);
 
 u32 virtio_transport_get_credit(struct virtio_vsock_sock *vvs, u32 credit)
 {
+	unsigned int bh;
 	u32 ret;
 
-	spin_lock_bh(&vvs->tx_lock);
+	bh = spin_lock_bh(&vvs->tx_lock, SOFTIRQ_ALL_MASK);
 	ret = vvs->peer_buf_alloc - (vvs->tx_cnt - vvs->peer_fwd_cnt);
 	if (ret > credit)
 		ret = credit;
 	vvs->tx_cnt += ret;
-	spin_unlock_bh(&vvs->tx_lock);
+	spin_unlock_bh(&vvs->tx_lock, bh);
 
 	return ret;
 }
@@ -229,9 +231,10 @@ EXPORT_SYMBOL_GPL(virtio_transport_get_credit);
 
 void virtio_transport_put_credit(struct virtio_vsock_sock *vvs, u32 credit)
 {
-	spin_lock_bh(&vvs->tx_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&vvs->tx_lock, SOFTIRQ_ALL_MASK);
 	vvs->tx_cnt -= credit;
-	spin_unlock_bh(&vvs->tx_lock);
+	spin_unlock_bh(&vvs->tx_lock, bh);
 }
 EXPORT_SYMBOL_GPL(virtio_transport_put_credit);
 
@@ -253,12 +256,13 @@ virtio_transport_stream_do_dequeue(struct vsock_sock *vsk,
 				   struct msghdr *msg,
 				   size_t len)
 {
+	unsigned int bh;
 	struct virtio_vsock_sock *vvs = vsk->trans;
 	struct virtio_vsock_pkt *pkt;
 	size_t bytes, total = 0;
 	int err = -EFAULT;
 
-	spin_lock_bh(&vvs->rx_lock);
+	bh = spin_lock_bh(&vvs->rx_lock, SOFTIRQ_ALL_MASK);
 	while (total < len && !list_empty(&vvs->rx_queue)) {
 		pkt = list_first_entry(&vvs->rx_queue,
 				       struct virtio_vsock_pkt, list);
@@ -270,13 +274,13 @@ virtio_transport_stream_do_dequeue(struct vsock_sock *vsk,
 		/* sk_lock is held by caller so no one else can dequeue.
 		 * Unlock rx_lock since memcpy_to_msg() may sleep.
 		 */
-		spin_unlock_bh(&vvs->rx_lock);
+		spin_unlock_bh(&vvs->rx_lock, bh);
 
 		err = memcpy_to_msg(msg, pkt->buf + pkt->off, bytes);
 		if (err)
 			goto out;
 
-		spin_lock_bh(&vvs->rx_lock);
+		spin_lock_bh(&vvs->rx_lock, SOFTIRQ_ALL_MASK);
 
 		total += bytes;
 		pkt->off += bytes;
@@ -286,7 +290,7 @@ virtio_transport_stream_do_dequeue(struct vsock_sock *vsk,
 			virtio_transport_free_pkt(pkt);
 		}
 	}
-	spin_unlock_bh(&vvs->rx_lock);
+	spin_unlock_bh(&vvs->rx_lock, bh);
 
 	/* Send a credit pkt to peer */
 	virtio_transport_send_credit_update(vsk, VIRTIO_VSOCK_TYPE_STREAM,
@@ -323,12 +327,13 @@ EXPORT_SYMBOL_GPL(virtio_transport_dgram_dequeue);
 
 s64 virtio_transport_stream_has_data(struct vsock_sock *vsk)
 {
+	unsigned int bh;
 	struct virtio_vsock_sock *vvs = vsk->trans;
 	s64 bytes;
 
-	spin_lock_bh(&vvs->rx_lock);
+	bh = spin_lock_bh(&vvs->rx_lock, SOFTIRQ_ALL_MASK);
 	bytes = vvs->rx_bytes;
-	spin_unlock_bh(&vvs->rx_lock);
+	spin_unlock_bh(&vvs->rx_lock, bh);
 
 	return bytes;
 }
@@ -348,12 +353,13 @@ static s64 virtio_transport_has_space(struct vsock_sock *vsk)
 
 s64 virtio_transport_stream_has_space(struct vsock_sock *vsk)
 {
+	unsigned int bh;
 	struct virtio_vsock_sock *vvs = vsk->trans;
 	s64 bytes;
 
-	spin_lock_bh(&vvs->tx_lock);
+	bh = spin_lock_bh(&vvs->tx_lock, SOFTIRQ_ALL_MASK);
 	bytes = virtio_transport_has_space(vsk);
-	spin_unlock_bh(&vvs->tx_lock);
+	spin_unlock_bh(&vvs->tx_lock, bh);
 
 	return bytes;
 }
@@ -831,6 +837,7 @@ static int
 virtio_transport_recv_connected(struct sock *sk,
 				struct virtio_vsock_pkt *pkt)
 {
+	unsigned int bh;
 	struct vsock_sock *vsk = vsock_sk(sk);
 	struct virtio_vsock_sock *vvs = vsk->trans;
 	int err = 0;
@@ -840,10 +847,10 @@ virtio_transport_recv_connected(struct sock *sk,
 		pkt->len = le32_to_cpu(pkt->hdr.len);
 		pkt->off = 0;
 
-		spin_lock_bh(&vvs->rx_lock);
+		bh = spin_lock_bh(&vvs->rx_lock, SOFTIRQ_ALL_MASK);
 		virtio_transport_inc_rx_pkt(vvs, pkt);
 		list_add_tail(&pkt->list, &vvs->rx_queue);
-		spin_unlock_bh(&vvs->rx_lock);
+		spin_unlock_bh(&vvs->rx_lock, bh);
 
 		sk->sk_data_ready(sk);
 		return err;
@@ -949,16 +956,17 @@ virtio_transport_recv_listen(struct sock *sk, struct virtio_vsock_pkt *pkt)
 static bool virtio_transport_space_update(struct sock *sk,
 					  struct virtio_vsock_pkt *pkt)
 {
+	unsigned int bh;
 	struct vsock_sock *vsk = vsock_sk(sk);
 	struct virtio_vsock_sock *vvs = vsk->trans;
 	bool space_available;
 
 	/* buf_alloc and fwd_cnt is always included in the hdr */
-	spin_lock_bh(&vvs->tx_lock);
+	bh = spin_lock_bh(&vvs->tx_lock, SOFTIRQ_ALL_MASK);
 	vvs->peer_buf_alloc = le32_to_cpu(pkt->hdr.buf_alloc);
 	vvs->peer_fwd_cnt = le32_to_cpu(pkt->hdr.fwd_cnt);
 	space_available = virtio_transport_has_space(vsk);
-	spin_unlock_bh(&vvs->tx_lock);
+	spin_unlock_bh(&vvs->tx_lock, bh);
 	return space_available;
 }
 

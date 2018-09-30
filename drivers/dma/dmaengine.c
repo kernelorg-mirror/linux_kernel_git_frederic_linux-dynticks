@@ -1336,6 +1336,7 @@ EXPORT_SYMBOL_GPL(dma_wait_for_async_tx);
  */
 void dma_run_dependencies(struct dma_async_tx_descriptor *tx)
 {
+	unsigned int bh;
 	struct dma_async_tx_descriptor *dep = txd_next(tx);
 	struct dma_async_tx_descriptor *dep_next;
 	struct dma_chan *chan;
@@ -1352,14 +1353,14 @@ void dma_run_dependencies(struct dma_async_tx_descriptor *tx)
 	 * processing the interrupt from async_tx_channel_switch
 	 */
 	for (; dep; dep = dep_next) {
-		txd_lock(dep);
+		bh = txd_lock(dep);
 		txd_clear_parent(dep);
 		dep_next = txd_next(dep);
 		if (dep_next && dep_next->chan == chan)
 			txd_clear_next(dep); /* ->next will be submitted */
 		else
 			dep_next = NULL; /* submit current dep and terminate */
-		txd_unlock(dep);
+		txd_unlock(dep, bh);
 
 		dep->tx_submit(dep);
 	}

@@ -567,6 +567,7 @@ static irqreturn_t altera_isr(int irq, void *dev_id)
  */
 static int tse_start_xmit(struct sk_buff *skb, struct net_device *dev)
 {
+	unsigned int bh;
 	struct altera_tse_private *priv = netdev_priv(dev);
 	unsigned int txsize = priv->tx_ring_size;
 	unsigned int entry;
@@ -576,7 +577,7 @@ static int tse_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	enum netdev_tx ret = NETDEV_TX_OK;
 	dma_addr_t dma_addr;
 
-	spin_lock_bh(&priv->tx_lock);
+	bh = spin_lock_bh(&priv->tx_lock, SOFTIRQ_ALL_MASK);
 
 	if (unlikely(tse_tx_avail(priv) < nfrags + 1)) {
 		if (!netif_queue_stopped(dev)) {
@@ -621,7 +622,7 @@ static int tse_start_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 
 out:
-	spin_unlock_bh(&priv->tx_lock);
+	spin_unlock_bh(&priv->tx_lock, bh);
 
 	return ret;
 }

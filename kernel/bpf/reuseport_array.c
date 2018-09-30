@@ -60,6 +60,7 @@ static void *reuseport_array_lookup_elem(struct bpf_map *map, void *key)
 /* Called from syscall only */
 static int reuseport_array_delete_elem(struct bpf_map *map, void *key)
 {
+	unsigned int bh;
 	struct reuseport_array *array = reuseport_array(map);
 	u32 index = *(u32 *)key;
 	struct sock *sk;
@@ -71,7 +72,7 @@ static int reuseport_array_delete_elem(struct bpf_map *map, void *key)
 	if (!rcu_access_pointer(array->ptrs[index]))
 		return -ENOENT;
 
-	spin_lock_bh(&reuseport_lock);
+	bh = spin_lock_bh(&reuseport_lock, SOFTIRQ_ALL_MASK);
 
 	sk = rcu_dereference_protected(array->ptrs[index],
 				       lockdep_is_held(&reuseport_lock));
@@ -85,7 +86,7 @@ static int reuseport_array_delete_elem(struct bpf_map *map, void *key)
 		err = -ENOENT;
 	}
 
-	spin_unlock_bh(&reuseport_lock);
+	spin_unlock_bh(&reuseport_lock, bh);
 
 	return err;
 }
@@ -251,6 +252,7 @@ reuseport_array_update_check(const struct reuseport_array *array,
 int bpf_fd_reuseport_array_update_elem(struct bpf_map *map, void *key,
 				       void *value, u64 map_flags)
 {
+	unsigned int bh;
 	struct reuseport_array *array = reuseport_array(map);
 	struct sock *free_osk = NULL, *osk, *nsk;
 	struct sock_reuseport *reuse;
@@ -292,7 +294,7 @@ int bpf_fd_reuseport_array_update_elem(struct bpf_map *map, void *key,
 	if (err)
 		goto put_file;
 
-	spin_lock_bh(&reuseport_lock);
+	bh = spin_lock_bh(&reuseport_lock, SOFTIRQ_ALL_MASK);
 	/*
 	 * Some of the checks only need reuseport_lock
 	 * but it is done under sk_callback_lock also
@@ -327,7 +329,7 @@ put_file_unlock:
 		write_unlock_bh(&free_osk->sk_callback_lock);
 	}
 
-	spin_unlock_bh(&reuseport_lock);
+	spin_unlock_bh(&reuseport_lock, bh);
 put_file:
 	fput(socket->file);
 	return err;

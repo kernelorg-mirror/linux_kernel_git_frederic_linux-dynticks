@@ -91,6 +91,7 @@ static void smsg_message_pending(struct iucv_path *path,
 int smsg_register_callback(const char *prefix,
 			   void (*callback)(const char *from, char *str))
 {
+	unsigned int bh;
 	struct smsg_callback *cb;
 
 	cb = kmalloc(sizeof(struct smsg_callback), GFP_KERNEL);
@@ -99,9 +100,9 @@ int smsg_register_callback(const char *prefix,
 	cb->prefix = prefix;
 	cb->len = strlen(prefix);
 	cb->callback = callback;
-	spin_lock_bh(&smsg_list_lock);
+	bh = spin_lock_bh(&smsg_list_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&cb->list, &smsg_list);
-	spin_unlock_bh(&smsg_list_lock);
+	spin_unlock_bh(&smsg_list_lock, bh);
 	return 0;
 }
 
@@ -109,9 +110,10 @@ void smsg_unregister_callback(const char *prefix,
 			      void (*callback)(const char *from,
 					       char *str))
 {
+	unsigned int bh;
 	struct smsg_callback *cb, *tmp;
 
-	spin_lock_bh(&smsg_list_lock);
+	bh = spin_lock_bh(&smsg_list_lock, SOFTIRQ_ALL_MASK);
 	cb = NULL;
 	list_for_each_entry(tmp, &smsg_list, list)
 		if (tmp->callback == callback &&
@@ -120,7 +122,7 @@ void smsg_unregister_callback(const char *prefix,
 			list_del(&cb->list);
 			break;
 		}
-	spin_unlock_bh(&smsg_list_lock);
+	spin_unlock_bh(&smsg_list_lock, bh);
 	kfree(cb);
 }
 

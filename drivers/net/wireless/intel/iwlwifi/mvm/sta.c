@@ -306,6 +306,7 @@ static int iwl_mvm_invalidate_sta_queue(struct iwl_mvm *mvm, int queue,
 					unsigned long disable_agg_tids,
 					bool remove_queue)
 {
+	unsigned int bh;
 	struct iwl_mvm_add_sta_cmd cmd = {};
 	struct ieee80211_sta *sta;
 	struct iwl_mvm_sta *mvmsta;
@@ -316,9 +317,9 @@ static int iwl_mvm_invalidate_sta_queue(struct iwl_mvm *mvm, int queue,
 	if (WARN_ON(iwl_mvm_has_new_tx_api(mvm)))
 		return -EINVAL;
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	sta_id = mvm->queue_info[queue].ra_sta_id;
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	rcu_read_lock();
 
@@ -357,6 +358,7 @@ static int iwl_mvm_invalidate_sta_queue(struct iwl_mvm *mvm, int queue,
 
 static int iwl_mvm_get_queue_agg_tids(struct iwl_mvm *mvm, int queue)
 {
+	unsigned int bh;
 	struct ieee80211_sta *sta;
 	struct iwl_mvm_sta *mvmsta;
 	unsigned long tid_bitmap;
@@ -369,10 +371,10 @@ static int iwl_mvm_get_queue_agg_tids(struct iwl_mvm *mvm, int queue)
 	if (WARN_ON(iwl_mvm_has_new_tx_api(mvm)))
 		return -EINVAL;
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	sta_id = mvm->queue_info[queue].ra_sta_id;
 	tid_bitmap = mvm->queue_info[queue].tid_bitmap;
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	sta = rcu_dereference_protected(mvm->fw_id_to_mac_id[sta_id],
 					lockdep_is_held(&mvm->mutex));
@@ -382,7 +384,7 @@ static int iwl_mvm_get_queue_agg_tids(struct iwl_mvm *mvm, int queue)
 
 	mvmsta = iwl_mvm_sta_from_mac80211(sta);
 
-	spin_lock_bh(&mvmsta->lock);
+	spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 	for_each_set_bit(tid, &tid_bitmap, IWL_MAX_TID_COUNT + 1) {
 		if (mvmsta->tid_data[tid].state == IWL_AGG_ON)
 			agg_tids |= BIT(tid);
@@ -399,6 +401,7 @@ static int iwl_mvm_get_queue_agg_tids(struct iwl_mvm *mvm, int queue)
  */
 static int iwl_mvm_remove_sta_queue_marking(struct iwl_mvm *mvm, int queue)
 {
+	unsigned int bh;
 	struct ieee80211_sta *sta;
 	struct iwl_mvm_sta *mvmsta;
 	unsigned long tid_bitmap;
@@ -411,10 +414,10 @@ static int iwl_mvm_remove_sta_queue_marking(struct iwl_mvm *mvm, int queue)
 	if (WARN_ON(iwl_mvm_has_new_tx_api(mvm)))
 		return -EINVAL;
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	sta_id = mvm->queue_info[queue].ra_sta_id;
 	tid_bitmap = mvm->queue_info[queue].tid_bitmap;
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	rcu_read_lock();
 
@@ -427,7 +430,7 @@ static int iwl_mvm_remove_sta_queue_marking(struct iwl_mvm *mvm, int queue)
 
 	mvmsta = iwl_mvm_sta_from_mac80211(sta);
 
-	spin_lock_bh(&mvmsta->lock);
+	spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 	/* Unmap MAC queues and TIDs from this queue */
 	for_each_set_bit(tid, &tid_bitmap, IWL_MAX_TID_COUNT + 1) {
 		if (mvmsta->tid_data[tid].state == IWL_AGG_ON)
@@ -446,6 +449,7 @@ static int iwl_mvm_remove_sta_queue_marking(struct iwl_mvm *mvm, int queue)
 static int iwl_mvm_free_inactive_queue(struct iwl_mvm *mvm, int queue,
 				       bool same_sta)
 {
+	unsigned int bh;
 	struct iwl_mvm_sta *mvmsta;
 	u8 txq_curr_ac, sta_id, tid;
 	unsigned long disable_agg_tids = 0;
@@ -456,11 +460,11 @@ static int iwl_mvm_free_inactive_queue(struct iwl_mvm *mvm, int queue,
 	if (WARN_ON(iwl_mvm_has_new_tx_api(mvm)))
 		return -EINVAL;
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	txq_curr_ac = mvm->queue_info[queue].mac80211_ac;
 	sta_id = mvm->queue_info[queue].ra_sta_id;
 	tid = mvm->queue_info[queue].txq_tid;
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	mvmsta = iwl_mvm_sta_from_staid_protected(mvm, sta_id);
 	if (WARN_ON(!mvmsta))
@@ -477,7 +481,7 @@ static int iwl_mvm_free_inactive_queue(struct iwl_mvm *mvm, int queue,
 				  tid, 0);
 	if (ret) {
 		/* Re-mark the inactive queue as inactive */
-		spin_lock_bh(&mvm->queue_info_lock);
+		spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 		mvm->queue_info[queue].status = IWL_MVM_QUEUE_INACTIVE;
 		spin_unlock_bh(&mvm->queue_info_lock);
 		IWL_ERR(mvm,
@@ -580,6 +584,7 @@ int iwl_mvm_scd_queue_redirect(struct iwl_mvm *mvm, int queue, int tid,
 			       int ac, int ssn, unsigned int wdg_timeout,
 			       bool force)
 {
+	unsigned int bh;
 	struct iwl_scd_txq_cfg_cmd cmd = {
 		.scd_queue = queue,
 		.action = SCD_CFG_DISABLE_QUEUE,
@@ -599,9 +604,9 @@ int iwl_mvm_scd_queue_redirect(struct iwl_mvm *mvm, int queue, int tid,
 	 * value 3 and VO with value 0, so to check if ac X is lower than ac Y
 	 * we need to check if the numerical value of X is LARGER than of Y.
 	 */
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	if (ac <= mvm->queue_info[queue].mac80211_ac && !force) {
-		spin_unlock_bh(&mvm->queue_info_lock);
+		spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 		IWL_DEBUG_TX_QUEUES(mvm,
 				    "No redirection needed on TXQ #%d\n",
@@ -614,7 +619,7 @@ int iwl_mvm_scd_queue_redirect(struct iwl_mvm *mvm, int queue, int tid,
 	cmd.tid = mvm->queue_info[queue].txq_tid;
 	mq = mvm->hw_queue_to_mac80211[queue];
 	shared_queue = (mvm->queue_info[queue].hw_queue_refcount > 1);
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	IWL_DEBUG_TX_QUEUES(mvm, "Redirecting TXQ #%d to FIFO #%d\n",
 			    queue, iwl_mvm_ac_to_tx_fifo[ac]);
@@ -640,7 +645,7 @@ int iwl_mvm_scd_queue_redirect(struct iwl_mvm *mvm, int queue, int tid,
 	iwl_trans_txq_enable_cfg(mvm->trans, queue, ssn, NULL, wdg_timeout);
 
 	/* Update the TID "owner" of the queue */
-	spin_lock_bh(&mvm->queue_info_lock);
+	spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	mvm->queue_info[queue].txq_tid = tid;
 	spin_unlock_bh(&mvm->queue_info_lock);
 
@@ -651,7 +656,7 @@ int iwl_mvm_scd_queue_redirect(struct iwl_mvm *mvm, int queue, int tid,
 			     cmd.sta_id, tid, IWL_FRAME_LIMIT, ssn);
 
 	/* Update AC marking of the queue */
-	spin_lock_bh(&mvm->queue_info_lock);
+	spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	mvm->queue_info[queue].mac80211_ac = ac;
 	spin_unlock_bh(&mvm->queue_info_lock);
 
@@ -675,6 +680,7 @@ static int iwl_mvm_sta_alloc_queue_tvqm(struct iwl_mvm *mvm,
 					struct ieee80211_sta *sta, u8 ac,
 					int tid)
 {
+	unsigned int bh;
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
 	unsigned int wdg_timeout =
 		iwl_mvm_get_wd_timeout(mvm, mvmsta->vif, false, false);
@@ -693,10 +699,10 @@ static int iwl_mvm_sta_alloc_queue_tvqm(struct iwl_mvm *mvm,
 
 	IWL_DEBUG_TX_QUEUES(mvm, "Allocated queue is %d\n", queue);
 
-	spin_lock_bh(&mvmsta->lock);
+	bh = spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 	mvmsta->tid_data[tid].txq_id = queue;
 	mvmsta->tid_data[tid].is_tid_active = true;
-	spin_unlock_bh(&mvmsta->lock);
+	spin_unlock_bh(&mvmsta->lock, bh);
 
 	return 0;
 }
@@ -705,6 +711,7 @@ static int iwl_mvm_sta_alloc_queue(struct iwl_mvm *mvm,
 				   struct ieee80211_sta *sta, u8 ac, int tid,
 				   struct ieee80211_hdr *hdr)
 {
+	unsigned int bh;
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
 	struct iwl_trans_txq_scd_cfg cfg = {
 		.fifo = iwl_mvm_mac_ac_to_tx_fifo(mvm, ac),
@@ -729,11 +736,11 @@ static int iwl_mvm_sta_alloc_queue(struct iwl_mvm *mvm,
 	if (iwl_mvm_has_new_tx_api(mvm))
 		return iwl_mvm_sta_alloc_queue_tvqm(mvm, sta, ac, tid);
 
-	spin_lock_bh(&mvmsta->lock);
+	bh = spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 	tfd_queue_mask = mvmsta->tfd_queue_msk;
-	spin_unlock_bh(&mvmsta->lock);
+	spin_unlock_bh(&mvmsta->lock, bh);
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 
 	/*
 	 * Non-QoS, QoS NDP and MGMT frames should go to a MGMT queue, if one
@@ -862,7 +869,7 @@ static int iwl_mvm_sta_alloc_queue(struct iwl_mvm *mvm,
 	if (shared_queue)
 		iwl_trans_txq_set_shared_mode(mvm->trans, queue, true);
 
-	spin_lock_bh(&mvmsta->lock);
+	spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 	/*
 	 * This looks racy, but it is not. We have only one packet for
 	 * this ra/tid in our Tx path since we stop the Qdisc when we
@@ -908,6 +915,7 @@ out_err:
 
 static void iwl_mvm_change_queue_owner(struct iwl_mvm *mvm, int queue)
 {
+	unsigned int bh;
 	struct iwl_scd_txq_cfg_cmd cmd = {
 		.scd_queue = queue,
 		.action = SCD_CFG_UPDATE_QUEUE_TID,
@@ -921,9 +929,9 @@ static void iwl_mvm_change_queue_owner(struct iwl_mvm *mvm, int queue)
 	if (WARN_ON(iwl_mvm_has_new_tx_api(mvm)))
 		return;
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	tid_bitmap = mvm->queue_info[queue].tid_bitmap;
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	if (WARN(!tid_bitmap, "TXQ %d has no tids assigned to it\n", queue))
 		return;
@@ -940,7 +948,7 @@ static void iwl_mvm_change_queue_owner(struct iwl_mvm *mvm, int queue)
 		return;
 	}
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	mvm->queue_info[queue].txq_tid = tid;
 	spin_unlock_bh(&mvm->queue_info_lock);
 	IWL_DEBUG_TX_QUEUES(mvm, "Changed TXQ %d ownership to tid %d\n",
@@ -949,6 +957,7 @@ static void iwl_mvm_change_queue_owner(struct iwl_mvm *mvm, int queue)
 
 static void iwl_mvm_unshare_queue(struct iwl_mvm *mvm, int queue)
 {
+	unsigned int bh;
 	struct ieee80211_sta *sta;
 	struct iwl_mvm_sta *mvmsta;
 	u8 sta_id;
@@ -964,10 +973,10 @@ static void iwl_mvm_unshare_queue(struct iwl_mvm *mvm, int queue)
 
 	lockdep_assert_held(&mvm->mutex);
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	sta_id = mvm->queue_info[queue].ra_sta_id;
 	tid_bitmap = mvm->queue_info[queue].tid_bitmap;
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	/* Find TID for queue, and make sure it is the only one on the queue */
 	tid = find_first_bit(&tid_bitmap, IWL_MAX_TID_COUNT + 1);
@@ -1024,7 +1033,7 @@ static void iwl_mvm_unshare_queue(struct iwl_mvm *mvm, int queue)
 		}
 	}
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	mvm->queue_info[queue].status = IWL_MVM_QUEUE_READY;
 	spin_unlock_bh(&mvm->queue_info_lock);
 }
@@ -1093,6 +1102,7 @@ static void iwl_mvm_tx_deferred_stream(struct iwl_mvm *mvm,
 
 void iwl_mvm_add_new_dqa_stream_wk(struct work_struct *wk)
 {
+	unsigned int bh;
 	struct iwl_mvm *mvm = container_of(wk, struct iwl_mvm,
 					   add_stream_wk);
 	struct ieee80211_sta *sta;
@@ -1114,7 +1124,7 @@ void iwl_mvm_add_new_dqa_stream_wk(struct work_struct *wk)
 		bool reconfig;
 		bool change_owner;
 
-		spin_lock_bh(&mvm->queue_info_lock);
+		bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 		reconfig = (mvm->queue_info[queue].status ==
 			    IWL_MVM_QUEUE_RECONFIGURING);
 
@@ -1130,7 +1140,7 @@ void iwl_mvm_add_new_dqa_stream_wk(struct work_struct *wk)
 				 BIT(mvm->queue_info[queue].txq_tid)) &&
 			       (mvm->queue_info[queue].status ==
 				IWL_MVM_QUEUE_SHARED);
-		spin_unlock_bh(&mvm->queue_info_lock);
+		spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 		if (reconfig)
 			iwl_mvm_unshare_queue(mvm, queue);
@@ -1163,6 +1173,7 @@ static int iwl_mvm_reserve_sta_stream(struct iwl_mvm *mvm,
 				      struct ieee80211_sta *sta,
 				      enum nl80211_iftype vif_type)
 {
+	unsigned int bh;
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
 	int queue;
 	bool using_inactive_queue = false, same_sta = false;
@@ -1177,7 +1188,7 @@ static int iwl_mvm_reserve_sta_stream(struct iwl_mvm *mvm,
 	 */
 	iwl_mvm_inactivity_check(mvm);
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 
 	/* Make sure we have free resources for this STA */
 	if (vif_type == NL80211_IFTYPE_STATION && !sta->tdls &&
@@ -1190,7 +1201,7 @@ static int iwl_mvm_reserve_sta_stream(struct iwl_mvm *mvm,
 						IWL_MVM_DQA_MIN_DATA_QUEUE,
 						IWL_MVM_DQA_MAX_DATA_QUEUE);
 	if (queue < 0) {
-		spin_unlock_bh(&mvm->queue_info_lock);
+		spin_unlock_bh(&mvm->queue_info_lock, bh);
 		IWL_ERR(mvm, "No available queues for new station\n");
 		return -ENOSPC;
 	} else if (mvm->queue_info[queue].status == IWL_MVM_QUEUE_INACTIVE) {
@@ -1204,7 +1215,7 @@ static int iwl_mvm_reserve_sta_stream(struct iwl_mvm *mvm,
 	}
 	mvm->queue_info[queue].status = IWL_MVM_QUEUE_RESERVED;
 
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 
 	mvmsta->reserved_queue = queue;
 
@@ -1563,15 +1574,16 @@ static void iwl_mvm_disable_sta_queues(struct iwl_mvm *mvm,
 int iwl_mvm_wait_sta_queues_empty(struct iwl_mvm *mvm,
 				  struct iwl_mvm_sta *mvm_sta)
 {
+	unsigned int bh;
 	int i;
 
 	for (i = 0; i < ARRAY_SIZE(mvm_sta->tid_data); i++) {
 		u16 txq_id;
 		int ret;
 
-		spin_lock_bh(&mvm_sta->lock);
+		bh = spin_lock_bh(&mvm_sta->lock, SOFTIRQ_ALL_MASK);
 		txq_id = mvm_sta->tid_data[i].txq_id;
-		spin_unlock_bh(&mvm_sta->lock);
+		spin_unlock_bh(&mvm_sta->lock, bh);
 
 		if (txq_id == IWL_MVM_INVALID_QUEUE)
 			continue;
@@ -1588,6 +1600,7 @@ int iwl_mvm_rm_sta(struct iwl_mvm *mvm,
 		   struct ieee80211_vif *vif,
 		   struct ieee80211_sta *sta)
 {
+	unsigned int bh;
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 	struct iwl_mvm_sta *mvm_sta = iwl_mvm_sta_from_mac80211(sta);
 	u8 sta_id = mvm_sta->sta_id;
@@ -1631,18 +1644,18 @@ int iwl_mvm_rm_sta(struct iwl_mvm *mvm,
 		 * is still marked as IWL_MVM_QUEUE_RESERVED, and
 		 * should be manually marked as free again
 		 */
-		spin_lock_bh(&mvm->queue_info_lock);
+		bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 		status = &mvm->queue_info[reserved_txq].status;
 		if (WARN((*status != IWL_MVM_QUEUE_RESERVED) &&
 			 (*status != IWL_MVM_QUEUE_FREE),
 			 "sta_id %d reserved txq %d status %d",
 			 sta_id, reserved_txq, *status)) {
-			spin_unlock_bh(&mvm->queue_info_lock);
+			spin_unlock_bh(&mvm->queue_info_lock, bh);
 			return -EINVAL;
 		}
 
 		*status = IWL_MVM_QUEUE_FREE;
-		spin_unlock_bh(&mvm->queue_info_lock);
+		spin_unlock_bh(&mvm->queue_info_lock, bh);
 	}
 
 	if (vif->type == NL80211_IFTYPE_STATION &&
@@ -1672,8 +1685,8 @@ int iwl_mvm_rm_sta(struct iwl_mvm *mvm,
 	 * Make sure that the tx response code sees the station as -EBUSY and
 	 * calls the drain worker.
 	 */
-	spin_lock_bh(&mvm_sta->lock);
-	spin_unlock_bh(&mvm_sta->lock);
+	bh = spin_lock_bh(&mvm_sta->lock, SOFTIRQ_ALL_MASK);
+	spin_unlock_bh(&mvm_sta->lock, bh);
 
 	ret = iwl_mvm_rm_sta_common(mvm, mvm_sta->sta_id);
 	RCU_INIT_POINTER(mvm->fw_id_to_mac_id[mvm_sta->sta_id], NULL);
@@ -2143,6 +2156,7 @@ static void iwl_mvm_sync_rxq_del_ba(struct iwl_mvm *mvm, u8 baid)
 static void iwl_mvm_free_reorder(struct iwl_mvm *mvm,
 				 struct iwl_mvm_baid_data *data)
 {
+	unsigned int bh;
 	int i;
 
 	iwl_mvm_sync_rxq_del_ba(mvm, data->baid);
@@ -2154,9 +2168,9 @@ static void iwl_mvm_free_reorder(struct iwl_mvm *mvm,
 		struct iwl_mvm_reorder_buf_entry *entries =
 			&data->entries[i * data->entries_per_queue];
 
-		spin_lock_bh(&reorder_buf->lock);
+		bh = spin_lock_bh(&reorder_buf->lock, SOFTIRQ_ALL_MASK);
 		if (likely(!reorder_buf->num_stored)) {
-			spin_unlock_bh(&reorder_buf->lock);
+			spin_unlock_bh(&reorder_buf->lock, bh);
 			continue;
 		}
 
@@ -2178,7 +2192,7 @@ static void iwl_mvm_free_reorder(struct iwl_mvm *mvm,
 		 * reorder buffer.
 		 */
 		reorder_buf->removed = true;
-		spin_unlock_bh(&reorder_buf->lock);
+		spin_unlock_bh(&reorder_buf->lock, bh);
 		del_timer_sync(&reorder_buf->reorder_timer);
 	}
 }
@@ -2450,6 +2464,7 @@ static const u8 tid_to_ucode_ac[] = {
 int iwl_mvm_sta_tx_agg_start(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 			     struct ieee80211_sta *sta, u16 tid, u16 *ssn)
 {
+	unsigned int bh;
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
 	struct iwl_mvm_tid_data *tid_data;
 	u16 normalized_ssn;
@@ -2478,11 +2493,11 @@ int iwl_mvm_sta_tx_agg_start(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 			return ret;
 	}
 
-	spin_lock_bh(&mvmsta->lock);
+	bh = spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 
 	/* possible race condition - we entered D0i3 while starting agg */
 	if (test_bit(IWL_MVM_STATUS_IN_D0I3, &mvm->status)) {
-		spin_unlock_bh(&mvmsta->lock);
+		spin_unlock_bh(&mvmsta->lock, bh);
 		IWL_ERR(mvm, "Entered D0i3 while starting Tx agg\n");
 		return -EIO;
 	}
@@ -2554,7 +2569,7 @@ int iwl_mvm_sta_tx_agg_start(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 release_locks:
 	spin_unlock(&mvm->queue_info_lock);
 out:
-	spin_unlock_bh(&mvmsta->lock);
+	spin_unlock_bh(&mvmsta->lock, bh);
 
 	return ret;
 }
@@ -2563,6 +2578,7 @@ int iwl_mvm_sta_tx_agg_oper(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 			    struct ieee80211_sta *sta, u16 tid, u16 buf_size,
 			    bool amsdu)
 {
+	unsigned int bh;
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
 	struct iwl_mvm_tid_data *tid_data = &mvmsta->tid_data[tid];
 	unsigned int wdg_timeout =
@@ -2589,14 +2605,14 @@ int iwl_mvm_sta_tx_agg_oper(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 	BUILD_BUG_ON((sizeof(mvmsta->agg_tids) * BITS_PER_BYTE)
 		     != IWL_MAX_TID_COUNT);
 
-	spin_lock_bh(&mvmsta->lock);
+	bh = spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 	ssn = tid_data->ssn;
 	queue = tid_data->txq_id;
 	tid_data->state = IWL_AGG_ON;
 	mvmsta->agg_tids |= BIT(tid);
 	tid_data->ssn = 0xffff;
 	tid_data->amsdu_in_ampdu_allowed = amsdu;
-	spin_unlock_bh(&mvmsta->lock);
+	spin_unlock_bh(&mvmsta->lock, bh);
 
 	if (iwl_mvm_has_new_tx_api(mvm)) {
 		/*
@@ -2621,7 +2637,7 @@ int iwl_mvm_sta_tx_agg_oper(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 
 	cfg.fifo = iwl_mvm_ac_to_tx_fifo[tid_to_mac80211_ac[tid]];
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	queue_status = mvm->queue_info[queue].status;
 	spin_unlock_bh(&mvm->queue_info_lock);
 
@@ -2669,7 +2685,7 @@ int iwl_mvm_sta_tx_agg_oper(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 	}
 
 	/* No need to mark as reserved */
-	spin_lock_bh(&mvm->queue_info_lock);
+	spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	mvm->queue_info[queue].status = IWL_MVM_QUEUE_READY;
 	spin_unlock_bh(&mvm->queue_info_lock);
 
@@ -2695,12 +2711,13 @@ static void iwl_mvm_unreserve_agg_queue(struct iwl_mvm *mvm,
 					struct iwl_mvm_sta *mvmsta,
 					struct iwl_mvm_tid_data *tid_data)
 {
+	unsigned int bh;
 	u16 txq_id = tid_data->txq_id;
 
 	if (iwl_mvm_has_new_tx_api(mvm))
 		return;
 
-	spin_lock_bh(&mvm->queue_info_lock);
+	bh = spin_lock_bh(&mvm->queue_info_lock, SOFTIRQ_ALL_MASK);
 	/*
 	 * The TXQ is marked as reserved only if no traffic came through yet
 	 * This means no traffic has been sent on this TID (agg'd or not), so
@@ -2713,12 +2730,13 @@ static void iwl_mvm_unreserve_agg_queue(struct iwl_mvm *mvm,
 		tid_data->txq_id = IWL_MVM_INVALID_QUEUE;
 	}
 
-	spin_unlock_bh(&mvm->queue_info_lock);
+	spin_unlock_bh(&mvm->queue_info_lock, bh);
 }
 
 int iwl_mvm_sta_tx_agg_stop(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 			    struct ieee80211_sta *sta, u16 tid)
 {
+	unsigned int bh;
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
 	struct iwl_mvm_tid_data *tid_data = &mvmsta->tid_data[tid];
 	u16 txq_id;
@@ -2733,7 +2751,7 @@ int iwl_mvm_sta_tx_agg_stop(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 		return 0;
 	}
 
-	spin_lock_bh(&mvmsta->lock);
+	bh = spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 
 	txq_id = tid_data->txq_id;
 
@@ -2754,7 +2772,7 @@ int iwl_mvm_sta_tx_agg_stop(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 
 		tid_data->ssn = 0xffff;
 		tid_data->state = IWL_AGG_OFF;
-		spin_unlock_bh(&mvmsta->lock);
+		spin_unlock_bh(&mvmsta->lock, bh);
 
 		ieee80211_stop_tx_ba_cb_irqsafe(vif, sta->addr, tid);
 
@@ -2783,7 +2801,7 @@ int iwl_mvm_sta_tx_agg_stop(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 		err = -EINVAL;
 	}
 
-	spin_unlock_bh(&mvmsta->lock);
+	spin_unlock_bh(&mvmsta->lock, bh);
 
 	return err;
 }
@@ -2791,6 +2809,7 @@ int iwl_mvm_sta_tx_agg_stop(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 int iwl_mvm_sta_tx_agg_flush(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 			    struct ieee80211_sta *sta, u16 tid)
 {
+	unsigned int bh;
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
 	struct iwl_mvm_tid_data *tid_data = &mvmsta->tid_data[tid];
 	u16 txq_id;
@@ -2800,14 +2819,14 @@ int iwl_mvm_sta_tx_agg_flush(struct iwl_mvm *mvm, struct ieee80211_vif *vif,
 	 * First set the agg state to OFF to avoid calling
 	 * ieee80211_stop_tx_ba_cb in iwl_mvm_check_ratid_empty.
 	 */
-	spin_lock_bh(&mvmsta->lock);
+	bh = spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 	txq_id = tid_data->txq_id;
 	IWL_DEBUG_TX_QUEUES(mvm, "Flush AGG: sta %d tid %d q %d state %d\n",
 			    mvmsta->sta_id, tid, txq_id, tid_data->state);
 	old_state = tid_data->state;
 	tid_data->state = IWL_AGG_OFF;
 	mvmsta->agg_tids &= ~BIT(tid);
-	spin_unlock_bh(&mvmsta->lock);
+	spin_unlock_bh(&mvmsta->lock, bh);
 
 	iwl_mvm_unreserve_agg_queue(mvm, mvmsta, tid_data);
 
@@ -3422,6 +3441,7 @@ void iwl_mvm_sta_modify_sleep_tx_count(struct iwl_mvm *mvm,
 				       u16 cnt, u16 tids, bool more_data,
 				       bool single_sta_queue)
 {
+	unsigned int bh;
 	struct iwl_mvm_sta *mvmsta = iwl_mvm_sta_from_mac80211(sta);
 	struct iwl_mvm_add_sta_cmd cmd = {
 		.add_modify = STA_MODE_MODIFY,
@@ -3451,7 +3471,7 @@ void iwl_mvm_sta_modify_sleep_tx_count(struct iwl_mvm *mvm,
 		int remaining = cnt;
 		int sleep_tx_count;
 
-		spin_lock_bh(&mvmsta->lock);
+		bh = spin_lock_bh(&mvmsta->lock, SOFTIRQ_ALL_MASK);
 		for_each_set_bit(tid, &_tids, IWL_MAX_TID_COUNT) {
 			struct iwl_mvm_tid_data *tid_data;
 			u16 n_queued;
@@ -3469,7 +3489,7 @@ void iwl_mvm_sta_modify_sleep_tx_count(struct iwl_mvm *mvm,
 		sleep_tx_count = cnt - remaining;
 		if (reason == IEEE80211_FRAME_RELEASE_UAPSD)
 			mvmsta->sleep_tx_count = sleep_tx_count;
-		spin_unlock_bh(&mvmsta->lock);
+		spin_unlock_bh(&mvmsta->lock, bh);
 
 		cmd.sleep_tx_count = cpu_to_le16(sleep_tx_count);
 		if (WARN_ON(cnt - remaining == 0)) {
@@ -3539,12 +3559,13 @@ void iwl_mvm_sta_modify_disable_tx_ap(struct iwl_mvm *mvm,
 				      struct ieee80211_sta *sta,
 				      bool disable)
 {
+	unsigned int bh;
 	struct iwl_mvm_sta *mvm_sta = iwl_mvm_sta_from_mac80211(sta);
 
-	spin_lock_bh(&mvm_sta->lock);
+	bh = spin_lock_bh(&mvm_sta->lock, SOFTIRQ_ALL_MASK);
 
 	if (mvm_sta->disable_tx == disable) {
-		spin_unlock_bh(&mvm_sta->lock);
+		spin_unlock_bh(&mvm_sta->lock, bh);
 		return;
 	}
 
@@ -3555,7 +3576,7 @@ void iwl_mvm_sta_modify_disable_tx_ap(struct iwl_mvm *mvm,
 
 	iwl_mvm_sta_modify_disable_tx(mvm, mvm_sta, disable);
 
-	spin_unlock_bh(&mvm_sta->lock);
+	spin_unlock_bh(&mvm_sta->lock, bh);
 }
 
 static void iwl_mvm_int_sta_modify_disable_tx(struct iwl_mvm *mvm,

@@ -121,6 +121,7 @@ static struct caif_device_entry *caif_get(struct net_device *dev)
 
 static void caif_flow_cb(struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct caif_device_entry *caifd;
 	void (*dtor)(struct sk_buff *skb) = NULL;
 	bool send_xoff;
@@ -139,7 +140,7 @@ static void caif_flow_cb(struct sk_buff *skb)
 	caifd_hold(caifd);
 	rcu_read_unlock();
 
-	spin_lock_bh(&caifd->flow_lock);
+	bh = spin_lock_bh(&caifd->flow_lock, SOFTIRQ_ALL_MASK);
 	send_xoff = caifd->xoff;
 	caifd->xoff = 0;
 	dtor = caifd->xoff_skb_dtor;
@@ -150,7 +151,7 @@ static void caif_flow_cb(struct sk_buff *skb)
 	caifd->xoff_skb = NULL;
 	caifd->xoff_skb_dtor = NULL;
 
-	spin_unlock_bh(&caifd->flow_lock);
+	spin_unlock_bh(&caifd->flow_lock, bh);
 
 	if (dtor && skb)
 		dtor(skb);
@@ -200,9 +201,9 @@ static int transmit(struct cflayer *layer, struct cfpkt *pkt)
 	}
 
 	/* Hold lock while accessing xoff */
-	spin_lock_bh(&caifd->flow_lock);
+	bh = spin_lock_bh(&caifd->flow_lock, SOFTIRQ_ALL_MASK);
 	if (caifd->xoff) {
-		spin_unlock_bh(&caifd->flow_lock);
+		spin_unlock_bh(&caifd->flow_lock, bh);
 		goto noxoff;
 	}
 
@@ -220,7 +221,7 @@ static int transmit(struct cflayer *layer, struct cfpkt *pkt)
 	caifd->xoff_skb = skb;
 	caifd->xoff_skb_dtor = skb->destructor;
 	skb->destructor = caif_flow_cb;
-	spin_unlock_bh(&caifd->flow_lock);
+	spin_unlock_bh(&caifd->flow_lock, bh);
 
 	caifd->layer.up->ctrlcmd(caifd->layer.up,
 					_CAIF_CTRLCMD_PHYIF_FLOW_OFF_IND,
@@ -357,6 +358,7 @@ EXPORT_SYMBOL(caif_enroll_dev);
 static int caif_device_notify(struct notifier_block *me, unsigned long what,
 			      void *ptr)
 {
+	unsigned int bh;
 	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
 	struct caif_device_entry *caifd = NULL;
 	struct caif_dev_common *caifdev;
@@ -426,7 +428,7 @@ static int caif_device_notify(struct notifier_block *me, unsigned long what,
 					 _CAIF_CTRLCMD_PHYIF_DOWN_IND,
 					 caifd->layer.id);
 
-		spin_lock_bh(&caifd->flow_lock);
+		bh = spin_lock_bh(&caifd->flow_lock, SOFTIRQ_ALL_MASK);
 
 		/*
 		 * Replace our xoff-destructor with original destructor.
@@ -442,7 +444,7 @@ static int caif_device_notify(struct notifier_block *me, unsigned long what,
 		caifd->xoff_skb_dtor = NULL;
 		caifd->xoff_skb = NULL;
 
-		spin_unlock_bh(&caifd->flow_lock);
+		spin_unlock_bh(&caifd->flow_lock, bh);
 		caifd_put(caifd);
 		break;
 

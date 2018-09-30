@@ -213,14 +213,15 @@ static void mesh_path_move_to_queue(struct mesh_path *gate_mpath,
 static struct mesh_path *mpath_lookup(struct mesh_table *tbl, const u8 *dst,
 				      struct ieee80211_sub_if_data *sdata)
 {
+	unsigned int bh;
 	struct mesh_path *mpath;
 
 	mpath = rhashtable_lookup_fast(&tbl->rhead, dst, mesh_rht_params);
 
 	if (mpath && mpath_expired(mpath)) {
-		spin_lock_bh(&mpath->state_lock);
+		bh = spin_lock_bh(&mpath->state_lock, SOFTIRQ_ALL_MASK);
 		mpath->flags &= ~MESH_PATH_ACTIVE;
-		spin_unlock_bh(&mpath->state_lock);
+		spin_unlock_bh(&mpath->state_lock, bh);
 	}
 	return mpath;
 }
@@ -249,6 +250,7 @@ mpp_path_lookup(struct ieee80211_sub_if_data *sdata, const u8 *dst)
 static struct mesh_path *
 __mesh_path_lookup_by_idx(struct mesh_table *tbl, int idx)
 {
+	unsigned int bh;
 	int i = 0, ret;
 	struct mesh_path *mpath = NULL;
 	struct rhashtable_iter iter;
@@ -274,9 +276,9 @@ __mesh_path_lookup_by_idx(struct mesh_table *tbl, int idx)
 		return NULL;
 
 	if (mpath_expired(mpath)) {
-		spin_lock_bh(&mpath->state_lock);
+		bh = spin_lock_bh(&mpath->state_lock, SOFTIRQ_ALL_MASK);
 		mpath->flags &= ~MESH_PATH_ACTIVE;
-		spin_unlock_bh(&mpath->state_lock);
+		spin_unlock_bh(&mpath->state_lock, bh);
 	}
 	return mpath;
 }
@@ -317,16 +319,17 @@ mpp_path_lookup_by_idx(struct ieee80211_sub_if_data *sdata, int idx)
  */
 int mesh_path_add_gate(struct mesh_path *mpath)
 {
+	unsigned int bh;
 	struct mesh_table *tbl;
 	int err;
 
 	rcu_read_lock();
 	tbl = mpath->sdata->u.mesh.mesh_paths;
 
-	spin_lock_bh(&mpath->state_lock);
+	bh = spin_lock_bh(&mpath->state_lock, SOFTIRQ_ALL_MASK);
 	if (mpath->is_gate) {
 		err = -EEXIST;
-		spin_unlock_bh(&mpath->state_lock);
+		spin_unlock_bh(&mpath->state_lock, bh);
 		goto err_rcu;
 	}
 	mpath->is_gate = true;
@@ -336,7 +339,7 @@ int mesh_path_add_gate(struct mesh_path *mpath)
 	hlist_add_head_rcu(&mpath->gate_list, &tbl->known_gates);
 	spin_unlock(&tbl->gates_lock);
 
-	spin_unlock_bh(&mpath->state_lock);
+	spin_unlock_bh(&mpath->state_lock, bh);
 
 	mpath_dbg(mpath->sdata,
 		  "Mesh path: Recorded new gate: %pM. %d known gates\n",
@@ -354,15 +357,16 @@ err_rcu:
  */
 static void mesh_gate_del(struct mesh_table *tbl, struct mesh_path *mpath)
 {
+	unsigned int bh;
 	lockdep_assert_held(&mpath->state_lock);
 	if (!mpath->is_gate)
 		return;
 
 	mpath->is_gate = false;
-	spin_lock_bh(&tbl->gates_lock);
+	bh = spin_lock_bh(&tbl->gates_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_rcu(&mpath->gate_list);
 	mpath->sdata->u.mesh.num_gates--;
-	spin_unlock_bh(&tbl->gates_lock);
+	spin_unlock_bh(&tbl->gates_lock, bh);
 
 	mpath_dbg(mpath->sdata,
 		  "Mesh path: Deleted gate: %pM. %d known gates\n",
@@ -499,6 +503,7 @@ int mpp_path_add(struct ieee80211_sub_if_data *sdata,
  */
 void mesh_plink_broken(struct sta_info *sta)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
 	struct mesh_table *tbl = sdata->u.mesh.mesh_paths;
 	static const u8 bcast[ETH_ALEN] = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff};
@@ -520,10 +525,10 @@ void mesh_plink_broken(struct sta_info *sta)
 		if (rcu_access_pointer(mpath->next_hop) == sta &&
 		    mpath->flags & MESH_PATH_ACTIVE &&
 		    !(mpath->flags & MESH_PATH_FIXED)) {
-			spin_lock_bh(&mpath->state_lock);
+			bh = spin_lock_bh(&mpath->state_lock, SOFTIRQ_ALL_MASK);
 			mpath->flags &= ~MESH_PATH_ACTIVE;
 			++mpath->sn;
-			spin_unlock_bh(&mpath->state_lock);
+			spin_unlock_bh(&mpath->state_lock, bh);
 			mesh_path_error_tx(sdata,
 				sdata->u.mesh.mshcfg.element_ttl,
 				mpath->dst, mpath->sn,
@@ -537,12 +542,13 @@ void mesh_plink_broken(struct sta_info *sta)
 static void mesh_path_free_rcu(struct mesh_table *tbl,
 			       struct mesh_path *mpath)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = mpath->sdata;
 
-	spin_lock_bh(&mpath->state_lock);
+	bh = spin_lock_bh(&mpath->state_lock, SOFTIRQ_ALL_MASK);
 	mpath->flags |= MESH_PATH_RESOLVING | MESH_PATH_DELETED;
 	mesh_gate_del(tbl, mpath);
-	spin_unlock_bh(&mpath->state_lock);
+	spin_unlock_bh(&mpath->state_lock, bh);
 	del_timer_sync(&mpath->timer);
 	atomic_dec(&sdata->u.mesh.mpaths);
 	atomic_dec(&tbl->entries);
@@ -806,7 +812,8 @@ void mesh_path_flush_pending(struct mesh_path *mpath)
  */
 void mesh_path_fix_nexthop(struct mesh_path *mpath, struct sta_info *next_hop)
 {
-	spin_lock_bh(&mpath->state_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&mpath->state_lock, SOFTIRQ_ALL_MASK);
 	mesh_path_assign_nexthop(mpath, next_hop);
 	mpath->sn = 0xffff;
 	mpath->metric = 0;
@@ -814,7 +821,7 @@ void mesh_path_fix_nexthop(struct mesh_path *mpath, struct sta_info *next_hop)
 	mpath->exp_time = 0;
 	mpath->flags = MESH_PATH_FIXED | MESH_PATH_SN_VALID;
 	mesh_path_activate(mpath);
-	spin_unlock_bh(&mpath->state_lock);
+	spin_unlock_bh(&mpath->state_lock, bh);
 	ewma_mesh_fail_avg_init(&next_hop->mesh->fail_avg);
 	/* init it at a low value - 0 start is tricky */
 	ewma_mesh_fail_avg_add(&next_hop->mesh->fail_avg, 1);

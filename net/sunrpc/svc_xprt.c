@@ -244,10 +244,11 @@ static void svc_xprt_received(struct svc_xprt *xprt)
 
 void svc_add_new_perm_xprt(struct svc_serv *serv, struct svc_xprt *new)
 {
+	unsigned int bh;
 	clear_bit(XPT_TEMP, &new->xpt_flags);
-	spin_lock_bh(&serv->sv_lock);
+	bh = spin_lock_bh(&serv->sv_lock, SOFTIRQ_ALL_MASK);
 	list_add(&new->xpt_list, &serv->sv_permsocks);
-	spin_unlock_bh(&serv->sv_lock);
+	spin_unlock_bh(&serv->sv_lock, bh);
 	svc_xprt_received(new);
 }
 
@@ -378,6 +379,7 @@ static bool svc_xprt_has_something_to_do(struct svc_xprt *xprt)
 
 void svc_xprt_do_enqueue(struct svc_xprt *xprt)
 {
+	unsigned int bh;
 	struct svc_pool *pool;
 	struct svc_rqst	*rqstp = NULL;
 	int cpu;
@@ -398,10 +400,10 @@ void svc_xprt_do_enqueue(struct svc_xprt *xprt)
 
 	atomic_long_inc(&pool->sp_stats.packets);
 
-	spin_lock_bh(&pool->sp_lock);
+	bh = spin_lock_bh(&pool->sp_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&xprt->xpt_ready, &pool->sp_sockets);
 	pool->sp_stats.sockets_queued++;
-	spin_unlock_bh(&pool->sp_lock);
+	spin_unlock_bh(&pool->sp_lock, bh);
 
 	/* find a thread for this xprt */
 	rcu_read_lock();
@@ -440,19 +442,20 @@ EXPORT_SYMBOL_GPL(svc_xprt_enqueue);
  */
 static struct svc_xprt *svc_xprt_dequeue(struct svc_pool *pool)
 {
+	unsigned int bh;
 	struct svc_xprt	*xprt = NULL;
 
 	if (list_empty(&pool->sp_sockets))
 		goto out;
 
-	spin_lock_bh(&pool->sp_lock);
+	bh = spin_lock_bh(&pool->sp_lock, SOFTIRQ_ALL_MASK);
 	if (likely(!list_empty(&pool->sp_sockets))) {
 		xprt = list_first_entry(&pool->sp_sockets,
 					struct svc_xprt, xpt_ready);
 		list_del_init(&xprt->xpt_ready);
 		svc_xprt_get(xprt);
 	}
-	spin_unlock_bh(&pool->sp_lock);
+	spin_unlock_bh(&pool->sp_lock, bh);
 out:
 	return xprt;
 }
@@ -578,12 +581,13 @@ int svc_port_is_privileged(struct sockaddr *sin)
  */
 static void svc_check_conn_limits(struct svc_serv *serv)
 {
+	unsigned int bh;
 	unsigned int limit = serv->sv_maxconn ? serv->sv_maxconn :
 				(serv->sv_nrthreads+3) * 20;
 
 	if (serv->sv_tmpcnt > limit) {
 		struct svc_xprt *xprt = NULL;
-		spin_lock_bh(&serv->sv_lock);
+		bh = spin_lock_bh(&serv->sv_lock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&serv->sv_tempsocks)) {
 			/* Try to help the admin */
 			net_notice_ratelimited("%s: too many open connections, consider increasing the %s\n",
@@ -600,7 +604,7 @@ static void svc_check_conn_limits(struct svc_serv *serv)
 			set_bit(XPT_CLOSE, &xprt->xpt_flags);
 			svc_xprt_get(xprt);
 		}
-		spin_unlock_bh(&serv->sv_lock);
+		spin_unlock_bh(&serv->sv_lock, bh);
 
 		if (xprt) {
 			svc_xprt_enqueue(xprt);
@@ -732,7 +736,8 @@ out_found:
 
 static void svc_add_new_temp_xprt(struct svc_serv *serv, struct svc_xprt *newxpt)
 {
-	spin_lock_bh(&serv->sv_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&serv->sv_lock, SOFTIRQ_ALL_MASK);
 	set_bit(XPT_TEMP, &newxpt->xpt_flags);
 	list_add(&newxpt->xpt_list, &serv->sv_tempsocks);
 	serv->sv_tmpcnt++;
@@ -742,7 +747,7 @@ static void svc_add_new_temp_xprt(struct svc_serv *serv, struct svc_xprt *newxpt
 		mod_timer(&serv->sv_temptimer,
 			  jiffies + svc_conn_age_period * HZ);
 	}
-	spin_unlock_bh(&serv->sv_lock);
+	spin_unlock_bh(&serv->sv_lock, bh);
 	svc_xprt_received(newxpt);
 }
 
@@ -954,11 +959,12 @@ static void svc_age_temp_xprts(struct timer_list *t)
  */
 void svc_age_temp_xprts_now(struct svc_serv *serv, struct sockaddr *server_addr)
 {
+	unsigned int bh;
 	struct svc_xprt *xprt;
 	struct list_head *le, *next;
 	LIST_HEAD(to_be_closed);
 
-	spin_lock_bh(&serv->sv_lock);
+	bh = spin_lock_bh(&serv->sv_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_safe(le, next, &serv->sv_tempsocks) {
 		xprt = list_entry(le, struct svc_xprt, xpt_list);
 		if (rpc_cmp_addr(server_addr, (struct sockaddr *)
@@ -967,7 +973,7 @@ void svc_age_temp_xprts_now(struct svc_serv *serv, struct sockaddr *server_addr)
 			list_move(le, &to_be_closed);
 		}
 	}
-	spin_unlock_bh(&serv->sv_lock);
+	spin_unlock_bh(&serv->sv_lock, bh);
 
 	while (!list_empty(&to_be_closed)) {
 		le = to_be_closed.next;
@@ -1000,6 +1006,7 @@ static void call_xpt_users(struct svc_xprt *xprt)
  */
 static void svc_delete_xprt(struct svc_xprt *xprt)
 {
+	unsigned int bh;
 	struct svc_serv	*serv = xprt->xpt_server;
 	struct svc_deferred_req *dr;
 
@@ -1010,12 +1017,12 @@ static void svc_delete_xprt(struct svc_xprt *xprt)
 	dprintk("svc: svc_delete_xprt(%p)\n", xprt);
 	xprt->xpt_ops->xpo_detach(xprt);
 
-	spin_lock_bh(&serv->sv_lock);
+	bh = spin_lock_bh(&serv->sv_lock, SOFTIRQ_ALL_MASK);
 	list_del_init(&xprt->xpt_list);
 	WARN_ON_ONCE(!list_empty(&xprt->xpt_ready));
 	if (test_bit(XPT_TEMP, &xprt->xpt_flags))
 		serv->sv_tmpcnt--;
-	spin_unlock_bh(&serv->sv_lock);
+	spin_unlock_bh(&serv->sv_lock, bh);
 
 	while ((dr = svc_deferred_dequeue(xprt)) != NULL)
 		kfree(dr);
@@ -1059,6 +1066,7 @@ static int svc_close_list(struct svc_serv *serv, struct list_head *xprt_list, st
 
 static struct svc_xprt *svc_dequeue_net(struct svc_serv *serv, struct net *net)
 {
+	unsigned int bh;
 	struct svc_pool *pool;
 	struct svc_xprt *xprt;
 	struct svc_xprt *tmp;
@@ -1067,15 +1075,15 @@ static struct svc_xprt *svc_dequeue_net(struct svc_serv *serv, struct net *net)
 	for (i = 0; i < serv->sv_nrpools; i++) {
 		pool = &serv->sv_pools[i];
 
-		spin_lock_bh(&pool->sp_lock);
+		bh = spin_lock_bh(&pool->sp_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry_safe(xprt, tmp, &pool->sp_sockets, xpt_ready) {
 			if (xprt->xpt_net != net)
 				continue;
 			list_del_init(&xprt->xpt_ready);
-			spin_unlock_bh(&pool->sp_lock);
+			spin_unlock_bh(&pool->sp_lock, bh);
 			return xprt;
 		}
-		spin_unlock_bh(&pool->sp_lock);
+		spin_unlock_bh(&pool->sp_lock, bh);
 	}
 	return NULL;
 }
@@ -1256,6 +1264,7 @@ struct svc_xprt *svc_find_xprt(struct svc_serv *serv, const char *xcl_name,
 			       struct net *net, const sa_family_t af,
 			       const unsigned short port)
 {
+	unsigned int bh;
 	struct svc_xprt *xprt;
 	struct svc_xprt *found = NULL;
 
@@ -1263,7 +1272,7 @@ struct svc_xprt *svc_find_xprt(struct svc_serv *serv, const char *xcl_name,
 	if (serv == NULL || xcl_name == NULL)
 		return found;
 
-	spin_lock_bh(&serv->sv_lock);
+	bh = spin_lock_bh(&serv->sv_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(xprt, &serv->sv_permsocks, xpt_list) {
 		if (xprt->xpt_net != net)
 			continue;
@@ -1277,7 +1286,7 @@ struct svc_xprt *svc_find_xprt(struct svc_serv *serv, const char *xcl_name,
 		svc_xprt_get(xprt);
 		break;
 	}
-	spin_unlock_bh(&serv->sv_lock);
+	spin_unlock_bh(&serv->sv_lock, bh);
 	return found;
 }
 EXPORT_SYMBOL_GPL(svc_find_xprt);
@@ -1309,6 +1318,7 @@ static int svc_one_xprt_name(const struct svc_xprt *xprt,
  */
 int svc_xprt_names(struct svc_serv *serv, char *buf, const int buflen)
 {
+	unsigned int bh;
 	struct svc_xprt *xprt;
 	int len, totlen;
 	char *pos;
@@ -1317,7 +1327,7 @@ int svc_xprt_names(struct svc_serv *serv, char *buf, const int buflen)
 	if (!serv)
 		return 0;
 
-	spin_lock_bh(&serv->sv_lock);
+	bh = spin_lock_bh(&serv->sv_lock, SOFTIRQ_ALL_MASK);
 
 	pos = buf;
 	totlen = 0;
@@ -1334,7 +1344,7 @@ int svc_xprt_names(struct svc_serv *serv, char *buf, const int buflen)
 		totlen += len;
 	}
 
-	spin_unlock_bh(&serv->sv_lock);
+	spin_unlock_bh(&serv->sv_lock, bh);
 	return totlen;
 }
 EXPORT_SYMBOL_GPL(svc_xprt_names);

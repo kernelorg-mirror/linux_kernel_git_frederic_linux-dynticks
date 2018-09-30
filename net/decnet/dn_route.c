@@ -218,6 +218,7 @@ static void dn_dst_check_expire(struct timer_list *unused)
 
 static int dn_dst_gc(struct dst_ops *ops)
 {
+	unsigned int bh;
 	struct dn_route *rt;
 	struct dn_route __rcu **rtp;
 	int i;
@@ -226,7 +227,7 @@ static int dn_dst_gc(struct dst_ops *ops)
 
 	for (i = 0; i <= dn_rt_hash_mask; i++) {
 
-		spin_lock_bh(&dn_rt_hash_table[i].lock);
+		bh = spin_lock_bh(&dn_rt_hash_table[i].lock, SOFTIRQ_ALL_MASK);
 		rtp = &dn_rt_hash_table[i].chain;
 
 		while ((rt = rcu_dereference_protected(*rtp,
@@ -242,7 +243,7 @@ static int dn_dst_gc(struct dst_ops *ops)
 			dst_release(&rt->dst);
 			break;
 		}
-		spin_unlock_bh(&dn_rt_hash_table[i].lock);
+		spin_unlock_bh(&dn_rt_hash_table[i].lock, bh);
 	}
 
 	return 0;
@@ -322,13 +323,14 @@ static inline int compare_keys(struct flowidn *fl1, struct flowidn *fl2)
 
 static int dn_insert_route(struct dn_route *rt, unsigned int hash, struct dn_route **rp)
 {
+	unsigned int bh;
 	struct dn_route *rth;
 	struct dn_route __rcu **rthp;
 	unsigned long now = jiffies;
 
 	rthp = &dn_rt_hash_table[hash].chain;
 
-	spin_lock_bh(&dn_rt_hash_table[hash].lock);
+	bh = spin_lock_bh(&dn_rt_hash_table[hash].lock, SOFTIRQ_ALL_MASK);
 	while ((rth = rcu_dereference_protected(*rthp,
 						lockdep_is_held(&dn_rt_hash_table[hash].lock))) != NULL) {
 		if (compare_keys(&rth->fld, &rt->fld)) {
@@ -339,7 +341,7 @@ static int dn_insert_route(struct dn_route *rt, unsigned int hash, struct dn_rou
 			rcu_assign_pointer(dn_rt_hash_table[hash].chain, rth);
 
 			dst_hold_and_use(&rth->dst, now);
-			spin_unlock_bh(&dn_rt_hash_table[hash].lock);
+			spin_unlock_bh(&dn_rt_hash_table[hash].lock, bh);
 
 			dst_release_immediate(&rt->dst);
 			*rp = rth;
@@ -352,18 +354,19 @@ static int dn_insert_route(struct dn_route *rt, unsigned int hash, struct dn_rou
 	rcu_assign_pointer(dn_rt_hash_table[hash].chain, rt);
 
 	dst_hold_and_use(&rt->dst, now);
-	spin_unlock_bh(&dn_rt_hash_table[hash].lock);
+	spin_unlock_bh(&dn_rt_hash_table[hash].lock, bh);
 	*rp = rt;
 	return 0;
 }
 
 static void dn_run_flush(struct timer_list *unused)
 {
+	unsigned int bh;
 	int i;
 	struct dn_route *rt, *next;
 
 	for (i = 0; i < dn_rt_hash_mask; i++) {
-		spin_lock_bh(&dn_rt_hash_table[i].lock);
+		bh = spin_lock_bh(&dn_rt_hash_table[i].lock, SOFTIRQ_ALL_MASK);
 
 		if ((rt = xchg((struct dn_route **)&dn_rt_hash_table[i].chain, NULL)) == NULL)
 			goto nothing_to_declare;
@@ -376,7 +379,7 @@ static void dn_run_flush(struct timer_list *unused)
 		}
 
 nothing_to_declare:
-		spin_unlock_bh(&dn_rt_hash_table[i].lock);
+		spin_unlock_bh(&dn_rt_hash_table[i].lock, bh);
 	}
 }
 
@@ -384,13 +387,14 @@ static DEFINE_SPINLOCK(dn_rt_flush_lock);
 
 void dn_rt_cache_flush(int delay)
 {
+	unsigned int bh;
 	unsigned long now = jiffies;
 	int user_mode = !in_interrupt();
 
 	if (delay < 0)
 		delay = dn_rt_min_delay;
 
-	spin_lock_bh(&dn_rt_flush_lock);
+	bh = spin_lock_bh(&dn_rt_flush_lock, SOFTIRQ_ALL_MASK);
 
 	if (del_timer(&dn_rt_flush_timer) && delay > 0 && dn_rt_deadline) {
 		long tmo = (long)(dn_rt_deadline - now);
@@ -403,7 +407,7 @@ void dn_rt_cache_flush(int delay)
 	}
 
 	if (delay <= 0) {
-		spin_unlock_bh(&dn_rt_flush_lock);
+		spin_unlock_bh(&dn_rt_flush_lock, bh);
 		dn_run_flush(NULL);
 		return;
 	}
@@ -413,7 +417,7 @@ void dn_rt_cache_flush(int delay)
 
 	dn_rt_flush_timer.expires = now + delay;
 	add_timer(&dn_rt_flush_timer);
-	spin_unlock_bh(&dn_rt_flush_lock);
+	spin_unlock_bh(&dn_rt_flush_lock, bh);
 }
 
 /**

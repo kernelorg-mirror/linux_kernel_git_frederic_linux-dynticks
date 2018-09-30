@@ -153,6 +153,7 @@ void efx_mcdi_fini(struct efx_nic *efx)
 static void efx_mcdi_send_request(struct efx_nic *efx, unsigned cmd,
 				  const efx_dword_t *inbuf, size_t inlen)
 {
+	unsigned int bh;
 	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
 #ifdef CONFIG_SFC_MCDI_LOGGING
 	char *buf = mcdi->logging_buffer; /* page-sized */
@@ -164,9 +165,9 @@ static void efx_mcdi_send_request(struct efx_nic *efx, unsigned cmd,
 	BUG_ON(mcdi->state == MCDI_STATE_QUIESCENT);
 
 	/* Serialise with efx_mcdi_ev_cpl() and efx_mcdi_ev_death() */
-	spin_lock_bh(&mcdi->iface_lock);
+	bh = spin_lock_bh(&mcdi->iface_lock, SOFTIRQ_ALL_MASK);
 	++mcdi->seqno;
-	spin_unlock_bh(&mcdi->iface_lock);
+	spin_unlock_bh(&mcdi->iface_lock, bh);
 
 	seqno = mcdi->seqno & SEQ_MASK;
 	xflags = 0;
@@ -340,21 +341,23 @@ static void efx_mcdi_read_response_header(struct efx_nic *efx)
 
 static bool efx_mcdi_poll_once(struct efx_nic *efx)
 {
+	unsigned int bh;
 	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
 
 	rmb();
 	if (!efx->type->mcdi_poll_response(efx))
 		return false;
 
-	spin_lock_bh(&mcdi->iface_lock);
+	bh = spin_lock_bh(&mcdi->iface_lock, SOFTIRQ_ALL_MASK);
 	efx_mcdi_read_response_header(efx);
-	spin_unlock_bh(&mcdi->iface_lock);
+	spin_unlock_bh(&mcdi->iface_lock, bh);
 
 	return true;
 }
 
 static int efx_mcdi_poll(struct efx_nic *efx)
 {
+	unsigned int bh;
 	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
 	unsigned long time, finish;
 	unsigned int spins;
@@ -363,11 +366,11 @@ static int efx_mcdi_poll(struct efx_nic *efx)
 	/* Check for a reboot atomically with respect to efx_mcdi_copyout() */
 	rc = efx_mcdi_poll_reboot(efx);
 	if (rc) {
-		spin_lock_bh(&mcdi->iface_lock);
+		bh = spin_lock_bh(&mcdi->iface_lock, SOFTIRQ_ALL_MASK);
 		mcdi->resprc = rc;
 		mcdi->resp_hdr_len = 0;
 		mcdi->resp_data_len = 0;
-		spin_unlock_bh(&mcdi->iface_lock);
+		spin_unlock_bh(&mcdi->iface_lock, bh);
 		return 0;
 	}
 
@@ -467,12 +470,13 @@ static bool efx_mcdi_complete_sync(struct efx_mcdi_iface *mcdi)
 
 static void efx_mcdi_release(struct efx_mcdi_iface *mcdi)
 {
+	unsigned int bh;
 	if (mcdi->mode == MCDI_MODE_EVENTS) {
 		struct efx_mcdi_async_param *async;
 		struct efx_nic *efx = mcdi->efx;
 
 		/* Process the asynchronous request queue */
-		spin_lock_bh(&mcdi->async_lock);
+		bh = spin_lock_bh(&mcdi->async_lock, SOFTIRQ_ALL_MASK);
 		async = list_first_entry_or_null(
 			&mcdi->async_list, struct efx_mcdi_async_param, list);
 		if (async) {
@@ -483,7 +487,7 @@ static void efx_mcdi_release(struct efx_mcdi_iface *mcdi)
 			mod_timer(&mcdi->async_timer,
 				  jiffies + MCDI_RPC_TIMEOUT);
 		}
-		spin_unlock_bh(&mcdi->async_lock);
+		spin_unlock_bh(&mcdi->async_lock, bh);
 
 		if (async)
 			return;
@@ -655,6 +659,7 @@ static int _efx_mcdi_rpc_finish(struct efx_nic *efx, unsigned int cmd,
 				size_t *outlen_actual, bool quiet,
 				u32 *proxy_handle, int *raw_rc)
 {
+	unsigned int bh;
 	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
 	MCDI_DECLARE_BUF_ERR(errbuf);
 	int rc;
@@ -681,10 +686,10 @@ static int _efx_mcdi_rpc_finish(struct efx_nic *efx, unsigned int cmd,
 		 * and completing a request we've just cancelled, by ensuring
 		 * that the seqno check therein fails.
 		 */
-		spin_lock_bh(&mcdi->iface_lock);
+		bh = spin_lock_bh(&mcdi->iface_lock, SOFTIRQ_ALL_MASK);
 		++mcdi->seqno;
 		++mcdi->credits;
-		spin_unlock_bh(&mcdi->iface_lock);
+		spin_unlock_bh(&mcdi->iface_lock, bh);
 	}
 
 	if (proxy_handle)
@@ -700,14 +705,14 @@ static int _efx_mcdi_rpc_finish(struct efx_nic *efx, unsigned int cmd,
 		 * we pick up changes from efx_mcdi_ev_cpl(). Protect against
 		 * a spurious efx_mcdi_ev_cpl() running concurrently by
 		 * acquiring the iface_lock. */
-		spin_lock_bh(&mcdi->iface_lock);
+		bh = spin_lock_bh(&mcdi->iface_lock, SOFTIRQ_ALL_MASK);
 		rc = mcdi->resprc;
 		if (raw_rc)
 			*raw_rc = mcdi->resprc_raw;
 		hdr_len = mcdi->resp_hdr_len;
 		data_len = mcdi->resp_data_len;
 		err_len = min(sizeof(errbuf), data_len);
-		spin_unlock_bh(&mcdi->iface_lock);
+		spin_unlock_bh(&mcdi->iface_lock, bh);
 
 		BUG_ON(rc > 0);
 
@@ -978,6 +983,7 @@ static int _efx_mcdi_rpc_async(struct efx_nic *efx, unsigned int cmd,
 			       efx_mcdi_async_completer *complete,
 			       unsigned long cookie, bool quiet)
 {
+	unsigned int bh;
 	struct efx_mcdi_iface *mcdi = efx_mcdi(efx);
 	struct efx_mcdi_async_param *async;
 	int rc;
@@ -1002,7 +1008,7 @@ static int _efx_mcdi_rpc_async(struct efx_nic *efx, unsigned int cmd,
 	async->cookie = cookie;
 	memcpy(async + 1, inbuf, inlen);
 
-	spin_lock_bh(&mcdi->async_lock);
+	bh = spin_lock_bh(&mcdi->async_lock, SOFTIRQ_ALL_MASK);
 
 	if (mcdi->mode == MCDI_MODE_EVENTS) {
 		list_add_tail(&async->list, &mcdi->async_list);
@@ -1021,7 +1027,7 @@ static int _efx_mcdi_rpc_async(struct efx_nic *efx, unsigned int cmd,
 		rc = -ENETDOWN;
 	}
 
-	spin_unlock_bh(&mcdi->async_lock);
+	spin_unlock_bh(&mcdi->async_lock, bh);
 
 	return rc;
 }

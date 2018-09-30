@@ -125,10 +125,11 @@ inline struct sta_info *rtw_get_stainfo_by_offset(struct sta_priv *stapriv, int 
 void kfree_all_stainfo(struct sta_priv *pstapriv);
 void kfree_all_stainfo(struct sta_priv *pstapriv)
 {
+	unsigned int bh;
 	struct list_head	*plist, *phead;
 	struct sta_info *psta = NULL;
 
-	spin_lock_bh(&pstapriv->sta_hash_lock);
+	bh = spin_lock_bh(&pstapriv->sta_hash_lock, SOFTIRQ_ALL_MASK);
 
 	phead = get_list_head(&pstapriv->free_sta_queue);
 	plist = get_next(phead);
@@ -138,7 +139,7 @@ void kfree_all_stainfo(struct sta_priv *pstapriv)
 		plist = get_next(plist);
 	}
 
-	spin_unlock_bh(&pstapriv->sta_hash_lock);
+	spin_unlock_bh(&pstapriv->sta_hash_lock, bh);
 }
 
 void kfree_sta_priv_lock(struct	sta_priv *pstapriv);
@@ -149,6 +150,7 @@ void kfree_sta_priv_lock(struct	sta_priv *pstapriv)
 
 u32 _rtw_free_sta_priv(struct	sta_priv *pstapriv)
 {
+	unsigned int bh;
 	struct list_head	*phead, *plist;
 	struct sta_info *psta = NULL;
 	struct recv_reorder_ctrl *preorder_ctrl;
@@ -157,7 +159,7 @@ u32 _rtw_free_sta_priv(struct	sta_priv *pstapriv)
 	if (pstapriv) {
 
 		/*delete all reordering_ctrl_timer		*/
-		spin_lock_bh(&pstapriv->sta_hash_lock);
+		bh = spin_lock_bh(&pstapriv->sta_hash_lock, SOFTIRQ_ALL_MASK);
 		for (index = 0; index < NUM_STA; index++) {
 			phead = &(pstapriv->sta_hash[index]);
 			plist = get_next(phead);
@@ -173,7 +175,7 @@ u32 _rtw_free_sta_priv(struct	sta_priv *pstapriv)
 				}
 			}
 		}
-		spin_unlock_bh(&pstapriv->sta_hash_lock);
+		spin_unlock_bh(&pstapriv->sta_hash_lock, bh);
 		/*===============================*/
 
 		kfree_sta_priv_lock(pstapriv);
@@ -188,6 +190,7 @@ u32 _rtw_free_sta_priv(struct	sta_priv *pstapriv)
 /* struct	sta_info *rtw_alloc_stainfo(_queue *pfree_sta_queue, unsigned char *hwaddr) */
 struct	sta_info *rtw_alloc_stainfo(struct	sta_priv *pstapriv, u8 *hwaddr)
 {
+	unsigned int bh;
 	uint tmp_aid;
 	s32	index;
 	struct list_head	*phash_list;
@@ -199,11 +202,11 @@ struct	sta_info *rtw_alloc_stainfo(struct	sta_priv *pstapriv, u8 *hwaddr)
 
 	pfree_sta_queue = &pstapriv->free_sta_queue;
 
-	/* spin_lock_bh(&(pfree_sta_queue->lock)); */
-	spin_lock_bh(&(pstapriv->sta_hash_lock));
+	/* spin_lock_bh(&(pfree_sta_queue->lock), SOFTIRQ_ALL_MASK); */
+	bh = spin_lock_bh(&(pstapriv->sta_hash_lock), SOFTIRQ_ALL_MASK);
 	if (list_empty(&pfree_sta_queue->queue)) {
 		/* spin_unlock_bh(&(pfree_sta_queue->lock)); */
-		spin_unlock_bh(&(pstapriv->sta_hash_lock));
+		spin_unlock_bh(&(pstapriv->sta_hash_lock), bh);
 		psta = NULL;
 		return psta;
 	} else{
@@ -227,13 +230,13 @@ struct	sta_info *rtw_alloc_stainfo(struct	sta_priv *pstapriv, u8 *hwaddr)
 
 		if (index >= NUM_STA) {
 			RT_TRACE(_module_rtl871x_sta_mgt_c_, _drv_err_, ("ERROR => rtw_alloc_stainfo: index >= NUM_STA"));
-			spin_unlock_bh(&(pstapriv->sta_hash_lock));
+			spin_unlock_bh(&(pstapriv->sta_hash_lock), bh);
 			psta = NULL;
 			goto exit;
 		}
 		phash_list = &(pstapriv->sta_hash[index]);
 
-		/* spin_lock_bh(&(pstapriv->sta_hash_lock)); */
+		/* spin_lock_bh(&(pstapriv->sta_hash_lock), SOFTIRQ_ALL_MASK); */
 
 		list_add_tail(&psta->hash_list, phash_list);
 
@@ -295,7 +298,7 @@ struct	sta_info *rtw_alloc_stainfo(struct	sta_priv *pstapriv, u8 *hwaddr)
 
 		/* init for the sequence number of received management frame */
 		psta->RxMgmtFrameSeqNum = 0xffff;
-		spin_unlock_bh(&(pstapriv->sta_hash_lock));
+		spin_unlock_bh(&(pstapriv->sta_hash_lock), bh);
 		/* alloc mac id for non-bc/mc station, */
 		rtw_alloc_macid(pstapriv->padapter, psta);
 
@@ -310,6 +313,7 @@ exit:
 /*  using pstapriv->sta_hash_lock to protect */
 u32 rtw_free_stainfo(struct adapter *padapter, struct sta_info *psta)
 {
+	unsigned int bh;
 	int i;
 	struct __queue *pfree_sta_queue;
 	struct recv_reorder_ctrl *preorder_ctrl;
@@ -322,9 +326,9 @@ u32 rtw_free_stainfo(struct adapter *padapter, struct sta_info *psta)
 		goto exit;
 
 
-	spin_lock_bh(&psta->lock);
+	bh = spin_lock_bh(&psta->lock, SOFTIRQ_ALL_MASK);
 	psta->state &= ~_FW_LINKED;
-	spin_unlock_bh(&psta->lock);
+	spin_unlock_bh(&psta->lock, bh);
 
 	pfree_sta_queue = &pstapriv->free_sta_queue;
 
@@ -335,13 +339,13 @@ u32 rtw_free_stainfo(struct adapter *padapter, struct sta_info *psta)
 
 	/* list_del_init(&psta->wakeup_list); */
 
-	spin_lock_bh(&pxmitpriv->lock);
+	spin_lock_bh(&pxmitpriv->lock, SOFTIRQ_ALL_MASK);
 
 	rtw_free_xmitframe_queue(pxmitpriv, &psta->sleep_q);
 	psta->sleepq_len = 0;
 
 	/* vo */
-	/* spin_lock_bh(&(pxmitpriv->vo_pending.lock)); */
+	/* spin_lock_bh(&(pxmitpriv->vo_pending.lock), SOFTIRQ_ALL_MASK); */
 	rtw_free_xmitframe_queue(pxmitpriv, &pstaxmitpriv->vo_q.sta_pending);
 	list_del_init(&(pstaxmitpriv->vo_q.tx_pending));
 	phwxmit = pxmitpriv->hwxmits;
@@ -350,7 +354,7 @@ u32 rtw_free_stainfo(struct adapter *padapter, struct sta_info *psta)
 	/* spin_unlock_bh(&(pxmitpriv->vo_pending.lock)); */
 
 	/* vi */
-	/* spin_lock_bh(&(pxmitpriv->vi_pending.lock)); */
+	/* spin_lock_bh(&(pxmitpriv->vi_pending.lock), SOFTIRQ_ALL_MASK); */
 	rtw_free_xmitframe_queue(pxmitpriv, &pstaxmitpriv->vi_q.sta_pending);
 	list_del_init(&(pstaxmitpriv->vi_q.tx_pending));
 	phwxmit = pxmitpriv->hwxmits+1;
@@ -359,7 +363,7 @@ u32 rtw_free_stainfo(struct adapter *padapter, struct sta_info *psta)
 	/* spin_unlock_bh(&(pxmitpriv->vi_pending.lock)); */
 
 	/* be */
-	/* spin_lock_bh(&(pxmitpriv->be_pending.lock)); */
+	/* spin_lock_bh(&(pxmitpriv->be_pending.lock), SOFTIRQ_ALL_MASK); */
 	rtw_free_xmitframe_queue(pxmitpriv, &pstaxmitpriv->be_q.sta_pending);
 	list_del_init(&(pstaxmitpriv->be_q.tx_pending));
 	phwxmit = pxmitpriv->hwxmits+2;
@@ -368,7 +372,7 @@ u32 rtw_free_stainfo(struct adapter *padapter, struct sta_info *psta)
 	/* spin_unlock_bh(&(pxmitpriv->be_pending.lock)); */
 
 	/* bk */
-	/* spin_lock_bh(&(pxmitpriv->bk_pending.lock)); */
+	/* spin_lock_bh(&(pxmitpriv->bk_pending.lock), SOFTIRQ_ALL_MASK); */
 	rtw_free_xmitframe_queue(pxmitpriv, &pstaxmitpriv->bk_q.sta_pending);
 	list_del_init(&(pstaxmitpriv->bk_q.tx_pending));
 	phwxmit = pxmitpriv->hwxmits+3;
@@ -415,7 +419,7 @@ u32 rtw_free_stainfo(struct adapter *padapter, struct sta_info *psta)
 
 		ppending_recvframe_queue = &preorder_ctrl->pending_recvframe_queue;
 
-		spin_lock_bh(&ppending_recvframe_queue->lock);
+		spin_lock_bh(&ppending_recvframe_queue->lock, SOFTIRQ_ALL_MASK);
 
 		phead =		get_list_head(ppending_recvframe_queue);
 		plist = get_next(phead);
@@ -442,11 +446,11 @@ u32 rtw_free_stainfo(struct adapter *padapter, struct sta_info *psta)
 	rtw_release_macid(pstapriv->padapter, psta);
 
 /*
-	spin_lock_bh(&pstapriv->asoc_list_lock);
+	spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 	list_del_init(&psta->asoc_list);
 	spin_unlock_bh(&pstapriv->asoc_list_lock);
 */
-	spin_lock_bh(&pstapriv->auth_list_lock);
+	spin_lock_bh(&pstapriv->auth_list_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&psta->auth_list)) {
 		list_del_init(&psta->auth_list);
 		pstapriv->auth_list_cnt--;
@@ -475,7 +479,7 @@ u32 rtw_free_stainfo(struct adapter *padapter, struct sta_info *psta)
 
 	psta->under_exist_checking = 0;
 
-	/* spin_lock_bh(&(pfree_sta_queue->lock)); */
+	/* spin_lock_bh(&(pfree_sta_queue->lock), SOFTIRQ_ALL_MASK); */
 	list_add_tail(&psta->list, get_list_head(pfree_sta_queue));
 	/* spin_unlock_bh(&(pfree_sta_queue->lock)); */
 
@@ -486,6 +490,7 @@ exit:
 /*  free all stainfo which in sta_hash[all] */
 void rtw_free_all_stainfo(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct list_head	*plist, *phead;
 	s32	index;
 	struct sta_info *psta = NULL;
@@ -495,7 +500,7 @@ void rtw_free_all_stainfo(struct adapter *padapter)
 	if (pstapriv->asoc_sta_count == 1)
 		return;
 
-	spin_lock_bh(&pstapriv->sta_hash_lock);
+	bh = spin_lock_bh(&pstapriv->sta_hash_lock, SOFTIRQ_ALL_MASK);
 
 	for (index = 0; index < NUM_STA; index++) {
 		phead = &(pstapriv->sta_hash[index]);
@@ -512,12 +517,13 @@ void rtw_free_all_stainfo(struct adapter *padapter)
 		}
 	}
 
-	spin_unlock_bh(&pstapriv->sta_hash_lock);
+	spin_unlock_bh(&pstapriv->sta_hash_lock, bh);
 }
 
 /* any station allocated can be searched by hash list */
 struct sta_info *rtw_get_stainfo(struct sta_priv *pstapriv, u8 *hwaddr)
 {
+	unsigned int bh;
 	struct list_head	*plist, *phead;
 	struct sta_info *psta = NULL;
 	u32 index;
@@ -534,7 +540,7 @@ struct sta_info *rtw_get_stainfo(struct sta_priv *pstapriv, u8 *hwaddr)
 
 	index = wifi_mac_hash(addr);
 
-	spin_lock_bh(&pstapriv->sta_hash_lock);
+	bh = spin_lock_bh(&pstapriv->sta_hash_lock, SOFTIRQ_ALL_MASK);
 
 	phead = &(pstapriv->sta_hash[index]);
 	plist = get_next(phead);
@@ -552,7 +558,7 @@ struct sta_info *rtw_get_stainfo(struct sta_priv *pstapriv, u8 *hwaddr)
 		plist = get_next(plist);
 	}
 
-	spin_unlock_bh(&pstapriv->sta_hash_lock);
+	spin_unlock_bh(&pstapriv->sta_hash_lock, bh);
 	return psta;
 }
 
@@ -596,6 +602,7 @@ struct sta_info *rtw_get_bcmc_stainfo(struct adapter *padapter)
 
 u8 rtw_access_ctrl(struct adapter *padapter, u8 *mac_addr)
 {
+	unsigned int bh;
 	bool res = true;
 	struct list_head	*plist, *phead;
 	struct rtw_wlan_acl_node *paclnode;
@@ -604,7 +611,7 @@ u8 rtw_access_ctrl(struct adapter *padapter, u8 *mac_addr)
 	struct wlan_acl_pool *pacl_list = &pstapriv->acl_list;
 	struct __queue	*pacl_node_q = &pacl_list->acl_node_q;
 
-	spin_lock_bh(&(pacl_node_q->lock));
+	bh = spin_lock_bh(&(pacl_node_q->lock), SOFTIRQ_ALL_MASK);
 	phead = get_list_head(pacl_node_q);
 	plist = get_next(phead);
 	while (phead != plist) {
@@ -618,7 +625,7 @@ u8 rtw_access_ctrl(struct adapter *padapter, u8 *mac_addr)
 			}
 
 	}
-	spin_unlock_bh(&(pacl_node_q->lock));
+	spin_unlock_bh(&(pacl_node_q->lock), bh);
 
 
 	if (pacl_list->mode == 1) /* accept unless in deny list */

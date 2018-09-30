@@ -145,15 +145,16 @@ static __inline__ void nr_neigh_put(struct nr_neigh *nr_neigh)
 
 /* nr_node_lock and nr_node_unlock also hold/put the node's refcounter.
  */
-static __inline__ void nr_node_lock(struct nr_node *nr_node)
+static __inline__ unsigned int nr_node_lock(struct nr_node *nr_node)
 {
 	nr_node_hold(nr_node);
-	spin_lock_bh(&nr_node->node_lock);
+	return spin_lock_bh(&nr_node->node_lock, SOFTIRQ_ALL_MASK);
 }
 
-static __inline__ void nr_node_unlock(struct nr_node *nr_node)
+static __inline__ void nr_node_unlock(struct nr_node *nr_node,
+				      unsigned int bh)
 {
-	spin_unlock_bh(&nr_node->node_lock);
+	spin_unlock_bh(&nr_node->node_lock, bh);
 	nr_node_put(nr_node);
 }
 

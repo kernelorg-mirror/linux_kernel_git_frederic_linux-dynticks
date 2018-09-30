@@ -202,6 +202,7 @@ static int tunnel_key_init(struct net *net, struct nlattr *nla,
 			   int ovr, int bind, bool rtnl_held,
 			   struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct tc_action_net *tn = net_generic(net, tunnel_key_net_id);
 	struct nlattr *tb[TCA_TUNNEL_KEY_MAX + 1];
 	struct tcf_tunnel_key_params *params_new;
@@ -355,11 +356,11 @@ static int tunnel_key_init(struct net *net, struct nlattr *nla,
 	params_new->tcft_action = parm->t_action;
 	params_new->tcft_enc_metadata = metadata;
 
-	spin_lock_bh(&t->tcf_lock);
+	bh = spin_lock_bh(&t->tcf_lock, SOFTIRQ_ALL_MASK);
 	t->tcf_action = parm->action;
 	rcu_swap_protected(t->params, params_new,
 			   lockdep_is_held(&t->tcf_lock));
-	spin_unlock_bh(&t->tcf_lock);
+	spin_unlock_bh(&t->tcf_lock, bh);
 	if (params_new)
 		kfree_rcu(params_new, rcu);
 
@@ -483,6 +484,7 @@ static int tunnel_key_dump_addresses(struct sk_buff *skb,
 static int tunnel_key_dump(struct sk_buff *skb, struct tc_action *a,
 			   int bind, int ref)
 {
+	unsigned int bh;
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tcf_tunnel_key *t = to_tunnel_key(a);
 	struct tcf_tunnel_key_params *params;
@@ -493,7 +495,7 @@ static int tunnel_key_dump(struct sk_buff *skb, struct tc_action *a,
 	};
 	struct tcf_t tm;
 
-	spin_lock_bh(&t->tcf_lock);
+	bh = spin_lock_bh(&t->tcf_lock, SOFTIRQ_ALL_MASK);
 	params = rcu_dereference_protected(t->params,
 					   lockdep_is_held(&t->tcf_lock));
 	opt.action   = t->tcf_action;
@@ -528,12 +530,12 @@ static int tunnel_key_dump(struct sk_buff *skb, struct tc_action *a,
 	if (nla_put_64bit(skb, TCA_TUNNEL_KEY_TM, sizeof(tm),
 			  &tm, TCA_TUNNEL_KEY_PAD))
 		goto nla_put_failure;
-	spin_unlock_bh(&t->tcf_lock);
+	spin_unlock_bh(&t->tcf_lock, bh);
 
 	return skb->len;
 
 nla_put_failure:
-	spin_unlock_bh(&t->tcf_lock);
+	spin_unlock_bh(&t->tcf_lock, bh);
 	nlmsg_trim(skb, b);
 	return -1;
 }

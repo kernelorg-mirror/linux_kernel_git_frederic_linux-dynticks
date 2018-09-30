@@ -1014,6 +1014,7 @@ EXPORT_SYMBOL(ath10k_coredump_new);
 
 static struct ath10k_dump_file_data *ath10k_coredump_build(struct ath10k *ar)
 {
+	unsigned int bh;
 	struct ath10k_fw_crash_data *crash_data = ar->coredump.fw_crash_data;
 	struct ath10k_ce_crash_hdr *ce_hdr;
 	struct ath10k_dump_file_data *dump_data;
@@ -1043,7 +1044,7 @@ static struct ath10k_dump_file_data *ath10k_coredump_build(struct ath10k *ar)
 	if (!buf)
 		return NULL;
 
-	spin_lock_bh(&ar->data_lock);
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 
 	dump_data = (struct ath10k_dump_file_data *)(buf);
 	strlcpy(dump_data->df_magic, "ATH10K-FW-DUMP",
@@ -1110,7 +1111,7 @@ static struct ath10k_dump_file_data *ath10k_coredump_build(struct ath10k *ar)
 		sofar += sizeof(*dump_tlv) + crash_data->ramdump_buf_len;
 	}
 
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 
 	return dump_data;
 }

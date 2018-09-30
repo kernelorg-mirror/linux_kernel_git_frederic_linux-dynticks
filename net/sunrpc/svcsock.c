@@ -1343,16 +1343,17 @@ static void svc_tcp_init(struct svc_sock *svsk, struct svc_serv *serv)
 
 void svc_sock_update_bufs(struct svc_serv *serv)
 {
+	unsigned int bh;
 	/*
 	 * The number of server threads has changed. Update
 	 * rcvbuf and sndbuf accordingly on all sockets
 	 */
 	struct svc_sock *svsk;
 
-	spin_lock_bh(&serv->sv_lock);
+	bh = spin_lock_bh(&serv->sv_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(svsk, &serv->sv_permsocks, sk_xprt.xpt_list)
 		set_bit(XPT_CHNGBUF, &svsk->sk_xprt.xpt_flags);
-	spin_unlock_bh(&serv->sv_lock);
+	spin_unlock_bh(&serv->sv_lock, bh);
 }
 EXPORT_SYMBOL_GPL(svc_sock_update_bufs);
 

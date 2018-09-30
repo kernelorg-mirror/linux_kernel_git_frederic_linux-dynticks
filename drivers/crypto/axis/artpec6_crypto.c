@@ -459,10 +459,11 @@ static inline bool artpec6_crypto_busy(void)
 
 static int artpec6_crypto_submit(struct artpec6_crypto_req_common *req)
 {
+	unsigned int bh;
 	struct artpec6_crypto *ac = dev_get_drvdata(artpec6_crypto_dev);
 	int ret = -EBUSY;
 
-	spin_lock_bh(&ac->queue_lock);
+	bh = spin_lock_bh(&ac->queue_lock, SOFTIRQ_ALL_MASK);
 
 	if (!artpec6_crypto_busy()) {
 		list_add_tail(&req->list, &ac->pending);
@@ -474,7 +475,7 @@ static int artpec6_crypto_submit(struct artpec6_crypto_req_common *req)
 		artpec6_crypto_common_destroy(req);
 	}
 
-	spin_unlock_bh(&ac->queue_lock);
+	spin_unlock_bh(&ac->queue_lock, bh);
 
 	return ret;
 }
@@ -2084,6 +2085,7 @@ static void artpec6_crypto_timeout(struct timer_list *t)
 
 static void artpec6_crypto_task(unsigned long data)
 {
+	unsigned int bh;
 	struct artpec6_crypto *ac = (struct artpec6_crypto *)data;
 	struct artpec6_crypto_req_common *req;
 	struct artpec6_crypto_req_common *n;
@@ -2093,7 +2095,7 @@ static void artpec6_crypto_task(unsigned long data)
 		return;
 	}
 
-	spin_lock_bh(&ac->queue_lock);
+	bh = spin_lock_bh(&ac->queue_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe(req, n, &ac->pending, list) {
 		struct artpec6_crypto_dma_descriptors *dma = req->dma;
@@ -2132,7 +2134,7 @@ static void artpec6_crypto_task(unsigned long data)
 
 	artpec6_crypto_process_queue(ac);
 
-	spin_unlock_bh(&ac->queue_lock);
+	spin_unlock_bh(&ac->queue_lock, bh);
 }
 
 static void artpec6_crypto_complete_crypto(struct crypto_async_request *req)

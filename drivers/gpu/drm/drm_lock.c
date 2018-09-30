@@ -55,10 +55,11 @@ static
 int drm_lock_take(struct drm_lock_data *lock_data,
 		  unsigned int context)
 {
+	unsigned int bh;
 	unsigned int old, new, prev;
 	volatile unsigned int *lock = &lock_data->hw_lock->lock;
 
-	spin_lock_bh(&lock_data->spinlock);
+	bh = spin_lock_bh(&lock_data->spinlock, SOFTIRQ_ALL_MASK);
 	do {
 		old = *lock;
 		if (old & _DRM_LOCK_HELD)
@@ -70,7 +71,7 @@ int drm_lock_take(struct drm_lock_data *lock_data,
 		}
 		prev = cmpxchg(lock, old, new);
 	} while (prev != old);
-	spin_unlock_bh(&lock_data->spinlock);
+	spin_unlock_bh(&lock_data->spinlock, bh);
 
 	if (_DRM_LOCKING_CONTEXT(old) == context) {
 		if (old & _DRM_LOCK_HELD) {
@@ -119,17 +120,18 @@ static int drm_lock_transfer(struct drm_lock_data *lock_data,
 static int drm_legacy_lock_free(struct drm_lock_data *lock_data,
 				unsigned int context)
 {
+	unsigned int bh;
 	unsigned int old, new, prev;
 	volatile unsigned int *lock = &lock_data->hw_lock->lock;
 
-	spin_lock_bh(&lock_data->spinlock);
+	bh = spin_lock_bh(&lock_data->spinlock, SOFTIRQ_ALL_MASK);
 	if (lock_data->kernel_waiters != 0) {
 		drm_lock_transfer(lock_data, 0);
 		lock_data->idle_has_lock = 1;
-		spin_unlock_bh(&lock_data->spinlock);
+		spin_unlock_bh(&lock_data->spinlock, bh);
 		return 1;
 	}
-	spin_unlock_bh(&lock_data->spinlock);
+	spin_unlock_bh(&lock_data->spinlock, bh);
 
 	do {
 		old = *lock;
@@ -160,6 +162,7 @@ static int drm_legacy_lock_free(struct drm_lock_data *lock_data,
 int drm_legacy_lock(struct drm_device *dev, void *data,
 		    struct drm_file *file_priv)
 {
+	unsigned int bh;
 	DECLARE_WAITQUEUE(entry, current);
 	struct drm_lock *lock = data;
 	struct drm_master *master = file_priv->master;
@@ -182,9 +185,9 @@ int drm_legacy_lock(struct drm_device *dev, void *data,
 		  lock->flags);
 
 	add_wait_queue(&master->lock.lock_queue, &entry);
-	spin_lock_bh(&master->lock.spinlock);
+	bh = spin_lock_bh(&master->lock.spinlock, SOFTIRQ_ALL_MASK);
 	master->lock.user_waiters++;
-	spin_unlock_bh(&master->lock.spinlock);
+	spin_unlock_bh(&master->lock.spinlock, bh);
 
 	for (;;) {
 		__set_current_state(TASK_INTERRUPTIBLE);
@@ -209,9 +212,9 @@ int drm_legacy_lock(struct drm_device *dev, void *data,
 			break;
 		}
 	}
-	spin_lock_bh(&master->lock.spinlock);
+	bh = spin_lock_bh(&master->lock.spinlock, SOFTIRQ_ALL_MASK);
 	master->lock.user_waiters--;
-	spin_unlock_bh(&master->lock.spinlock);
+	spin_unlock_bh(&master->lock.spinlock, bh);
 	__set_current_state(TASK_RUNNING);
 	remove_wait_queue(&master->lock.lock_queue, &entry);
 
@@ -286,29 +289,31 @@ int drm_legacy_unlock(struct drm_device *dev, void *data, struct drm_file *file_
 
 void drm_legacy_idlelock_take(struct drm_lock_data *lock_data)
 {
+	unsigned int bh;
 	int ret;
 
-	spin_lock_bh(&lock_data->spinlock);
+	bh = spin_lock_bh(&lock_data->spinlock, SOFTIRQ_ALL_MASK);
 	lock_data->kernel_waiters++;
 	if (!lock_data->idle_has_lock) {
 
-		spin_unlock_bh(&lock_data->spinlock);
+		spin_unlock_bh(&lock_data->spinlock, bh);
 		ret = drm_lock_take(lock_data, DRM_KERNEL_CONTEXT);
-		spin_lock_bh(&lock_data->spinlock);
+		bh = spin_lock_bh(&lock_data->spinlock, SOFTIRQ_ALL_MASK);
 
 		if (ret == 1)
 			lock_data->idle_has_lock = 1;
 	}
-	spin_unlock_bh(&lock_data->spinlock);
+	spin_unlock_bh(&lock_data->spinlock, bh);
 }
 EXPORT_SYMBOL(drm_legacy_idlelock_take);
 
 void drm_legacy_idlelock_release(struct drm_lock_data *lock_data)
 {
+	unsigned int bh;
 	unsigned int old, prev;
 	volatile unsigned int *lock = &lock_data->hw_lock->lock;
 
-	spin_lock_bh(&lock_data->spinlock);
+	bh = spin_lock_bh(&lock_data->spinlock, SOFTIRQ_ALL_MASK);
 	if (--lock_data->kernel_waiters == 0) {
 		if (lock_data->idle_has_lock) {
 			do {
@@ -319,7 +324,7 @@ void drm_legacy_idlelock_release(struct drm_lock_data *lock_data)
 			lock_data->idle_has_lock = 0;
 		}
 	}
-	spin_unlock_bh(&lock_data->spinlock);
+	spin_unlock_bh(&lock_data->spinlock, bh);
 }
 EXPORT_SYMBOL(drm_legacy_idlelock_release);
 

@@ -2633,12 +2633,13 @@ static size_t falcon_update_nic_stats(struct ef4_nic *efx, u64 *full_stats,
 
 void falcon_start_nic_stats(struct ef4_nic *efx)
 {
+	unsigned int bh;
 	struct falcon_nic_data *nic_data = efx->nic_data;
 
-	spin_lock_bh(&efx->stats_lock);
+	bh = spin_lock_bh(&efx->stats_lock, SOFTIRQ_ALL_MASK);
 	if (--nic_data->stats_disable_count == 0)
 		falcon_stats_request(efx);
-	spin_unlock_bh(&efx->stats_lock);
+	spin_unlock_bh(&efx->stats_lock, bh);
 }
 
 /* We don't acutally pull stats on falcon. Wait 10ms so that
@@ -2656,7 +2657,7 @@ void falcon_stop_nic_stats(struct ef4_nic *efx)
 
 	might_sleep();
 
-	spin_lock_bh(&efx->stats_lock);
+	spin_lock_bh(&efx->stats_lock, SOFTIRQ_ALL_MASK);
 	++nic_data->stats_disable_count;
 	spin_unlock_bh(&efx->stats_lock);
 
@@ -2670,7 +2671,7 @@ void falcon_stop_nic_stats(struct ef4_nic *efx)
 		msleep(1);
 	}
 
-	spin_lock_bh(&efx->stats_lock);
+	spin_lock_bh(&efx->stats_lock, SOFTIRQ_ALL_MASK);
 	falcon_stats_complete(efx);
 	spin_unlock_bh(&efx->stats_lock);
 }

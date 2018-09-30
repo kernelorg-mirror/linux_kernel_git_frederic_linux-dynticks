@@ -2007,6 +2007,7 @@ out_cancel:
 static int xfrm_get_ae(struct sk_buff *skb, struct nlmsghdr *nlh,
 		struct nlattr **attrs)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct xfrm_state *x;
 	struct sk_buff *r_skb;
@@ -2034,7 +2035,7 @@ static int xfrm_get_ae(struct sk_buff *skb, struct nlmsghdr *nlh,
 	 * gets lock (the concern is things getting updated
 	 * while we are still reading) - jhs
 	*/
-	spin_lock_bh(&x->lock);
+	bh = spin_lock_bh(&x->lock, SOFTIRQ_ALL_MASK);
 	c.data.aevent = p->flags;
 	c.seq = nlh->nlmsg_seq;
 	c.portid = nlh->nlmsg_pid;
@@ -2043,7 +2044,7 @@ static int xfrm_get_ae(struct sk_buff *skb, struct nlmsghdr *nlh,
 	BUG_ON(err < 0);
 
 	err = nlmsg_unicast(net->xfrm.nlsk, r_skb, NETLINK_CB(skb).portid);
-	spin_unlock_bh(&x->lock);
+	spin_unlock_bh(&x->lock, bh);
 	xfrm_state_put(x);
 	return err;
 }
@@ -2051,6 +2052,7 @@ static int xfrm_get_ae(struct sk_buff *skb, struct nlmsghdr *nlh,
 static int xfrm_new_ae(struct sk_buff *skb, struct nlmsghdr *nlh,
 		struct nlattr **attrs)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct xfrm_state *x;
 	struct km_event c;
@@ -2084,9 +2086,9 @@ static int xfrm_new_ae(struct sk_buff *skb, struct nlmsghdr *nlh,
 	if (err)
 		goto out;
 
-	spin_lock_bh(&x->lock);
+	bh = spin_lock_bh(&x->lock, SOFTIRQ_ALL_MASK);
 	xfrm_update_ae_params(x, attrs, 1);
-	spin_unlock_bh(&x->lock);
+	spin_unlock_bh(&x->lock, bh);
 
 	c.event = nlh->nlmsg_type;
 	c.seq = nlh->nlmsg_seq;
@@ -2194,6 +2196,7 @@ out:
 static int xfrm_add_sa_expire(struct sk_buff *skb, struct nlmsghdr *nlh,
 		struct nlattr **attrs)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct xfrm_state *x;
 	int err;
@@ -2208,7 +2211,7 @@ static int xfrm_add_sa_expire(struct sk_buff *skb, struct nlmsghdr *nlh,
 	if (x == NULL)
 		return err;
 
-	spin_lock_bh(&x->lock);
+	bh = spin_lock_bh(&x->lock, SOFTIRQ_ALL_MASK);
 	err = -EINVAL;
 	if (x->km.state != XFRM_STATE_VALID)
 		goto out;
@@ -2220,7 +2223,7 @@ static int xfrm_add_sa_expire(struct sk_buff *skb, struct nlmsghdr *nlh,
 	}
 	err = 0;
 out:
-	spin_unlock_bh(&x->lock);
+	spin_unlock_bh(&x->lock, bh);
 	xfrm_state_put(x);
 	return err;
 }

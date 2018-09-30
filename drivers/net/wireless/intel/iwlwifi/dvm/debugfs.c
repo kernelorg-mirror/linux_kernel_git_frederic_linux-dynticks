@@ -711,6 +711,7 @@ static ssize_t iwl_dbgfs_ucode_rx_stats_read(struct file *file,
 					char __user *user_buf,
 					size_t count, loff_t *ppos)
 {
+	unsigned int bh;
 	struct iwl_priv *priv = file->private_data;
 	int pos = 0;
 	char *buf;
@@ -736,7 +737,7 @@ static ssize_t iwl_dbgfs_ucode_rx_stats_read(struct file *file,
 	 * the last statistics notification from uCode
 	 * might not reflect the current uCode activity
 	 */
-	spin_lock_bh(&priv->statistics.lock);
+	bh = spin_lock_bh(&priv->statistics.lock, SOFTIRQ_ALL_MASK);
 	ofdm = &priv->statistics.rx_ofdm;
 	cck = &priv->statistics.rx_cck;
 	general = &priv->statistics.rx_non_phy;
@@ -1133,7 +1134,7 @@ static ssize_t iwl_dbgfs_ucode_rx_stats_read(struct file *file,
 			 accum_ht->unsupport_mcs,
 			 delta_ht->unsupport_mcs, max_ht->unsupport_mcs);
 
-	spin_unlock_bh(&priv->statistics.lock);
+	spin_unlock_bh(&priv->statistics.lock, bh);
 
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
 	kfree(buf);
@@ -1144,6 +1145,7 @@ static ssize_t iwl_dbgfs_ucode_tx_stats_read(struct file *file,
 					char __user *user_buf,
 					size_t count, loff_t *ppos)
 {
+	unsigned int bh;
 	struct iwl_priv *priv = file->private_data;
 	int pos = 0;
 	char *buf;
@@ -1162,7 +1164,7 @@ static ssize_t iwl_dbgfs_ucode_tx_stats_read(struct file *file,
 	 * the last statistics notification from uCode
 	 * might not reflect the current uCode activity
 	 */
-	spin_lock_bh(&priv->statistics.lock);
+	bh = spin_lock_bh(&priv->statistics.lock, SOFTIRQ_ALL_MASK);
 
 	tx = &priv->statistics.tx;
 	accum_tx = &priv->accum_stats.tx;
@@ -1330,7 +1332,7 @@ static ssize_t iwl_dbgfs_ucode_tx_stats_read(struct file *file,
 					tx->tx_power.ant_c);
 	}
 
-	spin_unlock_bh(&priv->statistics.lock);
+	spin_unlock_bh(&priv->statistics.lock, bh);
 
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
 	kfree(buf);
@@ -1341,6 +1343,7 @@ static ssize_t iwl_dbgfs_ucode_general_stats_read(struct file *file,
 					char __user *user_buf,
 					size_t count, loff_t *ppos)
 {
+	unsigned int bh;
 	struct iwl_priv *priv = file->private_data;
 	int pos = 0;
 	char *buf;
@@ -1363,7 +1366,7 @@ static ssize_t iwl_dbgfs_ucode_general_stats_read(struct file *file,
 	 * might not reflect the current uCode activity
 	 */
 
-	spin_lock_bh(&priv->statistics.lock);
+	bh = spin_lock_bh(&priv->statistics.lock, SOFTIRQ_ALL_MASK);
 
 	general = &priv->statistics.common;
 	dbg = &priv->statistics.common.dbg;
@@ -1450,7 +1453,7 @@ static ssize_t iwl_dbgfs_ucode_general_stats_read(struct file *file,
 			 delta_general->num_of_sos_states,
 			 max_general->num_of_sos_states);
 
-	spin_unlock_bh(&priv->statistics.lock);
+	spin_unlock_bh(&priv->statistics.lock, bh);
 
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
 	kfree(buf);
@@ -1461,6 +1464,7 @@ static ssize_t iwl_dbgfs_ucode_bt_stats_read(struct file *file,
 					char __user *user_buf,
 					size_t count, loff_t *ppos)
 {
+	unsigned int bh;
 	struct iwl_priv *priv = (struct iwl_priv *)file->private_data;
 	int pos = 0;
 	char *buf;
@@ -1491,7 +1495,7 @@ static ssize_t iwl_dbgfs_ucode_bt_stats_read(struct file *file,
 	 * might not reflect the current uCode activity
 	 */
 
-	spin_lock_bh(&priv->statistics.lock);
+	bh = spin_lock_bh(&priv->statistics.lock, SOFTIRQ_ALL_MASK);
 
 	bt = &priv->statistics.bt_activity;
 	accum_bt = &priv->accum_stats.bt_activity;
@@ -1538,7 +1542,7 @@ static ssize_t iwl_dbgfs_ucode_bt_stats_read(struct file *file,
 			 le32_to_cpu(priv->statistics.num_bt_kills),
 			 priv->statistics.accum_num_bt_kills);
 
-	spin_unlock_bh(&priv->statistics.lock);
+	spin_unlock_bh(&priv->statistics.lock, bh);
 
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, pos);
 	kfree(buf);

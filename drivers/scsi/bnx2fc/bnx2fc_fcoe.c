@@ -146,6 +146,7 @@ static void bnx2fc_fcf_get_vlan_id(struct fcoe_fcf_device *fcf_dev)
 
 static void bnx2fc_clean_rx_queue(struct fc_lport *lp)
 {
+	unsigned int bh;
 	struct fcoe_percpu_s *bg;
 	struct fcoe_rcv_info *fr;
 	struct sk_buff_head *list;
@@ -153,7 +154,7 @@ static void bnx2fc_clean_rx_queue(struct fc_lport *lp)
 	struct sk_buff *head;
 
 	bg = &bnx2fc_global;
-	spin_lock_bh(&bg->fcoe_rx_list.lock);
+	bh = spin_lock_bh(&bg->fcoe_rx_list.lock, SOFTIRQ_ALL_MASK);
 	list = &bg->fcoe_rx_list;
 	head = list->next;
 	for (skb = head; skb != (struct sk_buff *)list;
@@ -165,7 +166,7 @@ static void bnx2fc_clean_rx_queue(struct fc_lport *lp)
 			kfree_skb(skb);
 		}
 	}
-	spin_unlock_bh(&bg->fcoe_rx_list.lock);
+	spin_unlock_bh(&bg->fcoe_rx_list.lock, bh);
 }
 
 int bnx2fc_get_paged_crc_eof(struct sk_buff *skb, int tlen)
@@ -190,6 +191,7 @@ static void bnx2fc_abort_io(struct fc_lport *lport)
 
 static void bnx2fc_cleanup(struct fc_lport *lport)
 {
+	unsigned int bh;
 	struct fcoe_port *port = lport_priv(lport);
 	struct bnx2fc_interface *interface = port->priv;
 	struct bnx2fc_hba *hba = interface->hba;
@@ -198,7 +200,7 @@ static void bnx2fc_cleanup(struct fc_lport *lport)
 
 	BNX2FC_MISC_DBG("Entered %s\n", __func__);
 	mutex_lock(&hba->hba_mutex);
-	spin_lock_bh(&hba->hba_lock);
+	bh = spin_lock_bh(&hba->hba_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < BNX2FC_NUM_MAX_SESS; i++) {
 		tgt = hba->tgt_ofld_list[i];
 		if (tgt) {
@@ -207,11 +209,11 @@ static void bnx2fc_cleanup(struct fc_lport *lport)
 				spin_unlock_bh(&hba->hba_lock);
 				BNX2FC_TGT_DBG(tgt, "flush/cleanup\n");
 				bnx2fc_flush_active_ios(tgt);
-				spin_lock_bh(&hba->hba_lock);
+				spin_lock_bh(&hba->hba_lock, SOFTIRQ_ALL_MASK);
 			}
 		}
 	}
-	spin_unlock_bh(&hba->hba_lock);
+	spin_unlock_bh(&hba->hba_lock, bh);
 	mutex_unlock(&hba->hba_mutex);
 }
 
@@ -265,6 +267,7 @@ static int bnx2fc_xmit_l2_frame(struct bnx2fc_rport *tgt,
  */
 static int bnx2fc_xmit(struct fc_lport *lport, struct fc_frame *fp)
 {
+	unsigned int bh;
 	struct ethhdr		*eh;
 	struct fcoe_crc_eof	*cp;
 	struct sk_buff		*skb;
@@ -318,20 +321,20 @@ static int bnx2fc_xmit(struct fc_lport *lport, struct fc_frame *fp)
 	 * hba lock needs to be held for read access.
 	 */
 
-	spin_lock_bh(&hba->hba_lock);
+	bh = spin_lock_bh(&hba->hba_lock, SOFTIRQ_ALL_MASK);
 	tgt = bnx2fc_tgt_lookup(port, ntoh24(fh->fh_d_id));
 	if (tgt && (test_bit(BNX2FC_FLAG_SESSION_READY, &tgt->flags))) {
 		/* This frame is for offloaded session */
 		BNX2FC_HBA_DBG(lport, "xmit: Frame is for offloaded session "
 				"port_id = 0x%x\n", ntoh24(fh->fh_d_id));
-		spin_unlock_bh(&hba->hba_lock);
+		spin_unlock_bh(&hba->hba_lock, bh);
 		rc = bnx2fc_xmit_l2_frame(tgt, fp);
 		if (rc != -ENODEV) {
 			kfree_skb(skb);
 			return rc;
 		}
 	} else {
-		spin_unlock_bh(&hba->hba_lock);
+		spin_unlock_bh(&hba->hba_lock, bh);
 	}
 
 	elen = sizeof(struct ethhdr);
@@ -492,6 +495,7 @@ err:
 
 static int bnx2fc_l2_rcv_thread(void *arg)
 {
+	unsigned int bh;
 	struct fcoe_percpu_s *bg = arg;
 	struct sk_buff *skb;
 
@@ -499,14 +503,14 @@ static int bnx2fc_l2_rcv_thread(void *arg)
 	set_current_state(TASK_INTERRUPTIBLE);
 	while (!kthread_should_stop()) {
 		schedule();
-		spin_lock_bh(&bg->fcoe_rx_list.lock);
+		bh = spin_lock_bh(&bg->fcoe_rx_list.lock, SOFTIRQ_ALL_MASK);
 		while ((skb = __skb_dequeue(&bg->fcoe_rx_list)) != NULL) {
 			spin_unlock_bh(&bg->fcoe_rx_list.lock);
 			bnx2fc_recv_frame(skb);
-			spin_lock_bh(&bg->fcoe_rx_list.lock);
+			spin_lock_bh(&bg->fcoe_rx_list.lock, SOFTIRQ_ALL_MASK);
 		}
 		__set_current_state(TASK_INTERRUPTIBLE);
-		spin_unlock_bh(&bg->fcoe_rx_list.lock);
+		spin_unlock_bh(&bg->fcoe_rx_list.lock, bh);
 	}
 	__set_current_state(TASK_RUNNING);
 	return 0;
@@ -654,6 +658,7 @@ static void bnx2fc_recv_frame(struct sk_buff *skb)
  */
 static int bnx2fc_percpu_io_thread(void *arg)
 {
+	unsigned int bh;
 	struct bnx2fc_percpu_s *p = arg;
 	struct bnx2fc_work *work, *tmp;
 	LIST_HEAD(work_list);
@@ -662,7 +667,7 @@ static int bnx2fc_percpu_io_thread(void *arg)
 	set_current_state(TASK_INTERRUPTIBLE);
 	while (!kthread_should_stop()) {
 		schedule();
-		spin_lock_bh(&p->fp_work_lock);
+		bh = spin_lock_bh(&p->fp_work_lock, SOFTIRQ_ALL_MASK);
 		while (!list_empty(&p->work_list)) {
 			list_splice_init(&p->work_list, &work_list);
 			spin_unlock_bh(&p->fp_work_lock);
@@ -673,10 +678,10 @@ static int bnx2fc_percpu_io_thread(void *arg)
 				kfree(work);
 			}
 
-			spin_lock_bh(&p->fp_work_lock);
+			spin_lock_bh(&p->fp_work_lock, SOFTIRQ_ALL_MASK);
 		}
 		__set_current_state(TASK_INTERRUPTIBLE);
-		spin_unlock_bh(&p->fp_work_lock);
+		spin_unlock_bh(&p->fp_work_lock, bh);
 	}
 	__set_current_state(TASK_RUNNING);
 
@@ -1183,16 +1188,17 @@ static int bnx2fc_vport_create(struct fc_vport *vport, bool disabled)
 
 static void bnx2fc_free_vport(struct bnx2fc_hba *hba, struct fc_lport *lport)
 {
+	unsigned int bh;
 	struct bnx2fc_lport *blport, *tmp;
 
-	spin_lock_bh(&hba->hba_lock);
+	bh = spin_lock_bh(&hba->hba_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(blport, tmp, &hba->vports, list) {
 		if (blport->lport == lport) {
 			list_del(&blport->list);
 			kfree(blport);
 		}
 	}
-	spin_unlock_bh(&hba->hba_lock);
+	spin_unlock_bh(&hba->hba_lock, bh);
 }
 
 static int bnx2fc_vport_destroy(struct fc_vport *vport)
@@ -1499,6 +1505,7 @@ bnx2fc_interface_create(struct bnx2fc_hba *hba,
 static struct fc_lport *bnx2fc_if_create(struct bnx2fc_interface *interface,
 				  struct device *parent, int npiv)
 {
+	unsigned int bh;
 	struct fcoe_ctlr        *ctlr = bnx2fc_to_ctlr(interface);
 	struct fc_lport		*lport, *n_port;
 	struct fcoe_port	*port;
@@ -1584,10 +1591,10 @@ static struct fc_lport *bnx2fc_if_create(struct bnx2fc_interface *interface,
 
 	bnx2fc_interface_get(interface);
 
-	spin_lock_bh(&hba->hba_lock);
+	bh = spin_lock_bh(&hba->hba_lock, SOFTIRQ_ALL_MASK);
 	blport->lport = lport;
 	list_add_tail(&blport->list, &hba->vports);
-	spin_unlock_bh(&hba->hba_lock);
+	spin_unlock_bh(&hba->hba_lock, bh);
 
 	return lport;
 
@@ -2649,6 +2656,7 @@ static int bnx2fc_cpu_online(unsigned int cpu)
 
 static int bnx2fc_cpu_offline(unsigned int cpu)
 {
+	unsigned int bh;
 	struct bnx2fc_percpu_s *p;
 	struct task_struct *thread;
 	struct bnx2fc_work *work, *tmp;
@@ -2657,7 +2665,7 @@ static int bnx2fc_cpu_offline(unsigned int cpu)
 
 	/* Prevent any new work from being queued for this CPU */
 	p = &per_cpu(bnx2fc_percpu, cpu);
-	spin_lock_bh(&p->fp_work_lock);
+	bh = spin_lock_bh(&p->fp_work_lock, SOFTIRQ_ALL_MASK);
 	thread = p->iothread;
 	p->iothread = NULL;
 
@@ -2668,7 +2676,7 @@ static int bnx2fc_cpu_offline(unsigned int cpu)
 		kfree(work);
 	}
 
-	spin_unlock_bh(&p->fp_work_lock);
+	spin_unlock_bh(&p->fp_work_lock, bh);
 
 	if (thread)
 		kthread_stop(thread);
@@ -2694,6 +2702,7 @@ static enum cpuhp_state bnx2fc_online_state;
  **/
 static int __init bnx2fc_mod_init(void)
 {
+	unsigned int bh;
 	struct fcoe_percpu_s *bg;
 	struct task_struct *l2_thread;
 	int rc = 0;
@@ -2736,9 +2745,9 @@ static int __init bnx2fc_mod_init(void)
 		goto free_wq;
 	}
 	wake_up_process(l2_thread);
-	spin_lock_bh(&bg->fcoe_rx_list.lock);
+	bh = spin_lock_bh(&bg->fcoe_rx_list.lock, SOFTIRQ_ALL_MASK);
 	bg->kthread = l2_thread;
-	spin_unlock_bh(&bg->fcoe_rx_list.lock);
+	spin_unlock_bh(&bg->fcoe_rx_list.lock, bh);
 
 	for_each_possible_cpu(cpu) {
 		p = &per_cpu(bnx2fc_percpu, cpu);
@@ -2769,6 +2778,7 @@ out:
 
 static void __exit bnx2fc_mod_exit(void)
 {
+	unsigned int bh;
 	LIST_HEAD(to_be_deleted);
 	struct bnx2fc_hba *hba, *next;
 	struct fcoe_percpu_s *bg;
@@ -2803,13 +2813,13 @@ static void __exit bnx2fc_mod_exit(void)
 
 	/* Destroy global thread */
 	bg = &bnx2fc_global;
-	spin_lock_bh(&bg->fcoe_rx_list.lock);
+	bh = spin_lock_bh(&bg->fcoe_rx_list.lock, SOFTIRQ_ALL_MASK);
 	l2_thread = bg->kthread;
 	bg->kthread = NULL;
 	while ((skb = __skb_dequeue(&bg->fcoe_rx_list)) != NULL)
 		kfree_skb(skb);
 
-	spin_unlock_bh(&bg->fcoe_rx_list.lock);
+	spin_unlock_bh(&bg->fcoe_rx_list.lock, bh);
 
 	if (l2_thread)
 		kthread_stop(l2_thread);

@@ -96,6 +96,7 @@ static struct smsg_app_event *smsg_app_event_alloc(const char *from,
 
 static void smsg_event_work_fn(struct work_struct *work)
 {
+	unsigned int bh;
 	LIST_HEAD(event_queue);
 	struct smsg_app_event *p, *n;
 	struct device *dev;
@@ -104,9 +105,9 @@ static void smsg_event_work_fn(struct work_struct *work)
 	if (!dev)
 		return;
 
-	spin_lock_bh(&smsg_event_queue_lock);
+	bh = spin_lock_bh(&smsg_event_queue_lock, SOFTIRQ_ALL_MASK);
 	list_splice_init(&smsg_event_queue, &event_queue);
-	spin_unlock_bh(&smsg_event_queue_lock);
+	spin_unlock_bh(&smsg_event_queue_lock, bh);
 
 	list_for_each_entry_safe(p, n, &event_queue, list) {
 		list_del(&p->list);

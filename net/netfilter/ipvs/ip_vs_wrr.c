@@ -143,9 +143,10 @@ static void ip_vs_wrr_done_svc(struct ip_vs_service *svc)
 static int ip_vs_wrr_dest_changed(struct ip_vs_service *svc,
 				  struct ip_vs_dest *dest)
 {
+	unsigned int bh;
 	struct ip_vs_wrr_mark *mark = svc->sched_data;
 
-	spin_lock_bh(&svc->sched_lock);
+	bh = spin_lock_bh(&svc->sched_lock, SOFTIRQ_ALL_MASK);
 	mark->cl = list_entry(&svc->destinations, struct ip_vs_dest, n_list);
 	mark->di = ip_vs_wrr_gcd_weight(svc);
 	mark->mw = ip_vs_wrr_max_weight(svc) - (mark->di - 1);
@@ -153,7 +154,7 @@ static int ip_vs_wrr_dest_changed(struct ip_vs_service *svc,
 		mark->cw = mark->mw;
 	else if (mark->di > 1)
 		mark->cw = (mark->cw / mark->di) * mark->di + 1;
-	spin_unlock_bh(&svc->sched_lock);
+	spin_unlock_bh(&svc->sched_lock, bh);
 	return 0;
 }
 
@@ -165,13 +166,14 @@ static struct ip_vs_dest *
 ip_vs_wrr_schedule(struct ip_vs_service *svc, const struct sk_buff *skb,
 		   struct ip_vs_iphdr *iph)
 {
+	unsigned int bh;
 	struct ip_vs_dest *dest, *last, *stop = NULL;
 	struct ip_vs_wrr_mark *mark = svc->sched_data;
 	bool last_pass = false, restarted = false;
 
 	IP_VS_DBG(6, "%s(): Scheduling...\n", __func__);
 
-	spin_lock_bh(&svc->sched_lock);
+	bh = spin_lock_bh(&svc->sched_lock, SOFTIRQ_ALL_MASK);
 	dest = mark->cl;
 	/* No available dests? */
 	if (mark->mw == 0)
@@ -223,7 +225,7 @@ found:
 	mark->cl = dest;
 
   out:
-	spin_unlock_bh(&svc->sched_lock);
+	spin_unlock_bh(&svc->sched_lock, bh);
 	return dest;
 
 err_noavail:

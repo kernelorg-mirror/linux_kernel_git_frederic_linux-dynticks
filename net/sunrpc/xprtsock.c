@@ -454,6 +454,7 @@ static void xs_nospace_callback(struct rpc_task *task)
  */
 static int xs_nospace(struct rpc_task *task)
 {
+	unsigned int bh;
 	struct rpc_rqst *req = task->tk_rqstp;
 	struct rpc_xprt *xprt = req->rq_xprt;
 	struct sock_xprt *transport = container_of(xprt, struct sock_xprt, xprt);
@@ -465,7 +466,7 @@ static int xs_nospace(struct rpc_task *task)
 			req->rq_slen);
 
 	/* Protect against races with write_space */
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 
 	/* Don't race with disconnect */
 	if (xprt_connected(xprt)) {
@@ -475,7 +476,7 @@ static int xs_nospace(struct rpc_task *task)
 	} else
 		ret = -ENOTCONN;
 
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 
 	/* Race breaker in case memory is freed before above code is called */
 	if (ret == -EAGAIN) {
@@ -1040,6 +1041,7 @@ static void xs_udp_data_read_skb(struct rpc_xprt *xprt,
 		struct sock *sk,
 		struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct rpc_task *task;
 	struct rpc_rqst *rovr;
 	int repsize, copied;
@@ -1078,9 +1080,9 @@ static void xs_udp_data_read_skb(struct rpc_xprt *xprt,
 	}
 
 
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	xprt_adjust_cwnd(xprt, task, copied);
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 	spin_lock(&xprt->recv_lock);
 	xprt_complete_rqst(task, copied);
 	__UDPX_INC_STATS(sk, UDP_MIB_INDATAGRAMS);
@@ -1768,9 +1770,10 @@ static void xs_udp_set_buffer_size(struct rpc_xprt *xprt, size_t sndsize, size_t
  */
 static void xs_udp_timer(struct rpc_xprt *xprt, struct rpc_task *task)
 {
-	spin_lock_bh(&xprt->transport_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	xprt_adjust_cwnd(xprt, task, -ETIMEDOUT);
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 }
 
 static unsigned short xs_get_random_port(void)
@@ -2278,19 +2281,20 @@ static void xs_tcp_shutdown(struct rpc_xprt *xprt)
 static void xs_tcp_set_socket_timeouts(struct rpc_xprt *xprt,
 		struct socket *sock)
 {
+	unsigned int bh;
 	struct sock_xprt *transport = container_of(xprt, struct sock_xprt, xprt);
 	unsigned int keepidle;
 	unsigned int keepcnt;
 	unsigned int opt_on = 1;
 	unsigned int timeo;
 
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	keepidle = DIV_ROUND_UP(xprt->timeout->to_initval, HZ);
 	keepcnt = xprt->timeout->to_retries + 1;
 	timeo = jiffies_to_msecs(xprt->timeout->to_initval) *
 		(xprt->timeout->to_retries + 1);
 	clear_bit(XPRT_SOCK_UPD_TIMEOUT, &transport->sock_state);
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 
 	/* TCP Keepalive options */
 	kernel_setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE,
@@ -2311,11 +2315,12 @@ static void xs_tcp_set_connect_timeout(struct rpc_xprt *xprt,
 		unsigned long connect_timeout,
 		unsigned long reconnect_timeout)
 {
+	unsigned int bh;
 	struct sock_xprt *transport = container_of(xprt, struct sock_xprt, xprt);
 	struct rpc_timeout to;
 	unsigned long initval;
 
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	if (reconnect_timeout < xprt->max_reconnect_timeout)
 		xprt->max_reconnect_timeout = reconnect_timeout;
 	if (connect_timeout < xprt->connect_timeout) {
@@ -2332,7 +2337,7 @@ static void xs_tcp_set_connect_timeout(struct rpc_xprt *xprt,
 		xprt->connect_timeout = connect_timeout;
 	}
 	set_bit(XPRT_SOCK_UPD_TIMEOUT, &transport->sock_state);
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 }
 
 static int xs_tcp_finish_connecting(struct rpc_xprt *xprt, struct socket *sock)

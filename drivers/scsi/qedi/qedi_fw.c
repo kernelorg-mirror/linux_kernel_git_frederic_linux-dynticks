@@ -409,6 +409,7 @@ static int qedi_process_nopin_mesg(struct qedi_ctx *qedi,
 				   struct iscsi_task *task,
 				   struct qedi_conn *qedi_conn, u16 que_idx)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = qedi_conn->cls_conn->dd_data;
 	struct iscsi_session *session = conn->session;
 	struct iscsi_nop_in_hdr *cqe_nop_in;
@@ -420,7 +421,7 @@ static int qedi_process_nopin_mesg(struct qedi_ctx *qedi,
 	char bdq_data[QEDI_BDQ_BUF_SIZE];
 	unsigned long flags;
 
-	spin_lock_bh(&session->back_lock);
+	bh = spin_lock_bh(&session->back_lock, SOFTIRQ_ALL_MASK);
 	cqe_nop_in = &cqe->cqe_common.iscsi_hdr.nop_in;
 
 	pdu_len = cqe_nop_in->hdr_second_dword &
@@ -472,7 +473,7 @@ static int qedi_process_nopin_mesg(struct qedi_ctx *qedi,
 done:
 	__iscsi_complete_pdu(conn, (struct iscsi_hdr *)hdr, bdq_data, pdu_len);
 
-	spin_unlock_bh(&session->back_lock);
+	spin_unlock_bh(&session->back_lock, bh);
 	return tgt_async_nop;
 }
 
@@ -482,6 +483,7 @@ static void qedi_process_async_mesg(struct qedi_ctx *qedi,
 				    struct qedi_conn *qedi_conn,
 				    u16 que_idx)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = qedi_conn->cls_conn->dd_data;
 	struct iscsi_session *session = conn->session;
 	struct iscsi_async_msg_hdr *cqe_async_msg;
@@ -491,7 +493,7 @@ static void qedi_process_async_mesg(struct qedi_ctx *qedi,
 	char bdq_data[QEDI_BDQ_BUF_SIZE];
 	unsigned long flags;
 
-	spin_lock_bh(&session->back_lock);
+	bh = spin_lock_bh(&session->back_lock, SOFTIRQ_ALL_MASK);
 
 	cqe_async_msg = &cqe->cqe_common.iscsi_hdr.async_msg;
 	pdu_len = cqe_async_msg->hdr_second_dword &
@@ -527,7 +529,7 @@ static void qedi_process_async_mesg(struct qedi_ctx *qedi,
 	__iscsi_complete_pdu(conn, (struct iscsi_hdr *)resp_hdr, bdq_data,
 			     pdu_len);
 
-	spin_unlock_bh(&session->back_lock);
+	spin_unlock_bh(&session->back_lock, bh);
 }
 
 static void qedi_process_reject_mesg(struct qedi_ctx *qedi,
@@ -536,6 +538,7 @@ static void qedi_process_reject_mesg(struct qedi_ctx *qedi,
 				     struct qedi_conn *qedi_conn,
 				     uint16_t que_idx)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = qedi_conn->cls_conn->dd_data;
 	struct iscsi_session *session = conn->session;
 	struct iscsi_reject_hdr *cqe_reject;
@@ -543,7 +546,7 @@ static void qedi_process_reject_mesg(struct qedi_ctx *qedi,
 	u32 pld_len, num_bdqs;
 	unsigned long flags;
 
-	spin_lock_bh(&session->back_lock);
+	bh = spin_lock_bh(&session->back_lock, SOFTIRQ_ALL_MASK);
 	cqe_reject = &cqe->cqe_common.iscsi_hdr.reject;
 	pld_len = cqe_reject->hdr_second_dword &
 		  ISCSI_REJECT_HDR_DATA_SEG_LEN_MASK;
@@ -569,7 +572,7 @@ static void qedi_process_reject_mesg(struct qedi_ctx *qedi,
 
 	__iscsi_complete_pdu(conn, (struct iscsi_hdr *)hdr,
 			     conn->data, pld_len);
-	spin_unlock_bh(&session->back_lock);
+	spin_unlock_bh(&session->back_lock, bh);
 }
 
 static void qedi_scsi_completion(struct qedi_ctx *qedi,
@@ -577,6 +580,7 @@ static void qedi_scsi_completion(struct qedi_ctx *qedi,
 				 struct iscsi_task *task,
 				 struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct scsi_cmnd *sc_cmd;
 	struct qedi_cmd *cmd = task->dd_data;
 	struct iscsi_session *session = conn->session;
@@ -594,7 +598,7 @@ static void qedi_scsi_completion(struct qedi_ctx *qedi,
 	cqe_err_bits =
 		cqe->cqe_common.error_bitmap.error_bits.cqe_error_status_bits;
 
-	spin_lock_bh(&session->back_lock);
+	bh = spin_lock_bh(&session->back_lock, SOFTIRQ_ALL_MASK);
 	/* get the scsi command */
 	sc_cmd = cmd->scsi_cmd;
 
@@ -682,7 +686,7 @@ static void qedi_scsi_completion(struct qedi_ctx *qedi,
 	__iscsi_complete_pdu(conn, (struct iscsi_hdr *)hdr,
 			     conn->data, datalen);
 error:
-	spin_unlock_bh(&session->back_lock);
+	spin_unlock_bh(&session->back_lock, bh);
 }
 
 static void qedi_mtask_completion(struct qedi_ctx *qedi,
@@ -726,6 +730,7 @@ static void qedi_process_nopin_local_cmpl(struct qedi_ctx *qedi,
 					  struct iscsi_task *task,
 					  struct qedi_conn *qedi_conn)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = qedi_conn->cls_conn->dd_data;
 	struct iscsi_session *session = conn->session;
 	struct qedi_cmd *cmd = task->dd_data;
@@ -737,9 +742,9 @@ static void qedi_process_nopin_local_cmpl(struct qedi_ctx *qedi,
 	cmd->state = RESPONSE_RECEIVED;
 	qedi_clear_task_idx(qedi, cmd->task_id);
 
-	spin_lock_bh(&session->back_lock);
+	bh = spin_lock_bh(&session->back_lock, SOFTIRQ_ALL_MASK);
 	__iscsi_put_task(task);
-	spin_unlock_bh(&session->back_lock);
+	spin_unlock_bh(&session->back_lock, bh);
 }
 
 static void qedi_process_cmd_cleanup_resp(struct qedi_ctx *qedi,
@@ -747,6 +752,7 @@ static void qedi_process_cmd_cleanup_resp(struct qedi_ctx *qedi,
 					  struct iscsi_task *task,
 					  struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct qedi_work_map *work, *work_tmp;
 	u32 proto_itt = cqe->itid;
 	u32 ptmp_itt = 0;
@@ -769,7 +775,7 @@ static void qedi_process_cmd_cleanup_resp(struct qedi_ctx *qedi,
 	}
 
 	/* Based on this itt get the corresponding qedi_cmd */
-	spin_lock_bh(&qedi_conn->tmf_work_lock);
+	bh = spin_lock_bh(&qedi_conn->tmf_work_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(work, work_tmp, &qedi_conn->tmf_work_list,
 				 list) {
 		if (work->rtid == proto_itt) {
@@ -791,7 +797,7 @@ static void qedi_process_cmd_cleanup_resp(struct qedi_ctx *qedi,
 			qedi_cmd->list_tmf_work = NULL;
 		}
 	}
-	spin_unlock_bh(&qedi_conn->tmf_work_lock);
+	spin_unlock_bh(&qedi_conn->tmf_work_lock, bh);
 
 	if (found) {
 		QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_SCSI_TM,
@@ -800,7 +806,7 @@ static void qedi_process_cmd_cleanup_resp(struct qedi_ctx *qedi,
 
 		if ((tmf_hdr->flags & ISCSI_FLAG_TM_FUNC_MASK) ==
 		    ISCSI_TM_FUNC_ABORT_TASK) {
-			spin_lock_bh(&conn->session->back_lock);
+			spin_lock_bh(&conn->session->back_lock, SOFTIRQ_ALL_MASK);
 
 			protoitt = build_itt(get_itt(tmf_hdr->rtt),
 					     conn->session->age);
@@ -836,7 +842,7 @@ static void qedi_process_cmd_cleanup_resp(struct qedi_ctx *qedi,
 			wake_up_interruptible(&qedi_conn->wait_queue);
 		}
 	} else if (qedi_conn->cmd_cleanup_req > 0) {
-		spin_lock_bh(&conn->session->back_lock);
+		spin_lock_bh(&conn->session->back_lock, SOFTIRQ_ALL_MASK);
 		qedi_get_proto_itt(qedi, cqe->itid, &ptmp_itt);
 		protoitt = build_itt(ptmp_itt, conn->session->age);
 		task = iscsi_itt_to_task(conn, protoitt);
@@ -1195,6 +1201,7 @@ int qedi_send_iscsi_logout(struct qedi_conn *qedi_conn,
 int qedi_cleanup_all_io(struct qedi_ctx *qedi, struct qedi_conn *qedi_conn,
 			struct iscsi_task *task, bool in_recovery)
 {
+	unsigned int bh;
 	int rval;
 	struct iscsi_task *ctask;
 	struct qedi_cmd *cmd, *cmd_tmp;
@@ -1224,7 +1231,7 @@ int qedi_cleanup_all_io(struct qedi_ctx *qedi, struct qedi_conn *qedi_conn,
 		  in_recovery, lun_reset);
 
 	if (lun_reset)
-		spin_lock_bh(&session->back_lock);
+		bh = spin_lock_bh(&session->back_lock, SOFTIRQ_ALL_MASK);
 
 	spin_lock(&qedi_conn->list_lock);
 
@@ -1259,7 +1266,7 @@ int qedi_cleanup_all_io(struct qedi_ctx *qedi, struct qedi_conn *qedi_conn,
 	spin_unlock(&qedi_conn->list_lock);
 
 	if (lun_reset)
-		spin_unlock_bh(&session->back_lock);
+		spin_unlock_bh(&session->back_lock, bh);
 
 	QEDI_INFO(&qedi->dbg_ctx, QEDI_LOG_SCSI_TM,
 		  "cmd_cleanup_req=%d, cid=0x%x\n",
@@ -1369,6 +1376,7 @@ static int qedi_wait_for_cleanup_request(struct qedi_ctx *qedi,
 
 static void qedi_tmf_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct qedi_cmd *qedi_cmd =
 		container_of(work, struct qedi_cmd, tmf_work);
 	struct qedi_conn *qedi_conn = qedi_cmd->conn;
@@ -1423,9 +1431,9 @@ static void qedi_tmf_work(struct work_struct *work)
 		  list_work->ptr_tmf_work, list_work, qedi_conn->iscsi_conn_id,
 		  tmf_hdr->flags);
 
-	spin_lock_bh(&qedi_conn->tmf_work_lock);
+	bh = spin_lock_bh(&qedi_conn->tmf_work_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&list_work->list, &qedi_conn->tmf_work_list);
-	spin_unlock_bh(&qedi_conn->tmf_work_lock);
+	spin_unlock_bh(&qedi_conn->tmf_work_lock, bh);
 
 	qedi_iscsi_cleanup_task(ctask, false);
 
@@ -1453,7 +1461,7 @@ abort_ret:
 	return;
 
 ldel_exit:
-	spin_lock_bh(&qedi_conn->tmf_work_lock);
+	spin_lock_bh(&qedi_conn->tmf_work_lock, SOFTIRQ_ALL_MASK);
 	if (!qedi_cmd->list_tmf_work) {
 		list_del_init(&list_work->list);
 		qedi_cmd->list_tmf_work = NULL;

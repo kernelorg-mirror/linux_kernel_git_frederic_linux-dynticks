@@ -948,7 +948,7 @@ static inline bool afs_set_call_state(struct afs_call *call,
 {
 	bool ok = false;
 
-	spin_lock_bh(&call->state_lock);
+	spin_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 	if (call->state == from) {
 		call->state = to;
 		trace_afs_call_state(call, from, to, 0, 0);
@@ -964,7 +964,7 @@ static inline void afs_set_call_complete(struct afs_call *call,
 	enum afs_call_state state;
 	bool ok = false;
 
-	spin_lock_bh(&call->state_lock);
+	spin_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 	state = call->state;
 	if (state != AFS_CALL_COMPLETE) {
 		call->abort_code = remote_abort;

@@ -146,6 +146,7 @@ EXPORT_SYMBOL(cxgb4_clip_get);
 
 void cxgb4_clip_release(const struct net_device *dev, const u32 *lip, u8 v6)
 {
+	unsigned int bh;
 	struct adapter *adap = netdev2adap(dev);
 	struct clip_tbl *ctbl = adap->clipt;
 	struct clip_entry *ce, *cte;
@@ -177,7 +178,7 @@ void cxgb4_clip_release(const struct net_device *dev, const u32 *lip, u8 v6)
 	return;
 found:
 	write_lock_bh(&ctbl->lock);
-	spin_lock_bh(&ce->lock);
+	bh = spin_lock_bh(&ce->lock, SOFTIRQ_ALL_MASK);
 	if (refcount_dec_and_test(&ce->refcnt)) {
 		list_del(&ce->list);
 		INIT_LIST_HEAD(&ce->list);
@@ -186,7 +187,7 @@ found:
 		if (v6)
 			clip6_release_mbox(dev, (const struct in6_addr *)lip);
 	}
-	spin_unlock_bh(&ce->lock);
+	spin_unlock_bh(&ce->lock, bh);
 	write_unlock_bh(&ctbl->lock);
 }
 EXPORT_SYMBOL(cxgb4_clip_release);

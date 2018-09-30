@@ -50,34 +50,36 @@ static DEFINE_SPINLOCK(dev_list_lock); /* spinlock for device list */
 
 struct rxe_dev *net_to_rxe(struct net_device *ndev)
 {
+	unsigned int bh;
 	struct rxe_dev *rxe;
 	struct rxe_dev *found = NULL;
 
-	spin_lock_bh(&dev_list_lock);
+	bh = spin_lock_bh(&dev_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(rxe, &rxe_dev_list, list) {
 		if (rxe->ndev == ndev) {
 			found = rxe;
 			break;
 		}
 	}
-	spin_unlock_bh(&dev_list_lock);
+	spin_unlock_bh(&dev_list_lock, bh);
 
 	return found;
 }
 
 struct rxe_dev *get_rxe_by_name(const char *name)
 {
+	unsigned int bh;
 	struct rxe_dev *rxe;
 	struct rxe_dev *found = NULL;
 
-	spin_lock_bh(&dev_list_lock);
+	bh = spin_lock_bh(&dev_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(rxe, &rxe_dev_list, list) {
 		if (!strcmp(name, rxe->ib_dev.name)) {
 			found = rxe;
 			break;
 		}
 	}
-	spin_unlock_bh(&dev_list_lock);
+	spin_unlock_bh(&dev_list_lock, bh);
 	return found;
 }
 
@@ -567,6 +569,7 @@ enum rdma_link_layer rxe_link_layer(struct rxe_dev *rxe, unsigned int port_num)
 
 struct rxe_dev *rxe_net_add(struct net_device *ndev)
 {
+	unsigned int bh;
 	int err;
 	struct rxe_dev *rxe = NULL;
 
@@ -582,25 +585,26 @@ struct rxe_dev *rxe_net_add(struct net_device *ndev)
 		return NULL;
 	}
 
-	spin_lock_bh(&dev_list_lock);
+	bh = spin_lock_bh(&dev_list_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&rxe->list, &rxe_dev_list);
-	spin_unlock_bh(&dev_list_lock);
+	spin_unlock_bh(&dev_list_lock, bh);
 	return rxe;
 }
 
 void rxe_remove_all(void)
 {
-	spin_lock_bh(&dev_list_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&dev_list_lock, SOFTIRQ_ALL_MASK);
 	while (!list_empty(&rxe_dev_list)) {
 		struct rxe_dev *rxe =
 			list_first_entry(&rxe_dev_list, struct rxe_dev, list);
 
 		list_del(&rxe->list);
-		spin_unlock_bh(&dev_list_lock);
+		spin_unlock_bh(&dev_list_lock, bh);
 		rxe_remove(rxe);
-		spin_lock_bh(&dev_list_lock);
+		bh = spin_lock_bh(&dev_list_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&dev_list_lock);
+	spin_unlock_bh(&dev_list_lock, bh);
 }
 
 static void rxe_port_event(struct rxe_dev *rxe,

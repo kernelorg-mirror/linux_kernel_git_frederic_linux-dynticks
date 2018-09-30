@@ -442,6 +442,7 @@ void intel_gvt_kick_schedule(struct intel_gvt *gvt)
 
 void intel_vgpu_stop_schedule(struct intel_vgpu *vgpu)
 {
+	unsigned int bh;
 	struct intel_gvt_workload_scheduler *scheduler =
 		&vgpu->gvt->scheduler;
 	int ring_id;
@@ -466,14 +467,14 @@ void intel_vgpu_stop_schedule(struct intel_vgpu *vgpu)
 	}
 
 	intel_runtime_pm_get(dev_priv);
-	spin_lock_bh(&scheduler->mmio_context_lock);
+	bh = spin_lock_bh(&scheduler->mmio_context_lock, SOFTIRQ_ALL_MASK);
 	for (ring_id = 0; ring_id < I915_NUM_ENGINES; ring_id++) {
 		if (scheduler->engine_owner[ring_id] == vgpu) {
 			intel_gvt_switch_mmio(vgpu, NULL, ring_id);
 			scheduler->engine_owner[ring_id] = NULL;
 		}
 	}
-	spin_unlock_bh(&scheduler->mmio_context_lock);
+	spin_unlock_bh(&scheduler->mmio_context_lock, bh);
 	intel_runtime_pm_put(dev_priv);
 	mutex_unlock(&vgpu->gvt->sched_lock);
 }

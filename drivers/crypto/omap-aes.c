@@ -212,13 +212,14 @@ static void omap_aes_dma_stop(struct omap_aes_dev *dd)
 
 struct omap_aes_dev *omap_aes_find_dev(struct omap_aes_reqctx *rctx)
 {
+	unsigned int bh;
 	struct omap_aes_dev *dd;
 
-	spin_lock_bh(&list_lock);
+	bh = spin_lock_bh(&list_lock, SOFTIRQ_ALL_MASK);
 	dd = list_first_entry(&dev_list, struct omap_aes_dev, list);
 	list_move_tail(&dd->list, &dev_list);
 	rctx->dd = dd;
-	spin_unlock_bh(&list_lock);
+	spin_unlock_bh(&list_lock, bh);
 
 	return dd;
 }
@@ -634,16 +635,17 @@ static int omap_aes_cra_init(struct crypto_tfm *tfm)
 
 static int omap_aes_gcm_cra_init(struct crypto_aead *tfm)
 {
+	unsigned int bh;
 	struct omap_aes_dev *dd = NULL;
 	struct omap_aes_ctx *ctx = crypto_aead_ctx(tfm);
 	int err;
 
 	/* Find AES device, currently picks the first device */
-	spin_lock_bh(&list_lock);
+	bh = spin_lock_bh(&list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(dd, &dev_list, list) {
 		break;
 	}
-	spin_unlock_bh(&list_lock);
+	spin_unlock_bh(&list_lock, bh);
 
 	err = pm_runtime_get_sync(dd->dev);
 	if (err < 0) {
@@ -1081,6 +1083,7 @@ static ssize_t queue_len_store(struct device *dev,
 			       struct device_attribute *attr, const char *buf,
 			       size_t size)
 {
+	unsigned int bh;
 	struct omap_aes_dev *dd;
 	ssize_t status;
 	long value;
@@ -1098,14 +1101,14 @@ static ssize_t queue_len_store(struct device *dev,
 	 * than current size, it will just not accept new entries until
 	 * it has shrank enough.
 	 */
-	spin_lock_bh(&list_lock);
+	bh = spin_lock_bh(&list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(dd, &dev_list, list) {
 		spin_lock_irqsave(&dd->lock, flags);
 		dd->engine->queue.max_qlen = value;
 		dd->aead_queue.base.max_qlen = value;
 		spin_unlock_irqrestore(&dd->lock, flags);
 	}
-	spin_unlock_bh(&list_lock);
+	spin_unlock_bh(&list_lock, bh);
 
 	return size;
 }

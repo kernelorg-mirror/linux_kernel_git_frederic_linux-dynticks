@@ -96,16 +96,17 @@ static int stm32_crc_setkey(struct crypto_shash *tfm, const u8 *key,
 
 static int stm32_crc_init(struct shash_desc *desc)
 {
+	unsigned int bh;
 	struct stm32_crc_desc_ctx *ctx = shash_desc_ctx(desc);
 	struct stm32_crc_ctx *mctx = crypto_shash_ctx(desc->tfm);
 	struct stm32_crc *crc;
 
-	spin_lock_bh(&crc_list.lock);
+	bh = spin_lock_bh(&crc_list.lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(crc, &crc_list.dev_list, list) {
 		ctx->crc = crc;
 		break;
 	}
-	spin_unlock_bh(&crc_list.lock);
+	spin_unlock_bh(&crc_list.lock, bh);
 
 	pm_runtime_get_sync(ctx->crc->dev);
 

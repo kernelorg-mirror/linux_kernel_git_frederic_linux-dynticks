@@ -366,18 +366,19 @@ static void htable_selective_cleanup(struct xt_hashlimit_htable *ht,
 			bool (*select)(const struct xt_hashlimit_htable *ht,
 				      const struct dsthash_ent *he))
 {
+	unsigned int bh;
 	unsigned int i;
 
 	for (i = 0; i < ht->cfg.size; i++) {
 		struct dsthash_ent *dh;
 		struct hlist_node *n;
 
-		spin_lock_bh(&ht->lock);
+		bh = spin_lock_bh(&ht->lock, SOFTIRQ_ALL_MASK);
 		hlist_for_each_entry_safe(dh, n, &ht->hash[i], node) {
 			if ((*select)(ht, dh))
 				dsthash_free(ht, dh);
 		}
-		spin_unlock_bh(&ht->lock);
+		spin_unlock_bh(&ht->lock, bh);
 		cond_resched();
 	}
 }
@@ -1061,7 +1062,7 @@ static void *dl_seq_start(struct seq_file *s, loff_t *pos)
 	struct xt_hashlimit_htable *htable = PDE_DATA(file_inode(s->file));
 	unsigned int *bucket;
 
-	spin_lock_bh(&htable->lock);
+	spin_lock_bh(&htable->lock, SOFTIRQ_ALL_MASK);
 	if (*pos >= htable->cfg.size)
 		return NULL;
 

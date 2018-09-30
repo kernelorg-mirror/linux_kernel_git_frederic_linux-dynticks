@@ -293,6 +293,7 @@ static void iwl_pcie_txq_inc_wr_ptr(struct iwl_trans *trans,
 
 void iwl_pcie_txq_check_wrptrs(struct iwl_trans *trans)
 {
+	unsigned int bh;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	int i;
 
@@ -302,12 +303,12 @@ void iwl_pcie_txq_check_wrptrs(struct iwl_trans *trans)
 		if (!test_bit(i, trans_pcie->queue_used))
 			continue;
 
-		spin_lock_bh(&txq->lock);
+		bh = spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 		if (txq->need_update) {
 			iwl_pcie_txq_inc_wr_ptr(trans, txq);
 			txq->need_update = false;
 		}
-		spin_unlock_bh(&txq->lock);
+		spin_unlock_bh(&txq->lock, bh);
 	}
 }
 
@@ -626,10 +627,11 @@ static void iwl_pcie_clear_cmd_in_flight(struct iwl_trans *trans)
  */
 static void iwl_pcie_txq_unmap(struct iwl_trans *trans, int txq_id)
 {
+	unsigned int bh;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	struct iwl_txq *txq = trans_pcie->txq[txq_id];
 
-	spin_lock_bh(&txq->lock);
+	bh = spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 	while (txq->write_ptr != txq->read_ptr) {
 		IWL_DEBUG_TX_REPLY(trans, "Q %d Free %d\n",
 				   txq_id, txq->read_ptr);
@@ -666,7 +668,7 @@ static void iwl_pcie_txq_unmap(struct iwl_trans *trans, int txq_id)
 		iwl_op_mode_free_skb(trans->op_mode, skb);
 	}
 
-	spin_unlock_bh(&txq->lock);
+	spin_unlock_bh(&txq->lock, bh);
 
 	/* just in case - this queue may have been stopped */
 	iwl_wake_queue(trans, txq);
@@ -1071,6 +1073,7 @@ static inline void iwl_pcie_txq_progress(struct iwl_txq *txq)
 void iwl_trans_pcie_reclaim(struct iwl_trans *trans, int txq_id, int ssn,
 			    struct sk_buff_head *skbs)
 {
+	unsigned int bh;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	struct iwl_txq *txq = trans_pcie->txq[txq_id];
 	int tfd_num = iwl_pcie_get_cmd_index(txq, ssn);
@@ -1081,7 +1084,7 @@ void iwl_trans_pcie_reclaim(struct iwl_trans *trans, int txq_id, int ssn,
 	if (WARN_ON(txq_id == trans_pcie->cmd_queue))
 		return;
 
-	spin_lock_bh(&txq->lock);
+	bh = spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 
 	if (!test_bit(txq_id, trans_pcie->queue_used)) {
 		IWL_DEBUG_TX_QUEUES(trans, "Q %d inactive - ignoring idx %d\n",
@@ -1164,7 +1167,7 @@ void iwl_trans_pcie_reclaim(struct iwl_trans *trans, int txq_id, int ssn,
 			 */
 			iwl_trans_tx(trans, skb, dev_cmd_ptr, txq_id);
 		}
-		spin_lock_bh(&txq->lock);
+		spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 
 		if (iwl_queue_space(trans, txq) > txq->low_mark)
 			iwl_wake_queue(trans, txq);
@@ -1176,7 +1179,7 @@ void iwl_trans_pcie_reclaim(struct iwl_trans *trans, int txq_id, int ssn,
 	}
 
 out:
-	spin_unlock_bh(&txq->lock);
+	spin_unlock_bh(&txq->lock, bh);
 }
 
 static int iwl_pcie_set_cmd_in_flight(struct iwl_trans *trans,
@@ -1473,6 +1476,7 @@ void iwl_trans_pcie_txq_disable(struct iwl_trans *trans, int txq_id,
 static int iwl_pcie_enqueue_hcmd(struct iwl_trans *trans,
 				 struct iwl_host_cmd *cmd)
 {
+	unsigned int bh;
 	struct iwl_trans_pcie *trans_pcie = IWL_TRANS_GET_PCIE_TRANS(trans);
 	struct iwl_txq *txq = trans_pcie->txq[trans_pcie->cmd_queue];
 	struct iwl_device_cmd *out_cmd;
@@ -1571,10 +1575,10 @@ static int iwl_pcie_enqueue_hcmd(struct iwl_trans *trans,
 		goto free_dup_buf;
 	}
 
-	spin_lock_bh(&txq->lock);
+	bh = spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 
 	if (iwl_queue_space(trans, txq) < ((cmd->flags & CMD_ASYNC) ? 2 : 1)) {
-		spin_unlock_bh(&txq->lock);
+		spin_unlock_bh(&txq->lock, bh);
 
 		IWL_ERR(trans, "No space in command queue\n");
 		iwl_op_mode_cmd_queue_full(trans->op_mode);
@@ -1735,7 +1739,7 @@ static int iwl_pcie_enqueue_hcmd(struct iwl_trans *trans,
 	spin_unlock_irqrestore(&trans_pcie->reg_lock, flags);
 
  out:
-	spin_unlock_bh(&txq->lock);
+	spin_unlock_bh(&txq->lock, bh);
  free_dup_buf:
 	if (idx < 0)
 		kfree(dup_buf);
@@ -1749,6 +1753,7 @@ static int iwl_pcie_enqueue_hcmd(struct iwl_trans *trans,
 void iwl_pcie_hcmd_complete(struct iwl_trans *trans,
 			    struct iwl_rx_cmd_buffer *rxb)
 {
+	unsigned int bh;
 	struct iwl_rx_packet *pkt = rxb_addr(rxb);
 	u16 sequence = le16_to_cpu(pkt->hdr.sequence);
 	u8 group_id;
@@ -1772,7 +1777,7 @@ void iwl_pcie_hcmd_complete(struct iwl_trans *trans,
 		return;
 	}
 
-	spin_lock_bh(&txq->lock);
+	bh = spin_lock_bh(&txq->lock, SOFTIRQ_ALL_MASK);
 
 	cmd_index = iwl_pcie_get_cmd_index(txq, index);
 	cmd = txq->entries[cmd_index].cmd;
@@ -1824,7 +1829,7 @@ void iwl_pcie_hcmd_complete(struct iwl_trans *trans,
 
 	meta->flags = 0;
 
-	spin_unlock_bh(&txq->lock);
+	spin_unlock_bh(&txq->lock, bh);
 }
 
 #define HOST_COMPLETE_TIMEOUT	(2 * HZ)

@@ -455,6 +455,7 @@ iscsi_tcp_data_recv_prep(struct iscsi_tcp_conn *tcp_conn)
  */
 void iscsi_tcp_cleanup_task(struct iscsi_task *task)
 {
+	unsigned int bh;
 	struct iscsi_tcp_task *tcp_task = task->dd_data;
 	struct iscsi_r2t_info *r2t;
 
@@ -462,7 +463,7 @@ void iscsi_tcp_cleanup_task(struct iscsi_task *task)
 	if (!task->sc)
 		return;
 
-	spin_lock_bh(&tcp_task->queue2pool);
+	bh = spin_lock_bh(&tcp_task->queue2pool, SOFTIRQ_ALL_MASK);
 	/* flush task's r2t queues */
 	while (kfifo_out(&tcp_task->r2tqueue, (void*)&r2t, sizeof(void*))) {
 		kfifo_in(&tcp_task->r2tpool.queue, (void*)&r2t,
@@ -476,7 +477,7 @@ void iscsi_tcp_cleanup_task(struct iscsi_task *task)
 			    sizeof(void*));
 		tcp_task->r2t = NULL;
 	}
-	spin_unlock_bh(&tcp_task->queue2pool);
+	spin_unlock_bh(&tcp_task->queue2pool, bh);
 }
 EXPORT_SYMBOL_GPL(iscsi_tcp_cleanup_task);
 
@@ -994,13 +995,14 @@ EXPORT_SYMBOL_GPL(iscsi_tcp_task_init);
 
 static struct iscsi_r2t_info *iscsi_tcp_get_curr_r2t(struct iscsi_task *task)
 {
+	unsigned int bh;
 	struct iscsi_tcp_task *tcp_task = task->dd_data;
 	struct iscsi_r2t_info *r2t = NULL;
 
 	if (iscsi_task_has_unsol_data(task))
 		r2t = &task->unsol_r2t;
 	else {
-		spin_lock_bh(&tcp_task->queue2pool);
+		bh = spin_lock_bh(&tcp_task->queue2pool, SOFTIRQ_ALL_MASK);
 		if (tcp_task->r2t) {
 			r2t = tcp_task->r2t;
 			/* Continue with this R2T? */
@@ -1022,7 +1024,7 @@ static struct iscsi_r2t_info *iscsi_tcp_get_curr_r2t(struct iscsi_task *task)
 			else
 				r2t = tcp_task->r2t;
 		}
-		spin_unlock_bh(&tcp_task->queue2pool);
+		spin_unlock_bh(&tcp_task->queue2pool, bh);
 	}
 
 	return r2t;

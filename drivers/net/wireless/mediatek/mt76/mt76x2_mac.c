@@ -208,6 +208,7 @@ void mt76x2_mac_set_beacon_enable(struct mt76x2_dev *dev, u8 vif_idx, bool val)
 
 void mt76x2_update_channel(struct mt76_dev *mdev)
 {
+	unsigned int bh;
 	struct mt76x2_dev *dev = container_of(mdev, struct mt76x2_dev, mt76);
 	struct mt76_channel_state *state;
 	u32 active, busy;
@@ -217,10 +218,10 @@ void mt76x2_update_channel(struct mt76_dev *mdev)
 	busy = mt76_rr(dev, MT_CH_BUSY);
 	active = busy + mt76_rr(dev, MT_CH_IDLE);
 
-	spin_lock_bh(&dev->mt76.cc_lock);
+	bh = spin_lock_bh(&dev->mt76.cc_lock, SOFTIRQ_ALL_MASK);
 	state->cc_busy += busy;
 	state->cc_active += active;
-	spin_unlock_bh(&dev->mt76.cc_lock);
+	spin_unlock_bh(&dev->mt76.cc_lock, bh);
 }
 
 void mt76x2_mac_work(struct work_struct *work)

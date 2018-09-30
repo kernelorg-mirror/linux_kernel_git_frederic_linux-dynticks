@@ -598,6 +598,7 @@ static int
 nfp_flower_get_stats(struct nfp_app *app, struct net_device *netdev,
 		     struct tc_cls_flower_offload *flow, bool egress)
 {
+	unsigned int bh;
 	struct nfp_fl_payload *nfp_flow;
 	struct net_device *ingr_dev;
 
@@ -610,13 +611,13 @@ nfp_flower_get_stats(struct nfp_app *app, struct net_device *netdev,
 	if (nfp_flow->ingress_offload && egress)
 		return 0;
 
-	spin_lock_bh(&nfp_flow->lock);
+	bh = spin_lock_bh(&nfp_flow->lock, SOFTIRQ_ALL_MASK);
 	tcf_exts_stats_update(flow->exts, nfp_flow->stats.bytes,
 			      nfp_flow->stats.pkts, nfp_flow->stats.used);
 
 	nfp_flow->stats.pkts = 0;
 	nfp_flow->stats.bytes = 0;
-	spin_unlock_bh(&nfp_flow->lock);
+	spin_unlock_bh(&nfp_flow->lock, bh);
 
 	return 0;
 }

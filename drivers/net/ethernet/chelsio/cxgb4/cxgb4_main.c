@@ -1086,9 +1086,10 @@ static int setup_debugfs(struct adapter *adap)
  */
 int cxgb4_alloc_atid(struct tid_info *t, void *data)
 {
+	unsigned int bh;
 	int atid = -1;
 
-	spin_lock_bh(&t->atid_lock);
+	bh = spin_lock_bh(&t->atid_lock, SOFTIRQ_ALL_MASK);
 	if (t->afree) {
 		union aopen_entry *p = t->afree;
 
@@ -1097,7 +1098,7 @@ int cxgb4_alloc_atid(struct tid_info *t, void *data)
 		p->data = data;
 		t->atids_in_use++;
 	}
-	spin_unlock_bh(&t->atid_lock);
+	spin_unlock_bh(&t->atid_lock, bh);
 	return atid;
 }
 EXPORT_SYMBOL(cxgb4_alloc_atid);
@@ -1107,13 +1108,14 @@ EXPORT_SYMBOL(cxgb4_alloc_atid);
  */
 void cxgb4_free_atid(struct tid_info *t, unsigned int atid)
 {
+	unsigned int bh;
 	union aopen_entry *p = &t->atid_tab[atid - t->atid_base];
 
-	spin_lock_bh(&t->atid_lock);
+	bh = spin_lock_bh(&t->atid_lock, SOFTIRQ_ALL_MASK);
 	p->next = t->afree;
 	t->afree = p;
 	t->atids_in_use--;
-	spin_unlock_bh(&t->atid_lock);
+	spin_unlock_bh(&t->atid_lock, bh);
 }
 EXPORT_SYMBOL(cxgb4_free_atid);
 
@@ -1122,9 +1124,10 @@ EXPORT_SYMBOL(cxgb4_free_atid);
  */
 int cxgb4_alloc_stid(struct tid_info *t, int family, void *data)
 {
+	unsigned int bh;
 	int stid;
 
-	spin_lock_bh(&t->stid_lock);
+	bh = spin_lock_bh(&t->stid_lock, SOFTIRQ_ALL_MASK);
 	if (family == PF_INET) {
 		stid = find_first_zero_bit(t->stid_bmap, t->nstids);
 		if (stid < t->nstids)
@@ -1150,7 +1153,7 @@ int cxgb4_alloc_stid(struct tid_info *t, int family, void *data)
 			t->stids_in_use++;
 		}
 	}
-	spin_unlock_bh(&t->stid_lock);
+	spin_unlock_bh(&t->stid_lock, bh);
 	return stid;
 }
 EXPORT_SYMBOL(cxgb4_alloc_stid);
@@ -1159,9 +1162,10 @@ EXPORT_SYMBOL(cxgb4_alloc_stid);
  */
 int cxgb4_alloc_sftid(struct tid_info *t, int family, void *data)
 {
+	unsigned int bh;
 	int stid;
 
-	spin_lock_bh(&t->stid_lock);
+	bh = spin_lock_bh(&t->stid_lock, SOFTIRQ_ALL_MASK);
 	if (family == PF_INET) {
 		stid = find_next_zero_bit(t->stid_bmap,
 				t->nstids + t->nsftids, t->nstids);
@@ -1178,7 +1182,7 @@ int cxgb4_alloc_sftid(struct tid_info *t, int family, void *data)
 		stid += t->sftid_base;
 		t->sftids_in_use++;
 	}
-	spin_unlock_bh(&t->stid_lock);
+	spin_unlock_bh(&t->stid_lock, bh);
 	return stid;
 }
 EXPORT_SYMBOL(cxgb4_alloc_sftid);
@@ -1187,6 +1191,7 @@ EXPORT_SYMBOL(cxgb4_alloc_sftid);
  */
 void cxgb4_free_stid(struct tid_info *t, unsigned int stid, int family)
 {
+	unsigned int bh;
 	/* Is it a server filter TID? */
 	if (t->nsftids && (stid >= t->sftid_base)) {
 		stid -= t->sftid_base;
@@ -1195,7 +1200,7 @@ void cxgb4_free_stid(struct tid_info *t, unsigned int stid, int family)
 		stid -= t->stid_base;
 	}
 
-	spin_lock_bh(&t->stid_lock);
+	bh = spin_lock_bh(&t->stid_lock, SOFTIRQ_ALL_MASK);
 	if (family == PF_INET)
 		__clear_bit(stid, t->stid_bmap);
 	else
@@ -1212,7 +1217,7 @@ void cxgb4_free_stid(struct tid_info *t, unsigned int stid, int family)
 		t->sftids_in_use--;
 	}
 
-	spin_unlock_bh(&t->stid_lock);
+	spin_unlock_bh(&t->stid_lock, bh);
 }
 EXPORT_SYMBOL(cxgb4_free_stid);
 
@@ -1237,10 +1242,11 @@ static void mk_tid_release(struct sk_buff *skb, unsigned int chan,
 static void cxgb4_queue_tid_release(struct tid_info *t, unsigned int chan,
 				    unsigned int tid)
 {
+	unsigned int bh;
 	void **p = &t->tid_tab[tid];
 	struct adapter *adap = container_of(t, struct adapter, tids);
 
-	spin_lock_bh(&adap->tid_release_lock);
+	bh = spin_lock_bh(&adap->tid_release_lock, SOFTIRQ_ALL_MASK);
 	*p = adap->tid_release_head;
 	/* Low 2 bits encode the Tx channel number */
 	adap->tid_release_head = (void **)((uintptr_t)p | chan);
@@ -1248,7 +1254,7 @@ static void cxgb4_queue_tid_release(struct tid_info *t, unsigned int chan,
 		adap->tid_release_task_busy = true;
 		queue_work(adap->workq, &adap->tid_release_task);
 	}
-	spin_unlock_bh(&adap->tid_release_lock);
+	spin_unlock_bh(&adap->tid_release_lock, bh);
 }
 
 /*
@@ -1256,12 +1262,13 @@ static void cxgb4_queue_tid_release(struct tid_info *t, unsigned int chan,
  */
 static void process_tid_release_list(struct work_struct *work)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	struct adapter *adap;
 
 	adap = container_of(work, struct adapter, tid_release_task);
 
-	spin_lock_bh(&adap->tid_release_lock);
+	bh = spin_lock_bh(&adap->tid_release_lock, SOFTIRQ_ALL_MASK);
 	while (adap->tid_release_head) {
 		void **p = adap->tid_release_head;
 		unsigned int chan = (uintptr_t)p & 3;
@@ -1277,10 +1284,10 @@ static void process_tid_release_list(struct work_struct *work)
 
 		mk_tid_release(skb, chan, p - adap->tids.tid_tab);
 		t4_ofld_send(adap, skb);
-		spin_lock_bh(&adap->tid_release_lock);
+		spin_lock_bh(&adap->tid_release_lock, SOFTIRQ_ALL_MASK);
 	}
 	adap->tid_release_task_busy = false;
-	spin_unlock_bh(&adap->tid_release_lock);
+	spin_unlock_bh(&adap->tid_release_lock, bh);
 }
 
 /*

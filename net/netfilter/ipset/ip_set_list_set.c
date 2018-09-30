@@ -562,12 +562,13 @@ static const struct ip_set_type_variant set_variant = {
 static void
 list_set_gc(struct timer_list *t)
 {
+	unsigned int bh;
 	struct list_set *map = from_timer(map, t, gc);
 	struct ip_set *set = map->set;
 
-	spin_lock_bh(&set->lock);
+	bh = spin_lock_bh(&set->lock, SOFTIRQ_ALL_MASK);
 	set_cleanup_entries(set);
-	spin_unlock_bh(&set->lock);
+	spin_unlock_bh(&set->lock, bh);
 
 	map->gc.expires = jiffies + IPSET_GC_PERIOD(set->timeout) * HZ;
 	add_timer(&map->gc);

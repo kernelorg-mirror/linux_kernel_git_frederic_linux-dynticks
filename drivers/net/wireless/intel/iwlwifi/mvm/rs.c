@@ -3077,9 +3077,10 @@ static void rs_vht_init(struct iwl_mvm *mvm,
 #ifdef CONFIG_IWLWIFI_DEBUGFS
 void iwl_mvm_reset_frame_stats(struct iwl_mvm *mvm)
 {
-	spin_lock_bh(&mvm->drv_stats_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&mvm->drv_stats_lock, SOFTIRQ_ALL_MASK);
 	memset(&mvm->drv_rx_stats, 0, sizeof(mvm->drv_rx_stats));
-	spin_unlock_bh(&mvm->drv_stats_lock);
+	spin_unlock_bh(&mvm->drv_stats_lock, bh);
 }
 
 void iwl_mvm_update_frame_stats(struct iwl_mvm *mvm, u32 rate, bool agg)

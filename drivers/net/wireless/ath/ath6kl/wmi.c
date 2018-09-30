@@ -135,20 +135,21 @@ enum htc_endpoint_id ath6kl_wmi_get_control_ep(struct wmi *wmi)
 
 struct ath6kl_vif *ath6kl_get_vif_by_index(struct ath6kl *ar, u8 if_idx)
 {
+	unsigned int bh;
 	struct ath6kl_vif *vif, *found = NULL;
 
 	if (WARN_ON(if_idx > (ar->vif_max - 1)))
 		return NULL;
 
 	/* FIXME: Locking */
-	spin_lock_bh(&ar->list_lock);
+	bh = spin_lock_bh(&ar->list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(vif, &ar->vif_list, list) {
 		if (vif->fw_vif_idx == if_idx) {
 			found = vif;
 			break;
 		}
 	}
-	spin_unlock_bh(&ar->list_lock);
+	spin_unlock_bh(&ar->list_lock, bh);
 
 	return found;
 }
@@ -300,6 +301,7 @@ int ath6kl_wmi_implicit_create_pstream(struct wmi *wmi, u8 if_idx,
 				       u32 layer2_priority, bool wmm_enabled,
 				       u8 *ac)
 {
+	unsigned int bh;
 	struct wmi_data_hdr *data_hdr;
 	struct ath6kl_llc_snap_hdr *llc_hdr;
 	struct wmi_create_pstream_cmd cmd;
@@ -365,9 +367,9 @@ int ath6kl_wmi_implicit_create_pstream(struct wmi *wmi, u8 if_idx,
 
 	wmi_data_hdr_set_up(data_hdr, usr_pri);
 
-	spin_lock_bh(&wmi->lock);
+	bh = spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 	stream_exist = wmi->fat_pipe_exist;
-	spin_unlock_bh(&wmi->lock);
+	spin_unlock_bh(&wmi->lock, bh);
 
 	if (!(stream_exist & (1 << traffic_class))) {
 		memset(&cmd, 0, sizeof(cmd));
@@ -1172,6 +1174,7 @@ static int ath6kl_wmi_bssinfo_event_rx(struct wmi *wmi, u8 *datap, int len,
 static int ath6kl_wmi_pstream_timeout_event_rx(struct wmi *wmi, u8 *datap,
 					       int len)
 {
+	unsigned int bh;
 	struct wmi_pstream_timeout_event *ev;
 
 	if (len < sizeof(struct wmi_pstream_timeout_event))
@@ -1185,10 +1188,10 @@ static int ath6kl_wmi_pstream_timeout_event_rx(struct wmi *wmi, u8 *datap,
 	 * due to data flow on this AC. We start the inactivity timer only
 	 * for implicitly created pstream. Just reset the host state.
 	 */
-	spin_lock_bh(&wmi->lock);
+	bh = spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 	wmi->stream_exist_for_ac[ev->traffic_class] = 0;
 	wmi->fat_pipe_exist &= ~(1 << ev->traffic_class);
-	spin_unlock_bh(&wmi->lock);
+	spin_unlock_bh(&wmi->lock, bh);
 
 	/* Indicate inactivity to driver layer for this fatpipe (pstream) */
 	ath6kl_indicate_tx_activity(wmi->parent_dev, ev->traffic_class, false);
@@ -1509,6 +1512,7 @@ static int ath6kl_wmi_rssi_threshold_event_rx(struct wmi *wmi, u8 *datap,
 static int ath6kl_wmi_cac_event_rx(struct wmi *wmi, u8 *datap, int len,
 				   struct ath6kl_vif *vif)
 {
+	unsigned int bh;
 	struct wmi_cac_event *reply;
 	struct ieee80211_tspec_ie *ts;
 	u16 active_tsids, tsinfo;
@@ -1534,9 +1538,9 @@ static int ath6kl_wmi_cac_event_rx(struct wmi *wmi, u8 *datap, int len,
 		 * Following assumes that there is only one outstanding
 		 * ADDTS request when this event is received
 		 */
-		spin_lock_bh(&wmi->lock);
+		bh = spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 		active_tsids = wmi->stream_exist_for_ac[reply->ac];
-		spin_unlock_bh(&wmi->lock);
+		spin_unlock_bh(&wmi->lock, bh);
 
 		for (index = 0; index < sizeof(active_tsids) * 8; index++) {
 			if ((active_tsids >> index) & 1)
@@ -1557,10 +1561,10 @@ static int ath6kl_wmi_cac_event_rx(struct wmi *wmi, u8 *datap, int len,
 		ts_id = ((tsinfo >> IEEE80211_WMM_IE_TSPEC_TID_SHIFT) &
 			 IEEE80211_WMM_IE_TSPEC_TID_MASK);
 
-		spin_lock_bh(&wmi->lock);
+		bh = spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 		wmi->stream_exist_for_ac[reply->ac] &= ~(1 << ts_id);
 		active_tsids = wmi->stream_exist_for_ac[reply->ac];
-		spin_unlock_bh(&wmi->lock);
+		spin_unlock_bh(&wmi->lock, bh);
 
 		/* Indicate stream inactivity to driver layer only if all tsids
 		 * within this AC are deleted.
@@ -2446,6 +2450,7 @@ static int ath6kl_wmi_data_sync_send(struct wmi *wmi, struct sk_buff *skb,
 
 static int ath6kl_wmi_sync_point(struct wmi *wmi, u8 if_idx)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	struct wmi_sync_cmd *cmd;
 	struct wmi_data_sync_bufs data_sync_bufs[WMM_NUM_AC];
@@ -2455,7 +2460,7 @@ static int ath6kl_wmi_sync_point(struct wmi *wmi, u8 if_idx)
 
 	memset(data_sync_bufs, 0, sizeof(data_sync_bufs));
 
-	spin_lock_bh(&wmi->lock);
+	bh = spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 
 	for (index = 0; index < WMM_NUM_AC; index++) {
 		if (wmi->fat_pipe_exist & (1 << index)) {
@@ -2465,7 +2470,7 @@ static int ath6kl_wmi_sync_point(struct wmi *wmi, u8 if_idx)
 		}
 	}
 
-	spin_unlock_bh(&wmi->lock);
+	spin_unlock_bh(&wmi->lock, bh);
 
 	skb = ath6kl_wmi_get_new_buf(sizeof(*cmd));
 	if (!skb)
@@ -2537,6 +2542,7 @@ free_data_skb:
 int ath6kl_wmi_create_pstream_cmd(struct wmi *wmi, u8 if_idx,
 				  struct wmi_create_pstream_cmd *params)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	struct wmi_create_pstream_cmd *cmd;
 	u8 fatpipe_exist_for_ac = 0;
@@ -2593,14 +2599,14 @@ int ath6kl_wmi_create_pstream_cmd(struct wmi *wmi, u8 if_idx,
 
 	/* This is an implicitly created Fat pipe */
 	if ((u32) params->tsid == (u32) WMI_IMPLICIT_PSTREAM) {
-		spin_lock_bh(&wmi->lock);
+		bh = spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 		fatpipe_exist_for_ac = (wmi->fat_pipe_exist &
 					(1 << params->traffic_class));
 		wmi->fat_pipe_exist |= (1 << params->traffic_class);
-		spin_unlock_bh(&wmi->lock);
+		spin_unlock_bh(&wmi->lock, bh);
 	} else {
 		/* explicitly created thin stream within a fat pipe */
-		spin_lock_bh(&wmi->lock);
+		bh = spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 		fatpipe_exist_for_ac = (wmi->fat_pipe_exist &
 					(1 << params->traffic_class));
 		wmi->stream_exist_for_ac[params->traffic_class] |=
@@ -2610,7 +2616,7 @@ int ath6kl_wmi_create_pstream_cmd(struct wmi *wmi, u8 if_idx,
 		 * becomes active
 		 */
 		wmi->fat_pipe_exist |= (1 << params->traffic_class);
-		spin_unlock_bh(&wmi->lock);
+		spin_unlock_bh(&wmi->lock, bh);
 	}
 
 	/*
@@ -2630,6 +2636,7 @@ int ath6kl_wmi_create_pstream_cmd(struct wmi *wmi, u8 if_idx,
 int ath6kl_wmi_delete_pstream_cmd(struct wmi *wmi, u8 if_idx, u8 traffic_class,
 				  u8 tsid)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	struct wmi_delete_pstream_cmd *cmd;
 	u16 active_tsids = 0;
@@ -2648,9 +2655,9 @@ int ath6kl_wmi_delete_pstream_cmd(struct wmi *wmi, u8 if_idx, u8 traffic_class,
 	cmd->traffic_class = traffic_class;
 	cmd->tsid = tsid;
 
-	spin_lock_bh(&wmi->lock);
+	bh = spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 	active_tsids = wmi->stream_exist_for_ac[traffic_class];
-	spin_unlock_bh(&wmi->lock);
+	spin_unlock_bh(&wmi->lock, bh);
 
 	if (!(active_tsids & (1 << tsid))) {
 		dev_kfree_skb(skb);
@@ -2667,7 +2674,7 @@ int ath6kl_wmi_delete_pstream_cmd(struct wmi *wmi, u8 if_idx, u8 traffic_class,
 	ret = ath6kl_wmi_cmd_send(wmi, if_idx, skb, WMI_DELETE_PSTREAM_CMDID,
 				  SYNC_BEFORE_WMIFLAG);
 
-	spin_lock_bh(&wmi->lock);
+	spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 	wmi->stream_exist_for_ac[traffic_class] &= ~(1 << tsid);
 	active_tsids = wmi->stream_exist_for_ac[traffic_class];
 	spin_unlock_bh(&wmi->lock);
@@ -2722,7 +2729,7 @@ static void ath6kl_wmi_relinquish_implicit_pstream_credits(struct wmi *wmi)
 	 * thinstreams exists with in a fatpipe leave them intact
 	 * for the user to delete.
 	 */
-	spin_lock_bh(&wmi->lock);
+	spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 	stream_exist = wmi->fat_pipe_exist;
 	spin_unlock_bh(&wmi->lock);
 
@@ -2732,7 +2739,7 @@ static void ath6kl_wmi_relinquish_implicit_pstream_credits(struct wmi *wmi)
 			 * FIXME: Is this lock & unlock inside
 			 * for loop correct? may need rework.
 			 */
-			spin_lock_bh(&wmi->lock);
+			spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 			active_tsids = wmi->stream_exist_for_ac[i];
 			spin_unlock_bh(&wmi->lock);
 
@@ -2753,7 +2760,7 @@ static void ath6kl_wmi_relinquish_implicit_pstream_credits(struct wmi *wmi)
 	}
 
 	/* FIXME: Can we do this assignment without locking ? */
-	spin_lock_bh(&wmi->lock);
+	spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 	wmi->fat_pipe_exist = stream_exist;
 	spin_unlock_bh(&wmi->lock);
 }
@@ -4133,12 +4140,13 @@ int ath6kl_wmi_control_rx(struct wmi *wmi, struct sk_buff *skb)
 
 void ath6kl_wmi_reset(struct wmi *wmi)
 {
-	spin_lock_bh(&wmi->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&wmi->lock, SOFTIRQ_ALL_MASK);
 
 	wmi->fat_pipe_exist = 0;
 	memset(wmi->stream_exist_for_ac, 0, sizeof(wmi->stream_exist_for_ac));
 
-	spin_unlock_bh(&wmi->lock);
+	spin_unlock_bh(&wmi->lock, bh);
 }
 
 void *ath6kl_wmi_init(struct ath6kl *dev)

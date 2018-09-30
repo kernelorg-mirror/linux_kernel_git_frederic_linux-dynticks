@@ -253,6 +253,7 @@ static void force_io_queues_off(struct octeon_device *oct)
  */
 static inline void pcierror_quiesce_device(struct octeon_device *oct)
 {
+	unsigned int bh;
 	int i;
 
 	/* Disable the input and output queues now. No more packets will
@@ -276,13 +277,13 @@ static inline void pcierror_quiesce_device(struct octeon_device *oct)
 		iq = oct->instr_queue[i];
 
 		if (atomic_read(&iq->instr_pending)) {
-			spin_lock_bh(&iq->lock);
+			bh = spin_lock_bh(&iq->lock, SOFTIRQ_ALL_MASK);
 			iq->fill_cnt = 0;
 			iq->octeon_read_index = iq->host_write_index;
 			iq->stats.instr_processed +=
 				atomic_read(&iq->instr_pending);
 			lio_process_iq_request_list(oct, iq, 0);
-			spin_unlock_bh(&iq->lock);
+			spin_unlock_bh(&iq->lock, bh);
 		}
 	}
 
@@ -1327,6 +1328,7 @@ static void liquidio_destroy_nic_device(struct octeon_device *oct, int ifidx)
  */
 static int liquidio_stop_nic_module(struct octeon_device *oct)
 {
+	unsigned int bh;
 	int i, j;
 	struct lio *lio;
 
@@ -1336,9 +1338,9 @@ static int liquidio_stop_nic_module(struct octeon_device *oct)
 		return 1;
 	}
 
-	spin_lock_bh(&oct->cmd_resp_wqlock);
+	bh = spin_lock_bh(&oct->cmd_resp_wqlock, SOFTIRQ_ALL_MASK);
 	oct->cmd_resp_state = OCT_DRV_OFFLINE;
-	spin_unlock_bh(&oct->cmd_resp_wqlock);
+	spin_unlock_bh(&oct->cmd_resp_wqlock, bh);
 
 	lio_vf_rep_destroy(oct);
 

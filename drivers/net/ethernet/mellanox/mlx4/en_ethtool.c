@@ -363,6 +363,7 @@ static int mlx4_en_get_sset_count(struct net_device *dev, int sset)
 static void mlx4_en_get_ethtool_stats(struct net_device *dev,
 		struct ethtool_stats *stats, uint64_t *data)
 {
+	unsigned int bh;
 	struct mlx4_en_priv *priv = netdev_priv(dev);
 	int index = 0;
 	int i;
@@ -370,7 +371,7 @@ static void mlx4_en_get_ethtool_stats(struct net_device *dev,
 
 	bitmap_iterator_init(&it, priv->stats_bitmap.bitmap, NUM_ALL_STATS);
 
-	spin_lock_bh(&priv->stats_lock);
+	bh = spin_lock_bh(&priv->stats_lock, SOFTIRQ_ALL_MASK);
 
 	mlx4_en_fold_software_stats(dev);
 
@@ -431,7 +432,7 @@ static void mlx4_en_get_ethtool_stats(struct net_device *dev,
 		data[index++] = priv->rx_ring[i]->xdp_tx;
 		data[index++] = priv->rx_ring[i]->xdp_tx_full;
 	}
-	spin_unlock_bh(&priv->stats_lock);
+	spin_unlock_bh(&priv->stats_lock, bh);
 
 }
 

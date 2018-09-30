@@ -229,6 +229,7 @@ static int ssi_claim_lch(struct hsi_msg *msg)
 
 static int ssi_start_dma(struct hsi_msg *msg, int lch)
 {
+	unsigned int bh;
 	struct hsi_port *port = hsi_get_port(msg->cl);
 	struct omap_ssi_port *omap_port = hsi_port_drvdata(port);
 	struct hsi_controller *ssi = to_hsi_controller(port->device.parent);
@@ -295,11 +296,11 @@ static int ssi_start_dma(struct hsi_msg *msg, int lch)
 	writew_relaxed(SSI_BYTES_TO_FRAMES(msg->sgt.sgl->length),
 						gdd + SSI_GDD_CEN_REG(lch));
 
-	spin_lock_bh(&omap_ssi->lock);
+	bh = spin_lock_bh(&omap_ssi->lock, SOFTIRQ_ALL_MASK);
 	tmp = readl(omap_ssi->sys + SSI_GDD_MPU_IRQ_ENABLE_REG);
 	tmp |= SSI_GDD_LCH(lch);
 	writel_relaxed(tmp, omap_ssi->sys + SSI_GDD_MPU_IRQ_ENABLE_REG);
-	spin_unlock_bh(&omap_ssi->lock);
+	spin_unlock_bh(&omap_ssi->lock, bh);
 	writew(ccr, gdd + SSI_GDD_CCR_REG(lch));
 	msg->status = HSI_STATUS_PROCEEDING;
 
@@ -360,6 +361,7 @@ static int ssi_start_transfer(struct list_head *queue)
 
 static int ssi_async_break(struct hsi_msg *msg)
 {
+	unsigned int bh;
 	struct hsi_port *port = hsi_get_port(msg->cl);
 	struct omap_ssi_port *omap_port = hsi_port_drvdata(port);
 	struct hsi_controller *ssi = to_hsi_controller(port->device.parent);
@@ -381,14 +383,14 @@ static int ssi_async_break(struct hsi_msg *msg)
 			err = -EINVAL;
 			goto out;
 		}
-		spin_lock_bh(&omap_port->lock);
+		bh = spin_lock_bh(&omap_port->lock, SOFTIRQ_ALL_MASK);
 		tmp = readl(omap_ssi->sys +
 					SSI_MPU_ENABLE_REG(port->num, 0));
 		writel(tmp | SSI_BREAKDETECTED,
 			omap_ssi->sys + SSI_MPU_ENABLE_REG(port->num, 0));
 		msg->status = HSI_STATUS_PROCEEDING;
 		list_add_tail(&msg->link, &omap_port->brkqueue);
-		spin_unlock_bh(&omap_port->lock);
+		spin_unlock_bh(&omap_port->lock, bh);
 	}
 out:
 	pm_runtime_mark_last_busy(omap_port->pdev);
@@ -399,6 +401,7 @@ out:
 
 static int ssi_async(struct hsi_msg *msg)
 {
+	unsigned int bh;
 	struct hsi_port *port = hsi_get_port(msg->cl);
 	struct omap_ssi_port *omap_port = hsi_port_drvdata(port);
 	struct list_head *queue;
@@ -422,14 +425,14 @@ static int ssi_async(struct hsi_msg *msg)
 	msg->status = HSI_STATUS_QUEUED;
 
 	pm_runtime_get_sync(omap_port->pdev);
-	spin_lock_bh(&omap_port->lock);
+	bh = spin_lock_bh(&omap_port->lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&msg->link, queue);
 	err = ssi_start_transfer(queue);
 	if (err < 0) {
 		list_del(&msg->link);
 		msg->status = HSI_STATUS_ERROR;
 	}
-	spin_unlock_bh(&omap_port->lock);
+	spin_unlock_bh(&omap_port->lock, bh);
 	pm_runtime_mark_last_busy(omap_port->pdev);
 	pm_runtime_put_autosuspend(omap_port->pdev);
 	dev_dbg(&port->device, "msg status %d ttype %d ch %d\n",
@@ -476,6 +479,7 @@ static void ssi_flush_queue(struct list_head *queue, struct hsi_client *cl)
 
 static int ssi_setup(struct hsi_client *cl)
 {
+	unsigned int bh;
 	struct hsi_port *port = to_hsi_port(cl->device.parent);
 	struct omap_ssi_port *omap_port = hsi_port_drvdata(port);
 	struct hsi_controller *ssi = to_hsi_controller(port->device.parent);
@@ -487,7 +491,7 @@ static int ssi_setup(struct hsi_client *cl)
 	int err = 0;
 
 	pm_runtime_get_sync(omap_port->pdev);
-	spin_lock_bh(&omap_port->lock);
+	bh = spin_lock_bh(&omap_port->lock, SOFTIRQ_ALL_MASK);
 	if (cl->tx_cfg.speed)
 		omap_ssi->max_speed = cl->tx_cfg.speed;
 	div = ssi_calculate_div(ssi);
@@ -532,7 +536,7 @@ static int ssi_setup(struct hsi_client *cl)
 	omap_port->ssr.channels = cl->rx_cfg.num_hw_channels;
 	omap_port->ssr.mode = cl->rx_cfg.mode;
 out:
-	spin_unlock_bh(&omap_port->lock);
+	spin_unlock_bh(&omap_port->lock, bh);
 	pm_runtime_mark_last_busy(omap_port->pdev);
 	pm_runtime_put_autosuspend(omap_port->pdev);
 
@@ -541,6 +545,7 @@ out:
 
 static int ssi_flush(struct hsi_client *cl)
 {
+	unsigned int bh;
 	struct hsi_port *port = hsi_get_port(cl);
 	struct omap_ssi_port *omap_port = hsi_port_drvdata(port);
 	struct hsi_controller *ssi = to_hsi_controller(port->device.parent);
@@ -552,7 +557,7 @@ static int ssi_flush(struct hsi_client *cl)
 	u32 err;
 
 	pm_runtime_get_sync(omap_port->pdev);
-	spin_lock_bh(&omap_port->lock);
+	bh = spin_lock_bh(&omap_port->lock, SOFTIRQ_ALL_MASK);
 
 	/* stop all ssi communication */
 	pinctrl_pm_select_idle_state(omap_port->pdev);
@@ -598,7 +603,7 @@ static int ssi_flush(struct hsi_client *cl)
 	/* Resume SSI communication */
 	pinctrl_pm_select_default_state(omap_port->pdev);
 
-	spin_unlock_bh(&omap_port->lock);
+	spin_unlock_bh(&omap_port->lock, bh);
 	pm_runtime_mark_last_busy(omap_port->pdev);
 	pm_runtime_put_autosuspend(omap_port->pdev);
 
@@ -619,17 +624,18 @@ static void start_tx_work(struct work_struct *work)
 
 static int ssi_start_tx(struct hsi_client *cl)
 {
+	unsigned int bh;
 	struct hsi_port *port = hsi_get_port(cl);
 	struct omap_ssi_port *omap_port = hsi_port_drvdata(port);
 
 	dev_dbg(&port->device, "Wake out high %d\n", omap_port->wk_refcount);
 
-	spin_lock_bh(&omap_port->wk_lock);
+	bh = spin_lock_bh(&omap_port->wk_lock, SOFTIRQ_ALL_MASK);
 	if (omap_port->wk_refcount++) {
-		spin_unlock_bh(&omap_port->wk_lock);
+		spin_unlock_bh(&omap_port->wk_lock, bh);
 		return 0;
 	}
-	spin_unlock_bh(&omap_port->wk_lock);
+	spin_unlock_bh(&omap_port->wk_lock, bh);
 
 	schedule_work(&omap_port->work);
 
@@ -638,6 +644,7 @@ static int ssi_start_tx(struct hsi_client *cl)
 
 static int ssi_stop_tx(struct hsi_client *cl)
 {
+	unsigned int bh;
 	struct hsi_port *port = hsi_get_port(cl);
 	struct omap_ssi_port *omap_port = hsi_port_drvdata(port);
 	struct hsi_controller *ssi = to_hsi_controller(port->device.parent);
@@ -645,14 +652,14 @@ static int ssi_stop_tx(struct hsi_client *cl)
 
 	dev_dbg(&port->device, "Wake out low %d\n", omap_port->wk_refcount);
 
-	spin_lock_bh(&omap_port->wk_lock);
+	bh = spin_lock_bh(&omap_port->wk_lock, SOFTIRQ_ALL_MASK);
 	BUG_ON(!omap_port->wk_refcount);
 	if (--omap_port->wk_refcount) {
-		spin_unlock_bh(&omap_port->wk_lock);
+		spin_unlock_bh(&omap_port->wk_lock, bh);
 		return 0;
 	}
 	writel(SSI_WAKE(0), omap_ssi->sys + SSI_CLEAR_WAKE_REG(port->num));
-	spin_unlock_bh(&omap_port->wk_lock);
+	spin_unlock_bh(&omap_port->wk_lock, bh);
 
 	pm_runtime_mark_last_busy(omap_port->pdev);
 	pm_runtime_put_autosuspend(omap_port->pdev); /* Release clocks */
@@ -664,11 +671,12 @@ static int ssi_stop_tx(struct hsi_client *cl)
 static void ssi_transfer(struct omap_ssi_port *omap_port,
 							struct list_head *queue)
 {
+	unsigned int bh;
 	struct hsi_msg *msg;
 	int err = -1;
 
 	pm_runtime_get(omap_port->pdev);
-	spin_lock_bh(&omap_port->lock);
+	bh = spin_lock_bh(&omap_port->lock, SOFTIRQ_ALL_MASK);
 	while (err < 0) {
 		err = ssi_start_transfer(queue);
 		if (err < 0) {
@@ -676,12 +684,12 @@ static void ssi_transfer(struct omap_ssi_port *omap_port,
 			msg->status = HSI_STATUS_ERROR;
 			msg->actual_len = 0;
 			list_del(&msg->link);
-			spin_unlock_bh(&omap_port->lock);
+			spin_unlock_bh(&omap_port->lock, bh);
 			msg->complete(msg);
-			spin_lock_bh(&omap_port->lock);
+			bh = spin_lock_bh(&omap_port->lock, SOFTIRQ_ALL_MASK);
 		}
 	}
-	spin_unlock_bh(&omap_port->lock);
+	spin_unlock_bh(&omap_port->lock, bh);
 	pm_runtime_mark_last_busy(omap_port->pdev);
 	pm_runtime_put_autosuspend(omap_port->pdev);
 }
@@ -791,12 +799,13 @@ static int ssi_set_port_mode(struct omap_ssi_port *omap_port, u32 mode)
 
 static int ssi_release(struct hsi_client *cl)
 {
+	unsigned int bh;
 	struct hsi_port *port = hsi_get_port(cl);
 	struct omap_ssi_port *omap_port = hsi_port_drvdata(port);
 	struct hsi_controller *ssi = to_hsi_controller(port->device.parent);
 
 	pm_runtime_get_sync(omap_port->pdev);
-	spin_lock_bh(&omap_port->lock);
+	bh = spin_lock_bh(&omap_port->lock, SOFTIRQ_ALL_MASK);
 	/* Stop all the pending DMA requests for that client */
 	ssi_cleanup_gdd(ssi, cl);
 	/* Now cleanup all the queues */
@@ -817,7 +826,7 @@ static int ssi_release(struct hsi_client *cl)
 		pm_runtime_put(omap_port->pdev);
 		WARN_ON(omap_port->wk_refcount != 0);
 	}
-	spin_unlock_bh(&omap_port->lock);
+	spin_unlock_bh(&omap_port->lock, bh);
 	pm_runtime_put_sync(omap_port->pdev);
 
 	return 0;
@@ -915,6 +924,7 @@ static void ssi_break_complete(struct hsi_port *port)
 
 static void ssi_pio_complete(struct hsi_port *port, struct list_head *queue)
 {
+	unsigned int bh;
 	struct hsi_controller *ssi = to_hsi_controller(port->device.parent);
 	struct omap_ssi_controller *omap_ssi = hsi_controller_drvdata(ssi);
 	struct omap_ssi_port *omap_port = hsi_port_drvdata(port);
@@ -923,7 +933,7 @@ static void ssi_pio_complete(struct hsi_port *port, struct list_head *queue)
 	u32 reg;
 	u32 val;
 
-	spin_lock_bh(&omap_port->lock);
+	bh = spin_lock_bh(&omap_port->lock, SOFTIRQ_ALL_MASK);
 	msg = list_first_entry(queue, struct hsi_msg, link);
 	if ((!msg->sgt.nents) || (!msg->sgt.sgl->length)) {
 		msg->actual_len = 0;
@@ -955,7 +965,7 @@ static void ssi_pio_complete(struct hsi_port *port, struct list_head *queue)
 					(msg->ttype == HSI_MSG_WRITE))) {
 			writel(val, omap_ssi->sys +
 					SSI_MPU_STATUS_REG(port->num, 0));
-			spin_unlock_bh(&omap_port->lock);
+			spin_unlock_bh(&omap_port->lock, bh);
 
 			return;
 		}
@@ -972,7 +982,7 @@ static void ssi_pio_complete(struct hsi_port *port, struct list_head *queue)
 	writel_relaxed(reg, omap_ssi->sys + SSI_MPU_ENABLE_REG(port->num, 0));
 	writel_relaxed(val, omap_ssi->sys + SSI_MPU_STATUS_REG(port->num, 0));
 	list_del(&msg->link);
-	spin_unlock_bh(&omap_port->lock);
+	spin_unlock_bh(&omap_port->lock, bh);
 	msg->complete(msg);
 	ssi_transfer(omap_port, queue);
 }

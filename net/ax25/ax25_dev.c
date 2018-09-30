@@ -34,14 +34,15 @@ DEFINE_SPINLOCK(ax25_dev_lock);
 
 ax25_dev *ax25_addr_ax25dev(ax25_address *addr)
 {
+	unsigned int bh;
 	ax25_dev *ax25_dev, *res = NULL;
 
-	spin_lock_bh(&ax25_dev_lock);
+	bh = spin_lock_bh(&ax25_dev_lock, SOFTIRQ_ALL_MASK);
 	for (ax25_dev = ax25_dev_list; ax25_dev != NULL; ax25_dev = ax25_dev->next)
 		if (ax25cmp(addr, (ax25_address *)ax25_dev->dev->dev_addr) == 0) {
 			res = ax25_dev;
 		}
-	spin_unlock_bh(&ax25_dev_lock);
+	spin_unlock_bh(&ax25_dev_lock, bh);
 
 	return res;
 }
@@ -52,6 +53,7 @@ ax25_dev *ax25_addr_ax25dev(ax25_address *addr)
  */
 void ax25_dev_device_up(struct net_device *dev)
 {
+	unsigned int bh;
 	ax25_dev *ax25_dev;
 
 	if ((ax25_dev = kzalloc(sizeof(*ax25_dev), GFP_ATOMIC)) == NULL) {
@@ -83,16 +85,17 @@ void ax25_dev_device_up(struct net_device *dev)
 	ax25_ds_setup_timer(ax25_dev);
 #endif
 
-	spin_lock_bh(&ax25_dev_lock);
+	bh = spin_lock_bh(&ax25_dev_lock, SOFTIRQ_ALL_MASK);
 	ax25_dev->next = ax25_dev_list;
 	ax25_dev_list  = ax25_dev;
-	spin_unlock_bh(&ax25_dev_lock);
+	spin_unlock_bh(&ax25_dev_lock, bh);
 
 	ax25_register_dev_sysctl(ax25_dev);
 }
 
 void ax25_dev_device_down(struct net_device *dev)
 {
+	unsigned int bh;
 	ax25_dev *s, *ax25_dev;
 
 	if ((ax25_dev = ax25_dev_ax25dev(dev)) == NULL)
@@ -100,7 +103,7 @@ void ax25_dev_device_down(struct net_device *dev)
 
 	ax25_unregister_dev_sysctl(ax25_dev);
 
-	spin_lock_bh(&ax25_dev_lock);
+	bh = spin_lock_bh(&ax25_dev_lock, SOFTIRQ_ALL_MASK);
 
 #ifdef CONFIG_AX25_DAMA_SLAVE
 	ax25_ds_del_timer(ax25_dev);
@@ -115,7 +118,7 @@ void ax25_dev_device_down(struct net_device *dev)
 
 	if ((s = ax25_dev_list) == ax25_dev) {
 		ax25_dev_list = s->next;
-		spin_unlock_bh(&ax25_dev_lock);
+		spin_unlock_bh(&ax25_dev_lock, bh);
 		dev_put(dev);
 		kfree(ax25_dev);
 		return;
@@ -124,7 +127,7 @@ void ax25_dev_device_down(struct net_device *dev)
 	while (s != NULL && s->next != NULL) {
 		if (s->next == ax25_dev) {
 			s->next = ax25_dev->next;
-			spin_unlock_bh(&ax25_dev_lock);
+			spin_unlock_bh(&ax25_dev_lock, bh);
 			dev_put(dev);
 			kfree(ax25_dev);
 			return;
@@ -132,7 +135,7 @@ void ax25_dev_device_down(struct net_device *dev)
 
 		s = s->next;
 	}
-	spin_unlock_bh(&ax25_dev_lock);
+	spin_unlock_bh(&ax25_dev_lock, bh);
 	dev->ax25_ptr = NULL;
 }
 
@@ -183,9 +186,10 @@ struct net_device *ax25_fwd_dev(struct net_device *dev)
  */
 void __exit ax25_dev_free(void)
 {
+	unsigned int bh;
 	ax25_dev *s, *ax25_dev;
 
-	spin_lock_bh(&ax25_dev_lock);
+	bh = spin_lock_bh(&ax25_dev_lock, SOFTIRQ_ALL_MASK);
 	ax25_dev = ax25_dev_list;
 	while (ax25_dev != NULL) {
 		s        = ax25_dev;
@@ -194,5 +198,5 @@ void __exit ax25_dev_free(void)
 		kfree(s);
 	}
 	ax25_dev_list = NULL;
-	spin_unlock_bh(&ax25_dev_lock);
+	spin_unlock_bh(&ax25_dev_lock, bh);
 }

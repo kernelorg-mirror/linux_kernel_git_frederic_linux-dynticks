@@ -114,12 +114,13 @@ void cw1200_pm_deinit(struct cw1200_pm_state *pm)
 void cw1200_pm_stay_awake(struct cw1200_pm_state *pm,
 			  unsigned long tmo)
 {
+	unsigned int bh;
 	long cur_tmo;
-	spin_lock_bh(&pm->lock);
+	bh = spin_lock_bh(&pm->lock, SOFTIRQ_ALL_MASK);
 	cur_tmo = pm->stay_awake.expires - jiffies;
 	if (!timer_pending(&pm->stay_awake) || cur_tmo < (long)tmo)
 		mod_timer(&pm->stay_awake, jiffies + tmo);
-	spin_unlock_bh(&pm->lock);
+	spin_unlock_bh(&pm->lock, bh);
 }
 
 static long cw1200_suspend_work(struct delayed_work *work)
@@ -159,14 +160,15 @@ EXPORT_SYMBOL_GPL(cw1200_can_suspend);
 
 int cw1200_wow_suspend(struct ieee80211_hw *hw, struct cfg80211_wowlan *wowlan)
 {
+	unsigned int bh;
 	struct cw1200_common *priv = hw->priv;
 	struct cw1200_pm_state *pm_state = &priv->pm_state;
 	struct cw1200_suspend_state *state;
 	int ret;
 
-	spin_lock_bh(&pm_state->lock);
+	bh = spin_lock_bh(&pm_state->lock, SOFTIRQ_ALL_MASK);
 	ret = timer_pending(&pm_state->stay_awake);
-	spin_unlock_bh(&pm_state->lock);
+	spin_unlock_bh(&pm_state->lock, bh);
 	if (ret)
 		return -EAGAIN;
 

@@ -435,15 +435,16 @@ static int hvc_iucv_send(struct hvc_iucv_private *priv)
  */
 static void hvc_iucv_sndbuf_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct hvc_iucv_private *priv;
 
 	priv = container_of(work, struct hvc_iucv_private, sndbuf_work.work);
 	if (!priv)
 		return;
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	hvc_iucv_send(priv);
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 }
 
 /**
@@ -489,15 +490,16 @@ static int hvc_iucv_put_chars(uint32_t vtermno, const char *buf, int count)
  */
 static int hvc_iucv_notifier_add(struct hvc_struct *hp, int id)
 {
+	unsigned int bh;
 	struct hvc_iucv_private *priv;
 
 	priv = hvc_iucv_get_private(id);
 	if (!priv)
 		return 0;
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	priv->tty_state = TTY_OPENED;
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 
 	return 0;
 }
@@ -523,11 +525,12 @@ static void hvc_iucv_cleanup(struct hvc_iucv_private *priv)
  */
 static inline int tty_outqueue_empty(struct hvc_iucv_private *priv)
 {
+	unsigned int bh;
 	int rc;
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	rc = list_empty(&priv->tty_outqueue);
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 
 	return rc;
 }
@@ -541,14 +544,15 @@ static inline int tty_outqueue_empty(struct hvc_iucv_private *priv)
  */
 static void flush_sndbuf_sync(struct hvc_iucv_private *priv)
 {
+	unsigned int bh;
 	int sync_wait;
 
 	cancel_delayed_work_sync(&priv->sndbuf_work);
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	hvc_iucv_send(priv);		/* force sending buffered data */
 	sync_wait = !list_empty(&priv->tty_outqueue); /* anything queued ? */
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 
 	if (sync_wait)
 		wait_event_timeout(priv->sndbuf_waitq,
@@ -635,6 +639,7 @@ static void hvc_iucv_hangup(struct hvc_iucv_private *priv)
  */
 static void hvc_iucv_notifier_hangup(struct hvc_struct *hp, int id)
 {
+	unsigned int bh;
 	struct hvc_iucv_private *priv;
 
 	priv = hvc_iucv_get_private(id);
@@ -643,7 +648,7 @@ static void hvc_iucv_notifier_hangup(struct hvc_struct *hp, int id)
 
 	flush_sndbuf_sync(priv);
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	/* NOTE: If the hangup was scheduled by ourself (from the iucv
 	 *	 path_servered callback [IUCV_SEVERED]), we have to clean up
 	 *	 our structure and to set state to TTY_CLOSED.
@@ -655,7 +660,7 @@ static void hvc_iucv_notifier_hangup(struct hvc_struct *hp, int id)
 
 	if (priv->iucv_state == IUCV_SEVERED)
 		hvc_iucv_cleanup(priv);
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 }
 
 /**
@@ -669,6 +674,7 @@ static void hvc_iucv_notifier_hangup(struct hvc_struct *hp, int id)
  */
 static void hvc_iucv_dtr_rts(struct hvc_struct *hp, int raise)
 {
+	unsigned int bh;
 	struct hvc_iucv_private *priv;
 	struct iucv_path        *path;
 
@@ -687,11 +693,11 @@ static void hvc_iucv_dtr_rts(struct hvc_struct *hp, int raise)
 	 */
 	flush_sndbuf_sync(priv);
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	path = priv->path;		/* save reference to IUCV path */
 	priv->path = NULL;
 	priv->iucv_state = IUCV_DISCONN;
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 
 	/* Sever IUCV path outside of priv->lock due to lock ordering of:
 	 * priv->lock <--> iucv_table_lock */
@@ -716,6 +722,7 @@ static void hvc_iucv_dtr_rts(struct hvc_struct *hp, int raise)
  */
 static void hvc_iucv_notifier_del(struct hvc_struct *hp, int id)
 {
+	unsigned int bh;
 	struct hvc_iucv_private *priv;
 
 	priv = hvc_iucv_get_private(id);
@@ -724,12 +731,12 @@ static void hvc_iucv_notifier_del(struct hvc_struct *hp, int id)
 
 	flush_sndbuf_sync(priv);
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	destroy_tty_buffer_list(&priv->tty_outqueue);
 	destroy_tty_buffer_list(&priv->tty_inqueue);
 	priv->tty_state = TTY_CLOSED;
 	priv->sndbuf_len = 0;
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 }
 
 /**
@@ -1024,18 +1031,19 @@ static ssize_t hvc_iucv_dev_peer_show(struct device *dev,
 				      struct device_attribute *attr,
 				      char *buf)
 {
+	unsigned int bh;
 	struct hvc_iucv_private *priv = dev_get_drvdata(dev);
 	char vmid[9], ipuser[9];
 
 	memset(vmid, 0, sizeof(vmid));
 	memset(ipuser, 0, sizeof(ipuser));
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	if (priv->iucv_state == IUCV_CONNECTED) {
 		memcpy(vmid, priv->info_path, 8);
 		memcpy(ipuser, priv->info_path + 8, 8);
 	}
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 	EBCASC(ipuser, 8);
 
 	return sprintf(buf, "%s:%s\n", vmid, ipuser);

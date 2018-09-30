@@ -147,15 +147,16 @@ static void sel_netport_insert(struct sel_netport *port)
  */
 static int sel_netport_sid_slow(u8 protocol, u16 pnum, u32 *sid)
 {
+	unsigned int bh;
 	int ret = -ENOMEM;
 	struct sel_netport *port;
 	struct sel_netport *new = NULL;
 
-	spin_lock_bh(&sel_netport_lock);
+	bh = spin_lock_bh(&sel_netport_lock, SOFTIRQ_ALL_MASK);
 	port = sel_netport_find(protocol, pnum);
 	if (port != NULL) {
 		*sid = port->psec.sid;
-		spin_unlock_bh(&sel_netport_lock);
+		spin_unlock_bh(&sel_netport_lock, bh);
 		return 0;
 	}
 	new = kzalloc(sizeof(*new), GFP_ATOMIC);
@@ -171,7 +172,7 @@ static int sel_netport_sid_slow(u8 protocol, u16 pnum, u32 *sid)
 	sel_netport_insert(new);
 
 out:
-	spin_unlock_bh(&sel_netport_lock);
+	spin_unlock_bh(&sel_netport_lock, bh);
 	if (unlikely(ret)) {
 		pr_warn("SELinux: failure in %s(), unable to determine network port label\n",
 			__func__);
@@ -218,10 +219,11 @@ int sel_netport_sid(u8 protocol, u16 pnum, u32 *sid)
  */
 void sel_netport_flush(void)
 {
+	unsigned int bh;
 	unsigned int idx;
 	struct sel_netport *port, *port_tmp;
 
-	spin_lock_bh(&sel_netport_lock);
+	bh = spin_lock_bh(&sel_netport_lock, SOFTIRQ_ALL_MASK);
 	for (idx = 0; idx < SEL_NETPORT_HASH_SIZE; idx++) {
 		list_for_each_entry_safe(port, port_tmp,
 					 &sel_netport_hash[idx].list, list) {
@@ -230,7 +232,7 @@ void sel_netport_flush(void)
 		}
 		sel_netport_hash[idx].size = 0;
 	}
-	spin_unlock_bh(&sel_netport_lock);
+	spin_unlock_bh(&sel_netport_lock, bh);
 }
 
 static __init int sel_netport_init(void)

@@ -203,6 +203,7 @@ static void update_sk_prot(struct sock *sk, struct smap_psock *psock)
 
 static int bpf_tcp_init(struct sock *sk)
 {
+	unsigned int bh;
 	struct smap_psock *psock;
 
 	rcu_read_lock();
@@ -223,12 +224,12 @@ static int bpf_tcp_init(struct sock *sk)
 	/* Build IPv6 sockmap whenever the address of tcpv6_prot changes */
 	if (sk->sk_family == AF_INET6 &&
 	    unlikely(sk->sk_prot != smp_load_acquire(&saved_tcpv6_prot))) {
-		spin_lock_bh(&tcpv6_prot_lock);
+		bh = spin_lock_bh(&tcpv6_prot_lock, SOFTIRQ_ALL_MASK);
 		if (likely(sk->sk_prot != saved_tcpv6_prot)) {
 			build_protos(bpf_tcp_prots[SOCKMAP_IPV6], sk->sk_prot);
 			smp_store_release(&saved_tcpv6_prot, sk->sk_prot);
 		}
-		spin_unlock_bh(&tcpv6_prot_lock);
+		spin_unlock_bh(&tcpv6_prot_lock, bh);
 	}
 	update_sk_prot(sk, psock);
 	rcu_read_unlock();
@@ -293,20 +294,22 @@ static void free_htab_elem(struct bpf_htab *htab, struct htab_elem *l)
 static struct smap_psock_map_entry *psock_map_pop(struct sock *sk,
 						  struct smap_psock *psock)
 {
+	unsigned int bh;
 	struct smap_psock_map_entry *e;
 
-	spin_lock_bh(&psock->maps_lock);
+	bh = spin_lock_bh(&psock->maps_lock, SOFTIRQ_ALL_MASK);
 	e = list_first_entry_or_null(&psock->maps,
 				     struct smap_psock_map_entry,
 				     list);
 	if (e)
 		list_del(&e->list);
-	spin_unlock_bh(&psock->maps_lock);
+	spin_unlock_bh(&psock->maps_lock, bh);
 	return e;
 }
 
 static void bpf_tcp_close(struct sock *sk, long timeout)
 {
+	unsigned int bh;
 	void (*close_fun)(struct sock *sk, long timeout);
 	struct smap_psock_map_entry *e;
 	struct sk_msg_buff *md, *mtmp;
@@ -346,13 +349,13 @@ static void bpf_tcp_close(struct sock *sk, long timeout)
 		if (e->entry) {
 			struct bpf_stab *stab = container_of(e->map, struct bpf_stab, map);
 
-			raw_spin_lock_bh(&stab->lock);
+			bh = raw_spin_lock_bh(&stab->lock, SOFTIRQ_ALL_MASK);
 			osk = *e->entry;
 			if (osk == sk) {
 				*e->entry = NULL;
 				smap_release_sock(psock, sk);
 			}
-			raw_spin_unlock_bh(&stab->lock);
+			raw_spin_unlock_bh(&stab->lock, bh);
 		} else {
 			struct htab_elem *link = rcu_dereference(e->hash_link);
 			struct bpf_htab *htab = container_of(e->map, struct bpf_htab, map);
@@ -362,7 +365,7 @@ static void bpf_tcp_close(struct sock *sk, long timeout)
 
 			b = __select_bucket(htab, link->hash);
 			head = &b->head;
-			raw_spin_lock_bh(&b->lock);
+			bh = raw_spin_lock_bh(&b->lock, SOFTIRQ_ALL_MASK);
 			l = lookup_elem_raw(head,
 					    link->hash, link->key,
 					    htab->map.key_size);
@@ -374,7 +377,7 @@ static void bpf_tcp_close(struct sock *sk, long timeout)
 				smap_release_sock(psock, link->sk);
 				free_htab_elem(htab, link);
 			}
-			raw_spin_unlock_bh(&b->lock);
+			raw_spin_unlock_bh(&b->lock, bh);
 		}
 		kfree(e);
 		e = psock_map_pop(sk, psock);
@@ -1686,24 +1689,26 @@ free_stab:
 static void smap_list_map_remove(struct smap_psock *psock,
 				 struct sock **entry)
 {
+	unsigned int bh;
 	struct smap_psock_map_entry *e, *tmp;
 
-	spin_lock_bh(&psock->maps_lock);
+	bh = spin_lock_bh(&psock->maps_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(e, tmp, &psock->maps, list) {
 		if (e->entry == entry) {
 			list_del(&e->list);
 			kfree(e);
 		}
 	}
-	spin_unlock_bh(&psock->maps_lock);
+	spin_unlock_bh(&psock->maps_lock, bh);
 }
 
 static void smap_list_hash_remove(struct smap_psock *psock,
 				  struct htab_elem *hash_link)
 {
+	unsigned int bh;
 	struct smap_psock_map_entry *e, *tmp;
 
-	spin_lock_bh(&psock->maps_lock);
+	bh = spin_lock_bh(&psock->maps_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(e, tmp, &psock->maps, list) {
 		struct htab_elem *c = rcu_dereference(e->hash_link);
 
@@ -1712,11 +1717,12 @@ static void smap_list_hash_remove(struct smap_psock *psock,
 			kfree(e);
 		}
 	}
-	spin_unlock_bh(&psock->maps_lock);
+	spin_unlock_bh(&psock->maps_lock, bh);
 }
 
 static void sock_map_free(struct bpf_map *map)
 {
+	unsigned int bh;
 	struct bpf_stab *stab = container_of(map, struct bpf_stab, map);
 	int i;
 
@@ -1730,7 +1736,7 @@ static void sock_map_free(struct bpf_map *map)
 	 * and a grace period expire to ensure psock is really safe to remove.
 	 */
 	rcu_read_lock();
-	raw_spin_lock_bh(&stab->lock);
+	bh = raw_spin_lock_bh(&stab->lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < stab->map.max_entries; i++) {
 		struct smap_psock *psock;
 		struct sock *sock;
@@ -1750,7 +1756,7 @@ static void sock_map_free(struct bpf_map *map)
 			smap_release_sock(psock, sock);
 		}
 	}
-	raw_spin_unlock_bh(&stab->lock);
+	raw_spin_unlock_bh(&stab->lock, bh);
 	rcu_read_unlock();
 
 	sock_map_remove_complete(stab);
@@ -1786,6 +1792,7 @@ struct sock  *__sock_map_lookup_elem(struct bpf_map *map, u32 key)
 
 static int sock_map_delete_elem(struct bpf_map *map, void *key)
 {
+	unsigned int bh;
 	struct bpf_stab *stab = container_of(map, struct bpf_stab, map);
 	struct smap_psock *psock;
 	int k = *(u32 *)key;
@@ -1794,10 +1801,10 @@ static int sock_map_delete_elem(struct bpf_map *map, void *key)
 	if (k >= map->max_entries)
 		return -EINVAL;
 
-	raw_spin_lock_bh(&stab->lock);
+	bh = raw_spin_lock_bh(&stab->lock, SOFTIRQ_ALL_MASK);
 	sock = stab->sock_map[k];
 	stab->sock_map[k] = NULL;
-	raw_spin_unlock_bh(&stab->lock);
+	raw_spin_unlock_bh(&stab->lock, bh);
 	if (!sock)
 		return -EINVAL;
 
@@ -1963,6 +1970,8 @@ static int sock_map_ctx_update_elem(struct bpf_sock_ops_kern *skops,
 				    struct bpf_map *map,
 				    void *key, u64 flags)
 {
+	unsigned int bh;
+	unsigned int bh;
 	struct bpf_stab *stab = container_of(map, struct bpf_stab, map);
 	struct bpf_sock_progs *progs = &stab->progs;
 	struct sock *osock, *sock = skops->sk;
@@ -1986,7 +1995,7 @@ static int sock_map_ctx_update_elem(struct bpf_sock_ops_kern *skops,
 
 	/* psock guaranteed to be present. */
 	psock = smap_psock_sk(sock);
-	raw_spin_lock_bh(&stab->lock);
+	bh = raw_spin_lock_bh(&stab->lock, SOFTIRQ_ALL_MASK);
 	osock = stab->sock_map[i];
 	if (osock && flags == BPF_NOEXIST) {
 		err = -EEXIST;
@@ -1999,9 +2008,9 @@ static int sock_map_ctx_update_elem(struct bpf_sock_ops_kern *skops,
 
 	e->entry = &stab->sock_map[i];
 	e->map = map;
-	spin_lock_bh(&psock->maps_lock);
+	bh = spin_lock_bh(&psock->maps_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&e->list, &psock->maps);
-	spin_unlock_bh(&psock->maps_lock);
+	spin_unlock_bh(&psock->maps_lock, bh);
 
 	stab->sock_map[i] = sock;
 	if (osock) {
@@ -2009,11 +2018,11 @@ static int sock_map_ctx_update_elem(struct bpf_sock_ops_kern *skops,
 		smap_list_map_remove(psock, &stab->sock_map[i]);
 		smap_release_sock(psock, osock);
 	}
-	raw_spin_unlock_bh(&stab->lock);
+	raw_spin_unlock_bh(&stab->lock, bh);
 	return 0;
 out_unlock:
 	smap_release_sock(psock, sock);
-	raw_spin_unlock_bh(&stab->lock);
+	raw_spin_unlock_bh(&stab->lock, bh);
 out:
 	kfree(e);
 	return err;
@@ -2221,6 +2230,7 @@ static void __bpf_htab_free(struct rcu_head *rcu)
 
 static void sock_hash_free(struct bpf_map *map)
 {
+	unsigned int bh;
 	struct bpf_htab *htab = container_of(map, struct bpf_htab, map);
 	int i;
 
@@ -2240,7 +2250,7 @@ static void sock_hash_free(struct bpf_map *map)
 		struct hlist_node *n;
 		struct htab_elem *l;
 
-		raw_spin_lock_bh(&b->lock);
+		bh = raw_spin_lock_bh(&b->lock, SOFTIRQ_ALL_MASK);
 		head = &b->head;
 		hlist_for_each_entry_safe(l, n, head, hash_node) {
 			struct sock *sock = l->sk;
@@ -2259,7 +2269,7 @@ static void sock_hash_free(struct bpf_map *map)
 			}
 			free_htab_elem(htab, l);
 		}
-		raw_spin_unlock_bh(&b->lock);
+		raw_spin_unlock_bh(&b->lock, bh);
 	}
 	rcu_read_unlock();
 	call_rcu(&htab->rcu, __bpf_htab_free);
@@ -2352,6 +2362,8 @@ static int sock_hash_ctx_update_elem(struct bpf_sock_ops_kern *skops,
 				     struct bpf_map *map,
 				     void *key, u64 map_flags)
 {
+	unsigned int bh;
+	unsigned int bh;
 	struct bpf_htab *htab = container_of(map, struct bpf_htab, map);
 	struct bpf_sock_progs *progs = &htab->progs;
 	struct htab_elem *l_new = NULL, *l_old;
@@ -2390,7 +2402,7 @@ static int sock_hash_ctx_update_elem(struct bpf_sock_ops_kern *skops,
 	 * have thrown an error. It is safe to skip error check.
 	 */
 	psock = smap_psock_sk(sock);
-	raw_spin_lock_bh(&b->lock);
+	bh = raw_spin_lock_bh(&b->lock, SOFTIRQ_ALL_MASK);
 	l_old = lookup_elem_raw(head, hash, key, key_size);
 	if (l_old && map_flags == BPF_NOEXIST) {
 		err = -EEXIST;
@@ -2409,9 +2421,9 @@ static int sock_hash_ctx_update_elem(struct bpf_sock_ops_kern *skops,
 
 	rcu_assign_pointer(e->hash_link, l_new);
 	e->map = map;
-	spin_lock_bh(&psock->maps_lock);
+	bh = spin_lock_bh(&psock->maps_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&e->list, &psock->maps);
-	spin_unlock_bh(&psock->maps_lock);
+	spin_unlock_bh(&psock->maps_lock, bh);
 
 	/* add new element to the head of the list, so that
 	 * concurrent search will find it before old elem
@@ -2425,11 +2437,11 @@ static int sock_hash_ctx_update_elem(struct bpf_sock_ops_kern *skops,
 		smap_release_sock(psock, l_old->sk);
 		free_htab_elem(htab, l_old);
 	}
-	raw_spin_unlock_bh(&b->lock);
+	raw_spin_unlock_bh(&b->lock, bh);
 	return 0;
 bucket_err:
 	smap_release_sock(psock, sock);
-	raw_spin_unlock_bh(&b->lock);
+	raw_spin_unlock_bh(&b->lock, bh);
 err:
 	kfree(e);
 	return err;
@@ -2466,6 +2478,7 @@ static int sock_hash_update_elem(struct bpf_map *map,
 
 static int sock_hash_delete_elem(struct bpf_map *map, void *key)
 {
+	unsigned int bh;
 	struct bpf_htab *htab = container_of(map, struct bpf_htab, map);
 	struct hlist_head *head;
 	struct bucket *b;
@@ -2478,7 +2491,7 @@ static int sock_hash_delete_elem(struct bpf_map *map, void *key)
 	b = __select_bucket(htab, hash);
 	head = &b->head;
 
-	raw_spin_lock_bh(&b->lock);
+	bh = raw_spin_lock_bh(&b->lock, SOFTIRQ_ALL_MASK);
 	l = lookup_elem_raw(head, hash, key, key_size);
 	if (l) {
 		struct sock *sock = l->sk;
@@ -2498,7 +2511,7 @@ static int sock_hash_delete_elem(struct bpf_map *map, void *key)
 		free_htab_elem(htab, l);
 		ret = 0;
 	}
-	raw_spin_unlock_bh(&b->lock);
+	raw_spin_unlock_bh(&b->lock, bh);
 	return ret;
 }
 

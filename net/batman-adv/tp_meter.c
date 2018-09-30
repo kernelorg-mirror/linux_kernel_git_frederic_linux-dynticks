@@ -152,13 +152,14 @@ static u32 batadv_tp_cwnd(u32 base, u32 increment, u32 min)
  */
 static void batadv_tp_update_cwnd(struct batadv_tp_vars *tp_vars, u32 mss)
 {
-	spin_lock_bh(&tp_vars->cwnd_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&tp_vars->cwnd_lock, SOFTIRQ_ALL_MASK);
 
 	/* slow start... */
 	if (tp_vars->cwnd <= tp_vars->ss_threshold) {
 		tp_vars->dec_cwnd = 0;
 		tp_vars->cwnd = batadv_tp_cwnd(tp_vars->cwnd, mss, mss);
-		spin_unlock_bh(&tp_vars->cwnd_lock);
+		spin_unlock_bh(&tp_vars->cwnd_lock, bh);
 		return;
 	}
 
@@ -166,14 +167,14 @@ static void batadv_tp_update_cwnd(struct batadv_tp_vars *tp_vars, u32 mss)
 	tp_vars->dec_cwnd += max_t(u32, 1U << 3,
 				   ((mss * mss) << 6) / (tp_vars->cwnd << 3));
 	if (tp_vars->dec_cwnd < (mss << 3)) {
-		spin_unlock_bh(&tp_vars->cwnd_lock);
+		spin_unlock_bh(&tp_vars->cwnd_lock, bh);
 		return;
 	}
 
 	tp_vars->cwnd = batadv_tp_cwnd(tp_vars->cwnd, mss, mss);
 	tp_vars->dec_cwnd = 0;
 
-	spin_unlock_bh(&tp_vars->cwnd_lock);
+	spin_unlock_bh(&tp_vars->cwnd_lock, bh);
 }
 
 /**
@@ -343,6 +344,7 @@ batadv_tp_list_find_session(struct batadv_priv *bat_priv, const u8 *dst,
  */
 static void batadv_tp_vars_release(struct kref *ref)
 {
+	unsigned int bh;
 	struct batadv_tp_vars *tp_vars;
 	struct batadv_tp_unacked *un, *safe;
 
@@ -351,12 +353,12 @@ static void batadv_tp_vars_release(struct kref *ref)
 	/* lock should not be needed because this object is now out of any
 	 * context!
 	 */
-	spin_lock_bh(&tp_vars->unacked_lock);
+	bh = spin_lock_bh(&tp_vars->unacked_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(un, safe, &tp_vars->unacked_list, list) {
 		list_del(&un->list);
 		kfree(un);
 	}
-	spin_unlock_bh(&tp_vars->unacked_lock);
+	spin_unlock_bh(&tp_vars->unacked_lock, bh);
 
 	kfree_rcu(tp_vars, rcu);
 }
@@ -379,11 +381,12 @@ static void batadv_tp_vars_put(struct batadv_tp_vars *tp_vars)
 static void batadv_tp_sender_cleanup(struct batadv_priv *bat_priv,
 				     struct batadv_tp_vars *tp_vars)
 {
+	unsigned int bh;
 	cancel_delayed_work(&tp_vars->finish_work);
 
-	spin_lock_bh(&tp_vars->bat_priv->tp_list_lock);
+	bh = spin_lock_bh(&tp_vars->bat_priv->tp_list_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_rcu(&tp_vars->list);
-	spin_unlock_bh(&tp_vars->bat_priv->tp_list_lock);
+	spin_unlock_bh(&tp_vars->bat_priv->tp_list_lock, bh);
 
 	/* drop list reference */
 	batadv_tp_vars_put(tp_vars);
@@ -492,6 +495,7 @@ static void batadv_tp_reset_sender_timer(struct batadv_tp_vars *tp_vars)
  */
 static void batadv_tp_sender_timeout(struct timer_list *t)
 {
+	unsigned int bh;
 	struct batadv_tp_vars *tp_vars = from_timer(tp_vars, t, timer);
 	struct batadv_priv *bat_priv = tp_vars->bat_priv;
 
@@ -510,7 +514,7 @@ static void batadv_tp_sender_timeout(struct timer_list *t)
 	 */
 	tp_vars->rto <<= 1;
 
-	spin_lock_bh(&tp_vars->cwnd_lock);
+	bh = spin_lock_bh(&tp_vars->cwnd_lock, SOFTIRQ_ALL_MASK);
 
 	tp_vars->ss_threshold = tp_vars->cwnd >> 1;
 	if (tp_vars->ss_threshold < BATADV_TP_PLEN * 2)
@@ -523,7 +527,7 @@ static void batadv_tp_sender_timeout(struct timer_list *t)
 
 	tp_vars->cwnd = BATADV_TP_PLEN * 3;
 
-	spin_unlock_bh(&tp_vars->cwnd_lock);
+	spin_unlock_bh(&tp_vars->cwnd_lock, bh);
 
 	/* resend the non-ACKed packets.. */
 	tp_vars->last_sent = atomic_read(&tp_vars->last_acked);
@@ -541,16 +545,17 @@ static void batadv_tp_sender_timeout(struct timer_list *t)
 static void batadv_tp_fill_prerandom(struct batadv_tp_vars *tp_vars,
 				     u8 *buf, size_t nbytes)
 {
+	unsigned int bh;
 	u32 local_offset;
 	size_t bytes_inbuf;
 	size_t to_copy;
 	size_t pos = 0;
 
-	spin_lock_bh(&tp_vars->prerandom_lock);
+	bh = spin_lock_bh(&tp_vars->prerandom_lock, SOFTIRQ_ALL_MASK);
 	local_offset = tp_vars->prerandom_offset;
 	tp_vars->prerandom_offset += nbytes;
 	tp_vars->prerandom_offset %= sizeof(batadv_tp_prerandom);
-	spin_unlock_bh(&tp_vars->prerandom_lock);
+	spin_unlock_bh(&tp_vars->prerandom_lock, bh);
 
 	while (nbytes) {
 		local_offset %= sizeof(batadv_tp_prerandom);
@@ -634,6 +639,7 @@ static int batadv_tp_send_msg(struct batadv_tp_vars *tp_vars, const u8 *src,
 static void batadv_tp_recv_ack(struct batadv_priv *bat_priv,
 			       const struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct batadv_hard_iface *primary_if = NULL;
 	struct batadv_orig_node *orig_node = NULL;
 	const struct batadv_icmp_tp_packet *icmp;
@@ -695,7 +701,7 @@ static void batadv_tp_recv_ack(struct batadv_priv *bat_priv,
 				   icmp->session, icmp->uid,
 				   jiffies_to_msecs(jiffies));
 
-		spin_lock_bh(&tp_vars->cwnd_lock);
+		bh = spin_lock_bh(&tp_vars->cwnd_lock, SOFTIRQ_ALL_MASK);
 
 		/* Fast Recovery */
 		tp_vars->fast_recovery = true;
@@ -713,7 +719,7 @@ static void batadv_tp_recv_ack(struct batadv_priv *bat_priv,
 		tp_vars->dec_cwnd = 0;
 		tp_vars->last_sent = recv_ack;
 
-		spin_unlock_bh(&tp_vars->cwnd_lock);
+		spin_unlock_bh(&tp_vars->cwnd_lock, bh);
 	} else {
 		/* count the acked data */
 		atomic64_add(recv_ack - atomic_read(&tp_vars->last_acked),
@@ -947,6 +953,7 @@ static void batadv_tp_start_kthread(struct batadv_tp_vars *tp_vars)
 void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 		     u32 test_length, u32 *cookie)
 {
+	unsigned int bh;
 	struct batadv_tp_vars *tp_vars;
 	u8 session_id[2];
 	u8 icmp_uid;
@@ -958,10 +965,10 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 	*cookie = session_cookie;
 
 	/* look for an already existing test towards this node */
-	spin_lock_bh(&bat_priv->tp_list_lock);
+	bh = spin_lock_bh(&bat_priv->tp_list_lock, SOFTIRQ_ALL_MASK);
 	tp_vars = batadv_tp_list_find(bat_priv, dst);
 	if (tp_vars) {
-		spin_unlock_bh(&bat_priv->tp_list_lock);
+		spin_unlock_bh(&bat_priv->tp_list_lock, bh);
 		batadv_tp_vars_put(tp_vars);
 		batadv_dbg(BATADV_DBG_TP_METER, bat_priv,
 			   "Meter: test to or from the same node already ongoing, aborting\n");
@@ -971,7 +978,7 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 	}
 
 	if (!atomic_add_unless(&bat_priv->tp_num, 1, BATADV_TP_MAX_NUM)) {
-		spin_unlock_bh(&bat_priv->tp_list_lock);
+		spin_unlock_bh(&bat_priv->tp_list_lock, bh);
 		batadv_dbg(BATADV_DBG_TP_METER, bat_priv,
 			   "Meter: too many ongoing sessions, aborting (SEND)\n");
 		batadv_tp_batctl_error_notify(BATADV_TP_REASON_TOO_MANY, dst,
@@ -981,7 +988,7 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 
 	tp_vars = kmalloc(sizeof(*tp_vars), GFP_ATOMIC);
 	if (!tp_vars) {
-		spin_unlock_bh(&bat_priv->tp_list_lock);
+		spin_unlock_bh(&bat_priv->tp_list_lock, bh);
 		batadv_dbg(BATADV_DBG_TP_METER, bat_priv,
 			   "Meter: %s cannot allocate list elements\n",
 			   __func__);
@@ -1040,7 +1047,7 @@ void batadv_tp_start(struct batadv_priv *bat_priv, const u8 *dst,
 
 	kref_get(&tp_vars->refcount);
 	hlist_add_head_rcu(&tp_vars->list, &bat_priv->tp_list);
-	spin_unlock_bh(&bat_priv->tp_list_lock);
+	spin_unlock_bh(&bat_priv->tp_list_lock, bh);
 
 	tp_vars->test_length = test_length;
 	if (!tp_vars->test_length)
@@ -1113,6 +1120,7 @@ static void batadv_tp_reset_receiver_timer(struct batadv_tp_vars *tp_vars)
  */
 static void batadv_tp_receiver_shutdown(struct timer_list *t)
 {
+	unsigned int bh;
 	struct batadv_tp_vars *tp_vars = from_timer(tp_vars, t, timer);
 	struct batadv_tp_unacked *un, *safe;
 	struct batadv_priv *bat_priv;
@@ -1131,16 +1139,16 @@ static void batadv_tp_receiver_shutdown(struct timer_list *t)
 		   "Shutting down for inactivity (more than %dms) from %pM\n",
 		   BATADV_TP_RECV_TIMEOUT, tp_vars->other_end);
 
-	spin_lock_bh(&tp_vars->bat_priv->tp_list_lock);
+	bh = spin_lock_bh(&tp_vars->bat_priv->tp_list_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_rcu(&tp_vars->list);
-	spin_unlock_bh(&tp_vars->bat_priv->tp_list_lock);
+	spin_unlock_bh(&tp_vars->bat_priv->tp_list_lock, bh);
 
 	/* drop list reference */
 	batadv_tp_vars_put(tp_vars);
 
 	atomic_dec(&bat_priv->tp_num);
 
-	spin_lock_bh(&tp_vars->unacked_lock);
+	spin_lock_bh(&tp_vars->unacked_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(un, safe, &tp_vars->unacked_list, list) {
 		list_del(&un->list);
 		kfree(un);
@@ -1237,6 +1245,7 @@ out:
 static bool batadv_tp_handle_out_of_order(struct batadv_tp_vars *tp_vars,
 					  const struct sk_buff *skb)
 {
+	unsigned int bh;
 	const struct batadv_icmp_tp_packet *icmp;
 	struct batadv_tp_unacked *un, *new;
 	u32 payload_len;
@@ -1252,7 +1261,7 @@ static bool batadv_tp_handle_out_of_order(struct batadv_tp_vars *tp_vars,
 	payload_len = skb->len - sizeof(struct batadv_unicast_packet);
 	new->len = payload_len;
 
-	spin_lock_bh(&tp_vars->unacked_lock);
+	bh = spin_lock_bh(&tp_vars->unacked_lock, SOFTIRQ_ALL_MASK);
 	/* if the list is empty immediately attach this new object */
 	if (list_empty(&tp_vars->unacked_list)) {
 		list_add(&new->list, &tp_vars->unacked_list);
@@ -1294,7 +1303,7 @@ static bool batadv_tp_handle_out_of_order(struct batadv_tp_vars *tp_vars,
 		list_add(&new->list, &tp_vars->unacked_list);
 
 out:
-	spin_unlock_bh(&tp_vars->unacked_lock);
+	spin_unlock_bh(&tp_vars->unacked_lock, bh);
 
 	return true;
 }
@@ -1306,13 +1315,14 @@ out:
  */
 static void batadv_tp_ack_unordered(struct batadv_tp_vars *tp_vars)
 {
+	unsigned int bh;
 	struct batadv_tp_unacked *un, *safe;
 	u32 to_ack;
 
 	/* go through the unacked packet list and possibly ACK them as
 	 * well
 	 */
-	spin_lock_bh(&tp_vars->unacked_lock);
+	bh = spin_lock_bh(&tp_vars->unacked_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(un, safe, &tp_vars->unacked_list, list) {
 		/* the list is ordered, therefore it is possible to stop as soon
 		 * there is a gap between the last acked seqno and the seqno of
@@ -1329,7 +1339,7 @@ static void batadv_tp_ack_unordered(struct batadv_tp_vars *tp_vars)
 		list_del(&un->list);
 		kfree(un);
 	}
-	spin_unlock_bh(&tp_vars->unacked_lock);
+	spin_unlock_bh(&tp_vars->unacked_lock, bh);
 }
 
 /**
@@ -1343,9 +1353,10 @@ static struct batadv_tp_vars *
 batadv_tp_init_recv(struct batadv_priv *bat_priv,
 		    const struct batadv_icmp_tp_packet *icmp)
 {
+	unsigned int bh;
 	struct batadv_tp_vars *tp_vars;
 
-	spin_lock_bh(&bat_priv->tp_list_lock);
+	bh = spin_lock_bh(&bat_priv->tp_list_lock, SOFTIRQ_ALL_MASK);
 	tp_vars = batadv_tp_list_find_session(bat_priv, icmp->orig,
 					      icmp->session);
 	if (tp_vars)
@@ -1380,7 +1391,7 @@ batadv_tp_init_recv(struct batadv_priv *bat_priv,
 	batadv_tp_reset_receiver_timer(tp_vars);
 
 out_unlock:
-	spin_unlock_bh(&bat_priv->tp_list_lock);
+	spin_unlock_bh(&bat_priv->tp_list_lock, bh);
 
 	return tp_vars;
 }

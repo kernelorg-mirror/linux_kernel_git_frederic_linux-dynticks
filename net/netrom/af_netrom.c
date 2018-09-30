@@ -93,9 +93,10 @@ static void nr_set_lockdep_key(struct net_device *dev)
  */
 static void nr_remove_socket(struct sock *sk)
 {
-	spin_lock_bh(&nr_list_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&nr_list_lock, SOFTIRQ_ALL_MASK);
 	sk_del_node_init(sk);
-	spin_unlock_bh(&nr_list_lock);
+	spin_unlock_bh(&nr_list_lock, bh);
 }
 
 /*
@@ -103,13 +104,14 @@ static void nr_remove_socket(struct sock *sk)
  */
 static void nr_kill_by_device(struct net_device *dev)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	spin_lock_bh(&nr_list_lock);
+	bh = spin_lock_bh(&nr_list_lock, SOFTIRQ_ALL_MASK);
 	sk_for_each(s, &nr_list)
 		if (nr_sk(s)->device == dev)
 			nr_disconnect(s, ENETUNREACH);
-	spin_unlock_bh(&nr_list_lock);
+	spin_unlock_bh(&nr_list_lock, bh);
 }
 
 /*
@@ -136,9 +138,10 @@ static int nr_device_event(struct notifier_block *this, unsigned long event, voi
  */
 static void nr_insert_socket(struct sock *sk)
 {
-	spin_lock_bh(&nr_list_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&nr_list_lock, SOFTIRQ_ALL_MASK);
 	sk_add_node(sk, &nr_list);
-	spin_unlock_bh(&nr_list_lock);
+	spin_unlock_bh(&nr_list_lock, bh);
 }
 
 /*
@@ -147,9 +150,10 @@ static void nr_insert_socket(struct sock *sk)
  */
 static struct sock *nr_find_listener(ax25_address *addr)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	spin_lock_bh(&nr_list_lock);
+	bh = spin_lock_bh(&nr_list_lock, SOFTIRQ_ALL_MASK);
 	sk_for_each(s, &nr_list)
 		if (!ax25cmp(&nr_sk(s)->source_addr, addr) &&
 		    s->sk_state == TCP_LISTEN) {
@@ -158,7 +162,7 @@ static struct sock *nr_find_listener(ax25_address *addr)
 		}
 	s = NULL;
 found:
-	spin_unlock_bh(&nr_list_lock);
+	spin_unlock_bh(&nr_list_lock, bh);
 	return s;
 }
 
@@ -167,9 +171,10 @@ found:
  */
 static struct sock *nr_find_socket(unsigned char index, unsigned char id)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	spin_lock_bh(&nr_list_lock);
+	bh = spin_lock_bh(&nr_list_lock, SOFTIRQ_ALL_MASK);
 	sk_for_each(s, &nr_list) {
 		struct nr_sock *nr = nr_sk(s);
 
@@ -180,7 +185,7 @@ static struct sock *nr_find_socket(unsigned char index, unsigned char id)
 	}
 	s = NULL;
 found:
-	spin_unlock_bh(&nr_list_lock);
+	spin_unlock_bh(&nr_list_lock, bh);
 	return s;
 }
 
@@ -190,9 +195,10 @@ found:
 static struct sock *nr_find_peer(unsigned char index, unsigned char id,
 	ax25_address *dest)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	spin_lock_bh(&nr_list_lock);
+	bh = spin_lock_bh(&nr_list_lock, SOFTIRQ_ALL_MASK);
 	sk_for_each(s, &nr_list) {
 		struct nr_sock *nr = nr_sk(s);
 
@@ -204,7 +210,7 @@ static struct sock *nr_find_peer(unsigned char index, unsigned char id,
 	}
 	s = NULL;
 found:
-	spin_unlock_bh(&nr_list_lock);
+	spin_unlock_bh(&nr_list_lock, bh);
 	return s;
 }
 
@@ -1262,7 +1268,7 @@ static int nr_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 
 static void *nr_info_start(struct seq_file *seq, loff_t *pos)
 {
-	spin_lock_bh(&nr_list_lock);
+	spin_lock_bh(&nr_list_lock, SOFTIRQ_ALL_MASK);
 	return seq_hlist_start_head(&nr_list, *pos);
 }
 

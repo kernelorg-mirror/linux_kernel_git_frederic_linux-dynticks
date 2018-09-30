@@ -57,9 +57,10 @@ u8 ath9k_parse_mpdudensity(u8 mpdudensity)
 static bool ath9k_has_pending_frames(struct ath_softc *sc, struct ath_txq *txq,
 				     bool sw_pending)
 {
+	unsigned int bh;
 	bool pending = false;
 
-	spin_lock_bh(&txq->axq_lock);
+	bh = spin_lock_bh(&txq->axq_lock, SOFTIRQ_ALL_MASK);
 
 	if (txq->axq_depth) {
 		pending = true;
@@ -77,7 +78,7 @@ static bool ath9k_has_pending_frames(struct ath_softc *sc, struct ath_txq *txq,
 			pending = true;
 	}
 out:
-	spin_unlock_bh(&txq->axq_lock);
+	spin_unlock_bh(&txq->axq_lock, bh);
 	return pending;
 }
 
@@ -281,6 +282,7 @@ static bool ath_complete_reset(struct ath_softc *sc, bool start)
 
 static int ath_reset_internal(struct ath_softc *sc, struct ath9k_channel *hchan)
 {
+	unsigned int bh;
 	struct ath_hw *ah = sc->sc_ah;
 	struct ath_common *common = ath9k_hw_common(ah);
 	struct ath9k_hw_cal_data *caldata = NULL;
@@ -292,7 +294,7 @@ static int ath_reset_internal(struct ath_softc *sc, struct ath9k_channel *hchan)
 	disable_irq(sc->irq);
 	tasklet_disable(&sc->intr_tq);
 	tasklet_disable(&sc->bcon_tasklet);
-	spin_lock_bh(&sc->sc_pcu_lock);
+	bh = spin_lock_bh(&sc->sc_pcu_lock, SOFTIRQ_ALL_MASK);
 
 	if (!sc->cur_chan->offchannel) {
 		fastcc = false;
@@ -310,7 +312,7 @@ static int ath_reset_internal(struct ath_softc *sc, struct ath9k_channel *hchan)
 	if (ath9k_is_chanctx_enabled())
 		fastcc = false;
 
-	spin_lock_bh(&sc->chan_lock);
+	spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 	sc->cur_chandef = sc->cur_chan->chandef;
 	spin_unlock_bh(&sc->chan_lock);
 
@@ -337,7 +339,7 @@ static int ath_reset_internal(struct ath_softc *sc, struct ath9k_channel *hchan)
 
 out:
 	enable_irq(sc->irq);
-	spin_unlock_bh(&sc->sc_pcu_lock);
+	spin_unlock_bh(&sc->sc_pcu_lock, bh);
 	tasklet_enable(&sc->bcon_tasklet);
 	tasklet_enable(&sc->intr_tq);
 
@@ -643,6 +645,7 @@ void ath_reset_work(struct work_struct *work)
 
 static int ath9k_start(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct ath_softc *sc = hw->priv;
 	struct ath_hw *ah = sc->sc_ah;
 	struct ath_common *common = ath9k_hw_common(ah);
@@ -671,7 +674,7 @@ static int ath9k_start(struct ieee80211_hw *hw)
 	 * be followed by initialization of the appropriate bits
 	 * and then setup of the interrupt mask.
 	 */
-	spin_lock_bh(&sc->sc_pcu_lock);
+	bh = spin_lock_bh(&sc->sc_pcu_lock, SOFTIRQ_ALL_MASK);
 
 	atomic_set(&ah->intr_ref_cnt, -1);
 
@@ -730,7 +733,7 @@ static int ath9k_start(struct ieee80211_hw *hw)
 
 	ath9k_hw_reset_tsf(ah);
 
-	spin_unlock_bh(&sc->sc_pcu_lock);
+	spin_unlock_bh(&sc->sc_pcu_lock, bh);
 
 	ath9k_rng_start(sc);
 
@@ -842,7 +845,7 @@ static void ath9k_stop(struct ieee80211_hw *hw)
 	/* Ensure HW is awake when we try to shut it down. */
 	ath9k_ps_wakeup(sc);
 
-	spin_lock_bh(&sc->sc_pcu_lock);
+	spin_lock_bh(&sc->sc_pcu_lock, SOFTIRQ_ALL_MASK);
 
 	/* prevent tasklets to enable interrupts once we disable them */
 	ah->imask &= ~ATH9K_INT_GLOBAL;
@@ -862,7 +865,7 @@ static void ath9k_stop(struct ieee80211_hw *hw)
 	prev_idle = sc->ps_idle;
 	sc->ps_idle = true;
 
-	spin_lock_bh(&sc->sc_pcu_lock);
+	spin_lock_bh(&sc->sc_pcu_lock, SOFTIRQ_ALL_MASK);
 
 	if (ah->led_pin >= 0) {
 		ath9k_hw_set_gpio(ah, ah->led_pin,
@@ -1479,6 +1482,7 @@ static void ath9k_configure_filter(struct ieee80211_hw *hw,
 				   unsigned int *total_flags,
 				   u64 multicast)
 {
+	unsigned int bh;
 	struct ath_softc *sc = hw->priv;
 	struct ath_chanctx *ctx;
 	u32 rfilt;
@@ -1486,13 +1490,13 @@ static void ath9k_configure_filter(struct ieee80211_hw *hw,
 	changed_flags &= SUPPORTED_FILTERS;
 	*total_flags &= SUPPORTED_FILTERS;
 
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 	ath_for_each_chanctx(sc, ctx)
 		ctx->rxfilter = *total_flags;
 #ifdef CONFIG_ATH9K_CHANNEL_CONTEXT
 	sc->offchannel.chan.rxfilter = *total_flags;
 #endif
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 
 	ath9k_ps_wakeup(sc);
 	rfilt = ath_calcrxfilter(sc);
@@ -2084,6 +2088,7 @@ flush:
 void __ath9k_flush(struct ieee80211_hw *hw, u32 queues, bool drop,
 		   bool sw_pending, bool timeout_override)
 {
+	unsigned int bh;
 	struct ath_softc *sc = hw->priv;
 	struct ath_hw *ah = sc->sc_ah;
 	struct ath_common *common = ath9k_hw_common(ah);
@@ -2102,12 +2107,12 @@ void __ath9k_flush(struct ieee80211_hw *hw, u32 queues, bool drop,
 		return;
 	}
 
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 	if (timeout_override)
 		timeout = HZ / 5;
 	else
 		timeout = sc->cur_chan->flush_timeout;
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 
 	ath_dbg(common, CHAN_CTX,
 		"Flush timeout: %d\n", jiffies_to_msecs(timeout));
@@ -2118,7 +2123,7 @@ void __ath9k_flush(struct ieee80211_hw *hw, u32 queues, bool drop,
 
 	if (drop) {
 		ath9k_ps_wakeup(sc);
-		spin_lock_bh(&sc->sc_pcu_lock);
+		spin_lock_bh(&sc->sc_pcu_lock, SOFTIRQ_ALL_MASK);
 		drain_txq = ath_drain_all_txq(sc);
 		spin_unlock_bh(&sc->sc_pcu_lock);
 
@@ -2548,6 +2553,7 @@ static void ath9k_mgd_prepare_tx(struct ieee80211_hw *hw,
 				 struct ieee80211_vif *vif,
 				 u16 duration)
 {
+	unsigned int bh;
 	struct ath_softc *sc = hw->priv;
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	struct ath_vif *avp = (struct ath_vif *) vif->drv_priv;
@@ -2565,10 +2571,10 @@ static void ath9k_mgd_prepare_tx(struct ieee80211_hw *hw,
 
 	mutex_lock(&sc->mutex);
 
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 	if (sc->next_chan || (sc->cur_chan != avp->chanctx))
 		changed = true;
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 
 	if (!changed)
 		goto out;
@@ -2582,7 +2588,7 @@ static void ath9k_mgd_prepare_tx(struct ieee80211_hw *hw,
 		 * Wait till the GO interface gets a chance
 		 * to send out an NoA.
 		 */
-		spin_lock_bh(&sc->chan_lock);
+		spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 		sc->sched.mgd_prepare_tx = true;
 		cur_conf = &go_ctx->beacon;
 		beacon_int = TU_TO_USEC(cur_conf->beacon_interval);
@@ -2598,7 +2604,7 @@ static void ath9k_mgd_prepare_tx(struct ieee80211_hw *hw,
 			ath_dbg(common, CHAN_CTX,
 				"Failed to send new NoA\n");
 
-			spin_lock_bh(&sc->chan_lock);
+			spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 			sc->sched.mgd_prepare_tx = false;
 			spin_unlock_bh(&sc->chan_lock);
 		}
@@ -2610,7 +2616,7 @@ static void ath9k_mgd_prepare_tx(struct ieee80211_hw *hw,
 		"%s: Set chanctx state to FORCE_ACTIVE for vif: %pM\n",
 		__func__, vif->addr);
 
-	spin_lock_bh(&sc->chan_lock);
+	spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 	sc->next_chan = avp->chanctx;
 	sc->sched.state = ATH_CHANCTX_STATE_FORCE_ACTIVE;
 	spin_unlock_bh(&sc->chan_lock);

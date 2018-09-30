@@ -300,31 +300,34 @@ bool cgroup_on_dfl(const struct cgroup *cgrp)
 static int cgroup_idr_alloc(struct idr *idr, void *ptr, int start, int end,
 			    gfp_t gfp_mask)
 {
+	unsigned int bh;
 	int ret;
 
 	idr_preload(gfp_mask);
-	spin_lock_bh(&cgroup_idr_lock);
+	bh = spin_lock_bh(&cgroup_idr_lock, SOFTIRQ_ALL_MASK);
 	ret = idr_alloc(idr, ptr, start, end, gfp_mask & ~__GFP_DIRECT_RECLAIM);
-	spin_unlock_bh(&cgroup_idr_lock);
+	spin_unlock_bh(&cgroup_idr_lock, bh);
 	idr_preload_end();
 	return ret;
 }
 
 static void *cgroup_idr_replace(struct idr *idr, void *ptr, int id)
 {
+	unsigned int bh;
 	void *ret;
 
-	spin_lock_bh(&cgroup_idr_lock);
+	bh = spin_lock_bh(&cgroup_idr_lock, SOFTIRQ_ALL_MASK);
 	ret = idr_replace(idr, ptr, id);
-	spin_unlock_bh(&cgroup_idr_lock);
+	spin_unlock_bh(&cgroup_idr_lock, bh);
 	return ret;
 }
 
 static void cgroup_idr_remove(struct idr *idr, int id)
 {
-	spin_lock_bh(&cgroup_idr_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&cgroup_idr_lock, SOFTIRQ_ALL_MASK);
 	idr_remove(idr, id);
-	spin_unlock_bh(&cgroup_idr_lock);
+	spin_unlock_bh(&cgroup_idr_lock, bh);
 }
 
 static bool cgroup_has_tasks(struct cgroup *cgrp)

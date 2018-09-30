@@ -890,9 +890,10 @@ int iwl_alive_start(struct iwl_priv *priv)
  */
 static void iwl_clear_driver_stations(struct iwl_priv *priv)
 {
+	unsigned int bh;
 	struct iwl_rxon_context *ctx;
 
-	spin_lock_bh(&priv->sta_lock);
+	bh = spin_lock_bh(&priv->sta_lock, SOFTIRQ_ALL_MASK);
 	memset(priv->stations, 0, sizeof(priv->stations));
 	priv->num_stations = 0;
 
@@ -910,7 +911,7 @@ static void iwl_clear_driver_stations(struct iwl_priv *priv)
 		ctx->key_mapping_keys = 0;
 	}
 
-	spin_unlock_bh(&priv->sta_lock);
+	spin_unlock_bh(&priv->sta_lock, bh);
 }
 
 void iwl_down(struct iwl_priv *priv)

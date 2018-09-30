@@ -279,6 +279,7 @@ static int sctp_packet(struct nf_conn *ct,
 		       unsigned int dataoff,
 		       enum ip_conntrack_info ctinfo)
 {
+	unsigned int bh;
 	enum sctp_conntrack new_state, old_state;
 	enum ip_conntrack_dir dir = CTINFO2DIR(ctinfo);
 	const struct sctphdr *sh;
@@ -310,7 +311,7 @@ static int sctp_packet(struct nf_conn *ct,
 	}
 
 	old_state = new_state = SCTP_CONNTRACK_NONE;
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	for_each_sctp_chunk (skb, sch, _sch, offset, dataoff, count) {
 		/* Special cases of Verification tag check (Sec 8.5.1) */
 		if (sch->type == SCTP_CID_INIT) {
@@ -373,7 +374,7 @@ static int sctp_packet(struct nf_conn *ct,
 		if (old_state != new_state)
 			nf_conntrack_event_cache(IPCT_PROTOINFO, ct);
 	}
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 
 	timeouts = nf_ct_timeout_lookup(ct);
 	if (!timeouts)
@@ -392,7 +393,7 @@ static int sctp_packet(struct nf_conn *ct,
 	return NF_ACCEPT;
 
 out_unlock:
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 out:
 	return -NF_ACCEPT;
 }
@@ -523,9 +524,10 @@ static bool sctp_can_early_drop(const struct nf_conn *ct)
 static int sctp_to_nlattr(struct sk_buff *skb, struct nlattr *nla,
 			  struct nf_conn *ct)
 {
+	unsigned int bh;
 	struct nlattr *nest_parms;
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	nest_parms = nla_nest_start(skb, CTA_PROTOINFO_SCTP | NLA_F_NESTED);
 	if (!nest_parms)
 		goto nla_put_failure;
@@ -537,14 +539,14 @@ static int sctp_to_nlattr(struct sk_buff *skb, struct nlattr *nla,
 			 ct->proto.sctp.vtag[IP_CT_DIR_REPLY]))
 		goto nla_put_failure;
 
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 
 	nla_nest_end(skb, nest_parms);
 
 	return 0;
 
 nla_put_failure:
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 	return -1;
 }
 
@@ -561,6 +563,7 @@ static const struct nla_policy sctp_nla_policy[CTA_PROTOINFO_SCTP_MAX+1] = {
 
 static int nlattr_to_sctp(struct nlattr *cda[], struct nf_conn *ct)
 {
+	unsigned int bh;
 	struct nlattr *attr = cda[CTA_PROTOINFO_SCTP];
 	struct nlattr *tb[CTA_PROTOINFO_SCTP_MAX+1];
 	int err;
@@ -579,13 +582,13 @@ static int nlattr_to_sctp(struct nlattr *cda[], struct nf_conn *ct)
 	    !tb[CTA_PROTOINFO_SCTP_VTAG_REPLY])
 		return -EINVAL;
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	ct->proto.sctp.state = nla_get_u8(tb[CTA_PROTOINFO_SCTP_STATE]);
 	ct->proto.sctp.vtag[IP_CT_DIR_ORIGINAL] =
 		nla_get_be32(tb[CTA_PROTOINFO_SCTP_VTAG_ORIGINAL]);
 	ct->proto.sctp.vtag[IP_CT_DIR_REPLY] =
 		nla_get_be32(tb[CTA_PROTOINFO_SCTP_VTAG_REPLY]);
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 
 	return 0;
 }

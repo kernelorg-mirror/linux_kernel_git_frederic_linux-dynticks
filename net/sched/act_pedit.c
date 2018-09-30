@@ -140,6 +140,7 @@ static int tcf_pedit_init(struct net *net, struct nlattr *nla,
 			  int ovr, int bind, bool rtnl_held,
 			  struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct tc_action_net *tn = net_generic(net, pedit_net_id);
 	struct nlattr *tb[TCA_PEDIT_MAX + 1];
 	struct tc_pedit_key *keys = NULL;
@@ -205,13 +206,13 @@ static int tcf_pedit_init(struct net *net, struct nlattr *nla,
 	}
 
 	p = to_pedit(*a);
-	spin_lock_bh(&p->tcf_lock);
+	bh = spin_lock_bh(&p->tcf_lock, SOFTIRQ_ALL_MASK);
 
 	if (ret == ACT_P_CREATED ||
 	    (p->tcfp_nkeys && p->tcfp_nkeys != parm->nkeys)) {
 		keys = kmalloc(ksize, GFP_ATOMIC);
 		if (!keys) {
-			spin_unlock_bh(&p->tcf_lock);
+			spin_unlock_bh(&p->tcf_lock, bh);
 			ret = -ENOMEM;
 			goto out_release;
 		}
@@ -227,7 +228,7 @@ static int tcf_pedit_init(struct net *net, struct nlattr *nla,
 	kfree(p->tcfp_keys_ex);
 	p->tcfp_keys_ex = keys_ex;
 
-	spin_unlock_bh(&p->tcf_lock);
+	spin_unlock_bh(&p->tcf_lock, bh);
 	if (ret == ACT_P_CREATED)
 		tcf_idr_insert(tn, *a);
 	return ret;
@@ -399,6 +400,7 @@ done:
 static int tcf_pedit_dump(struct sk_buff *skb, struct tc_action *a,
 			  int bind, int ref)
 {
+	unsigned int bh;
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tcf_pedit *p = to_pedit(a);
 	struct tc_pedit *opt;
@@ -412,7 +414,7 @@ static int tcf_pedit_dump(struct sk_buff *skb, struct tc_action *a,
 	if (unlikely(!opt))
 		return -ENOBUFS;
 
-	spin_lock_bh(&p->tcf_lock);
+	bh = spin_lock_bh(&p->tcf_lock, SOFTIRQ_ALL_MASK);
 	memcpy(opt->keys, p->tcfp_keys,
 	       p->tcfp_nkeys * sizeof(struct tc_pedit_key));
 	opt->index = p->tcf_index;
@@ -438,13 +440,13 @@ static int tcf_pedit_dump(struct sk_buff *skb, struct tc_action *a,
 	tcf_tm_dump(&t, &p->tcf_tm);
 	if (nla_put_64bit(skb, TCA_PEDIT_TM, sizeof(t), &t, TCA_PEDIT_PAD))
 		goto nla_put_failure;
-	spin_unlock_bh(&p->tcf_lock);
+	spin_unlock_bh(&p->tcf_lock, bh);
 
 	kfree(opt);
 	return skb->len;
 
 nla_put_failure:
-	spin_unlock_bh(&p->tcf_lock);
+	spin_unlock_bh(&p->tcf_lock, bh);
 	nlmsg_trim(skb, b);
 	kfree(opt);
 	return -1;

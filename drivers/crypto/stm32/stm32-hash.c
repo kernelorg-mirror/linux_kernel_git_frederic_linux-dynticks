@@ -648,9 +648,10 @@ static int stm32_hash_dma_send(struct stm32_hash_dev *hdev)
 
 static struct stm32_hash_dev *stm32_hash_find_dev(struct stm32_hash_ctx *ctx)
 {
+	unsigned int bh;
 	struct stm32_hash_dev *hdev = NULL, *tmp;
 
-	spin_lock_bh(&stm32_hash.lock);
+	bh = spin_lock_bh(&stm32_hash.lock, SOFTIRQ_ALL_MASK);
 	if (!ctx->hdev) {
 		list_for_each_entry(tmp, &stm32_hash.dev_list, list) {
 			hdev = tmp;
@@ -661,7 +662,7 @@ static struct stm32_hash_dev *stm32_hash_find_dev(struct stm32_hash_ctx *ctx)
 		hdev = ctx->hdev;
 	}
 
-	spin_unlock_bh(&stm32_hash.lock);
+	spin_unlock_bh(&stm32_hash.lock, bh);
 
 	return hdev;
 }

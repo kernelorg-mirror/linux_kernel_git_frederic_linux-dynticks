@@ -520,6 +520,7 @@ int mrp_request_join(const struct net_device *dev,
 		     const struct mrp_application *appl,
 		     const void *value, u8 len, u8 type)
 {
+	unsigned int bh;
 	struct mrp_port *port = rtnl_dereference(dev->mrp_port);
 	struct mrp_applicant *app = rtnl_dereference(
 		port->applicants[appl->type]);
@@ -529,14 +530,14 @@ int mrp_request_join(const struct net_device *dev,
 	    FIELD_SIZEOF(struct sk_buff, cb))
 		return -ENOMEM;
 
-	spin_lock_bh(&app->lock);
+	bh = spin_lock_bh(&app->lock, SOFTIRQ_ALL_MASK);
 	attr = mrp_attr_create(app, value, len, type);
 	if (!attr) {
-		spin_unlock_bh(&app->lock);
+		spin_unlock_bh(&app->lock, bh);
 		return -ENOMEM;
 	}
 	mrp_attr_event(app, attr, MRP_EVENT_JOIN);
-	spin_unlock_bh(&app->lock);
+	spin_unlock_bh(&app->lock, bh);
 	return 0;
 }
 EXPORT_SYMBOL_GPL(mrp_request_join);
@@ -545,6 +546,7 @@ void mrp_request_leave(const struct net_device *dev,
 		       const struct mrp_application *appl,
 		       const void *value, u8 len, u8 type)
 {
+	unsigned int bh;
 	struct mrp_port *port = rtnl_dereference(dev->mrp_port);
 	struct mrp_applicant *app = rtnl_dereference(
 		port->applicants[appl->type]);
@@ -554,14 +556,14 @@ void mrp_request_leave(const struct net_device *dev,
 	    FIELD_SIZEOF(struct sk_buff, cb))
 		return;
 
-	spin_lock_bh(&app->lock);
+	bh = spin_lock_bh(&app->lock, SOFTIRQ_ALL_MASK);
 	attr = mrp_attr_lookup(app, value, len, type);
 	if (!attr) {
-		spin_unlock_bh(&app->lock);
+		spin_unlock_bh(&app->lock, bh);
 		return;
 	}
 	mrp_attr_event(app, attr, MRP_EVENT_LV);
-	spin_unlock_bh(&app->lock);
+	spin_unlock_bh(&app->lock, bh);
 }
 EXPORT_SYMBOL_GPL(mrp_request_leave);
 
@@ -882,6 +884,7 @@ EXPORT_SYMBOL_GPL(mrp_init_applicant);
 
 void mrp_uninit_applicant(struct net_device *dev, struct mrp_application *appl)
 {
+	unsigned int bh;
 	struct mrp_port *port = rtnl_dereference(dev->mrp_port);
 	struct mrp_applicant *app = rtnl_dereference(
 		port->applicants[appl->type]);
@@ -896,10 +899,10 @@ void mrp_uninit_applicant(struct net_device *dev, struct mrp_application *appl)
 	del_timer_sync(&app->join_timer);
 	del_timer_sync(&app->periodic_timer);
 
-	spin_lock_bh(&app->lock);
+	bh = spin_lock_bh(&app->lock, SOFTIRQ_ALL_MASK);
 	mrp_mad_event(app, MRP_EVENT_TX);
 	mrp_pdu_queue(app);
-	spin_unlock_bh(&app->lock);
+	spin_unlock_bh(&app->lock, bh);
 
 	mrp_queue_xmit(app);
 

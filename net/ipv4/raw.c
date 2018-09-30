@@ -904,6 +904,7 @@ static int compat_raw_getsockopt(struct sock *sk, int level, int optname,
 
 static int raw_ioctl(struct sock *sk, int cmd, unsigned long arg)
 {
+	unsigned int bh;
 	switch (cmd) {
 	case SIOCOUTQ: {
 		int amount = sk_wmem_alloc_get(sk);
@@ -914,11 +915,11 @@ static int raw_ioctl(struct sock *sk, int cmd, unsigned long arg)
 		struct sk_buff *skb;
 		int amount = 0;
 
-		spin_lock_bh(&sk->sk_receive_queue.lock);
+		bh = spin_lock_bh(&sk->sk_receive_queue.lock, SOFTIRQ_ALL_MASK);
 		skb = skb_peek(&sk->sk_receive_queue);
 		if (skb)
 			amount = skb->len;
-		spin_unlock_bh(&sk->sk_receive_queue.lock);
+		spin_unlock_bh(&sk->sk_receive_queue.lock, bh);
 		return put_user(amount, (int __user *)arg);
 	}
 

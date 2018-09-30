@@ -147,6 +147,7 @@ EXPORT_SYMBOL(mr_vif_seq_next);
 void *mr_mfc_seq_idx(struct net *net,
 		     struct mr_mfc_iter *it, loff_t pos)
 {
+	unsigned int bh;
 	struct mr_table *mrt = it->mrt;
 	struct mr_mfc *mfc;
 
@@ -157,12 +158,12 @@ void *mr_mfc_seq_idx(struct net *net,
 			return mfc;
 	rcu_read_unlock();
 
-	spin_lock_bh(it->lock);
+	bh = spin_lock_bh(it->lock, SOFTIRQ_ALL_MASK);
 	it->cache = &mrt->mfc_unres_queue;
 	list_for_each_entry(mfc, it->cache, list)
 		if (pos-- == 0)
 			return mfc;
-	spin_unlock_bh(it->lock);
+	spin_unlock_bh(it->lock, bh);
 
 	it->cache = NULL;
 	return NULL;
@@ -172,6 +173,7 @@ EXPORT_SYMBOL(mr_mfc_seq_idx);
 void *mr_mfc_seq_next(struct seq_file *seq, void *v,
 		      loff_t *pos)
 {
+	unsigned int bh;
 	struct mr_mfc_iter *it = seq->private;
 	struct net *net = seq_file_net(seq);
 	struct mr_table *mrt = it->mrt;
@@ -192,12 +194,12 @@ void *mr_mfc_seq_next(struct seq_file *seq, void *v,
 	rcu_read_unlock();
 	it->cache = &mrt->mfc_unres_queue;
 
-	spin_lock_bh(it->lock);
+	bh = spin_lock_bh(it->lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(it->cache))
 		return list_first_entry(it->cache, struct mr_mfc, list);
 
 end_of_list:
-	spin_unlock_bh(it->lock);
+	spin_unlock_bh(it->lock, bh);
 	it->cache = NULL;
 
 	return NULL;
@@ -277,6 +279,7 @@ int mr_rtm_dumproute(struct sk_buff *skb, struct netlink_callback *cb,
 				 int cmd, int flags),
 		     spinlock_t *lock)
 {
+	unsigned int bh;
 	unsigned int t = 0, e = 0, s_t = cb->args[0], s_e = cb->args[1];
 	struct net *net = sock_net(skb->sk);
 	struct mr_table *mrt;
@@ -299,20 +302,20 @@ next_entry:
 		e = 0;
 		s_e = 0;
 
-		spin_lock_bh(lock);
+		bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(mfc, &mrt->mfc_unres_queue, list) {
 			if (e < s_e)
 				goto next_entry2;
 			if (fill(mrt, skb, NETLINK_CB(cb->skb).portid,
 				 cb->nlh->nlmsg_seq, mfc,
 				 RTM_NEWROUTE, NLM_F_MULTI) < 0) {
-				spin_unlock_bh(lock);
+				spin_unlock_bh(lock, bh);
 				goto done;
 			}
 next_entry2:
 			e++;
 		}
-		spin_unlock_bh(lock);
+		spin_unlock_bh(lock, bh);
 		e = 0;
 		s_e = 0;
 next_table:

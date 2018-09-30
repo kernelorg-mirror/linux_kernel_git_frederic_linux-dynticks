@@ -55,48 +55,52 @@ int get_hw_qnum(u16 queue, int *hwq_map)
 
 void ath9k_htc_check_stop_queues(struct ath9k_htc_priv *priv)
 {
-	spin_lock_bh(&priv->tx.tx_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	priv->tx.queued_cnt++;
 	if ((priv->tx.queued_cnt >= ATH9K_HTC_TX_THRESHOLD) &&
 	    !(priv->tx.flags & ATH9K_HTC_OP_TX_QUEUES_STOP)) {
 		priv->tx.flags |= ATH9K_HTC_OP_TX_QUEUES_STOP;
 		ieee80211_stop_queues(priv->hw);
 	}
-	spin_unlock_bh(&priv->tx.tx_lock);
+	spin_unlock_bh(&priv->tx.tx_lock, bh);
 }
 
 void ath9k_htc_check_wake_queues(struct ath9k_htc_priv *priv)
 {
-	spin_lock_bh(&priv->tx.tx_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	if ((priv->tx.queued_cnt < ATH9K_HTC_TX_THRESHOLD) &&
 	    (priv->tx.flags & ATH9K_HTC_OP_TX_QUEUES_STOP)) {
 		priv->tx.flags &= ~ATH9K_HTC_OP_TX_QUEUES_STOP;
 		ieee80211_wake_queues(priv->hw);
 	}
-	spin_unlock_bh(&priv->tx.tx_lock);
+	spin_unlock_bh(&priv->tx.tx_lock, bh);
 }
 
 int ath9k_htc_tx_get_slot(struct ath9k_htc_priv *priv)
 {
+	unsigned int bh;
 	int slot;
 
-	spin_lock_bh(&priv->tx.tx_lock);
+	bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	slot = find_first_zero_bit(priv->tx.tx_slot, MAX_TX_BUF_NUM);
 	if (slot >= MAX_TX_BUF_NUM) {
-		spin_unlock_bh(&priv->tx.tx_lock);
+		spin_unlock_bh(&priv->tx.tx_lock, bh);
 		return -ENOBUFS;
 	}
 	__set_bit(slot, priv->tx.tx_slot);
-	spin_unlock_bh(&priv->tx.tx_lock);
+	spin_unlock_bh(&priv->tx.tx_lock, bh);
 
 	return slot;
 }
 
 void ath9k_htc_tx_clear_slot(struct ath9k_htc_priv *priv, int slot)
 {
-	spin_lock_bh(&priv->tx.tx_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	__clear_bit(slot, priv->tx.tx_slot);
-	spin_unlock_bh(&priv->tx.tx_lock);
+	spin_unlock_bh(&priv->tx.tx_lock, bh);
 }
 
 static inline enum htc_endpoint_id get_htc_epid(struct ath9k_htc_priv *priv,
@@ -387,12 +391,13 @@ int ath9k_htc_tx_start(struct ath9k_htc_priv *priv,
 static inline bool __ath9k_htc_check_tx_aggr(struct ath9k_htc_priv *priv,
 					     struct ath9k_htc_sta *ista, u8 tid)
 {
+	unsigned int bh;
 	bool ret = false;
 
-	spin_lock_bh(&priv->tx.tx_lock);
+	bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	if ((tid < ATH9K_HTC_MAX_TID) && (ista->tid_state[tid] == AGGR_STOP))
 		ret = true;
-	spin_unlock_bh(&priv->tx.tx_lock);
+	spin_unlock_bh(&priv->tx.tx_lock, bh);
 
 	return ret;
 }
@@ -401,6 +406,7 @@ static void ath9k_htc_check_tx_aggr(struct ath9k_htc_priv *priv,
 				    struct ieee80211_vif *vif,
 				    struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ieee80211_sta *sta;
 	struct ieee80211_hdr *hdr;
 	__le16 fc;
@@ -427,9 +433,9 @@ static void ath9k_htc_check_tx_aggr(struct ath9k_htc_priv *priv,
 			ista = (struct ath9k_htc_sta *)sta->drv_priv;
 			if (__ath9k_htc_check_tx_aggr(priv, ista, tid)) {
 				ieee80211_start_tx_ba_session(sta, tid, 0);
-				spin_lock_bh(&priv->tx.tx_lock);
+				bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 				ista->tid_state[tid] = AGGR_PROGRESS;
-				spin_unlock_bh(&priv->tx.tx_lock);
+				spin_unlock_bh(&priv->tx.tx_lock, bh);
 			}
 		}
 	}
@@ -441,6 +447,7 @@ static void ath9k_htc_tx_process(struct ath9k_htc_priv *priv,
 				 struct sk_buff *skb,
 				 struct __wmi_event_txstatus *txs)
 {
+	unsigned int bh;
 	struct ieee80211_vif *vif;
 	struct ath9k_htc_tx_ctl *tx_ctl;
 	struct ieee80211_tx_info *tx_info;
@@ -501,10 +508,10 @@ static void ath9k_htc_tx_process(struct ath9k_htc_priv *priv,
 	ath9k_htc_check_tx_aggr(priv, vif, skb);
 
 send_mac80211:
-	spin_lock_bh(&priv->tx.tx_lock);
+	bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	if (WARN_ON(--priv->tx.queued_cnt < 0))
 		priv->tx.queued_cnt = 0;
-	spin_unlock_bh(&priv->tx.tx_lock);
+	spin_unlock_bh(&priv->tx.tx_lock, bh);
 
 	ath9k_htc_tx_clear_slot(priv, slot);
 
@@ -535,7 +542,7 @@ void ath9k_htc_tx_drain(struct ath9k_htc_priv *priv)
 {
 	struct ath9k_htc_tx_event *event, *tmp;
 
-	spin_lock_bh(&priv->tx.tx_lock);
+	spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	priv->tx.flags |= ATH9K_HTC_OP_TX_DRAIN;
 	spin_unlock_bh(&priv->tx.tx_lock);
 
@@ -558,28 +565,29 @@ void ath9k_htc_tx_drain(struct ath9k_htc_priv *priv)
 	/*
 	 * The TX cleanup timer has already been killed.
 	 */
-	spin_lock_bh(&priv->wmi->event_lock);
+	spin_lock_bh(&priv->wmi->event_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(event, tmp, &priv->wmi->pending_tx_events, list) {
 		list_del(&event->list);
 		kfree(event);
 	}
 	spin_unlock_bh(&priv->wmi->event_lock);
 
-	spin_lock_bh(&priv->tx.tx_lock);
+	spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	priv->tx.flags &= ~ATH9K_HTC_OP_TX_DRAIN;
 	spin_unlock_bh(&priv->tx.tx_lock);
 }
 
 void ath9k_tx_failed_tasklet(unsigned long data)
 {
+	unsigned int bh;
 	struct ath9k_htc_priv *priv = (struct ath9k_htc_priv *)data;
 
-	spin_lock_bh(&priv->tx.tx_lock);
+	bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 	if (priv->tx.flags & ATH9K_HTC_OP_TX_DRAIN) {
-		spin_unlock_bh(&priv->tx.tx_lock);
+		spin_unlock_bh(&priv->tx.tx_lock, bh);
 		return;
 	}
-	spin_unlock_bh(&priv->tx.tx_lock);
+	spin_unlock_bh(&priv->tx.tx_lock, bh);
 
 	ath9k_htc_tx_drainq(priv, &priv->tx.tx_failed);
 }

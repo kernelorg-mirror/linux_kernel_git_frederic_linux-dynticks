@@ -64,11 +64,12 @@ struct cflayer *cfmuxl_create(void)
 
 int cfmuxl_set_dnlayer(struct cflayer *layr, struct cflayer *dn, u8 phyid)
 {
+	unsigned int bh;
 	struct cfmuxl *muxl = (struct cfmuxl *) layr;
 
-	spin_lock_bh(&muxl->transmit_lock);
+	bh = spin_lock_bh(&muxl->transmit_lock, SOFTIRQ_ALL_MASK);
 	list_add_rcu(&dn->node, &muxl->frml_list);
-	spin_unlock_bh(&muxl->transmit_lock);
+	spin_unlock_bh(&muxl->transmit_lock, bh);
 	return 0;
 }
 
@@ -85,10 +86,11 @@ static struct cflayer *get_from_id(struct list_head *list, u16 id)
 
 int cfmuxl_set_uplayer(struct cflayer *layr, struct cflayer *up, u8 linkid)
 {
+	unsigned int bh;
 	struct cfmuxl *muxl = container_obj(layr);
 	struct cflayer *old;
 
-	spin_lock_bh(&muxl->receive_lock);
+	bh = spin_lock_bh(&muxl->receive_lock, SOFTIRQ_ALL_MASK);
 
 	/* Two entries with same id is wrong, so remove old layer from mux */
 	old = get_from_id(&muxl->srvl_list, linkid);
@@ -96,18 +98,19 @@ int cfmuxl_set_uplayer(struct cflayer *layr, struct cflayer *up, u8 linkid)
 		list_del_rcu(&old->node);
 
 	list_add_rcu(&up->node, &muxl->srvl_list);
-	spin_unlock_bh(&muxl->receive_lock);
+	spin_unlock_bh(&muxl->receive_lock, bh);
 
 	return 0;
 }
 
 struct cflayer *cfmuxl_remove_dnlayer(struct cflayer *layr, u8 phyid)
 {
+	unsigned int bh;
 	struct cfmuxl *muxl = container_obj(layr);
 	struct cflayer *dn;
 	int idx = phyid % DN_CACHE_SIZE;
 
-	spin_lock_bh(&muxl->transmit_lock);
+	bh = spin_lock_bh(&muxl->transmit_lock, SOFTIRQ_ALL_MASK);
 	RCU_INIT_POINTER(muxl->dn_cache[idx], NULL);
 	dn = get_from_id(&muxl->frml_list, phyid);
 	if (dn == NULL)
@@ -116,40 +119,43 @@ struct cflayer *cfmuxl_remove_dnlayer(struct cflayer *layr, u8 phyid)
 	list_del_rcu(&dn->node);
 	caif_assert(dn != NULL);
 out:
-	spin_unlock_bh(&muxl->transmit_lock);
+	spin_unlock_bh(&muxl->transmit_lock, bh);
 	return dn;
 }
 
 static struct cflayer *get_up(struct cfmuxl *muxl, u16 id)
 {
+	unsigned int bh;
 	struct cflayer *up;
 	int idx = id % UP_CACHE_SIZE;
 	up = rcu_dereference(muxl->up_cache[idx]);
 	if (up == NULL || up->id != id) {
-		spin_lock_bh(&muxl->receive_lock);
+		bh = spin_lock_bh(&muxl->receive_lock, SOFTIRQ_ALL_MASK);
 		up = get_from_id(&muxl->srvl_list, id);
 		rcu_assign_pointer(muxl->up_cache[idx], up);
-		spin_unlock_bh(&muxl->receive_lock);
+		spin_unlock_bh(&muxl->receive_lock, bh);
 	}
 	return up;
 }
 
 static struct cflayer *get_dn(struct cfmuxl *muxl, struct dev_info *dev_info)
 {
+	unsigned int bh;
 	struct cflayer *dn;
 	int idx = dev_info->id % DN_CACHE_SIZE;
 	dn = rcu_dereference(muxl->dn_cache[idx]);
 	if (dn == NULL || dn->id != dev_info->id) {
-		spin_lock_bh(&muxl->transmit_lock);
+		bh = spin_lock_bh(&muxl->transmit_lock, SOFTIRQ_ALL_MASK);
 		dn = get_from_id(&muxl->frml_list, dev_info->id);
 		rcu_assign_pointer(muxl->dn_cache[idx], dn);
-		spin_unlock_bh(&muxl->transmit_lock);
+		spin_unlock_bh(&muxl->transmit_lock, bh);
 	}
 	return dn;
 }
 
 struct cflayer *cfmuxl_remove_uplayer(struct cflayer *layr, u8 id)
 {
+	unsigned int bh;
 	struct cflayer *up;
 	struct cfmuxl *muxl = container_obj(layr);
 	int idx = id % UP_CACHE_SIZE;
@@ -159,7 +165,7 @@ struct cflayer *cfmuxl_remove_uplayer(struct cflayer *layr, u8 id)
 		return NULL;
 	}
 
-	spin_lock_bh(&muxl->receive_lock);
+	bh = spin_lock_bh(&muxl->receive_lock, SOFTIRQ_ALL_MASK);
 	up = get_from_id(&muxl->srvl_list, id);
 	if (up == NULL)
 		goto out;
@@ -167,7 +173,7 @@ struct cflayer *cfmuxl_remove_uplayer(struct cflayer *layr, u8 id)
 	RCU_INIT_POINTER(muxl->up_cache[idx], NULL);
 	list_del_rcu(&up->node);
 out:
-	spin_unlock_bh(&muxl->receive_lock);
+	spin_unlock_bh(&muxl->receive_lock, bh);
 	return up;
 }
 

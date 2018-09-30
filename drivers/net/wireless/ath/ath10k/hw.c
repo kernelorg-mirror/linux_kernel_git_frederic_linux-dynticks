@@ -595,6 +595,7 @@ void ath10k_hw_fill_survey_time(struct ath10k *ar, struct survey_info *survey,
 static void ath10k_hw_qca988x_set_coverage_class(struct ath10k *ar,
 						 s16 value)
 {
+	unsigned int bh;
 	u32 slottime_reg;
 	u32 slottime;
 	u32 timeout_reg;
@@ -610,10 +611,10 @@ static void ath10k_hw_qca988x_set_coverage_class(struct ath10k *ar,
 	/* Only modify registers if the core is started. */
 	if ((ar->state != ATH10K_STATE_ON) &&
 	    (ar->state != ATH10K_STATE_RESTARTED)) {
-		spin_lock_bh(&ar->data_lock);
+		bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 		/* Store config value for when radio boots up */
 		ar->fw_coverage.coverage_class = value;
-		spin_unlock_bh(&ar->data_lock);
+		spin_unlock_bh(&ar->data_lock, bh);
 		goto unlock;
 	}
 
@@ -718,9 +719,9 @@ static void ath10k_hw_qca988x_set_coverage_class(struct ath10k *ar,
 
 store_regs:
 	/* After an error we will not retry setting the coverage class. */
-	spin_lock_bh(&ar->data_lock);
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 	ar->fw_coverage.coverage_class = value;
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 
 	ar->fw_coverage.reg_slottime_conf = slottime_reg;
 	ar->fw_coverage.reg_ack_cts_timeout_conf = timeout_reg;

@@ -318,18 +318,19 @@ static int dev_mc_seq_show(struct seq_file *seq, void *v)
 {
 	struct netdev_hw_addr *ha;
 	struct net_device *dev = v;
+	unsigned int bh;
 
 	if (v == SEQ_START_TOKEN)
 		return 0;
 
-	netif_addr_lock_bh(dev);
+	bh = netif_addr_lock_bh(dev);
 	netdev_for_each_mc_addr(ha, dev) {
 		seq_printf(seq, "%-4d %-15s %-5d %-5d %*phN\n",
 			   dev->ifindex, dev->name,
 			   ha->refcount, ha->global_use,
 			   (int)dev->addr_len, ha->addr);
 	}
-	netif_addr_unlock_bh(dev);
+	netif_addr_unlock_bh(dev, bh);
 	return 0;
 }
 

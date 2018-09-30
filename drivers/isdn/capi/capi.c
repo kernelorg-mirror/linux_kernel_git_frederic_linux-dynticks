@@ -141,6 +141,7 @@ static struct tty_driver *capinc_tty_driver;
 
 static int capiminor_add_ack(struct capiminor *mp, u16 datahandle)
 {
+	unsigned int bh;
 	struct ackqueue_entry *n;
 
 	n = kmalloc(sizeof(*n), GFP_ATOMIC);
@@ -150,28 +151,29 @@ static int capiminor_add_ack(struct capiminor *mp, u16 datahandle)
 	}
 	n->datahandle = datahandle;
 	INIT_LIST_HEAD(&n->list);
-	spin_lock_bh(&mp->ackqlock);
+	bh = spin_lock_bh(&mp->ackqlock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&n->list, &mp->ackqueue);
 	mp->nack++;
-	spin_unlock_bh(&mp->ackqlock);
+	spin_unlock_bh(&mp->ackqlock, bh);
 	return 0;
 }
 
 static int capiminor_del_ack(struct capiminor *mp, u16 datahandle)
 {
+	unsigned int bh;
 	struct ackqueue_entry *p, *tmp;
 
-	spin_lock_bh(&mp->ackqlock);
+	bh = spin_lock_bh(&mp->ackqlock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(p, tmp, &mp->ackqueue, list) {
 		if (p->datahandle == datahandle) {
 			list_del(&p->list);
 			mp->nack--;
-			spin_unlock_bh(&mp->ackqlock);
+			spin_unlock_bh(&mp->ackqlock, bh);
 			kfree(p);
 			return 0;
 		}
 	}
-	spin_unlock_bh(&mp->ackqlock);
+	spin_unlock_bh(&mp->ackqlock, bh);
 	return -1;
 }
 
@@ -486,6 +488,7 @@ static void handle_minor_recv(struct capiminor *mp)
 
 static void handle_minor_send(struct capiminor *mp)
 {
+	unsigned int bh;
 	struct tty_struct *tty;
 	struct sk_buff *skb;
 	u16 len;
@@ -503,15 +506,15 @@ static void handle_minor_send(struct capiminor *mp)
 	}
 
 	while (1) {
-		spin_lock_bh(&mp->outlock);
+		bh = spin_lock_bh(&mp->outlock, SOFTIRQ_ALL_MASK);
 		skb = __skb_dequeue(&mp->outqueue);
 		if (!skb) {
-			spin_unlock_bh(&mp->outlock);
+			spin_unlock_bh(&mp->outlock, bh);
 			break;
 		}
 		len = (u16)skb->len;
 		mp->outbytes -= len;
-		spin_unlock_bh(&mp->outlock);
+		spin_unlock_bh(&mp->outlock, bh);
 
 		datahandle = atomic_inc_return(&mp->datahandle);
 		skb_push(skb, CAPI_DATA_B3_REQ_LEN);
@@ -530,10 +533,10 @@ static void handle_minor_send(struct capiminor *mp)
 		if (capiminor_add_ack(mp, datahandle) < 0) {
 			skb_pull(skb, CAPI_DATA_B3_REQ_LEN);
 
-			spin_lock_bh(&mp->outlock);
+			bh = spin_lock_bh(&mp->outlock, SOFTIRQ_ALL_MASK);
 			__skb_queue_head(&mp->outqueue, skb);
 			mp->outbytes += len;
-			spin_unlock_bh(&mp->outlock);
+			spin_unlock_bh(&mp->outlock, bh);
 
 			break;
 		}
@@ -548,10 +551,10 @@ static void handle_minor_send(struct capiminor *mp)
 		if (errcode == CAPI_SENDQUEUEFULL) {
 			skb_pull(skb, CAPI_DATA_B3_REQ_LEN);
 
-			spin_lock_bh(&mp->outlock);
+			bh = spin_lock_bh(&mp->outlock, SOFTIRQ_ALL_MASK);
 			__skb_queue_head(&mp->outqueue, skb);
 			mp->outbytes += len;
-			spin_unlock_bh(&mp->outlock);
+			spin_unlock_bh(&mp->outlock, bh);
 
 			break;
 		}
@@ -1038,12 +1041,13 @@ static void capinc_tty_close(struct tty_struct *tty, struct file *filp)
 static int capinc_tty_write(struct tty_struct *tty,
 			    const unsigned char *buf, int count)
 {
+	unsigned int bh;
 	struct capiminor *mp = tty->driver_data;
 	struct sk_buff *skb;
 
 	pr_debug("capinc_tty_write(count=%d)\n", count);
 
-	spin_lock_bh(&mp->outlock);
+	bh = spin_lock_bh(&mp->outlock, SOFTIRQ_ALL_MASK);
 	skb = mp->outskb;
 	if (skb) {
 		mp->outskb = NULL;
@@ -1054,7 +1058,7 @@ static int capinc_tty_write(struct tty_struct *tty,
 	skb = alloc_skb(CAPI_DATA_B3_REQ_LEN + count, GFP_ATOMIC);
 	if (!skb) {
 		printk(KERN_ERR "capinc_tty_write: alloc_skb failed\n");
-		spin_unlock_bh(&mp->outlock);
+		spin_unlock_bh(&mp->outlock, bh);
 		return -ENOMEM;
 	}
 
@@ -1063,7 +1067,7 @@ static int capinc_tty_write(struct tty_struct *tty,
 
 	__skb_queue_tail(&mp->outqueue, skb);
 	mp->outbytes += skb->len;
-	spin_unlock_bh(&mp->outlock);
+	spin_unlock_bh(&mp->outlock, bh);
 
 	handle_minor_send(mp);
 
@@ -1072,6 +1076,7 @@ static int capinc_tty_write(struct tty_struct *tty,
 
 static int capinc_tty_put_char(struct tty_struct *tty, unsigned char ch)
 {
+	unsigned int bh;
 	struct capiminor *mp = tty->driver_data;
 	bool invoke_send = false;
 	struct sk_buff *skb;
@@ -1079,7 +1084,7 @@ static int capinc_tty_put_char(struct tty_struct *tty, unsigned char ch)
 
 	pr_debug("capinc_put_char(%u)\n", ch);
 
-	spin_lock_bh(&mp->outlock);
+	bh = spin_lock_bh(&mp->outlock, SOFTIRQ_ALL_MASK);
 	skb = mp->outskb;
 	if (skb) {
 		if (skb_tailroom(skb) > 0) {
@@ -1103,7 +1108,7 @@ static int capinc_tty_put_char(struct tty_struct *tty, unsigned char ch)
 	}
 
 unlock_out:
-	spin_unlock_bh(&mp->outlock);
+	spin_unlock_bh(&mp->outlock, bh);
 
 	if (invoke_send)
 		handle_minor_send(mp);
@@ -1113,22 +1118,23 @@ unlock_out:
 
 static void capinc_tty_flush_chars(struct tty_struct *tty)
 {
+	unsigned int bh;
 	struct capiminor *mp = tty->driver_data;
 	struct sk_buff *skb;
 
 	pr_debug("capinc_tty_flush_chars\n");
 
-	spin_lock_bh(&mp->outlock);
+	bh = spin_lock_bh(&mp->outlock, SOFTIRQ_ALL_MASK);
 	skb = mp->outskb;
 	if (skb) {
 		mp->outskb = NULL;
 		__skb_queue_tail(&mp->outqueue, skb);
 		mp->outbytes += skb->len;
-		spin_unlock_bh(&mp->outlock);
+		spin_unlock_bh(&mp->outlock, bh);
 
 		handle_minor_send(mp);
 	} else
-		spin_unlock_bh(&mp->outlock);
+		spin_unlock_bh(&mp->outlock, bh);
 
 	handle_minor_recv(mp);
 }

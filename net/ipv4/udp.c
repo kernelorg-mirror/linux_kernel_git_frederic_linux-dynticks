@@ -240,6 +240,7 @@ static int udp_reuseport_add_sock(struct sock *sk, struct udp_hslot *hslot)
 int udp_lib_get_port(struct sock *sk, unsigned short snum,
 		     unsigned int hash2_nulladdr)
 {
+	unsigned int bh;
 	struct udp_hslot *hslot, *hslot2;
 	struct udp_table *udptable = sk->sk_prot->h.udp_table;
 	int    error = 1;
@@ -264,7 +265,7 @@ int udp_lib_get_port(struct sock *sk, unsigned short snum,
 		do {
 			hslot = udp_hashslot(udptable, net, first);
 			bitmap_zero(bitmap, PORTS_PER_CHAIN);
-			spin_lock_bh(&hslot->lock);
+			bh = spin_lock_bh(&hslot->lock, SOFTIRQ_ALL_MASK);
 			udp_lib_lport_inuse(net, snum, hslot, bitmap, sk,
 					    udptable->log);
 
@@ -281,13 +282,13 @@ int udp_lib_get_port(struct sock *sk, unsigned short snum,
 					goto found;
 				snum += rand;
 			} while (snum != first);
-			spin_unlock_bh(&hslot->lock);
+			spin_unlock_bh(&hslot->lock, bh);
 			cond_resched();
 		} while (++first != last);
 		goto fail;
 	} else {
 		hslot = udp_hashslot(udptable, net, snum);
-		spin_lock_bh(&hslot->lock);
+		bh = spin_lock_bh(&hslot->lock, SOFTIRQ_ALL_MASK);
 		if (hslot->count > 10) {
 			int exist;
 			unsigned int slot2 = udp_sk(sk)->udp_portaddr_hash ^ snum;
@@ -346,7 +347,7 @@ found:
 	sock_set_flag(sk, SOCK_RCU_FREE);
 	error = 0;
 fail_unlock:
-	spin_unlock_bh(&hslot->lock);
+	spin_unlock_bh(&hslot->lock, bh);
 fail:
 	return error;
 }
@@ -1509,13 +1510,14 @@ static struct sk_buff *__first_packet_length(struct sock *sk,
  */
 static int first_packet_length(struct sock *sk)
 {
+	unsigned int bh;
 	struct sk_buff_head *rcvq = &udp_sk(sk)->reader_queue;
 	struct sk_buff_head *sk_queue = &sk->sk_receive_queue;
 	struct sk_buff *skb;
 	int total = 0;
 	int res;
 
-	spin_lock_bh(&rcvq->lock);
+	bh = spin_lock_bh(&rcvq->lock, SOFTIRQ_ALL_MASK);
 	skb = __first_packet_length(sk, rcvq, &total);
 	if (!skb && !skb_queue_empty(sk_queue)) {
 		spin_lock(&sk_queue->lock);
@@ -1527,7 +1529,7 @@ static int first_packet_length(struct sock *sk)
 	res = skb ? skb->len : -1;
 	if (total)
 		udp_rmem_release(sk, total, 1, false);
-	spin_unlock_bh(&rcvq->lock);
+	spin_unlock_bh(&rcvq->lock, bh);
 	return res;
 }
 
@@ -1563,6 +1565,7 @@ EXPORT_SYMBOL(udp_ioctl);
 struct sk_buff *__skb_recv_udp(struct sock *sk, unsigned int flags,
 			       int noblock, int *peeked, int *off, int *err)
 {
+	unsigned int bh;
 	struct sk_buff_head *sk_queue = &sk->sk_receive_queue;
 	struct sk_buff_head *queue;
 	struct sk_buff *last;
@@ -1582,18 +1585,18 @@ struct sk_buff *__skb_recv_udp(struct sock *sk, unsigned int flags,
 		error = -EAGAIN;
 		*peeked = 0;
 		do {
-			spin_lock_bh(&queue->lock);
+			bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 			skb = __skb_try_recv_from_queue(sk, queue, flags,
 							udp_skb_destructor,
 							peeked, off, err,
 							&last);
 			if (skb) {
-				spin_unlock_bh(&queue->lock);
+				spin_unlock_bh(&queue->lock, bh);
 				return skb;
 			}
 
 			if (skb_queue_empty(sk_queue)) {
-				spin_unlock_bh(&queue->lock);
+				spin_unlock_bh(&queue->lock, bh);
 				goto busy_check;
 			}
 
@@ -1610,7 +1613,7 @@ struct sk_buff *__skb_recv_udp(struct sock *sk, unsigned int flags,
 							peeked, off, err,
 							&last);
 			spin_unlock(&sk_queue->lock);
-			spin_unlock_bh(&queue->lock);
+			spin_unlock_bh(&queue->lock, bh);
 			if (skb)
 				return skb;
 
@@ -1787,6 +1790,7 @@ EXPORT_SYMBOL(udp_disconnect);
 
 void udp_lib_unhash(struct sock *sk)
 {
+	unsigned int bh;
 	if (sk_hashed(sk)) {
 		struct udp_table *udptable = sk->sk_prot->h.udp_table;
 		struct udp_hslot *hslot, *hslot2;
@@ -1795,7 +1799,7 @@ void udp_lib_unhash(struct sock *sk)
 				      udp_sk(sk)->udp_port_hash);
 		hslot2 = udp_hashslot2(udptable, udp_sk(sk)->udp_portaddr_hash);
 
-		spin_lock_bh(&hslot->lock);
+		bh = spin_lock_bh(&hslot->lock, SOFTIRQ_ALL_MASK);
 		if (rcu_access_pointer(sk->sk_reuseport_cb))
 			reuseport_detach_sock(sk);
 		if (sk_del_node_init_rcu(sk)) {
@@ -1808,7 +1812,7 @@ void udp_lib_unhash(struct sock *sk)
 			hslot2->count--;
 			spin_unlock(&hslot2->lock);
 		}
-		spin_unlock_bh(&hslot->lock);
+		spin_unlock_bh(&hslot->lock, bh);
 	}
 }
 EXPORT_SYMBOL(udp_lib_unhash);
@@ -1818,6 +1822,7 @@ EXPORT_SYMBOL(udp_lib_unhash);
  */
 void udp_lib_rehash(struct sock *sk, u16 newhash)
 {
+	unsigned int bh;
 	if (sk_hashed(sk)) {
 		struct udp_table *udptable = sk->sk_prot->h.udp_table;
 		struct udp_hslot *hslot, *hslot2, *nhslot2;
@@ -1831,7 +1836,7 @@ void udp_lib_rehash(struct sock *sk, u16 newhash)
 			hslot = udp_hashslot(udptable, sock_net(sk),
 					     udp_sk(sk)->udp_port_hash);
 			/* we must lock primary chain too */
-			spin_lock_bh(&hslot->lock);
+			bh = spin_lock_bh(&hslot->lock, SOFTIRQ_ALL_MASK);
 			if (rcu_access_pointer(sk->sk_reuseport_cb))
 				reuseport_detach_sock(sk);
 
@@ -1848,7 +1853,7 @@ void udp_lib_rehash(struct sock *sk, u16 newhash)
 				spin_unlock(&nhslot2->lock);
 			}
 
-			spin_unlock_bh(&hslot->lock);
+			spin_unlock_bh(&hslot->lock, bh);
 		}
 	}
 }
@@ -2685,14 +2690,14 @@ static struct sock *udp_get_first(struct seq_file *seq, int start)
 		if (hlist_empty(&hslot->head))
 			continue;
 
-		spin_lock_bh(&hslot->lock);
+		state->bh = spin_lock_bh(&hslot->lock, SOFTIRQ_ALL_MASK);
 		sk_for_each(sk, &hslot->head) {
 			if (!net_eq(sock_net(sk), net))
 				continue;
 			if (sk->sk_family == afinfo->family)
 				goto found;
 		}
-		spin_unlock_bh(&hslot->lock);
+		spin_unlock_bh(&hslot->lock, state->bh);
 	}
 	sk = NULL;
 found:
@@ -2711,7 +2716,7 @@ static struct sock *udp_get_next(struct seq_file *seq, struct sock *sk)
 
 	if (!sk) {
 		if (state->bucket <= afinfo->udp_table->mask)
-			spin_unlock_bh(&afinfo->udp_table->hash[state->bucket].lock);
+			spin_unlock_bh(&afinfo->udp_table->hash[state->bucket].lock, state->bh);
 		return udp_get_first(seq, state->bucket + 1);
 	}
 	return sk;
@@ -2756,7 +2761,7 @@ void udp_seq_stop(struct seq_file *seq, void *v)
 	struct udp_iter_state *state = seq->private;
 
 	if (state->bucket <= afinfo->udp_table->mask)
-		spin_unlock_bh(&afinfo->udp_table->hash[state->bucket].lock);
+		spin_unlock_bh(&afinfo->udp_table->hash[state->bucket].lock, state->bh);
 }
 EXPORT_SYMBOL(udp_seq_stop);
 

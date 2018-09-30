@@ -95,13 +95,14 @@ void reqsk_queue_alloc(struct request_sock_queue *queue)
 void reqsk_fastopen_remove(struct sock *sk, struct request_sock *req,
 			   bool reset)
 {
+	unsigned int bh;
 	struct sock *lsk = req->rsk_listener;
 	struct fastopen_queue *fastopenq;
 
 	fastopenq = &inet_csk(lsk)->icsk_accept_queue.fastopenq;
 
 	tcp_sk(sk)->fastopen_rsk = NULL;
-	spin_lock_bh(&fastopenq->lock);
+	bh = spin_lock_bh(&fastopenq->lock, SOFTIRQ_ALL_MASK);
 	fastopenq->qlen--;
 	tcp_rsk(req)->tfo_listener = false;
 	if (req->sk)	/* the child socket hasn't been accepted yet */
@@ -111,7 +112,7 @@ void reqsk_fastopen_remove(struct sock *sk, struct request_sock *req,
 		/* If the listener has been closed don't bother with the
 		 * special RST handling below.
 		 */
-		spin_unlock_bh(&fastopenq->lock);
+		spin_unlock_bh(&fastopenq->lock, bh);
 		reqsk_put(req);
 		return;
 	}
@@ -132,5 +133,5 @@ void reqsk_fastopen_remove(struct sock *sk, struct request_sock *req,
 	fastopenq->rskq_rst_tail = req;
 	fastopenq->qlen++;
 out:
-	spin_unlock_bh(&fastopenq->lock);
+	spin_unlock_bh(&fastopenq->lock, bh);
 }

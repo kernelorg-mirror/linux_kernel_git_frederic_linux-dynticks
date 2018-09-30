@@ -476,10 +476,11 @@ tty3270_rcl_add(struct tty3270 *tp, char *input, int len)
 static void
 tty3270_rcl_backward(struct kbd_data *kbd)
 {
+	unsigned int bh;
 	struct tty3270 *tp = container_of(kbd->port, struct tty3270, port);
 	struct string *s;
 
-	spin_lock_bh(&tp->view.lock);
+	bh = spin_lock_bh(&tp->view.lock, SOFTIRQ_ALL_MASK);
 	if (tp->inattr == TF_INPUT) {
 		if (tp->rcl_walk && tp->rcl_walk->prev != &tp->rcl_lines)
 			tp->rcl_walk = tp->rcl_walk->prev;
@@ -494,7 +495,7 @@ tty3270_rcl_backward(struct kbd_data *kbd)
 			tty3270_update_prompt(tp, NULL, 0);
 		tty3270_set_timer(tp, 1);
 	}
-	spin_unlock_bh(&tp->view.lock);
+	spin_unlock_bh(&tp->view.lock, bh);
 }
 
 /*
@@ -514,10 +515,11 @@ tty3270_exit_tty(struct kbd_data *kbd)
 static void
 tty3270_scroll_forward(struct kbd_data *kbd)
 {
+	unsigned int bh;
 	struct tty3270 *tp = container_of(kbd->port, struct tty3270, port);
 	int nr_up;
 
-	spin_lock_bh(&tp->view.lock);
+	bh = spin_lock_bh(&tp->view.lock, SOFTIRQ_ALL_MASK);
 	nr_up = tp->nr_up - tp->view.rows + 2;
 	if (nr_up < 0)
 		nr_up = 0;
@@ -527,7 +529,7 @@ tty3270_scroll_forward(struct kbd_data *kbd)
 		tty3270_update_status(tp);
 		tty3270_set_timer(tp, 1);
 	}
-	spin_unlock_bh(&tp->view.lock);
+	spin_unlock_bh(&tp->view.lock, bh);
 }
 
 /*
@@ -536,10 +538,11 @@ tty3270_scroll_forward(struct kbd_data *kbd)
 static void
 tty3270_scroll_backward(struct kbd_data *kbd)
 {
+	unsigned int bh;
 	struct tty3270 *tp = container_of(kbd->port, struct tty3270, port);
 	int nr_up;
 
-	spin_lock_bh(&tp->view.lock);
+	bh = spin_lock_bh(&tp->view.lock, SOFTIRQ_ALL_MASK);
 	nr_up = tp->nr_up + tp->view.rows - 2;
 	if (nr_up + tp->view.rows - 2 > tp->nr_lines)
 		nr_up = tp->nr_lines - tp->view.rows + 2;
@@ -549,7 +552,7 @@ tty3270_scroll_backward(struct kbd_data *kbd)
 		tty3270_update_status(tp);
 		tty3270_set_timer(tp, 1);
 	}
-	spin_unlock_bh(&tp->view.lock);
+	spin_unlock_bh(&tp->view.lock, bh);
 }
 
 /*
@@ -558,12 +561,13 @@ tty3270_scroll_backward(struct kbd_data *kbd)
 static void
 tty3270_read_tasklet(struct raw3270_request *rrq)
 {
+	unsigned int bh;
 	static char kreset_data = TW_KR;
 	struct tty3270 *tp = container_of(rrq->view, struct tty3270, view);
 	char *input;
 	int len;
 
-	spin_lock_bh(&tp->view.lock);
+	bh = spin_lock_bh(&tp->view.lock, SOFTIRQ_ALL_MASK);
 	/*
 	 * Two AID keys are special: For 0x7d (enter) the input line
 	 * has to be emitted to the tty and for 0x6d the screen
@@ -590,7 +594,7 @@ tty3270_read_tasklet(struct raw3270_request *rrq)
 		tp->update_flags = TTY_UPDATE_ALL;
 		tty3270_set_timer(tp, 1);
 	}
-	spin_unlock_bh(&tp->view.lock);
+	spin_unlock_bh(&tp->view.lock, bh);
 
 	/* Start keyboard reset command. */
 	raw3270_request_reset(tp->kreset);
@@ -845,6 +849,7 @@ tty3270_free_screen(struct tty3270_line *screen, unsigned int rows)
  */
 static void tty3270_resize_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct tty3270 *tp = container_of(work, struct tty3270, resize_work);
 	struct tty3270_line *screen, *oscreen;
 	struct tty_struct *tty;
@@ -855,7 +860,7 @@ static void tty3270_resize_work(struct work_struct *work)
 	if (IS_ERR(screen))
 		return;
 	/* Switch to new output size */
-	spin_lock_bh(&tp->view.lock);
+	bh = spin_lock_bh(&tp->view.lock, SOFTIRQ_ALL_MASK);
 	tty3270_blank_screen(tp);
 	oscreen = tp->screen;
 	orows = tp->view.rows;
@@ -870,7 +875,7 @@ static void tty3270_resize_work(struct work_struct *work)
 	while (tp->nr_lines < tp->view.rows - 2)
 		tty3270_blank_line(tp);
 	tp->update_flags = TTY_UPDATE_ALL;
-	spin_unlock_bh(&tp->view.lock);
+	spin_unlock_bh(&tp->view.lock, bh);
 	tty3270_free_screen(oscreen, orows);
 	tty3270_set_timer(tp, 1);
 	/* Informat tty layer about new size */
@@ -1636,9 +1641,10 @@ static void
 tty3270_do_write(struct tty3270 *tp, struct tty_struct *tty,
 		const unsigned char *buf, int count)
 {
+	unsigned int bh;
 	int i_msg, i;
 
-	spin_lock_bh(&tp->view.lock);
+	bh = spin_lock_bh(&tp->view.lock, SOFTIRQ_ALL_MASK);
 	for (i_msg = 0; !tty->stopped && i_msg < count; i_msg++) {
 		if (tp->esc_state != 0) {
 			/* Continue escape sequence. */
@@ -1700,7 +1706,7 @@ tty3270_do_write(struct tty3270 *tp, struct tty_struct *tty,
 	if (!timer_pending(&tp->timer))
 		tty3270_set_timer(tp, HZ/10);
 
-	spin_unlock_bh(&tp->view.lock);
+	spin_unlock_bh(&tp->view.lock, bh);
 }
 
 /*
@@ -1777,13 +1783,14 @@ tty3270_flush_buffer(struct tty_struct *tty)
 static void
 tty3270_set_termios(struct tty_struct *tty, struct ktermios *old)
 {
+	unsigned int bh;
 	struct tty3270 *tp;
 	int new;
 
 	tp = tty->driver_data;
 	if (!tp)
 		return;
-	spin_lock_bh(&tp->view.lock);
+	bh = spin_lock_bh(&tp->view.lock, SOFTIRQ_ALL_MASK);
 	if (L_ICANON(tty)) {
 		new = L_ECHO(tty) ? TF_INPUT: TF_INPUTN;
 		if (new != tp->inattr) {
@@ -1792,7 +1799,7 @@ tty3270_set_termios(struct tty_struct *tty, struct ktermios *old)
 			tty3270_set_timer(tp, 1);
 		}
 	}
-	spin_unlock_bh(&tp->view.lock);
+	spin_unlock_bh(&tp->view.lock, bh);
 }
 
 /*
@@ -1831,12 +1838,13 @@ tty3270_unthrottle(struct tty_struct * tty)
 static void
 tty3270_hangup(struct tty_struct *tty)
 {
+	unsigned int bh;
 	struct tty3270 *tp;
 
 	tp = tty->driver_data;
 	if (!tp)
 		return;
-	spin_lock_bh(&tp->view.lock);
+	bh = spin_lock_bh(&tp->view.lock, SOFTIRQ_ALL_MASK);
 	tp->cx = tp->saved_cx = 0;
 	tp->cy = tp->saved_cy = 0;
 	tp->highlight = tp->saved_highlight = TAX_RESET;
@@ -1845,7 +1853,7 @@ tty3270_hangup(struct tty_struct *tty)
 	while (tp->nr_lines < tp->view.rows - 2)
 		tty3270_blank_line(tp);
 	tp->update_flags = TTY_UPDATE_ALL;
-	spin_unlock_bh(&tp->view.lock);
+	spin_unlock_bh(&tp->view.lock, bh);
 	tty3270_set_timer(tp, 1);
 }
 

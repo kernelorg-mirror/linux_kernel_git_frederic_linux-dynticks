@@ -173,17 +173,18 @@ out:
 
 __be32 xfrm6_tunnel_alloc_spi(struct net *net, xfrm_address_t *saddr)
 {
+	unsigned int bh;
 	struct xfrm6_tunnel_spi *x6spi;
 	u32 spi;
 
-	spin_lock_bh(&xfrm6_tunnel_spi_lock);
+	bh = spin_lock_bh(&xfrm6_tunnel_spi_lock, SOFTIRQ_ALL_MASK);
 	x6spi = __xfrm6_tunnel_spi_lookup(net, saddr);
 	if (x6spi) {
 		refcount_inc(&x6spi->refcnt);
 		spi = x6spi->spi;
 	} else
 		spi = __xfrm6_tunnel_alloc_spi(net, saddr);
-	spin_unlock_bh(&xfrm6_tunnel_spi_lock);
+	spin_unlock_bh(&xfrm6_tunnel_spi_lock, bh);
 
 	return htonl(spi);
 }
@@ -197,11 +198,12 @@ static void x6spi_destroy_rcu(struct rcu_head *head)
 
 static void xfrm6_tunnel_free_spi(struct net *net, xfrm_address_t *saddr)
 {
+	unsigned int bh;
 	struct xfrm6_tunnel_net *xfrm6_tn = xfrm6_tunnel_pernet(net);
 	struct xfrm6_tunnel_spi *x6spi;
 	struct hlist_node *n;
 
-	spin_lock_bh(&xfrm6_tunnel_spi_lock);
+	bh = spin_lock_bh(&xfrm6_tunnel_spi_lock, SOFTIRQ_ALL_MASK);
 
 	hlist_for_each_entry_safe(x6spi, n,
 				  &xfrm6_tn->spi_byaddr[xfrm6_tunnel_spi_hash_byaddr(saddr)],
@@ -216,7 +218,7 @@ static void xfrm6_tunnel_free_spi(struct net *net, xfrm_address_t *saddr)
 			}
 		}
 	}
-	spin_unlock_bh(&xfrm6_tunnel_spi_lock);
+	spin_unlock_bh(&xfrm6_tunnel_spi_lock, bh);
 }
 
 static int xfrm6_tunnel_output(struct xfrm_state *x, struct sk_buff *skb)

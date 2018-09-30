@@ -164,6 +164,7 @@ static int a6xx_hfi_send_msg(struct a6xx_gmu *gmu, int id,
 {
 	struct a6xx_hfi_queue *queue = &gmu->queues[HFI_COMMAND_QUEUE];
 	struct a6xx_hfi_response resp = { 0 };
+	unsigned int bh;
 	int ret, dwords = size >> 2;
 	u32 seqnum;
 
@@ -177,9 +178,9 @@ static int a6xx_hfi_send_msg(struct a6xx_gmu *gmu, int id,
 	resp.id = id;
 	resp.seqnum = seqnum;
 
-	spin_lock_bh(&hfi_ack_lock);
+	bh = spin_lock_bh(&hfi_ack_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&resp.node, &hfi_ack_list);
-	spin_unlock_bh(&hfi_ack_lock);
+	spin_unlock_bh(&hfi_ack_lock, bh);
 
 	ret = a6xx_hfi_queue_write(gmu, queue, data, dwords);
 	if (ret) {
@@ -200,9 +201,9 @@ static int a6xx_hfi_send_msg(struct a6xx_gmu *gmu, int id,
 		ret = 0;
 
 out:
-	spin_lock_bh(&hfi_ack_lock);
+	bh = spin_lock_bh(&hfi_ack_lock, SOFTIRQ_ALL_MASK);
 	list_del(&resp.node);
-	spin_unlock_bh(&hfi_ack_lock);
+	spin_unlock_bh(&hfi_ack_lock, bh);
 
 	if (ret)
 		return ret;

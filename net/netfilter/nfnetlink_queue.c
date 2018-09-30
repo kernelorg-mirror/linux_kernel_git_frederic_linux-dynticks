@@ -208,9 +208,10 @@ __dequeue_entry(struct nfqnl_instance *queue, struct nf_queue_entry *entry)
 static struct nf_queue_entry *
 find_dequeue_entry(struct nfqnl_instance *queue, unsigned int id)
 {
+	unsigned int bh;
 	struct nf_queue_entry *entry = NULL, *i;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(i, &queue->queue_list, list) {
 		if (i->id == id) {
@@ -222,7 +223,7 @@ find_dequeue_entry(struct nfqnl_instance *queue, unsigned int id)
 	if (entry)
 		__dequeue_entry(queue, entry);
 
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 
 	return entry;
 }
@@ -250,9 +251,10 @@ static void nfqnl_reinject(struct nf_queue_entry *entry, unsigned int verdict)
 static void
 nfqnl_flush(struct nfqnl_instance *queue, nfqnl_cmpfn cmpfn, unsigned long data)
 {
+	unsigned int bh;
 	struct nf_queue_entry *entry, *next;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(entry, next, &queue->queue_list, list) {
 		if (!cmpfn || cmpfn(entry, data)) {
 			list_del(&entry->list);
@@ -260,7 +262,7 @@ nfqnl_flush(struct nfqnl_instance *queue, nfqnl_cmpfn cmpfn, unsigned long data)
 			nfqnl_reinject(entry, NF_DROP);
 		}
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 }
 
 static int
@@ -655,6 +657,7 @@ static int
 __nfqnl_enqueue_packet(struct net *net, struct nfqnl_instance *queue,
 			struct nf_queue_entry *entry)
 {
+	unsigned int bh;
 	struct sk_buff *nskb;
 	int err = -ENOBUFS;
 	__be32 *packet_id_ptr;
@@ -665,7 +668,7 @@ __nfqnl_enqueue_packet(struct net *net, struct nfqnl_instance *queue,
 		err = -ENOMEM;
 		goto err_out;
 	}
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 
 	if (nf_ct_drop_unconfirmed(entry))
 		goto err_out_free_nskb;
@@ -698,13 +701,13 @@ __nfqnl_enqueue_packet(struct net *net, struct nfqnl_instance *queue,
 
 	__enqueue_entry(queue, entry);
 
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 	return 0;
 
 err_out_free_nskb:
 	kfree_skb(nskb);
 err_out_unlock:
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 	if (failopen)
 		nfqnl_reinject(entry, NF_ACCEPT);
 err_out:
@@ -874,9 +877,10 @@ static int
 nfqnl_set_mode(struct nfqnl_instance *queue,
 	       unsigned char mode, unsigned int range)
 {
+	unsigned int bh;
 	int status = 0;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	switch (mode) {
 	case NFQNL_COPY_NONE:
 	case NFQNL_COPY_META:
@@ -896,7 +900,7 @@ nfqnl_set_mode(struct nfqnl_instance *queue,
 		status = -EINVAL;
 
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 
 	return status;
 }
@@ -1067,6 +1071,7 @@ static int nfqnl_recv_verdict_batch(struct net *net, struct sock *ctnl,
 			            const struct nlattr * const nfqa[],
 				    struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct nfgenmsg *nfmsg = nlmsg_data(nlh);
 	struct nf_queue_entry *entry, *tmp;
 	unsigned int verdict, maxid;
@@ -1088,7 +1093,7 @@ static int nfqnl_recv_verdict_batch(struct net *net, struct sock *ctnl,
 	verdict = ntohl(vhdr->verdict);
 	maxid = ntohl(vhdr->id);
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe(entry, tmp, &queue->queue_list, list) {
 		if (nfq_id_after(entry->id, maxid))
@@ -1097,7 +1102,7 @@ static int nfqnl_recv_verdict_batch(struct net *net, struct sock *ctnl,
 		list_add_tail(&entry->list, &batch_list);
 	}
 
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 
 	if (list_empty(&batch_list))
 		return -ENOENT;
@@ -1259,6 +1264,7 @@ static int nfqnl_recv_config(struct net *net, struct sock *ctnl,
 			     const struct nlattr * const nfqa[],
 			     struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct nfgenmsg *nfmsg = nlmsg_data(nlh);
 	u_int16_t queue_num = ntohs(nfmsg->res_id);
 	struct nfqnl_instance *queue;
@@ -1364,16 +1370,16 @@ static int nfqnl_recv_config(struct net *net, struct sock *ctnl,
 	if (nfqa[NFQA_CFG_QUEUE_MAXLEN]) {
 		__be32 *queue_maxlen = nla_data(nfqa[NFQA_CFG_QUEUE_MAXLEN]);
 
-		spin_lock_bh(&queue->lock);
+		bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 		queue->queue_maxlen = ntohl(*queue_maxlen);
-		spin_unlock_bh(&queue->lock);
+		spin_unlock_bh(&queue->lock, bh);
 	}
 
 	if (nfqa[NFQA_CFG_FLAGS]) {
-		spin_lock_bh(&queue->lock);
+		bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 		queue->flags &= ~mask;
 		queue->flags |= flags & mask;
-		spin_unlock_bh(&queue->lock);
+		spin_unlock_bh(&queue->lock, bh);
 	}
 
 err_out_unlock:

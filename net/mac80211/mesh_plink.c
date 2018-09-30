@@ -376,10 +376,11 @@ static u32 __mesh_plink_deactivate(struct sta_info *sta)
  */
 u32 mesh_plink_deactivate(struct sta_info *sta)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
 	u32 changed;
 
-	spin_lock_bh(&sta->mesh->plink_lock);
+	bh = spin_lock_bh(&sta->mesh->plink_lock, SOFTIRQ_ALL_MASK);
 	changed = __mesh_plink_deactivate(sta);
 
 	if (!sdata->u.mesh.user_mpm) {
@@ -388,7 +389,7 @@ u32 mesh_plink_deactivate(struct sta_info *sta)
 				    sta->sta.addr, sta->mesh->llid,
 				    sta->mesh->plid, sta->mesh->reason);
 	}
-	spin_unlock_bh(&sta->mesh->plink_lock);
+	spin_unlock_bh(&sta->mesh->plink_lock, bh);
 	if (!sdata->u.mesh.user_mpm)
 		del_timer_sync(&sta->mesh->plink_timer);
 	mesh_path_flush_by_nexthop(sta);
@@ -403,6 +404,7 @@ static void mesh_sta_info_init(struct ieee80211_sub_if_data *sdata,
 			       struct sta_info *sta,
 			       struct ieee802_11_elems *elems)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = sdata->local;
 	struct ieee80211_supported_band *sband;
 	u32 rates, basic_rates = 0, changed = 0;
@@ -415,7 +417,7 @@ static void mesh_sta_info_init(struct ieee80211_sub_if_data *sdata,
 	rates = ieee80211_sta_get_rates(sdata, elems, sband->band,
 					&basic_rates);
 
-	spin_lock_bh(&sta->mesh->plink_lock);
+	bh = spin_lock_bh(&sta->mesh->plink_lock, SOFTIRQ_ALL_MASK);
 	sta->rx_stats.last_rx = jiffies;
 
 	/* rates and capabilities don't change during peering */
@@ -452,7 +454,7 @@ static void mesh_sta_info_init(struct ieee80211_sub_if_data *sdata,
 	else
 		rate_control_rate_update(local, sband, sta, changed);
 out:
-	spin_unlock_bh(&sta->mesh->plink_lock);
+	spin_unlock_bh(&sta->mesh->plink_lock, bh);
 }
 
 static int mesh_allocate_aid(struct ieee80211_sub_if_data *sdata)
@@ -605,6 +607,7 @@ out:
 
 void mesh_plink_timer(struct timer_list *t)
 {
+	unsigned int bh;
 	struct mesh_sta *mesh = from_timer(mesh, t, plink_timer);
 	struct sta_info *sta;
 	u16 reason = 0;
@@ -622,7 +625,7 @@ void mesh_plink_timer(struct timer_list *t)
 	if (sta->sdata->local->quiescing)
 		return;
 
-	spin_lock_bh(&sta->mesh->plink_lock);
+	bh = spin_lock_bh(&sta->mesh->plink_lock, SOFTIRQ_ALL_MASK);
 
 	/* If a timer fires just before a state transition on another CPU,
 	 * we may have already extended the timeout and changed state by the
@@ -633,7 +636,7 @@ void mesh_plink_timer(struct timer_list *t)
 		mpl_dbg(sta->sdata,
 			"Ignoring timer for %pM in state %s (timer adjusted)",
 			sta->sta.addr, mplstates[sta->mesh->plink_state]);
-		spin_unlock_bh(&sta->mesh->plink_lock);
+		spin_unlock_bh(&sta->mesh->plink_lock, bh);
 		return;
 	}
 
@@ -643,7 +646,7 @@ void mesh_plink_timer(struct timer_list *t)
 		mpl_dbg(sta->sdata,
 			"Ignoring timer for %pM in state %s (timer deleted)",
 			sta->sta.addr, mplstates[sta->mesh->plink_state]);
-		spin_unlock_bh(&sta->mesh->plink_lock);
+		spin_unlock_bh(&sta->mesh->plink_lock, bh);
 		return;
 	}
 
@@ -689,7 +692,7 @@ void mesh_plink_timer(struct timer_list *t)
 	default:
 		break;
 	}
-	spin_unlock_bh(&sta->mesh->plink_lock);
+	spin_unlock_bh(&sta->mesh->plink_lock, bh);
 	if (action)
 		mesh_plink_frame_tx(sdata, sta, action, sta->sta.addr,
 				    sta->mesh->llid, sta->mesh->plid, reason);
@@ -736,22 +739,23 @@ static u16 mesh_get_new_llid(struct ieee80211_sub_if_data *sdata)
 
 u32 mesh_plink_open(struct sta_info *sta)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = sta->sdata;
 	u32 changed;
 
 	if (!test_sta_flag(sta, WLAN_STA_AUTH))
 		return 0;
 
-	spin_lock_bh(&sta->mesh->plink_lock);
+	bh = spin_lock_bh(&sta->mesh->plink_lock, SOFTIRQ_ALL_MASK);
 	sta->mesh->llid = mesh_get_new_llid(sdata);
 	if (sta->mesh->plink_state != NL80211_PLINK_LISTEN &&
 	    sta->mesh->plink_state != NL80211_PLINK_BLOCKED) {
-		spin_unlock_bh(&sta->mesh->plink_lock);
+		spin_unlock_bh(&sta->mesh->plink_lock, bh);
 		return 0;
 	}
 	sta->mesh->plink_state = NL80211_PLINK_OPN_SNT;
 	mesh_plink_timer_set(sta, sdata->u.mesh.mshcfg.dot11MeshRetryTimeout);
-	spin_unlock_bh(&sta->mesh->plink_lock);
+	spin_unlock_bh(&sta->mesh->plink_lock, bh);
 	mpl_dbg(sdata,
 		"Mesh plink: starting establishment with %pM\n",
 		sta->sta.addr);
@@ -766,12 +770,13 @@ u32 mesh_plink_open(struct sta_info *sta)
 
 u32 mesh_plink_block(struct sta_info *sta)
 {
+	unsigned int bh;
 	u32 changed;
 
-	spin_lock_bh(&sta->mesh->plink_lock);
+	bh = spin_lock_bh(&sta->mesh->plink_lock, SOFTIRQ_ALL_MASK);
 	changed = __mesh_plink_deactivate(sta);
 	sta->mesh->plink_state = NL80211_PLINK_BLOCKED;
-	spin_unlock_bh(&sta->mesh->plink_lock);
+	spin_unlock_bh(&sta->mesh->plink_lock, bh);
 	mesh_path_flush_by_nexthop(sta);
 
 	return changed;
@@ -819,6 +824,7 @@ static u32 mesh_plink_establish(struct ieee80211_sub_if_data *sdata,
 static u32 mesh_plink_fsm(struct ieee80211_sub_if_data *sdata,
 			  struct sta_info *sta, enum plink_event event)
 {
+	unsigned int bh;
 	struct mesh_config *mshcfg = &sdata->u.mesh.mshcfg;
 	enum ieee80211_self_protected_actioncode action = 0;
 	u32 changed = 0;
@@ -827,7 +833,7 @@ static u32 mesh_plink_fsm(struct ieee80211_sub_if_data *sdata,
 	mpl_dbg(sdata, "peer %pM in state %s got event %s\n", sta->sta.addr,
 		mplstates[sta->mesh->plink_state], mplevents[event]);
 
-	spin_lock_bh(&sta->mesh->plink_lock);
+	bh = spin_lock_bh(&sta->mesh->plink_lock, SOFTIRQ_ALL_MASK);
 	switch (sta->mesh->plink_state) {
 	case NL80211_PLINK_LISTEN:
 		switch (event) {
@@ -942,7 +948,7 @@ static u32 mesh_plink_fsm(struct ieee80211_sub_if_data *sdata,
 		 */
 		break;
 	}
-	spin_unlock_bh(&sta->mesh->plink_lock);
+	spin_unlock_bh(&sta->mesh->plink_lock, bh);
 	if (flush)
 		mesh_path_flush_by_nexthop(sta);
 	if (action) {

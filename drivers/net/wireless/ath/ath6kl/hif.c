@@ -199,6 +199,7 @@ int ath6kl_hif_poll_mboxmsg_rx(struct ath6kl_device *dev, u32 *lk_ahd,
  */
 int ath6kl_hif_rx_control(struct ath6kl_device *dev, bool enable_rx)
 {
+	unsigned int bh;
 	struct ath6kl_irq_enable_reg regs;
 	int status = 0;
 
@@ -206,7 +207,7 @@ int ath6kl_hif_rx_control(struct ath6kl_device *dev, bool enable_rx)
 		   enable_rx ? "enable" : "disable");
 
 	/* take the lock to protect interrupt enable shadows */
-	spin_lock_bh(&dev->lock);
+	bh = spin_lock_bh(&dev->lock, SOFTIRQ_ALL_MASK);
 
 	if (enable_rx)
 		dev->irq_en_reg.int_status_en |=
@@ -217,7 +218,7 @@ int ath6kl_hif_rx_control(struct ath6kl_device *dev, bool enable_rx)
 
 	memcpy(&regs, &dev->irq_en_reg, sizeof(regs));
 
-	spin_unlock_bh(&dev->lock);
+	spin_unlock_bh(&dev->lock, bh);
 
 	status = hif_read_write_sync(dev->ar, INT_STATUS_ENABLE_ADDRESS,
 				     &regs.int_status_en,
@@ -567,10 +568,11 @@ EXPORT_SYMBOL(ath6kl_hif_intr_bh_handler);
 
 static int ath6kl_hif_enable_intrs(struct ath6kl_device *dev)
 {
+	unsigned int bh;
 	struct ath6kl_irq_enable_reg regs;
 	int status;
 
-	spin_lock_bh(&dev->lock);
+	bh = spin_lock_bh(&dev->lock, SOFTIRQ_ALL_MASK);
 
 	/* Enable all but ATH6KL CPU interrupts */
 	dev->irq_en_reg.int_status_en =
@@ -600,7 +602,7 @@ static int ath6kl_hif_enable_intrs(struct ath6kl_device *dev)
 						ATH6KL_TARGET_DEBUG_INTR_MASK);
 	memcpy(&regs, &dev->irq_en_reg, sizeof(regs));
 
-	spin_unlock_bh(&dev->lock);
+	spin_unlock_bh(&dev->lock, bh);
 
 	status = hif_read_write_sync(dev->ar, INT_STATUS_ENABLE_ADDRESS,
 				     &regs.int_status_en, sizeof(regs),
@@ -615,16 +617,17 @@ static int ath6kl_hif_enable_intrs(struct ath6kl_device *dev)
 
 int ath6kl_hif_disable_intrs(struct ath6kl_device *dev)
 {
+	unsigned int bh;
 	struct ath6kl_irq_enable_reg regs;
 
-	spin_lock_bh(&dev->lock);
+	bh = spin_lock_bh(&dev->lock, SOFTIRQ_ALL_MASK);
 	/* Disable all interrupts */
 	dev->irq_en_reg.int_status_en = 0;
 	dev->irq_en_reg.cpu_int_status_en = 0;
 	dev->irq_en_reg.err_int_status_en = 0;
 	dev->irq_en_reg.cntr_int_status_en = 0;
 	memcpy(&regs, &dev->irq_en_reg, sizeof(regs));
-	spin_unlock_bh(&dev->lock);
+	spin_unlock_bh(&dev->lock, bh);
 
 	return hif_read_write_sync(dev->ar, INT_STATUS_ENABLE_ADDRESS,
 				   &regs.int_status_en, sizeof(regs),

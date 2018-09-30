@@ -335,6 +335,7 @@ struct rxrpc_peer *rxrpc_lookup_incoming_peer(struct rxrpc_local *local,
 struct rxrpc_peer *rxrpc_lookup_peer(struct rxrpc_local *local,
 				     struct sockaddr_rxrpc *srx, gfp_t gfp)
 {
+	unsigned int bh;
 	struct rxrpc_peer *peer, *candidate;
 	struct rxrpc_net *rxnet = local->rxnet;
 	unsigned long hash_key = rxrpc_peer_hash_key(local, srx);
@@ -358,7 +359,7 @@ struct rxrpc_peer *rxrpc_lookup_peer(struct rxrpc_local *local,
 			return NULL;
 		}
 
-		spin_lock_bh(&rxnet->peer_hash_lock);
+		bh = spin_lock_bh(&rxnet->peer_hash_lock, SOFTIRQ_ALL_MASK);
 
 		/* Need to check that we aren't racing with someone else */
 		peer = __rxrpc_lookup_peer_rcu(local, srx, hash_key);
@@ -371,7 +372,7 @@ struct rxrpc_peer *rxrpc_lookup_peer(struct rxrpc_local *local,
 				      &rxnet->peer_keepalive_new);
 		}
 
-		spin_unlock_bh(&rxnet->peer_hash_lock);
+		spin_unlock_bh(&rxnet->peer_hash_lock, bh);
 
 		if (peer)
 			kfree(candidate);
@@ -435,14 +436,15 @@ void __rxrpc_queue_peer_error(struct rxrpc_peer *peer)
  */
 static void __rxrpc_put_peer(struct rxrpc_peer *peer)
 {
+	unsigned int bh;
 	struct rxrpc_net *rxnet = peer->local->rxnet;
 
 	ASSERT(hlist_empty(&peer->error_targets));
 
-	spin_lock_bh(&rxnet->peer_hash_lock);
+	bh = spin_lock_bh(&rxnet->peer_hash_lock, SOFTIRQ_ALL_MASK);
 	hash_del_rcu(&peer->hash_link);
 	list_del_init(&peer->keepalive_link);
-	spin_unlock_bh(&rxnet->peer_hash_lock);
+	spin_unlock_bh(&rxnet->peer_hash_lock, bh);
 
 	kfree_rcu(peer, rcu);
 }

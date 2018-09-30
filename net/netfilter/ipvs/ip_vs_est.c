@@ -140,22 +140,24 @@ static void estimation_timer(struct timer_list *t)
 
 void ip_vs_start_estimator(struct netns_ipvs *ipvs, struct ip_vs_stats *stats)
 {
+	unsigned int bh;
 	struct ip_vs_estimator *est = &stats->est;
 
 	INIT_LIST_HEAD(&est->list);
 
-	spin_lock_bh(&ipvs->est_lock);
+	bh = spin_lock_bh(&ipvs->est_lock, SOFTIRQ_ALL_MASK);
 	list_add(&est->list, &ipvs->est_list);
-	spin_unlock_bh(&ipvs->est_lock);
+	spin_unlock_bh(&ipvs->est_lock, bh);
 }
 
 void ip_vs_stop_estimator(struct netns_ipvs *ipvs, struct ip_vs_stats *stats)
 {
+	unsigned int bh;
 	struct ip_vs_estimator *est = &stats->est;
 
-	spin_lock_bh(&ipvs->est_lock);
+	bh = spin_lock_bh(&ipvs->est_lock, SOFTIRQ_ALL_MASK);
 	list_del(&est->list);
-	spin_unlock_bh(&ipvs->est_lock);
+	spin_unlock_bh(&ipvs->est_lock, bh);
 }
 
 void ip_vs_zero_estimator(struct ip_vs_stats *stats)

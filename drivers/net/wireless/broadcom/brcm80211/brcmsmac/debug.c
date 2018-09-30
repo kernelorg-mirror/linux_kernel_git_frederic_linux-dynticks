@@ -107,14 +107,15 @@ int brcms_debugfs_hardware_read(struct seq_file *s, void *data)
 
 static int brcms_debugfs_macstat_read(struct seq_file *s, void *data)
 {
+	unsigned int bh;
 	struct brcms_pub *drvr = s->private;
 	struct brcms_info *wl = drvr->ieee_hw->priv;
 	struct macstat stats;
 	int i;
 
-	spin_lock_bh(&wl->lock);
+	bh = spin_lock_bh(&wl->lock, SOFTIRQ_ALL_MASK);
 	stats = *(drvr->wlc->core->macstat_snapshot);
-	spin_unlock_bh(&wl->lock);
+	spin_unlock_bh(&wl->lock, bh);
 
 	seq_printf(s, "txallfrm: %d\n", stats.txallfrm);
 	seq_printf(s, "txrtsfrm: %d\n", stats.txrtsfrm);

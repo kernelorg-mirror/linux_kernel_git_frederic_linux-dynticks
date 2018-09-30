@@ -221,33 +221,34 @@ static inline void arpq_enqueue(struct l2t_entry *e, struct sk_buff *skb)
 int cxgb4_l2t_send(struct net_device *dev, struct sk_buff *skb,
 		   struct l2t_entry *e)
 {
+	unsigned int bh;
 	struct adapter *adap = netdev2adap(dev);
 
 again:
 	switch (e->state) {
 	case L2T_STATE_STALE:     /* entry is stale, kick off revalidation */
 		neigh_event_send(e->neigh, NULL);
-		spin_lock_bh(&e->lock);
+		bh = spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 		if (e->state == L2T_STATE_STALE)
 			e->state = L2T_STATE_VALID;
-		spin_unlock_bh(&e->lock);
+		spin_unlock_bh(&e->lock, bh);
 		/* fall through */
 	case L2T_STATE_VALID:     /* fast-path, send the packet on */
 		return t4_ofld_send(adap, skb);
 	case L2T_STATE_RESOLVING:
 	case L2T_STATE_SYNC_WRITE:
-		spin_lock_bh(&e->lock);
+		bh = spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 		if (e->state != L2T_STATE_SYNC_WRITE &&
 		    e->state != L2T_STATE_RESOLVING) {
-			spin_unlock_bh(&e->lock);
+			spin_unlock_bh(&e->lock, bh);
 			goto again;
 		}
 		arpq_enqueue(e, skb);
-		spin_unlock_bh(&e->lock);
+		spin_unlock_bh(&e->lock, bh);
 
 		if (e->state == L2T_STATE_RESOLVING &&
 		    !neigh_event_send(e->neigh, NULL)) {
-			spin_lock_bh(&e->lock);
+			spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 			if (e->state == L2T_STATE_RESOLVING &&
 			    !skb_queue_empty(&e->arpq))
 				write_l2e(adap, e, 1);
@@ -369,10 +370,11 @@ static void _t4_l2e_free(struct l2t_entry *e)
 /* Locked version of _t4_l2e_free */
 static void t4_l2e_free(struct l2t_entry *e)
 {
+	unsigned int bh;
 	struct l2t_data *d;
 	struct sk_buff *skb;
 
-	spin_lock_bh(&e->lock);
+	bh = spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 	if (atomic_read(&e->refcnt) == 0) {  /* hasn't been recycled */
 		if (e->neigh) {
 			neigh_release(e->neigh);
@@ -381,7 +383,7 @@ static void t4_l2e_free(struct l2t_entry *e)
 		while ((skb = __skb_dequeue(&e->arpq)) != NULL)
 			kfree_skb(skb);
 	}
-	spin_unlock_bh(&e->lock);
+	spin_unlock_bh(&e->lock, bh);
 
 	d = container_of(e, struct l2t_data, l2tab[e->idx]);
 	atomic_inc(&d->nfree);
@@ -708,6 +710,7 @@ static char l2e_state(const struct l2t_entry *e)
 
 static int l2t_seq_show(struct seq_file *seq, void *v)
 {
+	unsigned int bh;
 	if (v == SEQ_START_TOKEN)
 		seq_puts(seq, " Idx IP address                "
 			 "Ethernet address  VLAN/P LP State Users Port\n");
@@ -716,7 +719,7 @@ static int l2t_seq_show(struct seq_file *seq, void *v)
 		struct l2t_data *d = seq->private;
 		struct l2t_entry *e = v;
 
-		spin_lock_bh(&e->lock);
+		bh = spin_lock_bh(&e->lock, SOFTIRQ_ALL_MASK);
 		if (e->state == L2T_STATE_SWITCHING)
 			ip[0] = '\0';
 		else
@@ -726,7 +729,7 @@ static int l2t_seq_show(struct seq_file *seq, void *v)
 			   e->vlan & VLAN_VID_MASK, vlan_prio(e), e->lport,
 			   l2e_state(e), atomic_read(&e->refcnt),
 			   e->neigh ? e->neigh->dev->name : "");
-		spin_unlock_bh(&e->lock);
+		spin_unlock_bh(&e->lock, bh);
 	}
 	return 0;
 }

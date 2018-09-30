@@ -59,6 +59,7 @@ static void bnx2fc_rrq_compl(struct bnx2fc_els_cb_arg *cb_arg)
 }
 int bnx2fc_send_rrq(struct bnx2fc_cmd *aborted_io_req)
 {
+	unsigned int bh;
 
 	struct fc_els_rrq rrq;
 	struct bnx2fc_rport *tgt = aborted_io_req->tgt;
@@ -112,9 +113,9 @@ rrq_err:
 		BNX2FC_ELS_DBG("RRQ failed - release orig io req 0x%x\n",
 			aborted_io_req->xid);
 		kfree(cb_arg);
-		spin_lock_bh(&tgt->tgt_lock);
+		bh = spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		kref_put(&aborted_io_req->refcount, bnx2fc_cmd_release);
-		spin_unlock_bh(&tgt->tgt_lock);
+		spin_unlock_bh(&tgt->tgt_lock, bh);
 	}
 	return rc;
 }
@@ -301,7 +302,7 @@ static void bnx2fc_srr_compl(struct bnx2fc_els_cb_arg *cb_arg)
 			rc = bnx2fc_send_srr(orig_io_req,
 					     orig_io_req->srr_offset,
 					     orig_io_req->srr_rctl);
-			spin_lock_bh(&tgt->tgt_lock);
+			spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 			if (!rc)
 				goto srr_compl_done;
 		}
@@ -418,7 +419,7 @@ static void bnx2fc_rec_compl(struct bnx2fc_els_cb_arg *cb_arg)
 		if (orig_io_req->rec_retry <= REC_RETRY_COUNT) {
 			spin_unlock_bh(&tgt->tgt_lock);
 			rc = bnx2fc_send_rec(orig_io_req);
-			spin_lock_bh(&tgt->tgt_lock);
+			spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 			if (!rc)
 				goto rec_compl_done;
 		}
@@ -562,7 +563,7 @@ abort_io:
 			BNX2FC_IO_DBG(rec_req, "Send SRR - FCP_RSP\n");
 			spin_unlock_bh(&tgt->tgt_lock);
 			rc = bnx2fc_send_srr(orig_io_req, offset, r_ctl);
-			spin_lock_bh(&tgt->tgt_lock);
+			spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 
 			if (rc) {
 				BNX2FC_IO_DBG(rec_req, "Unable to send SRR"
@@ -581,6 +582,7 @@ rec_compl_done:
 
 int bnx2fc_send_rec(struct bnx2fc_cmd *orig_io_req)
 {
+	unsigned int bh;
 	struct fc_els_rec rec;
 	struct bnx2fc_rport *tgt = orig_io_req->tgt;
 	struct fc_lport *lport = tgt->rdata->local_port;
@@ -613,9 +615,9 @@ int bnx2fc_send_rec(struct bnx2fc_cmd *orig_io_req)
 rec_err:
 	if (rc) {
 		BNX2FC_IO_DBG(orig_io_req, "REC failed - release\n");
-		spin_lock_bh(&tgt->tgt_lock);
+		bh = spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		kref_put(&orig_io_req->refcount, bnx2fc_cmd_release);
-		spin_unlock_bh(&tgt->tgt_lock);
+		spin_unlock_bh(&tgt->tgt_lock, bh);
 		kfree(cb_arg);
 	}
 	return rc;
@@ -623,6 +625,7 @@ rec_err:
 
 int bnx2fc_send_srr(struct bnx2fc_cmd *orig_io_req, u32 offset, u8 r_ctl)
 {
+	unsigned int bh;
 	struct fcp_srr srr;
 	struct bnx2fc_rport *tgt = orig_io_req->tgt;
 	struct fc_lport *lport = tgt->rdata->local_port;
@@ -657,9 +660,9 @@ int bnx2fc_send_srr(struct bnx2fc_cmd *orig_io_req, u32 offset, u8 r_ctl)
 srr_err:
 	if (rc) {
 		BNX2FC_IO_DBG(orig_io_req, "SRR failed - release\n");
-		spin_lock_bh(&tgt->tgt_lock);
+		bh = spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		kref_put(&orig_io_req->refcount, bnx2fc_cmd_release);
-		spin_unlock_bh(&tgt->tgt_lock);
+		spin_unlock_bh(&tgt->tgt_lock, bh);
 		kfree(cb_arg);
 	} else
 		set_bit(BNX2FC_FLAG_SRR_SENT, &orig_io_req->req_flags);
@@ -672,6 +675,7 @@ static int bnx2fc_initiate_els(struct bnx2fc_rport *tgt, unsigned int op,
 			void (*cb_func)(struct bnx2fc_els_cb_arg *cb_arg),
 			struct bnx2fc_els_cb_arg *cb_arg, u32 timer_msec)
 {
+	unsigned int bh;
 	struct fcoe_port *port = tgt->port;
 	struct bnx2fc_interface *interface = port->priv;
 	struct fc_rport *rport = tgt->rport;
@@ -720,9 +724,9 @@ static int bnx2fc_initiate_els(struct bnx2fc_rport *tgt, unsigned int op,
 	rc = bnx2fc_init_mp_req(els_req);
 	if (rc == FAILED) {
 		printk(KERN_ERR PFX "ELS MP request init failed\n");
-		spin_lock_bh(&tgt->tgt_lock);
+		bh = spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		kref_put(&els_req->refcount, bnx2fc_cmd_release);
-		spin_unlock_bh(&tgt->tgt_lock);
+		spin_unlock_bh(&tgt->tgt_lock, bh);
 		rc = -ENOMEM;
 		goto els_err;
 	} else {
@@ -741,9 +745,9 @@ static int bnx2fc_initiate_els(struct bnx2fc_rport *tgt, unsigned int op,
 		printk(KERN_ERR PFX "Invalid ELS op 0x%x\n", op);
 		els_req->cb_func = NULL;
 		els_req->cb_arg = NULL;
-		spin_lock_bh(&tgt->tgt_lock);
+		bh = spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 		kref_put(&els_req->refcount, bnx2fc_cmd_release);
-		spin_unlock_bh(&tgt->tgt_lock);
+		spin_unlock_bh(&tgt->tgt_lock, bh);
 		rc = -EINVAL;
 	}
 
@@ -776,14 +780,14 @@ static int bnx2fc_initiate_els(struct bnx2fc_rport *tgt, unsigned int op,
 	task = &(task_page[index]);
 	bnx2fc_init_mp_task(els_req, task);
 
-	spin_lock_bh(&tgt->tgt_lock);
+	bh = spin_lock_bh(&tgt->tgt_lock, SOFTIRQ_ALL_MASK);
 
 	if (!test_bit(BNX2FC_FLAG_SESSION_READY, &tgt->flags)) {
 		printk(KERN_ERR PFX "initiate_els.. session not ready\n");
 		els_req->cb_func = NULL;
 		els_req->cb_arg = NULL;
 		kref_put(&els_req->refcount, bnx2fc_cmd_release);
-		spin_unlock_bh(&tgt->tgt_lock);
+		spin_unlock_bh(&tgt->tgt_lock, bh);
 		return -EINVAL;
 	}
 
@@ -796,7 +800,7 @@ static int bnx2fc_initiate_els(struct bnx2fc_rport *tgt, unsigned int op,
 
 	/* Ring doorbell */
 	bnx2fc_ring_doorbell(tgt);
-	spin_unlock_bh(&tgt->tgt_lock);
+	spin_unlock_bh(&tgt->tgt_lock, bh);
 
 els_err:
 	return rc;

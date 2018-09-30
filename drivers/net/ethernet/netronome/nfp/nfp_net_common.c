@@ -181,9 +181,10 @@ static int nfp_net_reconfig_wait(struct nfp_net *nn, unsigned long deadline)
 
 static void nfp_net_reconfig_timer(struct timer_list *t)
 {
+	unsigned int bh;
 	struct nfp_net *nn = from_timer(nn, t, reconfig_timer);
 
-	spin_lock_bh(&nn->reconfig_lock);
+	bh = spin_lock_bh(&nn->reconfig_lock, SOFTIRQ_ALL_MASK);
 
 	nn->reconfig_timer_active = false;
 
@@ -197,7 +198,7 @@ static void nfp_net_reconfig_timer(struct timer_list *t)
 	if (nn->reconfig_posted)
 		nfp_net_reconfig_start_async(nn, 0);
 done:
-	spin_unlock_bh(&nn->reconfig_lock);
+	spin_unlock_bh(&nn->reconfig_lock, bh);
 }
 
 /**
@@ -211,7 +212,8 @@ done:
  */
 static void nfp_net_reconfig_post(struct nfp_net *nn, u32 update)
 {
-	spin_lock_bh(&nn->reconfig_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&nn->reconfig_lock, SOFTIRQ_ALL_MASK);
 
 	/* Sync caller will kick off async reconf when it's done, just post */
 	if (nn->reconfig_sync_present) {
@@ -226,15 +228,16 @@ static void nfp_net_reconfig_post(struct nfp_net *nn, u32 update)
 	else
 		nn->reconfig_posted |= update;
 done:
-	spin_unlock_bh(&nn->reconfig_lock);
+	spin_unlock_bh(&nn->reconfig_lock, bh);
 }
 
 static void nfp_net_reconfig_sync_enter(struct nfp_net *nn)
 {
+	unsigned int bh;
 	bool cancelled_timer = false;
 	u32 pre_posted_requests;
 
-	spin_lock_bh(&nn->reconfig_lock);
+	bh = spin_lock_bh(&nn->reconfig_lock, SOFTIRQ_ALL_MASK);
 
 	nn->reconfig_sync_present = true;
 
@@ -245,7 +248,7 @@ static void nfp_net_reconfig_sync_enter(struct nfp_net *nn)
 	pre_posted_requests = nn->reconfig_posted;
 	nn->reconfig_posted = 0;
 
-	spin_unlock_bh(&nn->reconfig_lock);
+	spin_unlock_bh(&nn->reconfig_lock, bh);
 
 	if (cancelled_timer) {
 		del_timer_sync(&nn->reconfig_timer);
@@ -261,11 +264,12 @@ static void nfp_net_reconfig_sync_enter(struct nfp_net *nn)
 
 static void nfp_net_reconfig_wait_posted(struct nfp_net *nn)
 {
+	unsigned int bh;
 	nfp_net_reconfig_sync_enter(nn);
 
-	spin_lock_bh(&nn->reconfig_lock);
+	bh = spin_lock_bh(&nn->reconfig_lock, SOFTIRQ_ALL_MASK);
 	nn->reconfig_sync_present = false;
-	spin_unlock_bh(&nn->reconfig_lock);
+	spin_unlock_bh(&nn->reconfig_lock, bh);
 }
 
 /**
@@ -281,6 +285,7 @@ static void nfp_net_reconfig_wait_posted(struct nfp_net *nn)
  */
 int nfp_net_reconfig(struct nfp_net *nn, u32 update)
 {
+	unsigned int bh;
 	int ret;
 
 	nfp_net_reconfig_sync_enter(nn);
@@ -288,14 +293,14 @@ int nfp_net_reconfig(struct nfp_net *nn, u32 update)
 	nfp_net_reconfig_start(nn, update);
 	ret = nfp_net_reconfig_wait(nn, jiffies + HZ * NFP_NET_POLL_TIMEOUT);
 
-	spin_lock_bh(&nn->reconfig_lock);
+	bh = spin_lock_bh(&nn->reconfig_lock, SOFTIRQ_ALL_MASK);
 
 	if (nn->reconfig_posted)
 		nfp_net_reconfig_start_async(nn, 0);
 
 	nn->reconfig_sync_present = false;
 
-	spin_unlock_bh(&nn->reconfig_lock);
+	spin_unlock_bh(&nn->reconfig_lock, bh);
 
 	return ret;
 }
@@ -1965,12 +1970,13 @@ bool __nfp_ctrl_tx(struct nfp_net *nn, struct sk_buff *skb)
 
 bool nfp_ctrl_tx(struct nfp_net *nn, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct nfp_net_r_vector *r_vec = &nn->r_vecs[0];
 	bool ret;
 
-	spin_lock_bh(&r_vec->lock);
+	bh = spin_lock_bh(&r_vec->lock, SOFTIRQ_ALL_MASK);
 	ret = nfp_ctrl_tx_one(nn, r_vec, skb, false);
-	spin_unlock_bh(&r_vec->lock);
+	spin_unlock_bh(&r_vec->lock, bh);
 
 	return ret;
 }
@@ -2089,12 +2095,13 @@ static void nfp_ctrl_rx(struct nfp_net_r_vector *r_vec)
 
 static void nfp_ctrl_poll(unsigned long arg)
 {
+	unsigned int bh;
 	struct nfp_net_r_vector *r_vec = (void *)arg;
 
-	spin_lock_bh(&r_vec->lock);
+	bh = spin_lock_bh(&r_vec->lock, SOFTIRQ_ALL_MASK);
 	nfp_net_tx_complete(r_vec->tx_ring, 0);
 	__nfp_ctrl_tx_queued(r_vec);
-	spin_unlock_bh(&r_vec->lock);
+	spin_unlock_bh(&r_vec->lock, bh);
 
 	nfp_ctrl_rx(r_vec);
 

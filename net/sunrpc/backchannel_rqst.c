@@ -213,6 +213,7 @@ EXPORT_SYMBOL_GPL(xprt_destroy_backchannel);
 
 void xprt_destroy_bc(struct rpc_xprt *xprt, unsigned int max_reqs)
 {
+	unsigned int bh;
 	struct rpc_rqst *req = NULL, *tmp = NULL;
 
 	dprintk("RPC:        destroy backchannel transport\n");
@@ -220,7 +221,7 @@ void xprt_destroy_bc(struct rpc_xprt *xprt, unsigned int max_reqs)
 	if (max_reqs == 0)
 		goto out;
 
-	spin_lock_bh(&xprt->bc_pa_lock);
+	bh = spin_lock_bh(&xprt->bc_pa_lock, SOFTIRQ_ALL_MASK);
 	xprt_dec_alloc_count(xprt, max_reqs);
 	list_for_each_entry_safe(req, tmp, &xprt->bc_pa_list, rq_bc_pa_list) {
 		dprintk("RPC:        req=%p\n", req);
@@ -229,7 +230,7 @@ void xprt_destroy_bc(struct rpc_xprt *xprt, unsigned int max_reqs)
 		if (--max_reqs == 0)
 			break;
 	}
-	spin_unlock_bh(&xprt->bc_pa_lock);
+	spin_unlock_bh(&xprt->bc_pa_lock, bh);
 
 out:
 	dprintk("RPC:        backchannel list empty= %s\n",
@@ -276,6 +277,7 @@ void xprt_free_bc_request(struct rpc_rqst *req)
 
 void xprt_free_bc_rqst(struct rpc_rqst *req)
 {
+	unsigned int bh;
 	struct rpc_xprt *xprt = req->rq_xprt;
 
 	dprintk("RPC:       free backchannel req=%p\n", req);
@@ -289,13 +291,13 @@ void xprt_free_bc_rqst(struct rpc_rqst *req)
 	 * Return it to the list of preallocations so that it
 	 * may be reused by a new callback request.
 	 */
-	spin_lock_bh(&xprt->bc_pa_lock);
+	bh = spin_lock_bh(&xprt->bc_pa_lock, SOFTIRQ_ALL_MASK);
 	if (xprt_need_to_requeue(xprt)) {
 		list_add_tail(&req->rq_bc_pa_list, &xprt->bc_pa_list);
 		xprt->bc_alloc_count++;
 		req = NULL;
 	}
-	spin_unlock_bh(&xprt->bc_pa_lock);
+	spin_unlock_bh(&xprt->bc_pa_lock, bh);
 	if (req != NULL) {
 		/*
 		 * The last remaining session was destroyed while this

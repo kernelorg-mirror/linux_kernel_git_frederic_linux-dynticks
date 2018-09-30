@@ -100,6 +100,7 @@ static void cw1200_debug_print_map(struct seq_file *seq,
 
 static int cw1200_status_show(struct seq_file *seq, void *v)
 {
+	unsigned int bh;
 	int i;
 	struct list_head *item;
 	struct cw1200_common *priv = seq->private;
@@ -198,11 +199,11 @@ static int cw1200_status_show(struct seq_file *seq, void *v)
 		   priv->long_frame_max_tx_count);
 	seq_printf(seq, "Short retr: %d\n",
 		   priv->short_frame_max_tx_count);
-	spin_lock_bh(&priv->tx_policy_cache.lock);
+	bh = spin_lock_bh(&priv->tx_policy_cache.lock, SOFTIRQ_ALL_MASK);
 	i = 0;
 	list_for_each(item, &priv->tx_policy_cache.used)
 		++i;
-	spin_unlock_bh(&priv->tx_policy_cache.lock);
+	spin_unlock_bh(&priv->tx_policy_cache.lock, bh);
 	seq_printf(seq, "RC in use:  %d\n", i);
 
 	seq_puts(seq, "\n");

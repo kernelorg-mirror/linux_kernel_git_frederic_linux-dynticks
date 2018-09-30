@@ -271,6 +271,7 @@ exit_free_meter:
 
 static int ovs_meter_cmd_set(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	struct nlattr **a = info->attrs;
 	struct dp_meter *meter, *old_meter;
 	struct sk_buff *reply;
@@ -317,13 +318,13 @@ static int ovs_meter_cmd_set(struct sk_buff *skb, struct genl_info *info)
 	failed = nla_put_u32(reply, OVS_METER_ATTR_ID, meter_id);
 	WARN_ON(failed);
 	if (old_meter) {
-		spin_lock_bh(&old_meter->lock);
+		bh = spin_lock_bh(&old_meter->lock, SOFTIRQ_ALL_MASK);
 		if (old_meter->keep_stats) {
 			err = ovs_meter_cmd_reply_stats(reply, meter_id,
 							old_meter);
 			WARN_ON(err);
 		}
-		spin_unlock_bh(&old_meter->lock);
+		spin_unlock_bh(&old_meter->lock, bh);
 		ovs_meter_free(old_meter);
 	}
 
@@ -340,6 +341,7 @@ exit_free_meter:
 
 static int ovs_meter_cmd_get(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	struct nlattr **a = info->attrs;
 	u32 meter_id;
 	struct ovs_header *ovs_header = info->userhdr;
@@ -374,9 +376,9 @@ static int ovs_meter_cmd_get(struct sk_buff *skb, struct genl_info *info)
 		goto exit_unlock;
 	}
 
-	spin_lock_bh(&meter->lock);
+	bh = spin_lock_bh(&meter->lock, SOFTIRQ_ALL_MASK);
 	err = ovs_meter_cmd_reply_stats(reply, meter_id, meter);
-	spin_unlock_bh(&meter->lock);
+	spin_unlock_bh(&meter->lock, bh);
 	if (err)
 		goto exit_unlock;
 
@@ -393,6 +395,7 @@ exit_unlock:
 
 static int ovs_meter_cmd_del(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	struct nlattr **a = info->attrs;
 	u32 meter_id;
 	struct ovs_header *ovs_header = info->userhdr;
@@ -421,10 +424,10 @@ static int ovs_meter_cmd_del(struct sk_buff *skb, struct genl_info *info)
 
 	old_meter = lookup_meter(dp, meter_id);
 	if (old_meter) {
-		spin_lock_bh(&old_meter->lock);
+		bh = spin_lock_bh(&old_meter->lock, SOFTIRQ_ALL_MASK);
 		err = ovs_meter_cmd_reply_stats(reply, meter_id, old_meter);
 		WARN_ON(err);
-		spin_unlock_bh(&old_meter->lock);
+		spin_unlock_bh(&old_meter->lock, bh);
 		detach_meter(old_meter);
 	}
 	ovs_unlock();

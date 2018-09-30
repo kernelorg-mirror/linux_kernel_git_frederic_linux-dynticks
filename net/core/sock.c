@@ -2299,7 +2299,7 @@ out:
 }
 EXPORT_SYMBOL(sk_alloc_sg);
 
-static void __lock_sock(struct sock *sk)
+static void __lock_sock(struct sock *sk, unsigned int *bh)
 	__releases(&sk->sk_lock.slock)
 	__acquires(&sk->sk_lock.slock)
 {
@@ -2308,16 +2308,16 @@ static void __lock_sock(struct sock *sk)
 	for (;;) {
 		prepare_to_wait_exclusive(&sk->sk_lock.wq, &wait,
 					TASK_UNINTERRUPTIBLE);
-		spin_unlock_bh(&sk->sk_lock.slock);
+		spin_unlock_bh(&sk->sk_lock.slock, *bh);
 		schedule();
-		spin_lock_bh(&sk->sk_lock.slock);
+		*bh = spin_lock_bh(&sk->sk_lock.slock, SOFTIRQ_ALL_MASK);
 		if (!sock_owned_by_user(sk))
 			break;
 	}
 	finish_wait(&sk->sk_lock.wq, &wait);
 }
 
-static void __release_sock(struct sock *sk)
+static void __release_sock(struct sock *sk, unsigned int *bh)
 	__releases(&sk->sk_lock.slock)
 	__acquires(&sk->sk_lock.slock)
 {
@@ -2326,7 +2326,7 @@ static void __release_sock(struct sock *sk)
 	while ((skb = sk->sk_backlog.head) != NULL) {
 		sk->sk_backlog.head = sk->sk_backlog.tail = NULL;
 
-		spin_unlock_bh(&sk->sk_lock.slock);
+		spin_unlock_bh(&sk->sk_lock.slock, *bh);
 
 		do {
 			next = skb->next;
@@ -2340,7 +2340,7 @@ static void __release_sock(struct sock *sk)
 			skb = next;
 		} while (skb != NULL);
 
-		spin_lock_bh(&sk->sk_lock.slock);
+		*bh = spin_lock_bh(&sk->sk_lock.slock, SOFTIRQ_ALL_MASK);
 	}
 
 	/*
@@ -2352,9 +2352,10 @@ static void __release_sock(struct sock *sk)
 
 void __sk_flush_backlog(struct sock *sk)
 {
-	spin_lock_bh(&sk->sk_lock.slock);
-	__release_sock(sk);
-	spin_unlock_bh(&sk->sk_lock.slock);
+	unsigned int bh;
+	bh = spin_lock_bh(&sk->sk_lock.slock, SOFTIRQ_ALL_MASK);
+	__release_sock(sk, &bh);
+	spin_unlock_bh(&sk->sk_lock.slock, bh);
 }
 
 /**
@@ -2828,25 +2829,28 @@ EXPORT_SYMBOL(sock_init_data);
 
 void lock_sock_nested(struct sock *sk, int subclass)
 {
+	unsigned int bh;
+
 	might_sleep();
-	spin_lock_bh(&sk->sk_lock.slock);
+	bh = spin_lock_bh(&sk->sk_lock.slock, SOFTIRQ_ALL_MASK);
 	if (sk->sk_lock.owned)
-		__lock_sock(sk);
+		__lock_sock(sk, &bh);
 	sk->sk_lock.owned = 1;
 	spin_unlock(&sk->sk_lock.slock);
 	/*
 	 * The sk_lock has mutex_lock() semantics here:
 	 */
 	mutex_acquire(&sk->sk_lock.dep_map, subclass, 0, _RET_IP_);
-	local_bh_enable(0);
+	local_bh_enable(bh);
 }
 EXPORT_SYMBOL(lock_sock_nested);
 
 void release_sock(struct sock *sk)
 {
-	spin_lock_bh(&sk->sk_lock.slock);
+	unsigned int bh;
+	bh = spin_lock_bh(&sk->sk_lock.slock, SOFTIRQ_ALL_MASK);
 	if (sk->sk_backlog.tail)
-		__release_sock(sk);
+		__release_sock(sk, &bh);
 
 	/* Warning : release_cb() might need to release sk ownership,
 	 * ie call sock_release_ownership(sk) before us.
@@ -2857,7 +2861,7 @@ void release_sock(struct sock *sk)
 	sock_release_ownership(sk);
 	if (waitqueue_active(&sk->sk_lock.wq))
 		wake_up(&sk->sk_lock.wq);
-	spin_unlock_bh(&sk->sk_lock.slock);
+	spin_unlock_bh(&sk->sk_lock.slock, bh);
 }
 EXPORT_SYMBOL(release_sock);
 
@@ -2877,7 +2881,7 @@ EXPORT_SYMBOL(release_sock);
 bool lock_sock_fast(struct sock *sk, unsigned int *bh)
 {
 	might_sleep();
-	spin_lock_bh(&sk->sk_lock.slock);
+	*bh = spin_lock_bh(&sk->sk_lock.slock, SOFTIRQ_ALL_MASK);
 
 	if (!sk->sk_lock.owned)
 		/*
@@ -2885,14 +2889,14 @@ bool lock_sock_fast(struct sock *sk, unsigned int *bh)
 		 */
 		return false;
 
-	__lock_sock(sk);
+	__lock_sock(sk, bh);
 	sk->sk_lock.owned = 1;
 	spin_unlock(&sk->sk_lock.slock);
 	/*
 	 * The sk_lock has mutex_lock() semantics here:
 	 */
 	mutex_acquire(&sk->sk_lock.dep_map, 0, 0, _RET_IP_);
-	local_bh_enable(0);
+	local_bh_enable(*bh);
 	return true;
 }
 EXPORT_SYMBOL(lock_sock_fast);

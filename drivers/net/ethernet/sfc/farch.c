@@ -2905,13 +2905,14 @@ void efx_farch_filter_update_rx_scatter(struct efx_nic *efx)
 bool efx_farch_filter_rfs_expire_one(struct efx_nic *efx, u32 flow_id,
 				     unsigned int index)
 {
+	unsigned int bh;
 	struct efx_farch_filter_state *state = efx->filter_state;
 	struct efx_farch_filter_table *table;
 	bool ret = false, force = false;
 	u16 arfs_id;
 
 	down_write(&state->lock);
-	spin_lock_bh(&efx->rps_hash_lock);
+	bh = spin_lock_bh(&efx->rps_hash_lock, SOFTIRQ_ALL_MASK);
 	table = &state->table[EFX_FARCH_FILTER_TABLE_RX_IP];
 	if (test_bit(index, table->used_bitmap) &&
 	    table->spec[index].priority == EFX_FILTER_PRI_HINT) {
@@ -2945,7 +2946,7 @@ bool efx_farch_filter_rfs_expire_one(struct efx_nic *efx, u32 flow_id,
 		}
 	}
 out_unlock:
-	spin_unlock_bh(&efx->rps_hash_lock);
+	spin_unlock_bh(&efx->rps_hash_lock, bh);
 	up_write(&state->lock);
 	return ret;
 }

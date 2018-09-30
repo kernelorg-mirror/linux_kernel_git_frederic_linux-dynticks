@@ -189,6 +189,7 @@ static void rxrpc_abort_calls(struct rxrpc_connection *conn,
 static int rxrpc_abort_connection(struct rxrpc_connection *conn,
 				  int error, u32 abort_code)
 {
+	unsigned int bh;
 	struct rxrpc_wire_header whdr;
 	struct msghdr msg;
 	struct kvec iov[2];
@@ -200,15 +201,15 @@ static int rxrpc_abort_connection(struct rxrpc_connection *conn,
 	_enter("%d,,%u,%u", conn->debug_id, error, abort_code);
 
 	/* generate a connection-level abort */
-	spin_lock_bh(&conn->state_lock);
+	bh = spin_lock_bh(&conn->state_lock, SOFTIRQ_ALL_MASK);
 	if (conn->state >= RXRPC_CONN_REMOTELY_ABORTED) {
-		spin_unlock_bh(&conn->state_lock);
+		spin_unlock_bh(&conn->state_lock, bh);
 		_leave(" = 0 [already dead]");
 		return 0;
 	}
 
 	conn->state = RXRPC_CONN_LOCALLY_ABORTED;
-	spin_unlock_bh(&conn->state_lock);
+	spin_unlock_bh(&conn->state_lock, bh);
 
 	rxrpc_abort_calls(conn, RXRPC_CALL_LOCALLY_ABORTED, abort_code, error);
 

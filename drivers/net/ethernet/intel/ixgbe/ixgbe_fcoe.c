@@ -42,6 +42,7 @@ static inline void ixgbe_fcoe_clear_ddp(struct ixgbe_fcoe_ddp *ddp)
  */
 int ixgbe_fcoe_ddp_put(struct net_device *netdev, u16 xid)
 {
+	unsigned int bh;
 	int len;
 	struct ixgbe_fcoe *fcoe;
 	struct ixgbe_adapter *adapter;
@@ -87,7 +88,7 @@ int ixgbe_fcoe_ddp_put(struct net_device *netdev, u16 xid)
 		fcbuff = IXGBE_READ_REG(hw, IXGBE_FCDDC(2, xid));
 	} else {
 		/* other hardware requires DDP FCoE lock */
-		spin_lock_bh(&fcoe->lock);
+		bh = spin_lock_bh(&fcoe->lock, SOFTIRQ_ALL_MASK);
 		IXGBE_WRITE_REG(hw, IXGBE_FCFLT, 0);
 		IXGBE_WRITE_REG(hw, IXGBE_FCFLTRW,
 				(xid | IXGBE_FCFLTRW_WE));
@@ -99,7 +100,7 @@ int ixgbe_fcoe_ddp_put(struct net_device *netdev, u16 xid)
 		IXGBE_WRITE_REG(hw, IXGBE_FCDMARW,
 				(xid | IXGBE_FCDMARW_RE));
 		fcbuff = IXGBE_READ_REG(hw, IXGBE_FCBUFF);
-		spin_unlock_bh(&fcoe->lock);
+		spin_unlock_bh(&fcoe->lock, bh);
 		}
 
 	if (fcbuff & IXGBE_FCBUFF_VALID)
@@ -133,6 +134,7 @@ static int ixgbe_fcoe_ddp_setup(struct net_device *netdev, u16 xid,
 				struct scatterlist *sgl, unsigned int sgc,
 				int target_mode)
 {
+	unsigned int bh;
 	struct ixgbe_adapter *adapter;
 	struct ixgbe_hw *hw;
 	struct ixgbe_fcoe *fcoe;
@@ -299,7 +301,7 @@ static int ixgbe_fcoe_ddp_setup(struct net_device *netdev, u16 xid,
 		IXGBE_WRITE_REG(hw, IXGBE_FCDFC(3, xid), fcfltrw);
 	} else {
 		/* DDP lock for indirect DDP context access */
-		spin_lock_bh(&fcoe->lock);
+		bh = spin_lock_bh(&fcoe->lock, SOFTIRQ_ALL_MASK);
 
 		IXGBE_WRITE_REG(hw, IXGBE_FCPTRL, ddp->udp & DMA_BIT_MASK(32));
 		IXGBE_WRITE_REG(hw, IXGBE_FCPTRH, (u64)ddp->udp >> 32);
@@ -310,7 +312,7 @@ static int ixgbe_fcoe_ddp_setup(struct net_device *netdev, u16 xid,
 		IXGBE_WRITE_REG(hw, IXGBE_FCFLT, IXGBE_FCFLT_VALID);
 		IXGBE_WRITE_REG(hw, IXGBE_FCFLTRW, fcfltrw);
 
-		spin_unlock_bh(&fcoe->lock);
+		spin_unlock_bh(&fcoe->lock, bh);
 	}
 
 	return 1;

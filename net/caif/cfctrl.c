@@ -59,15 +59,16 @@ struct cflayer *cfctrl_create(void)
 
 void cfctrl_remove(struct cflayer *layer)
 {
+	unsigned int bh;
 	struct cfctrl_request_info *p, *tmp;
 	struct cfctrl *ctrl = container_obj(layer);
 
-	spin_lock_bh(&ctrl->info_list_lock);
+	bh = spin_lock_bh(&ctrl->info_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(p, tmp, &ctrl->list, list) {
 		list_del(&p->list);
 		kfree(p);
 	}
-	spin_unlock_bh(&ctrl->info_list_lock);
+	spin_unlock_bh(&ctrl->info_list_lock, bh);
 	kfree(layer);
 }
 
@@ -129,11 +130,12 @@ static bool cfctrl_req_eq(const struct cfctrl_request_info *r1,
 static void cfctrl_insert_req(struct cfctrl *ctrl,
 			      struct cfctrl_request_info *req)
 {
-	spin_lock_bh(&ctrl->info_list_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&ctrl->info_list_lock, SOFTIRQ_ALL_MASK);
 	atomic_inc(&ctrl->req_seq_no);
 	req->sequence_no = atomic_read(&ctrl->req_seq_no);
 	list_add_tail(&req->list, &ctrl->list);
-	spin_unlock_bh(&ctrl->info_list_lock);
+	spin_unlock_bh(&ctrl->info_list_lock, bh);
 }
 
 /* Compare and remove request */
@@ -330,10 +332,11 @@ int cfctrl_linkdown_req(struct cflayer *layer, u8 channelid,
 
 int cfctrl_cancel_req(struct cflayer *layr, struct cflayer *adap_layer)
 {
+	unsigned int bh;
 	struct cfctrl_request_info *p, *tmp;
 	struct cfctrl *ctrl = container_obj(layr);
 	int found = 0;
-	spin_lock_bh(&ctrl->info_list_lock);
+	bh = spin_lock_bh(&ctrl->info_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe(p, tmp, &ctrl->list, list) {
 		if (p->client_layer == adap_layer) {
@@ -343,12 +346,13 @@ int cfctrl_cancel_req(struct cflayer *layr, struct cflayer *adap_layer)
 		}
 	}
 
-	spin_unlock_bh(&ctrl->info_list_lock);
+	spin_unlock_bh(&ctrl->info_list_lock, bh);
 	return found;
 }
 
 static int cfctrl_recv(struct cflayer *layer, struct cfpkt *pkt)
 {
+	unsigned int bh;
 	u8 cmdrsp;
 	u8 cmd;
 	int ret = -1;
@@ -491,7 +495,7 @@ static int cfctrl_recv(struct cflayer *layer, struct cfpkt *pkt)
 
 			rsp.cmd = cmd;
 			rsp.param = linkparam;
-			spin_lock_bh(&cfctrl->info_list_lock);
+			bh = spin_lock_bh(&cfctrl->info_list_lock, SOFTIRQ_ALL_MASK);
 			req = cfctrl_remove_req(cfctrl, &rsp);
 
 			if (CFCTRL_ERR_BIT == (CFCTRL_ERR_BIT & cmdrsp) ||
@@ -512,7 +516,7 @@ static int cfctrl_recv(struct cflayer *layer, struct cfpkt *pkt)
 
 			kfree(req);
 
-			spin_unlock_bh(&cfctrl->info_list_lock);
+			spin_unlock_bh(&cfctrl->info_list_lock, bh);
 		}
 		break;
 	case CFCTRL_CMD_LINK_DESTROY:
@@ -551,20 +555,21 @@ error:
 static void cfctrl_ctrlcmd(struct cflayer *layr, enum caif_ctrlcmd ctrl,
 			   int phyid)
 {
+	unsigned int bh;
 	struct cfctrl *this = container_obj(layr);
 	switch (ctrl) {
 	case _CAIF_CTRLCMD_PHYIF_FLOW_OFF_IND:
 	case CAIF_CTRLCMD_FLOW_OFF_IND:
-		spin_lock_bh(&this->info_list_lock);
+		bh = spin_lock_bh(&this->info_list_lock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&this->list))
 			pr_debug("Received flow off in control layer\n");
-		spin_unlock_bh(&this->info_list_lock);
+		spin_unlock_bh(&this->info_list_lock, bh);
 		break;
 	case _CAIF_CTRLCMD_PHYIF_DOWN_IND: {
 		struct cfctrl_request_info *p, *tmp;
 
 		/* Find all connect request and report failure */
-		spin_lock_bh(&this->info_list_lock);
+		bh = spin_lock_bh(&this->info_list_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry_safe(p, tmp, &this->list, list) {
 			if (p->param.phyid == phyid) {
 				list_del(&p->list);
@@ -574,7 +579,7 @@ static void cfctrl_ctrlcmd(struct cflayer *layr, enum caif_ctrlcmd ctrl,
 				kfree(p);
 			}
 		}
-		spin_unlock_bh(&this->info_list_lock);
+		spin_unlock_bh(&this->info_list_lock, bh);
 		break;
 	}
 	default:
@@ -585,12 +590,13 @@ static void cfctrl_ctrlcmd(struct cflayer *layr, enum caif_ctrlcmd ctrl,
 #ifndef CAIF_NO_LOOP
 static int handle_loop(struct cfctrl *ctrl, int cmd, struct cfpkt *pkt)
 {
+	unsigned int bh;
 	static int last_linkid;
 	static int dec;
 	u8 linkid, linktype, tmp;
 	switch (cmd) {
 	case CFCTRL_CMD_LINK_SETUP:
-		spin_lock_bh(&ctrl->loop_linkid_lock);
+		bh = spin_lock_bh(&ctrl->loop_linkid_lock, SOFTIRQ_ALL_MASK);
 		if (!dec) {
 			for (linkid = last_linkid + 1; linkid < 254; linkid++)
 				if (!ctrl->loop_linkused[linkid])
@@ -600,7 +606,7 @@ static int handle_loop(struct cfctrl *ctrl, int cmd, struct cfpkt *pkt)
 		for (linkid = last_linkid - 1; linkid > 1; linkid--)
 			if (!ctrl->loop_linkused[linkid])
 				goto found;
-		spin_unlock_bh(&ctrl->loop_linkid_lock);
+		spin_unlock_bh(&ctrl->loop_linkid_lock, bh);
 		return -1;
 found:
 		if (linkid < 10)
@@ -612,7 +618,7 @@ found:
 		last_linkid = linkid;
 
 		cfpkt_add_trail(pkt, &linkid, 1);
-		spin_unlock_bh(&ctrl->loop_linkid_lock);
+		spin_unlock_bh(&ctrl->loop_linkid_lock, bh);
 		cfpkt_peek_head(pkt, &linktype, 1);
 		if (linktype ==  CFCTRL_SRV_UTIL) {
 			tmp = 0x01;
@@ -622,10 +628,10 @@ found:
 		break;
 
 	case CFCTRL_CMD_LINK_DESTROY:
-		spin_lock_bh(&ctrl->loop_linkid_lock);
+		bh = spin_lock_bh(&ctrl->loop_linkid_lock, SOFTIRQ_ALL_MASK);
 		cfpkt_peek_head(pkt, &linkid, 1);
 		ctrl->loop_linkused[linkid] = 0;
-		spin_unlock_bh(&ctrl->loop_linkid_lock);
+		spin_unlock_bh(&ctrl->loop_linkid_lock, bh);
 		break;
 	default:
 		break;

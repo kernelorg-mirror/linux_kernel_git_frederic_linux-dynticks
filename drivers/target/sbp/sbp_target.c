@@ -90,16 +90,17 @@ static int read_peer_guid(u64 *guid, const struct sbp_management_request *req)
 static struct sbp_session *sbp_session_find_by_guid(
 	struct sbp_tpg *tpg, u64 guid)
 {
+	unsigned int bh;
 	struct se_session *se_sess;
 	struct sbp_session *sess, *found = NULL;
 
-	spin_lock_bh(&tpg->se_tpg.session_lock);
+	bh = spin_lock_bh(&tpg->se_tpg.session_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(se_sess, &tpg->se_tpg.tpg_sess_list, sess_list) {
 		sess = se_sess->fabric_sess_ptr;
 		if (sess->guid == guid)
 			found = sess;
 	}
-	spin_unlock_bh(&tpg->se_tpg.session_lock);
+	spin_unlock_bh(&tpg->se_tpg.session_lock, bh);
 
 	return found;
 }
@@ -107,14 +108,15 @@ static struct sbp_session *sbp_session_find_by_guid(
 static struct sbp_login_descriptor *sbp_login_find_by_lun(
 		struct sbp_session *session, u32 unpacked_lun)
 {
+	unsigned int bh;
 	struct sbp_login_descriptor *login, *found = NULL;
 
-	spin_lock_bh(&session->lock);
+	bh = spin_lock_bh(&session->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(login, &session->login_list, link) {
 		if (login->login_lun == unpacked_lun)
 			found = login;
 	}
-	spin_unlock_bh(&session->lock);
+	spin_unlock_bh(&session->lock, bh);
 
 	return found;
 }
@@ -124,16 +126,17 @@ static int sbp_login_count_all_by_lun(
 		u32 unpacked_lun,
 		int exclusive)
 {
+	unsigned int bh;
 	struct se_session *se_sess;
 	struct sbp_session *sess;
 	struct sbp_login_descriptor *login;
 	int count = 0;
 
-	spin_lock_bh(&tpg->se_tpg.session_lock);
+	bh = spin_lock_bh(&tpg->se_tpg.session_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(se_sess, &tpg->se_tpg.tpg_sess_list, sess_list) {
 		sess = se_sess->fabric_sess_ptr;
 
-		spin_lock_bh(&sess->lock);
+		spin_lock_bh(&sess->lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(login, &sess->login_list, link) {
 			if (login->login_lun != unpacked_lun)
 				continue;
@@ -143,7 +146,7 @@ static int sbp_login_count_all_by_lun(
 		}
 		spin_unlock_bh(&sess->lock);
 	}
-	spin_unlock_bh(&tpg->se_tpg.session_lock);
+	spin_unlock_bh(&tpg->se_tpg.session_lock, bh);
 
 	return count;
 }
@@ -151,22 +154,23 @@ static int sbp_login_count_all_by_lun(
 static struct sbp_login_descriptor *sbp_login_find_by_id(
 	struct sbp_tpg *tpg, int login_id)
 {
+	unsigned int bh;
 	struct se_session *se_sess;
 	struct sbp_session *sess;
 	struct sbp_login_descriptor *login, *found = NULL;
 
-	spin_lock_bh(&tpg->se_tpg.session_lock);
+	bh = spin_lock_bh(&tpg->se_tpg.session_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(se_sess, &tpg->se_tpg.tpg_sess_list, sess_list) {
 		sess = se_sess->fabric_sess_ptr;
 
-		spin_lock_bh(&sess->lock);
+		spin_lock_bh(&sess->lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(login, &sess->login_list, link) {
 			if (login->login_id == login_id)
 				found = login;
 		}
 		spin_unlock_bh(&sess->lock);
 	}
-	spin_unlock_bh(&tpg->se_tpg.session_lock);
+	spin_unlock_bh(&tpg->se_tpg.session_lock, bh);
 
 	return found;
 }
@@ -225,12 +229,13 @@ static struct sbp_session *sbp_session_create(
 
 static void sbp_session_release(struct sbp_session *sess, bool cancel_work)
 {
-	spin_lock_bh(&sess->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&sess->lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&sess->login_list)) {
-		spin_unlock_bh(&sess->lock);
+		spin_unlock_bh(&sess->lock, bh);
 		return;
 	}
-	spin_unlock_bh(&sess->lock);
+	spin_unlock_bh(&sess->lock, bh);
 
 	if (cancel_work)
 		cancel_delayed_work_sync(&sess->maint_work);
@@ -248,6 +253,7 @@ static void sbp_target_agent_unregister(struct sbp_target_agent *);
 static void sbp_login_release(struct sbp_login_descriptor *login,
 	bool cancel_work)
 {
+	unsigned int bh;
 	struct sbp_session *sess = login->sess;
 
 	/* FIXME: abort/wait on tasks */
@@ -255,9 +261,9 @@ static void sbp_login_release(struct sbp_login_descriptor *login,
 	sbp_target_agent_unregister(login->tgt_agt);
 
 	if (sess) {
-		spin_lock_bh(&sess->lock);
+		bh = spin_lock_bh(&sess->lock, SOFTIRQ_ALL_MASK);
 		list_del(&login->link);
-		spin_unlock_bh(&sess->lock);
+		spin_unlock_bh(&sess->lock, bh);
 
 		sbp_session_release(sess, cancel_work);
 	}
@@ -272,6 +278,7 @@ static void sbp_management_request_login(
 	struct sbp_management_agent *agent, struct sbp_management_request *req,
 	int *status_data_size)
 {
+	unsigned int bh;
 	struct sbp_tport *tport = agent->tport;
 	struct sbp_tpg *tpg = tport->tpg;
 	struct sbp_session *sess;
@@ -437,9 +444,9 @@ static void sbp_management_request_login(
 		return;
 	}
 
-	spin_lock_bh(&sess->lock);
+	bh = spin_lock_bh(&sess->lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&login->link, &sess->login_list);
-	spin_unlock_bh(&sess->lock);
+	spin_unlock_bh(&sess->lock, bh);
 
 already_logged_in:
 	response = kzalloc(sizeof(*response), GFP_KERNEL);
@@ -503,6 +510,7 @@ static void sbp_management_request_reconnect(
 	struct sbp_management_agent *agent, struct sbp_management_request *req,
 	int *status_data_size)
 {
+	unsigned int bh;
 	struct sbp_tport *tport = agent->tport;
 	struct sbp_tpg *tpg = tport->tpg;
 	int ret;
@@ -542,7 +550,7 @@ static void sbp_management_request_reconnect(
 		return;
 	}
 
-	spin_lock_bh(&login->sess->lock);
+	bh = spin_lock_bh(&login->sess->lock, SOFTIRQ_ALL_MASK);
 	if (login->sess->card)
 		fw_card_put(login->sess->card);
 
@@ -551,7 +559,7 @@ static void sbp_management_request_reconnect(
 	login->sess->node_id = req->node_addr;
 	login->sess->card = fw_card_get(req->card);
 	login->sess->speed = req->speed;
-	spin_unlock_bh(&login->sess->lock);
+	spin_unlock_bh(&login->sess->lock, bh);
 
 	req->status.status = cpu_to_be32(
 		STATUS_BLOCK_RESP(STATUS_RESP_REQUEST_COMPLETE) |
@@ -600,9 +608,10 @@ static void sbp_management_request_logout(
 
 static void session_check_for_reset(struct sbp_session *sess)
 {
+	unsigned int bh;
 	bool card_valid = false;
 
-	spin_lock_bh(&sess->lock);
+	bh = spin_lock_bh(&sess->lock, SOFTIRQ_ALL_MASK);
 
 	if (sess->card) {
 		spin_lock_irq(&sess->card->lock);
@@ -624,22 +633,23 @@ static void session_check_for_reset(struct sbp_session *sess)
 			((sess->reconnect_hold + 1) * HZ);
 	}
 
-	spin_unlock_bh(&sess->lock);
+	spin_unlock_bh(&sess->lock, bh);
 }
 
 static void session_reconnect_expired(struct sbp_session *sess)
 {
+	unsigned int bh;
 	struct sbp_login_descriptor *login, *temp;
 	LIST_HEAD(login_list);
 
 	pr_info("Reconnect timer expired for node: %016llx\n", sess->guid);
 
-	spin_lock_bh(&sess->lock);
+	bh = spin_lock_bh(&sess->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(login, temp, &sess->login_list, link) {
 		login->sess = NULL;
 		list_move_tail(&login->link, &login_list);
 	}
-	spin_unlock_bh(&sess->lock);
+	spin_unlock_bh(&sess->lock, bh);
 
 	list_for_each_entry_safe(login, temp, &login_list, link) {
 		list_del(&login->link);
@@ -651,16 +661,17 @@ static void session_reconnect_expired(struct sbp_session *sess)
 
 static void session_maintenance_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct sbp_session *sess = container_of(work, struct sbp_session,
 			maint_work.work);
 
 	/* could be called while tearing down the session */
-	spin_lock_bh(&sess->lock);
+	bh = spin_lock_bh(&sess->lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&sess->login_list)) {
-		spin_unlock_bh(&sess->lock);
+		spin_unlock_bh(&sess->lock, bh);
 		return;
 	}
-	spin_unlock_bh(&sess->lock);
+	spin_unlock_bh(&sess->lock, bh);
 
 	if (sess->node_id != -1) {
 		/* check for bus reset and make node_id invalid */
@@ -681,15 +692,16 @@ static void session_maintenance_work(struct work_struct *work)
 static int tgt_agent_rw_agent_state(struct fw_card *card, int tcode, void *data,
 		struct sbp_target_agent *agent)
 {
+	unsigned int bh;
 	int state;
 
 	switch (tcode) {
 	case TCODE_READ_QUADLET_REQUEST:
 		pr_debug("tgt_agent AGENT_STATE READ\n");
 
-		spin_lock_bh(&agent->lock);
+		bh = spin_lock_bh(&agent->lock, SOFTIRQ_ALL_MASK);
 		state = agent->state;
-		spin_unlock_bh(&agent->lock);
+		spin_unlock_bh(&agent->lock, bh);
 
 		*(__be32 *)data = cpu_to_be32(state);
 
@@ -707,12 +719,13 @@ static int tgt_agent_rw_agent_state(struct fw_card *card, int tcode, void *data,
 static int tgt_agent_rw_agent_reset(struct fw_card *card, int tcode, void *data,
 		struct sbp_target_agent *agent)
 {
+	unsigned int bh;
 	switch (tcode) {
 	case TCODE_WRITE_QUADLET_REQUEST:
 		pr_debug("tgt_agent AGENT_RESET\n");
-		spin_lock_bh(&agent->lock);
+		bh = spin_lock_bh(&agent->lock, SOFTIRQ_ALL_MASK);
 		agent->state = AGENT_STATE_RESET;
-		spin_unlock_bh(&agent->lock);
+		spin_unlock_bh(&agent->lock, bh);
 		return RCODE_COMPLETE;
 
 	default:
@@ -723,19 +736,20 @@ static int tgt_agent_rw_agent_reset(struct fw_card *card, int tcode, void *data,
 static int tgt_agent_rw_orb_pointer(struct fw_card *card, int tcode, void *data,
 		struct sbp_target_agent *agent)
 {
+	unsigned int bh;
 	struct sbp2_pointer *ptr = data;
 
 	switch (tcode) {
 	case TCODE_WRITE_BLOCK_REQUEST:
-		spin_lock_bh(&agent->lock);
+		bh = spin_lock_bh(&agent->lock, SOFTIRQ_ALL_MASK);
 		if (agent->state != AGENT_STATE_SUSPENDED &&
 				agent->state != AGENT_STATE_RESET) {
-			spin_unlock_bh(&agent->lock);
+			spin_unlock_bh(&agent->lock, bh);
 			pr_notice("Ignoring ORB_POINTER write while active.\n");
 			return RCODE_CONFLICT_ERROR;
 		}
 		agent->state = AGENT_STATE_ACTIVE;
-		spin_unlock_bh(&agent->lock);
+		spin_unlock_bh(&agent->lock, bh);
 
 		agent->orb_pointer = sbp2_pointer_to_addr(ptr);
 		agent->doorbell = false;
@@ -749,9 +763,9 @@ static int tgt_agent_rw_orb_pointer(struct fw_card *card, int tcode, void *data,
 
 	case TCODE_READ_BLOCK_REQUEST:
 		pr_debug("tgt_agent ORB_POINTER READ\n");
-		spin_lock_bh(&agent->lock);
+		bh = spin_lock_bh(&agent->lock, SOFTIRQ_ALL_MASK);
 		addr_to_sbp2_pointer(agent->orb_pointer, ptr);
-		spin_unlock_bh(&agent->lock);
+		spin_unlock_bh(&agent->lock, bh);
 		return RCODE_COMPLETE;
 
 	default:
@@ -762,16 +776,17 @@ static int tgt_agent_rw_orb_pointer(struct fw_card *card, int tcode, void *data,
 static int tgt_agent_rw_doorbell(struct fw_card *card, int tcode, void *data,
 		struct sbp_target_agent *agent)
 {
+	unsigned int bh;
 	switch (tcode) {
 	case TCODE_WRITE_QUADLET_REQUEST:
-		spin_lock_bh(&agent->lock);
+		bh = spin_lock_bh(&agent->lock, SOFTIRQ_ALL_MASK);
 		if (agent->state != AGENT_STATE_SUSPENDED) {
-			spin_unlock_bh(&agent->lock);
+			spin_unlock_bh(&agent->lock, bh);
 			pr_debug("Ignoring DOORBELL while active.\n");
 			return RCODE_CONFLICT_ERROR;
 		}
 		agent->state = AGENT_STATE_ACTIVE;
-		spin_unlock_bh(&agent->lock);
+		spin_unlock_bh(&agent->lock, bh);
 
 		agent->doorbell = true;
 
@@ -811,14 +826,15 @@ static void tgt_agent_rw(struct fw_card *card, struct fw_request *request,
 		unsigned long long offset, void *data, size_t length,
 		void *callback_data)
 {
+	unsigned int bh;
 	struct sbp_target_agent *agent = callback_data;
 	struct sbp_session *sess = agent->login->sess;
 	int sess_gen, sess_node, rcode;
 
-	spin_lock_bh(&sess->lock);
+	bh = spin_lock_bh(&sess->lock, SOFTIRQ_ALL_MASK);
 	sess_gen = sess->generation;
 	sess_node = sess->node_id;
-	spin_unlock_bh(&sess->lock);
+	spin_unlock_bh(&sess->lock, bh);
 
 	if (generation != sess_gen) {
 		pr_notice("ignoring request with wrong generation\n");
@@ -911,11 +927,12 @@ static void tgt_agent_process_work(struct work_struct *work)
 /* used to double-check we haven't been issued an AGENT_RESET */
 static inline bool tgt_agent_check_active(struct sbp_target_agent *agent)
 {
+	unsigned int bh;
 	bool active;
 
-	spin_lock_bh(&agent->lock);
+	bh = spin_lock_bh(&agent->lock, SOFTIRQ_ALL_MASK);
 	active = (agent->state == AGENT_STATE_ACTIVE);
-	spin_unlock_bh(&agent->lock);
+	spin_unlock_bh(&agent->lock, bh);
 
 	return active;
 }
@@ -942,6 +959,7 @@ static struct sbp_target_request *sbp_mgt_get_req(struct sbp_session *sess,
 
 static void tgt_agent_fetch_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct sbp_target_agent *agent =
 		container_of(work, struct sbp_target_agent, work);
 	struct sbp_session *sess = agent->login->sess;
@@ -953,9 +971,9 @@ static void tgt_agent_fetch_work(struct work_struct *work)
 	while (next_orb && tgt_agent_check_active(agent)) {
 		req = sbp_mgt_get_req(sess, sess->card, next_orb);
 		if (IS_ERR(req)) {
-			spin_lock_bh(&agent->lock);
+			bh = spin_lock_bh(&agent->lock, SOFTIRQ_ALL_MASK);
 			agent->state = AGENT_STATE_DEAD;
-			spin_unlock_bh(&agent->lock);
+			spin_unlock_bh(&agent->lock, bh);
 			return;
 		}
 
@@ -982,9 +1000,9 @@ static void tgt_agent_fetch_work(struct work_struct *work)
 					STATUS_BLOCK_LEN(1) |
 					STATUS_BLOCK_SBP_STATUS(
 						SBP_STATUS_UNSPECIFIED_ERROR));
-			spin_lock_bh(&agent->lock);
+			bh = spin_lock_bh(&agent->lock, SOFTIRQ_ALL_MASK);
 			agent->state = AGENT_STATE_DEAD;
-			spin_unlock_bh(&agent->lock);
+			spin_unlock_bh(&agent->lock, bh);
 
 			sbp_send_status(req);
 			return;
@@ -1009,7 +1027,7 @@ static void tgt_agent_fetch_work(struct work_struct *work)
 			sbp_free_request(req);
 		}
 
-		spin_lock_bh(&agent->lock);
+		bh = spin_lock_bh(&agent->lock, SOFTIRQ_ALL_MASK);
 		doorbell = agent->doorbell = false;
 
 		/* check if we should carry on processing */
@@ -1018,7 +1036,7 @@ static void tgt_agent_fetch_work(struct work_struct *work)
 		else
 			agent->state = AGENT_STATE_SUSPENDED;
 
-		spin_unlock_bh(&agent->lock);
+		spin_unlock_bh(&agent->lock, bh);
 	};
 }
 
@@ -1099,17 +1117,18 @@ static int sbp_run_request_transaction(struct sbp_target_request *req,
 		int tcode, unsigned long long offset, void *payload,
 		size_t length)
 {
+	unsigned int bh;
 	struct sbp_login_descriptor *login = req->login;
 	struct sbp_session *sess = login->sess;
 	struct fw_card *card;
 	int node_id, generation, speed, ret;
 
-	spin_lock_bh(&sess->lock);
+	bh = spin_lock_bh(&sess->lock, SOFTIRQ_ALL_MASK);
 	card = fw_card_get(sess->card);
 	node_id = sess->node_id;
 	generation = sess->generation;
 	speed = sess->speed;
-	spin_unlock_bh(&sess->lock);
+	spin_unlock_bh(&sess->lock, bh);
 
 	ret = sbp_run_transaction(card, tcode, node_id, generation, speed,
 			offset, payload, length);
@@ -1253,6 +1272,7 @@ err:
  */
 static int sbp_rw_data(struct sbp_target_request *req)
 {
+	unsigned int bh;
 	struct sbp_session *sess = req->login->sess;
 	int tcode, sg_miter_flags, max_payload, pg_size, speed, node_id,
 		generation, num_pte, length, tfr_length,
@@ -1279,11 +1299,11 @@ static int sbp_rw_data(struct sbp_target_request *req)
 		pg_size = 0x100 << pg_size;
 	}
 
-	spin_lock_bh(&sess->lock);
+	bh = spin_lock_bh(&sess->lock, SOFTIRQ_ALL_MASK);
 	card = fw_card_get(sess->card);
 	node_id = sess->node_id;
 	generation = sess->generation;
-	spin_unlock_bh(&sess->lock);
+	spin_unlock_bh(&sess->lock, bh);
 
 	if (req->pg_tbl) {
 		pte = req->pg_tbl;
@@ -1465,6 +1485,7 @@ static void sbp_free_request(struct sbp_target_request *req)
 
 static void sbp_mgt_agent_process(struct work_struct *work)
 {
+	unsigned int bh;
 	struct sbp_management_agent *agent =
 		container_of(work, struct sbp_management_agent, work);
 	struct sbp_management_request *req = agent->request;
@@ -1586,9 +1607,9 @@ out:
 	fw_card_put(req->card);
 	kfree(req);
 
-	spin_lock_bh(&agent->lock);
+	bh = spin_lock_bh(&agent->lock, SOFTIRQ_ALL_MASK);
 	agent->state = MANAGEMENT_AGENT_STATE_IDLE;
-	spin_unlock_bh(&agent->lock);
+	spin_unlock_bh(&agent->lock, bh);
 }
 
 static void sbp_mgt_agent_rw(struct fw_card *card,
@@ -1596,6 +1617,7 @@ static void sbp_mgt_agent_rw(struct fw_card *card,
 	int generation, unsigned long long offset, void *data, size_t length,
 	void *callback_data)
 {
+	unsigned int bh;
 	struct sbp_management_agent *agent = callback_data;
 	struct sbp2_pointer *ptr = data;
 	int rcode = RCODE_ADDRESS_ERROR;
@@ -1610,10 +1632,10 @@ static void sbp_mgt_agent_rw(struct fw_card *card,
 		struct sbp_management_request *req;
 		int prev_state;
 
-		spin_lock_bh(&agent->lock);
+		bh = spin_lock_bh(&agent->lock, SOFTIRQ_ALL_MASK);
 		prev_state = agent->state;
 		agent->state = MANAGEMENT_AGENT_STATE_BUSY;
-		spin_unlock_bh(&agent->lock);
+		spin_unlock_bh(&agent->lock, bh);
 
 		if (prev_state == MANAGEMENT_AGENT_STATE_BUSY) {
 			pr_notice("ignoring management request while busy\n");
@@ -2162,6 +2184,7 @@ static ssize_t sbp_tpg_enable_show(struct config_item *item, char *page)
 static ssize_t sbp_tpg_enable_store(struct config_item *item,
 		const char *page, size_t count)
 {
+	unsigned int bh;
 	struct se_portal_group *se_tpg = to_tpg(item);
 	struct sbp_tpg *tpg = container_of(se_tpg, struct sbp_tpg, se_tpg);
 	struct sbp_tport *tport = tpg->tport;
@@ -2183,12 +2206,12 @@ static ssize_t sbp_tpg_enable_store(struct config_item *item,
 		}
 	} else {
 		/* XXX: force-shutdown sessions instead? */
-		spin_lock_bh(&se_tpg->session_lock);
+		bh = spin_lock_bh(&se_tpg->session_lock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&se_tpg->tpg_sess_list)) {
-			spin_unlock_bh(&se_tpg->session_lock);
+			spin_unlock_bh(&se_tpg->session_lock, bh);
 			return -EBUSY;
 		}
-		spin_unlock_bh(&se_tpg->session_lock);
+		spin_unlock_bh(&se_tpg->session_lock, bh);
 	}
 
 	tport->enable = val;

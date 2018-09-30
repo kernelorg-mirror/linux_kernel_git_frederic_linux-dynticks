@@ -1027,6 +1027,7 @@ nla_put_failure:
 /* Handle IEEE 802.1Qaz/802.1Qau/802.1Qbb GET commands. */
 static int dcbnl_ieee_fill(struct sk_buff *skb, struct net_device *netdev)
 {
+	unsigned int bh;
 	struct nlattr *ieee, *app;
 	struct dcb_app_type *itr;
 	const struct dcbnl_rtnl_ops *ops = netdev->dcbnl_ops;
@@ -1110,13 +1111,13 @@ static int dcbnl_ieee_fill(struct sk_buff *skb, struct net_device *netdev)
 	if (!app)
 		return -EMSGSIZE;
 
-	spin_lock_bh(&dcb_lock);
+	bh = spin_lock_bh(&dcb_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(itr, &dcb_app_list, list) {
 		if (itr->ifindex == netdev->ifindex) {
 			err = nla_put(skb, DCB_ATTR_IEEE_APP, sizeof(itr->app),
 					 &itr->app);
 			if (err) {
-				spin_unlock_bh(&dcb_lock);
+				spin_unlock_bh(&dcb_lock, bh);
 				return -EMSGSIZE;
 			}
 		}
@@ -1127,7 +1128,7 @@ static int dcbnl_ieee_fill(struct sk_buff *skb, struct net_device *netdev)
 	else
 		dcbx = -EOPNOTSUPP;
 
-	spin_unlock_bh(&dcb_lock);
+	spin_unlock_bh(&dcb_lock, bh);
 	nla_nest_end(skb, app);
 
 	/* get peer info if available */
@@ -1223,6 +1224,7 @@ static int dcbnl_cee_pg_fill(struct sk_buff *skb, struct net_device *dev,
 
 static int dcbnl_cee_fill(struct sk_buff *skb, struct net_device *netdev)
 {
+	unsigned int bh;
 	struct nlattr *cee, *app;
 	struct dcb_app_type *itr;
 	const struct dcbnl_rtnl_ops *ops = netdev->dcbnl_ops;
@@ -1264,7 +1266,7 @@ static int dcbnl_cee_fill(struct sk_buff *skb, struct net_device *netdev)
 	}
 
 	/* local app */
-	spin_lock_bh(&dcb_lock);
+	bh = spin_lock_bh(&dcb_lock, SOFTIRQ_ALL_MASK);
 	app = nla_nest_start(skb, DCB_ATTR_CEE_APP_TABLE);
 	if (!app)
 		goto dcb_unlock;
@@ -1301,7 +1303,7 @@ static int dcbnl_cee_fill(struct sk_buff *skb, struct net_device *netdev)
 	else
 		dcbx = -EOPNOTSUPP;
 
-	spin_unlock_bh(&dcb_lock);
+	spin_unlock_bh(&dcb_lock, bh);
 
 	/* features flags */
 	if (ops->getfeatcfg) {
@@ -1356,7 +1358,7 @@ static int dcbnl_cee_fill(struct sk_buff *skb, struct net_device *netdev)
 	return 0;
 
 dcb_unlock:
-	spin_unlock_bh(&dcb_lock);
+	spin_unlock_bh(&dcb_lock, bh);
 nla_put_failure:
 	err = -EMSGSIZE;
 	return err;
@@ -1817,14 +1819,15 @@ static int dcb_app_add(const struct dcb_app *app, int ifindex)
  */
 u8 dcb_getapp(struct net_device *dev, struct dcb_app *app)
 {
+	unsigned int bh;
 	struct dcb_app_type *itr;
 	u8 prio = 0;
 
-	spin_lock_bh(&dcb_lock);
+	bh = spin_lock_bh(&dcb_lock, SOFTIRQ_ALL_MASK);
 	itr = dcb_app_lookup(app, dev->ifindex, -1);
 	if (itr)
 		prio = itr->app.priority;
-	spin_unlock_bh(&dcb_lock);
+	spin_unlock_bh(&dcb_lock, bh);
 
 	return prio;
 }
@@ -1839,6 +1842,7 @@ EXPORT_SYMBOL(dcb_getapp);
  */
 int dcb_setapp(struct net_device *dev, struct dcb_app *new)
 {
+	unsigned int bh;
 	struct dcb_app_type *itr;
 	struct dcb_app_type event;
 	int err = 0;
@@ -1848,7 +1852,7 @@ int dcb_setapp(struct net_device *dev, struct dcb_app *new)
 	if (dev->dcbnl_ops->getdcbx)
 		event.dcbx = dev->dcbnl_ops->getdcbx(dev);
 
-	spin_lock_bh(&dcb_lock);
+	bh = spin_lock_bh(&dcb_lock, SOFTIRQ_ALL_MASK);
 	/* Search for existing match and replace */
 	itr = dcb_app_lookup(new, dev->ifindex, -1);
 	if (itr) {
@@ -1864,7 +1868,7 @@ int dcb_setapp(struct net_device *dev, struct dcb_app *new)
 	if (new->priority)
 		err = dcb_app_add(new, dev->ifindex);
 out:
-	spin_unlock_bh(&dcb_lock);
+	spin_unlock_bh(&dcb_lock, bh);
 	if (!err)
 		call_dcbevent_notifiers(DCB_APP_EVENT, &event);
 	return err;
@@ -1880,14 +1884,15 @@ EXPORT_SYMBOL(dcb_setapp);
  */
 u8 dcb_ieee_getapp_mask(struct net_device *dev, struct dcb_app *app)
 {
+	unsigned int bh;
 	struct dcb_app_type *itr;
 	u8 prio = 0;
 
-	spin_lock_bh(&dcb_lock);
+	bh = spin_lock_bh(&dcb_lock, SOFTIRQ_ALL_MASK);
 	itr = dcb_app_lookup(app, dev->ifindex, -1);
 	if (itr)
 		prio |= 1 << itr->app.priority;
-	spin_unlock_bh(&dcb_lock);
+	spin_unlock_bh(&dcb_lock, bh);
 
 	return prio;
 }
@@ -1903,6 +1908,7 @@ EXPORT_SYMBOL(dcb_ieee_getapp_mask);
  */
 int dcb_ieee_setapp(struct net_device *dev, struct dcb_app *new)
 {
+	unsigned int bh;
 	struct dcb_app_type event;
 	int err = 0;
 
@@ -1911,7 +1917,7 @@ int dcb_ieee_setapp(struct net_device *dev, struct dcb_app *new)
 	if (dev->dcbnl_ops->getdcbx)
 		event.dcbx = dev->dcbnl_ops->getdcbx(dev);
 
-	spin_lock_bh(&dcb_lock);
+	bh = spin_lock_bh(&dcb_lock, SOFTIRQ_ALL_MASK);
 	/* Search for existing match and abort if found */
 	if (dcb_app_lookup(new, dev->ifindex, new->priority)) {
 		err = -EEXIST;
@@ -1920,7 +1926,7 @@ int dcb_ieee_setapp(struct net_device *dev, struct dcb_app *new)
 
 	err = dcb_app_add(new, dev->ifindex);
 out:
-	spin_unlock_bh(&dcb_lock);
+	spin_unlock_bh(&dcb_lock, bh);
 	if (!err)
 		call_dcbevent_notifiers(DCB_APP_EVENT, &event);
 	return err;
@@ -1934,6 +1940,7 @@ EXPORT_SYMBOL(dcb_ieee_setapp);
  */
 int dcb_ieee_delapp(struct net_device *dev, struct dcb_app *del)
 {
+	unsigned int bh;
 	struct dcb_app_type *itr;
 	struct dcb_app_type event;
 	int err = -ENOENT;
@@ -1943,7 +1950,7 @@ int dcb_ieee_delapp(struct net_device *dev, struct dcb_app *del)
 	if (dev->dcbnl_ops->getdcbx)
 		event.dcbx = dev->dcbnl_ops->getdcbx(dev);
 
-	spin_lock_bh(&dcb_lock);
+	bh = spin_lock_bh(&dcb_lock, SOFTIRQ_ALL_MASK);
 	/* Search for existing match and remove it. */
 	if ((itr = dcb_app_lookup(del, dev->ifindex, del->priority))) {
 		list_del(&itr->list);
@@ -1951,7 +1958,7 @@ int dcb_ieee_delapp(struct net_device *dev, struct dcb_app *del)
 		err = 0;
 	}
 
-	spin_unlock_bh(&dcb_lock);
+	spin_unlock_bh(&dcb_lock, bh);
 	if (!err)
 		call_dcbevent_notifiers(DCB_APP_EVENT, &event);
 	return err;
@@ -1967,13 +1974,14 @@ EXPORT_SYMBOL(dcb_ieee_delapp);
 void dcb_ieee_getapp_prio_dscp_mask_map(const struct net_device *dev,
 					struct dcb_ieee_app_prio_map *p_map)
 {
+	unsigned int bh;
 	int ifindex = dev->ifindex;
 	struct dcb_app_type *itr;
 	u8 prio;
 
 	memset(p_map->map, 0, sizeof(p_map->map));
 
-	spin_lock_bh(&dcb_lock);
+	bh = spin_lock_bh(&dcb_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(itr, &dcb_app_list, list) {
 		if (itr->ifindex == ifindex &&
 		    itr->app.selector == IEEE_8021QAZ_APP_SEL_DSCP &&
@@ -1983,7 +1991,7 @@ void dcb_ieee_getapp_prio_dscp_mask_map(const struct net_device *dev,
 			p_map->map[prio] |= 1ULL << itr->app.protocol;
 		}
 	}
-	spin_unlock_bh(&dcb_lock);
+	spin_unlock_bh(&dcb_lock, bh);
 }
 EXPORT_SYMBOL(dcb_ieee_getapp_prio_dscp_mask_map);
 
@@ -1997,12 +2005,13 @@ void
 dcb_ieee_getapp_dscp_prio_mask_map(const struct net_device *dev,
 				   struct dcb_ieee_app_dscp_map *p_map)
 {
+	unsigned int bh;
 	int ifindex = dev->ifindex;
 	struct dcb_app_type *itr;
 
 	memset(p_map->map, 0, sizeof(p_map->map));
 
-	spin_lock_bh(&dcb_lock);
+	bh = spin_lock_bh(&dcb_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(itr, &dcb_app_list, list) {
 		if (itr->ifindex == ifindex &&
 		    itr->app.selector == IEEE_8021QAZ_APP_SEL_DSCP &&
@@ -2010,7 +2019,7 @@ dcb_ieee_getapp_dscp_prio_mask_map(const struct net_device *dev,
 		    itr->app.priority < IEEE_8021QAZ_MAX_TCS)
 			p_map->map[itr->app.protocol] |= 1 << itr->app.priority;
 	}
-	spin_unlock_bh(&dcb_lock);
+	spin_unlock_bh(&dcb_lock, bh);
 }
 EXPORT_SYMBOL(dcb_ieee_getapp_dscp_prio_mask_map);
 
@@ -2026,11 +2035,12 @@ EXPORT_SYMBOL(dcb_ieee_getapp_dscp_prio_mask_map);
  */
 u8 dcb_ieee_getapp_default_prio_mask(const struct net_device *dev)
 {
+	unsigned int bh;
 	int ifindex = dev->ifindex;
 	struct dcb_app_type *itr;
 	u8 mask = 0;
 
-	spin_lock_bh(&dcb_lock);
+	bh = spin_lock_bh(&dcb_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(itr, &dcb_app_list, list) {
 		if (itr->ifindex == ifindex &&
 		    itr->app.selector == IEEE_8021QAZ_APP_SEL_ETHERTYPE &&
@@ -2038,7 +2048,7 @@ u8 dcb_ieee_getapp_default_prio_mask(const struct net_device *dev)
 		    itr->app.priority < IEEE_8021QAZ_MAX_TCS)
 			mask |= 1 << itr->app.priority;
 	}
-	spin_unlock_bh(&dcb_lock);
+	spin_unlock_bh(&dcb_lock, bh);
 
 	return mask;
 }

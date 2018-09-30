@@ -463,12 +463,13 @@ static int mlxsw_emad_transmit(struct mlxsw_core *mlxsw_core,
 
 static void mlxsw_emad_trans_finish(struct mlxsw_reg_trans *trans, int err)
 {
+	unsigned int bh;
 	struct mlxsw_core *mlxsw_core = trans->core;
 
 	dev_kfree_skb(trans->tx_skb);
-	spin_lock_bh(&mlxsw_core->emad.trans_list_lock);
+	bh = spin_lock_bh(&mlxsw_core->emad.trans_list_lock, SOFTIRQ_ALL_MASK);
 	list_del_rcu(&trans->list);
-	spin_unlock_bh(&mlxsw_core->emad.trans_list_lock);
+	spin_unlock_bh(&mlxsw_core->emad.trans_list_lock, bh);
 	trans->err = err;
 	complete(&trans->completion);
 }
@@ -640,6 +641,7 @@ static int mlxsw_emad_reg_access(struct mlxsw_core *mlxsw_core,
 				 mlxsw_reg_trans_cb_t *cb,
 				 unsigned long cb_priv, u64 tid)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	int err;
 
@@ -667,16 +669,16 @@ static int mlxsw_emad_reg_access(struct mlxsw_core *mlxsw_core,
 	mlxsw_emad_construct(skb, reg, payload, type, trans->tid);
 	mlxsw_core->driver->txhdr_construct(skb, &trans->tx_info);
 
-	spin_lock_bh(&mlxsw_core->emad.trans_list_lock);
+	bh = spin_lock_bh(&mlxsw_core->emad.trans_list_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail_rcu(&trans->list, &mlxsw_core->emad.trans_list);
-	spin_unlock_bh(&mlxsw_core->emad.trans_list_lock);
+	spin_unlock_bh(&mlxsw_core->emad.trans_list_lock, bh);
 	err = mlxsw_emad_transmit(mlxsw_core, trans);
 	if (err)
 		goto err_out;
 	return 0;
 
 err_out:
-	spin_lock_bh(&mlxsw_core->emad.trans_list_lock);
+	spin_lock_bh(&mlxsw_core->emad.trans_list_lock, SOFTIRQ_ALL_MASK);
 	list_del_rcu(&trans->list);
 	spin_unlock_bh(&mlxsw_core->emad.trans_list_lock);
 	list_del(&trans->bulk_list);

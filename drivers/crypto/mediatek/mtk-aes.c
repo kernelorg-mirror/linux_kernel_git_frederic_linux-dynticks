@@ -162,10 +162,11 @@ static inline void mtk_aes_write(struct mtk_cryp *cryp,
 
 static struct mtk_cryp *mtk_aes_find_dev(struct mtk_aes_base_ctx *ctx)
 {
+	unsigned int bh;
 	struct mtk_cryp *cryp = NULL;
 	struct mtk_cryp *tmp;
 
-	spin_lock_bh(&mtk_aes.lock);
+	bh = spin_lock_bh(&mtk_aes.lock, SOFTIRQ_ALL_MASK);
 	if (!ctx->cryp) {
 		list_for_each_entry(tmp, &mtk_aes.dev_list, aes_list) {
 			cryp = tmp;
@@ -175,7 +176,7 @@ static struct mtk_cryp *mtk_aes_find_dev(struct mtk_aes_base_ctx *ctx)
 	} else {
 		cryp = ctx->cryp;
 	}
-	spin_unlock_bh(&mtk_aes.lock);
+	spin_unlock_bh(&mtk_aes.lock, bh);
 
 	return cryp;
 }

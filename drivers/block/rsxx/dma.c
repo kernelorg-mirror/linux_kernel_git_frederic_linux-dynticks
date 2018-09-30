@@ -275,14 +275,15 @@ int rsxx_cleanup_dma_queue(struct rsxx_dma_ctrl *ctrl,
 static void rsxx_requeue_dma(struct rsxx_dma_ctrl *ctrl,
 				 struct rsxx_dma *dma)
 {
+	unsigned int bh;
 	/*
 	 * Requeued DMAs go to the front of the queue so they are issued
 	 * first.
 	 */
-	spin_lock_bh(&ctrl->queue_lock);
+	bh = spin_lock_bh(&ctrl->queue_lock, SOFTIRQ_ALL_MASK);
 	ctrl->stats.sw_q_depth++;
 	list_add(&dma->list, &ctrl->queue);
-	spin_unlock_bh(&ctrl->queue_lock);
+	spin_unlock_bh(&ctrl->queue_lock, bh);
 }
 
 static void rsxx_handle_dma_error(struct rsxx_dma_ctrl *ctrl,
@@ -395,6 +396,7 @@ static void dma_engine_stalled(struct timer_list *t)
 
 static void rsxx_issue_dmas(struct rsxx_dma_ctrl *ctrl)
 {
+	unsigned int bh;
 	struct rsxx_dma *dma;
 	int tag;
 	int cmds_pending = 0;
@@ -408,22 +410,22 @@ static void rsxx_issue_dmas(struct rsxx_dma_ctrl *ctrl)
 		return;
 
 	while (1) {
-		spin_lock_bh(&ctrl->queue_lock);
+		bh = spin_lock_bh(&ctrl->queue_lock, SOFTIRQ_ALL_MASK);
 		if (list_empty(&ctrl->queue)) {
-			spin_unlock_bh(&ctrl->queue_lock);
+			spin_unlock_bh(&ctrl->queue_lock, bh);
 			break;
 		}
-		spin_unlock_bh(&ctrl->queue_lock);
+		spin_unlock_bh(&ctrl->queue_lock, bh);
 
 		tag = pop_tracker(ctrl->trackers);
 		if (tag == -1)
 			break;
 
-		spin_lock_bh(&ctrl->queue_lock);
+		bh = spin_lock_bh(&ctrl->queue_lock, SOFTIRQ_ALL_MASK);
 		dma = list_entry(ctrl->queue.next, struct rsxx_dma, list);
 		list_del(&dma->list);
 		ctrl->stats.sw_q_depth--;
-		spin_unlock_bh(&ctrl->queue_lock);
+		spin_unlock_bh(&ctrl->queue_lock, bh);
 
 		/*
 		 * This will catch any DMAs that slipped in right before the
@@ -507,6 +509,7 @@ static void rsxx_issue_dmas(struct rsxx_dma_ctrl *ctrl)
 
 static void rsxx_dma_done(struct rsxx_dma_ctrl *ctrl)
 {
+	unsigned int bh;
 	struct rsxx_dma *dma;
 	unsigned long flags;
 	u16 count;
@@ -583,10 +586,10 @@ static void rsxx_dma_done(struct rsxx_dma_ctrl *ctrl)
 	rsxx_enable_ier(ctrl->card, CR_INTR_DMA(ctrl->id));
 	spin_unlock_irqrestore(&ctrl->card->irq_lock, flags);
 
-	spin_lock_bh(&ctrl->queue_lock);
+	bh = spin_lock_bh(&ctrl->queue_lock, SOFTIRQ_ALL_MASK);
 	if (ctrl->stats.sw_q_depth)
 		queue_work(ctrl->issue_wq, &ctrl->issue_dma_work);
-	spin_unlock_bh(&ctrl->queue_lock);
+	spin_unlock_bh(&ctrl->queue_lock, bh);
 }
 
 static void rsxx_schedule_issue(struct work_struct *work)
@@ -683,6 +686,7 @@ blk_status_t rsxx_dma_queue_bio(struct rsxx_cardinfo *card,
 			   rsxx_dma_cb cb,
 			   void *cb_data)
 {
+	unsigned int bh;
 	struct list_head dma_list[RSXX_MAX_TARGETS];
 	struct bio_vec bvec;
 	struct bvec_iter iter;
@@ -753,10 +757,10 @@ blk_status_t rsxx_dma_queue_bio(struct rsxx_cardinfo *card,
 
 	for (i = 0; i < card->n_targets; i++) {
 		if (!list_empty(&dma_list[i])) {
-			spin_lock_bh(&card->ctrl[i].queue_lock);
+			bh = spin_lock_bh(&card->ctrl[i].queue_lock, SOFTIRQ_ALL_MASK);
 			card->ctrl[i].stats.sw_q_depth += dma_cnt[i];
 			list_splice_tail(&dma_list[i], &card->ctrl[i].queue);
-			spin_unlock_bh(&card->ctrl[i].queue_lock);
+			spin_unlock_bh(&card->ctrl[i].queue_lock, bh);
 
 			queue_work(card->ctrl[i].issue_wq,
 				   &card->ctrl[i].issue_dma_work);
@@ -995,6 +999,7 @@ int rsxx_dma_cancel(struct rsxx_dma_ctrl *ctrl)
 
 void rsxx_dma_destroy(struct rsxx_cardinfo *card)
 {
+	unsigned int bh;
 	struct rsxx_dma_ctrl *ctrl;
 	int i;
 
@@ -1015,9 +1020,9 @@ void rsxx_dma_destroy(struct rsxx_cardinfo *card)
 			del_timer_sync(&ctrl->activity_timer);
 
 		/* Clean up the DMA queue */
-		spin_lock_bh(&ctrl->queue_lock);
+		bh = spin_lock_bh(&ctrl->queue_lock, SOFTIRQ_ALL_MASK);
 		rsxx_cleanup_dma_queue(ctrl, &ctrl->queue, COMPLETE_DMA);
-		spin_unlock_bh(&ctrl->queue_lock);
+		spin_unlock_bh(&ctrl->queue_lock, bh);
 
 		rsxx_dma_cancel(ctrl);
 
@@ -1032,6 +1037,7 @@ void rsxx_dma_destroy(struct rsxx_cardinfo *card)
 
 int rsxx_eeh_save_issued_dmas(struct rsxx_cardinfo *card)
 {
+	unsigned int bh;
 	int i;
 	int j;
 	int cnt;
@@ -1071,13 +1077,13 @@ int rsxx_eeh_save_issued_dmas(struct rsxx_cardinfo *card)
 			cnt++;
 		}
 
-		spin_lock_bh(&card->ctrl[i].queue_lock);
+		bh = spin_lock_bh(&card->ctrl[i].queue_lock, SOFTIRQ_ALL_MASK);
 		list_splice(&issued_dmas[i], &card->ctrl[i].queue);
 
 		atomic_sub(cnt, &card->ctrl[i].stats.hw_q_depth);
 		card->ctrl[i].stats.sw_q_depth += cnt;
 		card->ctrl[i].e_cnt = 0;
-		spin_unlock_bh(&card->ctrl[i].queue_lock);
+		spin_unlock_bh(&card->ctrl[i].queue_lock, bh);
 	}
 
 	kfree(issued_dmas);

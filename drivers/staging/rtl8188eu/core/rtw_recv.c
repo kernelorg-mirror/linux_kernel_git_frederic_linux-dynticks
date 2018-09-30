@@ -111,13 +111,14 @@ struct recv_frame *_rtw_alloc_recvframe(struct __queue *pfree_recv_queue)
 
 struct recv_frame *rtw_alloc_recvframe(struct __queue *pfree_recv_queue)
 {
+	unsigned int bh;
 	struct recv_frame  *precvframe;
 
-	spin_lock_bh(&pfree_recv_queue->lock);
+	bh = spin_lock_bh(&pfree_recv_queue->lock, SOFTIRQ_ALL_MASK);
 
 	precvframe = _rtw_alloc_recvframe(pfree_recv_queue);
 
-	spin_unlock_bh(&pfree_recv_queue->lock);
+	spin_unlock_bh(&pfree_recv_queue->lock, bh);
 
 	return precvframe;
 }
@@ -125,6 +126,7 @@ struct recv_frame *rtw_alloc_recvframe(struct __queue *pfree_recv_queue)
 int rtw_free_recvframe(struct recv_frame *precvframe,
 		       struct __queue *pfree_recv_queue)
 {
+	unsigned int bh;
 	if (!precvframe)
 		return _FAIL;
 	if (precvframe->pkt) {
@@ -132,13 +134,13 @@ int rtw_free_recvframe(struct recv_frame *precvframe,
 		precvframe->pkt = NULL;
 	}
 
-	spin_lock_bh(&pfree_recv_queue->lock);
+	bh = spin_lock_bh(&pfree_recv_queue->lock, SOFTIRQ_ALL_MASK);
 
 	list_del_init(&(precvframe->list));
 
 	list_add_tail(&(precvframe->list), get_list_head(pfree_recv_queue));
 
-	spin_unlock_bh(&pfree_recv_queue->lock);
+	spin_unlock_bh(&pfree_recv_queue->lock, bh);
 
 	return _SUCCESS;
 }
@@ -153,11 +155,12 @@ int _rtw_enqueue_recvframe(struct recv_frame *precvframe, struct __queue *queue)
 
 int rtw_enqueue_recvframe(struct recv_frame *precvframe, struct __queue *queue)
 {
+	unsigned int bh;
 	int ret;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	ret = _rtw_enqueue_recvframe(precvframe, queue);
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 
 	return ret;
 }
@@ -867,6 +870,7 @@ exit:
 static int validate_recv_ctrl_frame(struct adapter *padapter,
 				    struct recv_frame *precv_frame)
 {
+	unsigned int bh;
 #ifdef CONFIG_88EU_AP_MODE
 	struct rx_pkt_attrib *pattrib = &precv_frame->attrib;
 	struct sta_priv *pstapriv = &padapter->stapriv;
@@ -927,7 +931,7 @@ static int validate_recv_ctrl_frame(struct adapter *padapter,
 			struct list_head *xmitframe_plist, *xmitframe_phead;
 			struct xmit_frame *pxmitframe = NULL;
 
-			spin_lock_bh(&psta->sleep_q.lock);
+			bh = spin_lock_bh(&psta->sleep_q.lock, SOFTIRQ_ALL_MASK);
 
 			xmitframe_phead = get_list_head(&psta->sleep_q);
 			xmitframe_plist = xmitframe_phead->next;
@@ -951,7 +955,7 @@ static int validate_recv_ctrl_frame(struct adapter *padapter,
 				spin_unlock_bh(&psta->sleep_q.lock);
 				if (rtw_hal_xmit(padapter, pxmitframe) == true)
 					rtw_os_xmit_complete(padapter, pxmitframe);
-				spin_lock_bh(&psta->sleep_q.lock);
+				spin_lock_bh(&psta->sleep_q.lock, SOFTIRQ_ALL_MASK);
 
 				if (psta->sleepq_len == 0) {
 					pstapriv->tim_bitmap &= ~BIT(psta->aid);
@@ -980,7 +984,7 @@ static int validate_recv_ctrl_frame(struct adapter *padapter,
 				}
 			}
 
-			spin_unlock_bh(&psta->sleep_q.lock);
+			spin_unlock_bh(&psta->sleep_q.lock, bh);
 		}
 	}
 
@@ -1736,6 +1740,7 @@ static int recv_indicatepkts_in_order(struct adapter *padapter, struct recv_reor
 static int recv_indicatepkt_reorder(struct adapter *padapter,
 				    struct recv_frame *prframe)
 {
+	unsigned int bh;
 	int retval = _SUCCESS;
 	struct rx_pkt_attrib *pattrib = &prframe->attrib;
 	struct recv_reorder_ctrl *preorder_ctrl = prframe->preorder_ctrl;
@@ -1776,7 +1781,7 @@ static int recv_indicatepkt_reorder(struct adapter *padapter,
 		}
 	}
 
-	spin_lock_bh(&ppending_recvframe_queue->lock);
+	bh = spin_lock_bh(&ppending_recvframe_queue->lock, SOFTIRQ_ALL_MASK);
 
 	RT_TRACE(_module_rtl871x_recv_c_, _drv_notice_,
 		 ("%s: indicate=%d seq=%d\n", __func__,
@@ -1786,7 +1791,7 @@ static int recv_indicatepkt_reorder(struct adapter *padapter,
 	if (!check_indicate_seq(preorder_ctrl, pattrib->seq_num)) {
 		rtw_recv_indicatepkt(padapter, prframe);
 
-		spin_unlock_bh(&ppending_recvframe_queue->lock);
+		spin_unlock_bh(&ppending_recvframe_queue->lock, bh);
 
 		goto _success_exit;
 	}
@@ -1809,9 +1814,9 @@ static int recv_indicatepkt_reorder(struct adapter *padapter,
 	if (recv_indicatepkts_in_order(padapter, preorder_ctrl, false)) {
 		mod_timer(&preorder_ctrl->reordering_ctrl_timer,
 			  jiffies + msecs_to_jiffies(REORDER_WAIT_TIME));
-		spin_unlock_bh(&ppending_recvframe_queue->lock);
+		spin_unlock_bh(&ppending_recvframe_queue->lock, bh);
 	} else {
-		spin_unlock_bh(&ppending_recvframe_queue->lock);
+		spin_unlock_bh(&ppending_recvframe_queue->lock, bh);
 		del_timer_sync(&preorder_ctrl->reordering_ctrl_timer);
 	}
 
@@ -1821,13 +1826,14 @@ _success_exit:
 
 _err_exit:
 
-	spin_unlock_bh(&ppending_recvframe_queue->lock);
+	spin_unlock_bh(&ppending_recvframe_queue->lock, bh);
 
 	return _FAIL;
 }
 
 void rtw_reordering_ctrl_timeout_handler(struct timer_list *t)
 {
+	unsigned int bh;
 	struct recv_reorder_ctrl *preorder_ctrl = from_timer(preorder_ctrl, t,
 							   reordering_ctrl_timer);
 	struct adapter *padapter = preorder_ctrl->padapter;
@@ -1836,13 +1842,13 @@ void rtw_reordering_ctrl_timeout_handler(struct timer_list *t)
 	if (padapter->bDriverStopped || padapter->bSurpriseRemoved)
 		return;
 
-	spin_lock_bh(&ppending_recvframe_queue->lock);
+	bh = spin_lock_bh(&ppending_recvframe_queue->lock, SOFTIRQ_ALL_MASK);
 
 	if (recv_indicatepkts_in_order(padapter, preorder_ctrl, true) == true)
 		mod_timer(&preorder_ctrl->reordering_ctrl_timer,
 			  jiffies + msecs_to_jiffies(REORDER_WAIT_TIME));
 
-	spin_unlock_bh(&ppending_recvframe_queue->lock);
+	spin_unlock_bh(&ppending_recvframe_queue->lock, bh);
 }
 
 static int process_recv_indicatepkts(struct adapter *padapter,

@@ -117,6 +117,7 @@ static void _rtl8821ae_disable_bcn_sub_func(struct ieee80211_hw *hw)
 static void _rtl8821ae_set_fw_clock_on(struct ieee80211_hw *hw,
 				       u8 rpwm_val, bool b_need_turn_off_ckk)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_hal *rtlhal = rtl_hal(rtl_priv(hw));
 	bool b_support_remote_wake_up;
@@ -132,7 +133,7 @@ static void _rtl8821ae_set_fw_clock_on(struct ieee80211_hw *hw,
 		return;
 
 	while (1) {
-		spin_lock_bh(&rtlpriv->locks.fw_ps_lock);
+		spin_lock_bh(&rtlpriv->locks.fw_ps_lock, SOFTIRQ_ALL_MASK);
 		if (rtlhal->fw_clk_change_in_progress) {
 			while (rtlhal->fw_clk_change_in_progress) {
 				spin_unlock_bh(&rtlpriv->locks.fw_ps_lock);
@@ -140,7 +141,7 @@ static void _rtl8821ae_set_fw_clock_on(struct ieee80211_hw *hw,
 				udelay(100);
 				if (count > 1000)
 					goto change_done;
-				spin_lock_bh(&rtlpriv->locks.fw_ps_lock);
+				spin_lock_bh(&rtlpriv->locks.fw_ps_lock, SOFTIRQ_ALL_MASK);
 			}
 			spin_unlock_bh(&rtlpriv->locks.fw_ps_lock);
 		} else {
@@ -171,22 +172,23 @@ change_done:
 			}
 		}
 
-		spin_lock_bh(&rtlpriv->locks.fw_ps_lock);
+		bh = spin_lock_bh(&rtlpriv->locks.fw_ps_lock, SOFTIRQ_ALL_MASK);
 		rtlhal->fw_clk_change_in_progress = false;
-		spin_unlock_bh(&rtlpriv->locks.fw_ps_lock);
+		spin_unlock_bh(&rtlpriv->locks.fw_ps_lock, bh);
 		if (b_schedule_timer)
 			mod_timer(&rtlpriv->works.fw_clockoff_timer,
 				  jiffies + MSECS(10));
 	} else  {
-		spin_lock_bh(&rtlpriv->locks.fw_ps_lock);
+		bh = spin_lock_bh(&rtlpriv->locks.fw_ps_lock, SOFTIRQ_ALL_MASK);
 		rtlhal->fw_clk_change_in_progress = false;
-		spin_unlock_bh(&rtlpriv->locks.fw_ps_lock);
+		spin_unlock_bh(&rtlpriv->locks.fw_ps_lock, bh);
 	}
 }
 
 static void _rtl8821ae_set_fw_clock_off(struct ieee80211_hw *hw,
 					u8 rpwm_val)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_hal *rtlhal = rtl_hal(rtl_priv(hw));
 	struct rtl_pci *rtlpci = rtl_pcidev(rtl_pcipriv(hw));
@@ -221,7 +223,7 @@ static void _rtl8821ae_set_fw_clock_off(struct ieee80211_hw *hw,
 
 	if (FW_PS_STATE(rtlhal->fw_ps_state) !=
 		FW_PS_STATE_RF_OFF_LOW_PWR_8821AE) {
-		spin_lock_bh(&rtlpriv->locks.fw_ps_lock);
+		bh = spin_lock_bh(&rtlpriv->locks.fw_ps_lock, SOFTIRQ_ALL_MASK);
 		if (!rtlhal->fw_clk_change_in_progress) {
 			rtlhal->fw_clk_change_in_progress = true;
 			spin_unlock_bh(&rtlpriv->locks.fw_ps_lock);
@@ -229,11 +231,11 @@ static void _rtl8821ae_set_fw_clock_off(struct ieee80211_hw *hw,
 			rtl_write_word(rtlpriv, REG_HISR, 0x0100);
 			rtlpriv->cfg->ops->set_hw_reg(hw, HW_VAR_SET_RPWM,
 						      (u8 *)(&rpwm_val));
-			spin_lock_bh(&rtlpriv->locks.fw_ps_lock);
+			spin_lock_bh(&rtlpriv->locks.fw_ps_lock, SOFTIRQ_ALL_MASK);
 			rtlhal->fw_clk_change_in_progress = false;
 			spin_unlock_bh(&rtlpriv->locks.fw_ps_lock);
 		} else {
-			spin_unlock_bh(&rtlpriv->locks.fw_ps_lock);
+			spin_unlock_bh(&rtlpriv->locks.fw_ps_lock, bh);
 			mod_timer(&rtlpriv->works.fw_clockoff_timer,
 				  jiffies + MSECS(10));
 		}

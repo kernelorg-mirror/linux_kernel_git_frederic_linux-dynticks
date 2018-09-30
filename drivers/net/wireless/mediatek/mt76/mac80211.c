@@ -415,6 +415,7 @@ EXPORT_SYMBOL_GPL(mt76_set_channel);
 int mt76_get_survey(struct ieee80211_hw *hw, int idx,
 		    struct survey_info *survey)
 {
+	unsigned int bh;
 	struct mt76_dev *dev = hw->priv;
 	struct mt76_sband *sband;
 	struct ieee80211_channel *chan;
@@ -442,10 +443,10 @@ int mt76_get_survey(struct ieee80211_hw *hw, int idx,
 	if (chan == dev->main_chan)
 		survey->filled |= SURVEY_INFO_IN_USE;
 
-	spin_lock_bh(&dev->cc_lock);
+	bh = spin_lock_bh(&dev->cc_lock, SOFTIRQ_ALL_MASK);
 	survey->time = div_u64(state->cc_active, 1000);
 	survey->time_busy = div_u64(state->cc_busy, 1000);
-	spin_unlock_bh(&dev->cc_lock);
+	spin_unlock_bh(&dev->cc_lock, bh);
 
 	return ret;
 }

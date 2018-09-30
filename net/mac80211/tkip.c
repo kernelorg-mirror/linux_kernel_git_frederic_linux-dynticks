@@ -174,14 +174,15 @@ static void ieee80211_compute_tkip_p1k(struct ieee80211_key *key, u32 iv32)
 void ieee80211_get_tkip_p1k_iv(struct ieee80211_key_conf *keyconf,
 			       u32 iv32, u16 *p1k)
 {
+	unsigned int bh;
 	struct ieee80211_key *key = (struct ieee80211_key *)
 			container_of(keyconf, struct ieee80211_key, conf);
 	struct tkip_ctx *ctx = &key->u.tkip.tx;
 
-	spin_lock_bh(&key->u.tkip.txlock);
+	bh = spin_lock_bh(&key->u.tkip.txlock, SOFTIRQ_ALL_MASK);
 	ieee80211_compute_tkip_p1k(key, iv32);
 	memcpy(p1k, ctx->p1k, sizeof(ctx->p1k));
-	spin_unlock_bh(&key->u.tkip.txlock);
+	spin_unlock_bh(&key->u.tkip.txlock, bh);
 }
 EXPORT_SYMBOL(ieee80211_get_tkip_p1k_iv);
 

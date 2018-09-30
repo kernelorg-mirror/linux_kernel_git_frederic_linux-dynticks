@@ -279,6 +279,7 @@ static ssize_t group_addr_store(struct device *d,
 				struct device_attribute *attr,
 				const char *buf, size_t len)
 {
+	unsigned int bh;
 	struct net_bridge *br = to_bridge(d);
 	u8 new_addr[6];
 
@@ -299,9 +300,9 @@ static ssize_t group_addr_store(struct device *d,
 	if (!rtnl_trylock())
 		return restart_syscall();
 
-	spin_lock_bh(&br->lock);
+	bh = spin_lock_bh(&br->lock, SOFTIRQ_ALL_MASK);
 	ether_addr_copy(br->group_addr, new_addr);
-	spin_unlock_bh(&br->lock);
+	spin_unlock_bh(&br->lock, bh);
 
 	br->group_addr_set = true;
 	br_recalculate_fwd_mask(br);

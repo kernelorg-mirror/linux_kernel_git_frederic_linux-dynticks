@@ -151,7 +151,7 @@ static int prism2_bss_list_proc_show(struct seq_file *m, void *v)
 static void *prism2_bss_list_proc_start(struct seq_file *m, loff_t *_pos)
 {
 	local_info_t *local = PDE_DATA(file_inode(m->file));
-	spin_lock_bh(&local->lock);
+	spin_lock_bh(&local->lock, SOFTIRQ_ALL_MASK);
 	return seq_list_start_head(&local->bss_list, *_pos);
 }
 
@@ -321,7 +321,7 @@ static int prism2_scan_results_proc_show(struct seq_file *m, void *v)
 static void *prism2_scan_results_proc_start(struct seq_file *m, loff_t *_pos)
 {
 	local_info_t *local = PDE_DATA(file_inode(m->file));
-	spin_lock_bh(&local->lock);
+	spin_lock_bh(&local->lock, SOFTIRQ_ALL_MASK);
 
 	/* We have a header (pos 0) + N results to show (pos 1...N) */
 	if (*_pos > local->last_scan_results_count)

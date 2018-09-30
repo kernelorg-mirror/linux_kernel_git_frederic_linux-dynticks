@@ -335,12 +335,13 @@ static int cc_do_send_request(struct cc_drvdata *drvdata,
 static void cc_enqueue_backlog(struct cc_drvdata *drvdata,
 			       struct cc_bl_item *bli)
 {
+	unsigned int bh;
 	struct cc_req_mgr_handle *mgr = drvdata->request_mgr_handle;
 
-	spin_lock_bh(&mgr->bl_lock);
+	bh = spin_lock_bh(&mgr->bl_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&bli->list, &mgr->backlog);
 	++mgr->bl_len;
-	spin_unlock_bh(&mgr->bl_lock);
+	spin_unlock_bh(&mgr->bl_lock, bh);
 	tasklet_schedule(&mgr->comptask);
 }
 
@@ -412,6 +413,7 @@ int cc_send_request(struct cc_drvdata *drvdata, struct cc_crypto_req *cc_req,
 		    struct cc_hw_desc *desc, unsigned int len,
 		    struct crypto_async_request *req)
 {
+	unsigned int bh;
 	int rc;
 	struct cc_req_mgr_handle *mgr = drvdata->request_mgr_handle;
 	bool ivgen = !!cc_req->ivgen_dma_addr_len;
@@ -427,7 +429,7 @@ int cc_send_request(struct cc_drvdata *drvdata, struct cc_crypto_req *cc_req,
 		return rc;
 	}
 
-	spin_lock_bh(&mgr->hw_lock);
+	bh = spin_lock_bh(&mgr->hw_lock, SOFTIRQ_ALL_MASK);
 	rc = cc_queues_status(drvdata, mgr, total_len);
 
 #ifdef CC_DEBUG_FORCE_BACKLOG
@@ -436,7 +438,7 @@ int cc_send_request(struct cc_drvdata *drvdata, struct cc_crypto_req *cc_req,
 #endif /* CC_DEBUG_FORCE_BACKLOG */
 
 	if (rc == -ENOSPC && backlog_ok) {
-		spin_unlock_bh(&mgr->hw_lock);
+		spin_unlock_bh(&mgr->hw_lock, bh);
 
 		bli = kmalloc(sizeof(*bli), flags);
 		if (!bli) {
@@ -456,7 +458,7 @@ int cc_send_request(struct cc_drvdata *drvdata, struct cc_crypto_req *cc_req,
 		rc = cc_do_send_request(drvdata, cc_req, desc, len, false,
 					ivgen);
 
-	spin_unlock_bh(&mgr->hw_lock);
+	spin_unlock_bh(&mgr->hw_lock, bh);
 	return rc;
 }
 
@@ -464,6 +466,7 @@ int cc_send_sync_request(struct cc_drvdata *drvdata,
 			 struct cc_crypto_req *cc_req, struct cc_hw_desc *desc,
 			 unsigned int len)
 {
+	unsigned int bh;
 	int rc;
 	struct device *dev = drvdata_to_dev(drvdata);
 	struct cc_req_mgr_handle *mgr = drvdata->request_mgr_handle;
@@ -479,13 +482,13 @@ int cc_send_sync_request(struct cc_drvdata *drvdata,
 	}
 
 	while (true) {
-		spin_lock_bh(&mgr->hw_lock);
+		bh = spin_lock_bh(&mgr->hw_lock, SOFTIRQ_ALL_MASK);
 		rc = cc_queues_status(drvdata, mgr, len + 1);
 
 		if (!rc)
 			break;
 
-		spin_unlock_bh(&mgr->hw_lock);
+		spin_unlock_bh(&mgr->hw_lock, bh);
 		if (rc != -EAGAIN) {
 			cc_pm_put_suspend(dev);
 			return rc;
@@ -495,7 +498,7 @@ int cc_send_sync_request(struct cc_drvdata *drvdata,
 	}
 
 	rc = cc_do_send_request(drvdata, cc_req, desc, len, true, false);
-	spin_unlock_bh(&mgr->hw_lock);
+	spin_unlock_bh(&mgr->hw_lock, bh);
 
 	if (rc != -EINPROGRESS) {
 		cc_pm_put_suspend(dev);
@@ -668,12 +671,13 @@ static void comp_handler(unsigned long devarg)
 #if defined(CONFIG_PM)
 int cc_resume_req_queue(struct cc_drvdata *drvdata)
 {
+	unsigned int bh;
 	struct cc_req_mgr_handle *request_mgr_handle =
 		drvdata->request_mgr_handle;
 
-	spin_lock_bh(&request_mgr_handle->hw_lock);
+	bh = spin_lock_bh(&request_mgr_handle->hw_lock, SOFTIRQ_ALL_MASK);
 	request_mgr_handle->is_runtime_suspended = false;
-	spin_unlock_bh(&request_mgr_handle->hw_lock);
+	spin_unlock_bh(&request_mgr_handle->hw_lock, bh);
 
 	return 0;
 }
@@ -684,18 +688,19 @@ int cc_resume_req_queue(struct cc_drvdata *drvdata)
  */
 int cc_suspend_req_queue(struct cc_drvdata *drvdata)
 {
+	unsigned int bh;
 	struct cc_req_mgr_handle *request_mgr_handle =
 						drvdata->request_mgr_handle;
 
 	/* lock the send_request */
-	spin_lock_bh(&request_mgr_handle->hw_lock);
+	bh = spin_lock_bh(&request_mgr_handle->hw_lock, SOFTIRQ_ALL_MASK);
 	if (request_mgr_handle->req_queue_head !=
 	    request_mgr_handle->req_queue_tail) {
-		spin_unlock_bh(&request_mgr_handle->hw_lock);
+		spin_unlock_bh(&request_mgr_handle->hw_lock, bh);
 		return -EBUSY;
 	}
 	request_mgr_handle->is_runtime_suspended = true;
-	spin_unlock_bh(&request_mgr_handle->hw_lock);
+	spin_unlock_bh(&request_mgr_handle->hw_lock, bh);
 
 	return 0;
 }

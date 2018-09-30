@@ -40,21 +40,23 @@ static inline int canif_is_active(struct net_device *netdev)
 /* reset DPRAM */
 static inline void softing_set_reset_dpram(struct softing *card)
 {
+	unsigned int bh;
 	if (card->pdat->generation >= 2) {
-		spin_lock_bh(&card->spin);
+		bh = spin_lock_bh(&card->spin, SOFTIRQ_ALL_MASK);
 		iowrite8(ioread8(&card->dpram[DPRAM_V2_RESET]) & ~1,
 				&card->dpram[DPRAM_V2_RESET]);
-		spin_unlock_bh(&card->spin);
+		spin_unlock_bh(&card->spin, bh);
 	}
 }
 
 static inline void softing_clr_reset_dpram(struct softing *card)
 {
+	unsigned int bh;
 	if (card->pdat->generation >= 2) {
-		spin_lock_bh(&card->spin);
+		bh = spin_lock_bh(&card->spin, SOFTIRQ_ALL_MASK);
 		iowrite8(ioread8(&card->dpram[DPRAM_V2_RESET]) | 1,
 				&card->dpram[DPRAM_V2_RESET]);
-		spin_unlock_bh(&card->spin);
+		spin_unlock_bh(&card->spin, bh);
 	}
 }
 
@@ -328,18 +330,19 @@ static int softing_handle_1(struct softing *card)
  */
 static irqreturn_t softing_irq_thread(int irq, void *dev_id)
 {
+	unsigned int bh;
 	struct softing *card = (struct softing *)dev_id;
 	struct net_device *netdev;
 	struct softing_priv *priv;
 	int j, offset, work_done;
 
 	work_done = 0;
-	spin_lock_bh(&card->spin);
+	bh = spin_lock_bh(&card->spin, SOFTIRQ_ALL_MASK);
 	while (softing_handle_1(card) > 0) {
 		++card->irq.svc_count;
 		++work_done;
 	}
-	spin_unlock_bh(&card->spin);
+	spin_unlock_bh(&card->spin, bh);
 	/* resume tx queue's */
 	offset = card->tx.last_bus;
 	for (j = 0; j < ARRAY_SIZE(card->net); ++j) {

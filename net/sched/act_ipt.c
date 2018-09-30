@@ -99,6 +99,7 @@ static int __tcf_ipt_init(struct net *net, unsigned int id, struct nlattr *nla,
 			  struct nlattr *est, struct tc_action **a,
 			  const struct tc_action_ops *ops, int ovr, int bind)
 {
+	unsigned int bh;
 	struct tc_action_net *tn = net_generic(net, id);
 	struct nlattr *tb[TCA_IPT_MAX + 1];
 	struct tcf_ipt *ipt;
@@ -180,7 +181,7 @@ static int __tcf_ipt_init(struct net *net, unsigned int id, struct nlattr *nla,
 
 	ipt = to_ipt(*a);
 
-	spin_lock_bh(&ipt->tcf_lock);
+	bh = spin_lock_bh(&ipt->tcf_lock, SOFTIRQ_ALL_MASK);
 	if (ret != ACT_P_CREATED) {
 		ipt_destroy_target(ipt->tcfi_t);
 		kfree(ipt->tcfi_tname);
@@ -189,7 +190,7 @@ static int __tcf_ipt_init(struct net *net, unsigned int id, struct nlattr *nla,
 	ipt->tcfi_tname = tname;
 	ipt->tcfi_t     = t;
 	ipt->tcfi_hook  = hook;
-	spin_unlock_bh(&ipt->tcf_lock);
+	spin_unlock_bh(&ipt->tcf_lock, bh);
 	if (ret == ACT_P_CREATED)
 		tcf_idr_insert(tn, *a);
 	return ret;
@@ -277,6 +278,7 @@ static int tcf_ipt_act(struct sk_buff *skb, const struct tc_action *a,
 static int tcf_ipt_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 			int ref)
 {
+	unsigned int bh;
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tcf_ipt *ipt = to_ipt(a);
 	struct xt_entry_target *t;
@@ -288,7 +290,7 @@ static int tcf_ipt_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 	 * for foolproof you need to not assume this
 	 */
 
-	spin_lock_bh(&ipt->tcf_lock);
+	bh = spin_lock_bh(&ipt->tcf_lock, SOFTIRQ_ALL_MASK);
 	t = kmemdup(ipt->tcfi_t, ipt->tcfi_t->u.user.target_size, GFP_ATOMIC);
 	if (unlikely(!t))
 		goto nla_put_failure;
@@ -308,12 +310,12 @@ static int tcf_ipt_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 	if (nla_put_64bit(skb, TCA_IPT_TM, sizeof(tm), &tm, TCA_IPT_PAD))
 		goto nla_put_failure;
 
-	spin_unlock_bh(&ipt->tcf_lock);
+	spin_unlock_bh(&ipt->tcf_lock, bh);
 	kfree(t);
 	return skb->len;
 
 nla_put_failure:
-	spin_unlock_bh(&ipt->tcf_lock);
+	spin_unlock_bh(&ipt->tcf_lock, bh);
 	nlmsg_trim(skb, b);
 	kfree(t);
 	return -1;

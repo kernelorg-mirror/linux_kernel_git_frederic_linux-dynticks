@@ -489,11 +489,12 @@ IEEE80211_IF_FILE_R(num_buffered_multicast);
 static ssize_t ieee80211_if_fmt_aqm(
 	const struct ieee80211_sub_if_data *sdata, char *buf, int buflen)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = sdata->local;
 	struct txq_info *txqi = to_txq_info(sdata->vif.txq);
 	int len;
 
-	spin_lock_bh(&local->fq.lock);
+	bh = spin_lock_bh(&local->fq.lock, SOFTIRQ_ALL_MASK);
 	rcu_read_lock();
 
 	len = scnprintf(buf,
@@ -512,7 +513,7 @@ static ssize_t ieee80211_if_fmt_aqm(
 			txqi->tin.tx_packets);
 
 	rcu_read_unlock();
-	spin_unlock_bh(&local->fq.lock);
+	spin_unlock_bh(&local->fq.lock, bh);
 
 	return len;
 }

@@ -233,12 +233,13 @@ ip_vs_lblc_new(struct ip_vs_lblc_table *tbl, const union nf_inet_addr *daddr,
  */
 static void ip_vs_lblc_flush(struct ip_vs_service *svc)
 {
+	unsigned int bh;
 	struct ip_vs_lblc_table *tbl = svc->sched_data;
 	struct ip_vs_lblc_entry *en;
 	struct hlist_node *next;
 	int i;
 
-	spin_lock_bh(&svc->sched_lock);
+	bh = spin_lock_bh(&svc->sched_lock, SOFTIRQ_ALL_MASK);
 	tbl->dead = true;
 	for (i = 0; i < IP_VS_LBLC_TAB_SIZE; i++) {
 		hlist_for_each_entry_safe(en, next, &tbl->bucket[i], list) {
@@ -246,7 +247,7 @@ static void ip_vs_lblc_flush(struct ip_vs_service *svc)
 			atomic_dec(&tbl->entries);
 		}
 	}
-	spin_unlock_bh(&svc->sched_lock);
+	spin_unlock_bh(&svc->sched_lock, bh);
 }
 
 static int sysctl_lblc_expiration(struct ip_vs_service *svc)
@@ -486,6 +487,7 @@ static struct ip_vs_dest *
 ip_vs_lblc_schedule(struct ip_vs_service *svc, const struct sk_buff *skb,
 		    struct ip_vs_iphdr *iph)
 {
+	unsigned int bh;
 	struct ip_vs_lblc_table *tbl = svc->sched_data;
 	struct ip_vs_dest *dest = NULL;
 	struct ip_vs_lblc_entry *en;
@@ -521,10 +523,10 @@ ip_vs_lblc_schedule(struct ip_vs_service *svc, const struct sk_buff *skb,
 	}
 
 	/* If we fail to create a cache entry, we'll just use the valid dest */
-	spin_lock_bh(&svc->sched_lock);
+	bh = spin_lock_bh(&svc->sched_lock, SOFTIRQ_ALL_MASK);
 	if (!tbl->dead)
 		ip_vs_lblc_new(tbl, &iph->daddr, svc->af, dest);
-	spin_unlock_bh(&svc->sched_lock);
+	spin_unlock_bh(&svc->sched_lock, bh);
 
 out:
 	IP_VS_DBG_BUF(6, "LBLC: destination IP address %s --> server %s:%d\n",

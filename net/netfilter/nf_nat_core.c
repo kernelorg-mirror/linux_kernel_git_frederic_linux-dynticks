@@ -406,6 +406,7 @@ nf_nat_setup_info(struct nf_conn *ct,
 		  const struct nf_nat_range2 *range,
 		  enum nf_nat_manip_type maniptype)
 {
+	unsigned int bh;
 	struct net *net = nf_ct_net(ct);
 	struct nf_conntrack_tuple curr_tuple, new_tuple;
 
@@ -454,10 +455,10 @@ nf_nat_setup_info(struct nf_conn *ct,
 		srchash = hash_by_src(net,
 				      &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple);
 		lock = &nf_nat_locks[srchash % CONNTRACK_LOCKS];
-		spin_lock_bh(lock);
+		bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 		hlist_add_head_rcu(&ct->nat_bysource,
 				   &nf_nat_bysource[srchash]);
-		spin_unlock_bh(lock);
+		spin_unlock_bh(lock, bh);
 	}
 
 	/* It's done. */
@@ -638,12 +639,13 @@ static int nf_nat_proto_remove(struct nf_conn *i, void *data)
 
 static void __nf_nat_cleanup_conntrack(struct nf_conn *ct)
 {
+	unsigned int bh;
 	unsigned int h;
 
 	h = hash_by_src(nf_ct_net(ct), &ct->tuplehash[IP_CT_DIR_ORIGINAL].tuple);
-	spin_lock_bh(&nf_nat_locks[h % CONNTRACK_LOCKS]);
+	bh = spin_lock_bh(&nf_nat_locks[h % CONNTRACK_LOCKS], SOFTIRQ_ALL_MASK);
 	hlist_del_rcu(&ct->nat_bysource);
-	spin_unlock_bh(&nf_nat_locks[h % CONNTRACK_LOCKS]);
+	spin_unlock_bh(&nf_nat_locks[h % CONNTRACK_LOCKS], bh);
 }
 
 static int nf_nat_proto_clean(struct nf_conn *ct, void *data)

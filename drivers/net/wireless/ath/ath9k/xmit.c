@@ -137,6 +137,7 @@ void __ath_tx_queue_tid(struct ath_softc *sc, struct ath_atx_tid *tid)
 
 void ath_tx_queue_tid(struct ath_softc *sc, struct ath_atx_tid *tid)
 {
+	unsigned int bh;
 	struct ath_vif *avp = (struct ath_vif *) tid->an->vif->drv_priv;
 	struct ath_chanctx *ctx = avp->chanctx;
 	struct ath_acq *acq;
@@ -145,9 +146,9 @@ void ath_tx_queue_tid(struct ath_softc *sc, struct ath_atx_tid *tid)
 		return;
 
 	acq = &ctx->acq[TID_TO_WME_AC(tid->tidno)];
-	spin_lock_bh(&acq->lock);
+	bh = spin_lock_bh(&acq->lock, SOFTIRQ_ALL_MASK);
 	__ath_tx_queue_tid(sc, tid);
-	spin_unlock_bh(&acq->lock);
+	spin_unlock_bh(&acq->lock, bh);
 }
 
 
@@ -405,28 +406,30 @@ static void ath_tx_set_retry(struct ath_softc *sc, struct ath_txq *txq,
 
 static struct ath_buf *ath_tx_get_buffer(struct ath_softc *sc)
 {
+	unsigned int bh;
 	struct ath_buf *bf = NULL;
 
-	spin_lock_bh(&sc->tx.txbuflock);
+	bh = spin_lock_bh(&sc->tx.txbuflock, SOFTIRQ_ALL_MASK);
 
 	if (unlikely(list_empty(&sc->tx.txbuf))) {
-		spin_unlock_bh(&sc->tx.txbuflock);
+		spin_unlock_bh(&sc->tx.txbuflock, bh);
 		return NULL;
 	}
 
 	bf = list_first_entry(&sc->tx.txbuf, struct ath_buf, list);
 	list_del(&bf->list);
 
-	spin_unlock_bh(&sc->tx.txbuflock);
+	spin_unlock_bh(&sc->tx.txbuflock, bh);
 
 	return bf;
 }
 
 static void ath_tx_return_buffer(struct ath_softc *sc, struct ath_buf *bf)
 {
-	spin_lock_bh(&sc->tx.txbuflock);
+	unsigned int bh;
+	bh = spin_lock_bh(&sc->tx.txbuflock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&bf->list, &sc->tx.txbuf);
-	spin_unlock_bh(&sc->tx.txbuflock);
+	spin_unlock_bh(&sc->tx.txbuflock, bh);
 }
 
 static struct ath_buf* ath_clone_txbuf(struct ath_softc *sc, struct ath_buf *bf)
@@ -712,6 +715,7 @@ static void ath_tx_count_airtime(struct ath_softc *sc, struct ath_node *an,
 				 struct ath_atx_tid *tid, struct ath_buf *bf,
 				 struct ath_tx_status *ts)
 {
+	unsigned int bh;
 	struct ath_txq *txq = tid->txq;
 	u32 airtime = 0;
 	int i;
@@ -726,11 +730,11 @@ static void ath_tx_count_airtime(struct ath_softc *sc, struct ath_node *an,
 		int q = txq->mac80211_qnum;
 		struct ath_acq *acq = &sc->cur_chan->acq[q];
 
-		spin_lock_bh(&acq->lock);
+		bh = spin_lock_bh(&acq->lock, SOFTIRQ_ALL_MASK);
 		an->airtime_deficit[q] -= airtime;
 		if (an->airtime_deficit[q] <= 0)
 			__ath_tx_queue_tid(sc, tid);
-		spin_unlock_bh(&acq->lock);
+		spin_unlock_bh(&acq->lock, bh);
 	}
 	ath_debug_airtime(sc, an, 0, airtime);
 }
@@ -1979,6 +1983,7 @@ void ath_tx_cleanupq(struct ath_softc *sc, struct ath_txq *txq)
  */
 void ath_txq_schedule(struct ath_softc *sc, struct ath_txq *txq)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(sc->sc_ah);
 	struct ath_atx_tid *tid;
 	struct list_head *tid_list;
@@ -1991,7 +1996,7 @@ void ath_txq_schedule(struct ath_softc *sc, struct ath_txq *txq)
 	if (test_bit(ATH_OP_HW_RESET, &common->op_flags))
 		return;
 
-	spin_lock_bh(&sc->chan_lock);
+	bh = spin_lock_bh(&sc->chan_lock, SOFTIRQ_ALL_MASK);
 	rcu_read_lock();
 	acq = &sc->cur_chan->acq[txq->mac80211_qnum];
 
@@ -2008,7 +2013,7 @@ begin:
 	tid = list_first_entry(tid_list, struct ath_atx_tid, list);
 
 	if (active && tid->an->airtime_deficit[txq->mac80211_qnum] <= 0) {
-		spin_lock_bh(&acq->lock);
+		spin_lock_bh(&acq->lock, SOFTIRQ_ALL_MASK);
 		tid->an->airtime_deficit[txq->mac80211_qnum] += ATH_AIRTIME_QUANTUM;
 		list_move_tail(&tid->list, &acq->acq_old);
 		spin_unlock_bh(&acq->lock);
@@ -2016,7 +2021,7 @@ begin:
 	}
 
 	if (!ath_tid_has_buffered(tid)) {
-		spin_lock_bh(&acq->lock);
+		spin_lock_bh(&acq->lock, SOFTIRQ_ALL_MASK);
 		if ((tid_list == &acq->acq_new) && !list_empty(&acq->acq_old))
 			list_move_tail(&tid->list, &acq->acq_old);
 		else {
@@ -2033,7 +2038,7 @@ begin:
 	 */
 	if(ath_tx_sched_aggr(sc, txq, tid)) {
 		if (!active) {
-			spin_lock_bh(&acq->lock);
+			spin_lock_bh(&acq->lock, SOFTIRQ_ALL_MASK);
 			list_move_tail(&tid->list, &acq->acq_old);
 			spin_unlock_bh(&acq->lock);
 		}
@@ -2042,20 +2047,21 @@ begin:
 
 out:
 	rcu_read_unlock();
-	spin_unlock_bh(&sc->chan_lock);
+	spin_unlock_bh(&sc->chan_lock, bh);
 }
 
 void ath_txq_schedule_all(struct ath_softc *sc)
 {
+	unsigned int bh;
 	struct ath_txq *txq;
 	int i;
 
 	for (i = 0; i < IEEE80211_NUM_ACS; i++) {
 		txq = sc->tx.txq_map[i];
 
-		spin_lock_bh(&txq->axq_lock);
+		bh = spin_lock_bh(&txq->axq_lock, SOFTIRQ_ALL_MASK);
 		ath_txq_schedule(sc, txq);
-		spin_unlock_bh(&txq->axq_lock);
+		spin_unlock_bh(&txq->axq_lock, bh);
 	}
 }
 

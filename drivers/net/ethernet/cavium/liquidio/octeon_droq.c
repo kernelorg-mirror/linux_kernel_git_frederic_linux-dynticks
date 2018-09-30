@@ -55,6 +55,7 @@ struct __dispatch {
 void *octeon_get_dispatch_arg(struct octeon_device *octeon_dev,
 			      u16 opcode, u16 subcode)
 {
+	unsigned int bh;
 	int idx;
 	struct list_head *dispatch;
 	void *fn_arg = NULL;
@@ -62,10 +63,10 @@ void *octeon_get_dispatch_arg(struct octeon_device *octeon_dev,
 
 	idx = combined_opcode & OCTEON_OPCODE_MASK;
 
-	spin_lock_bh(&octeon_dev->dispatch.lock);
+	bh = spin_lock_bh(&octeon_dev->dispatch.lock, SOFTIRQ_ALL_MASK);
 
 	if (octeon_dev->dispatch.count == 0) {
-		spin_unlock_bh(&octeon_dev->dispatch.lock);
+		spin_unlock_bh(&octeon_dev->dispatch.lock, bh);
 		return NULL;
 	}
 
@@ -83,7 +84,7 @@ void *octeon_get_dispatch_arg(struct octeon_device *octeon_dev,
 		}
 	}
 
-	spin_unlock_bh(&octeon_dev->dispatch.lock);
+	spin_unlock_bh(&octeon_dev->dispatch.lock, bh);
 	return fn_arg;
 }
 
@@ -507,11 +508,12 @@ octeon_droq_refill(struct octeon_device *octeon_dev, struct octeon_droq *droq)
  */
 void octeon_droq_check_oom(struct octeon_droq *droq)
 {
+	unsigned int bh;
 	int desc_refilled;
 	struct octeon_device *oct = droq->oct_dev;
 
 	if (readl(droq->pkts_credit_reg) <= CN23XX_SLI_DEF_BP) {
-		spin_lock_bh(&droq->lock);
+		bh = spin_lock_bh(&droq->lock, SOFTIRQ_ALL_MASK);
 		desc_refilled = octeon_droq_refill(oct, droq);
 		if (desc_refilled) {
 			/* Flush the droq descriptor data to memory to be sure
@@ -523,7 +525,7 @@ void octeon_droq_check_oom(struct octeon_droq *droq)
 			/* make sure mmio write completes */
 			mmiowb();
 		}
-		spin_unlock_bh(&droq->lock);
+		spin_unlock_bh(&droq->lock, bh);
 	}
 }
 

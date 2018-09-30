@@ -75,13 +75,14 @@ ebt_log_packet(struct net *net, u_int8_t pf, unsigned int hooknum,
 	       const struct net_device *out, const struct nf_loginfo *loginfo,
 	       const char *prefix)
 {
+	unsigned int bh;
 	unsigned int bitmask;
 
 	/* FIXME: Disabled from containers until syslog ns is supported */
 	if (!net_eq(net, &init_net) && !sysctl_nf_log_all_netns)
 		return;
 
-	spin_lock_bh(&ebt_log_lock);
+	bh = spin_lock_bh(&ebt_log_lock, SOFTIRQ_ALL_MASK);
 	printk(KERN_SOH "%c%s IN=%s OUT=%s MAC source = %pM MAC dest = %pM proto = 0x%04x",
 	       '0' + loginfo->u.log.level, prefix,
 	       in ? in->name : "", out ? out->name : "",
@@ -171,7 +172,7 @@ ebt_log_packet(struct net *net, u_int8_t pf, unsigned int hooknum,
 	}
 out:
 	pr_cont("\n");
-	spin_unlock_bh(&ebt_log_lock);
+	spin_unlock_bh(&ebt_log_lock, bh);
 }
 
 static unsigned int

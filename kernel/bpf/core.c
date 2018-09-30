@@ -480,23 +480,25 @@ static bool bpf_prog_kallsyms_verify_off(const struct bpf_prog *fp)
 
 void bpf_prog_kallsyms_add(struct bpf_prog *fp)
 {
+	unsigned int bh;
 	if (!bpf_prog_kallsyms_candidate(fp) ||
 	    !capable(CAP_SYS_ADMIN))
 		return;
 
-	spin_lock_bh(&bpf_lock);
+	bh = spin_lock_bh(&bpf_lock, SOFTIRQ_ALL_MASK);
 	bpf_prog_ksym_node_add(fp->aux);
-	spin_unlock_bh(&bpf_lock);
+	spin_unlock_bh(&bpf_lock, bh);
 }
 
 void bpf_prog_kallsyms_del(struct bpf_prog *fp)
 {
+	unsigned int bh;
 	if (!bpf_prog_kallsyms_candidate(fp))
 		return;
 
-	spin_lock_bh(&bpf_lock);
+	bh = spin_lock_bh(&bpf_lock, SOFTIRQ_ALL_MASK);
 	bpf_prog_ksym_node_del(fp->aux);
-	spin_unlock_bh(&bpf_lock);
+	spin_unlock_bh(&bpf_lock, bh);
 }
 
 static struct bpf_prog *bpf_prog_kallsyms_find(unsigned long addr)

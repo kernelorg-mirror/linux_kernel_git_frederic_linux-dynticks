@@ -1113,6 +1113,7 @@ static int tipc_send_group_mcast(struct socket *sock, struct msghdr *m,
 void tipc_sk_mcast_rcv(struct net *net, struct sk_buff_head *arrvq,
 		       struct sk_buff_head *inputq)
 {
+	unsigned int bh;
 	u32 self = tipc_own_addr(net);
 	u32 type, lower, upper, scope;
 	struct sk_buff *skb, *_skb;
@@ -1136,13 +1137,13 @@ void tipc_sk_mcast_rcv(struct net *net, struct sk_buff_head *arrvq,
 		type = msg_nametype(hdr);
 
 		if (mtyp == TIPC_GRP_UCAST_MSG || user == GROUP_PROTOCOL) {
-			spin_lock_bh(&inputq->lock);
+			bh = spin_lock_bh(&inputq->lock, SOFTIRQ_ALL_MASK);
 			if (skb_peek(arrvq) == skb) {
 				__skb_dequeue(arrvq);
 				__skb_queue_tail(inputq, skb);
 			}
 			kfree_skb(skb);
-			spin_unlock_bh(&inputq->lock);
+			spin_unlock_bh(&inputq->lock, bh);
 			continue;
 		}
 
@@ -1178,12 +1179,12 @@ void tipc_sk_mcast_rcv(struct net *net, struct sk_buff_head *arrvq,
 			pr_warn("Failed to clone mcast rcv buffer\n");
 		}
 		/* Append to inputq if not already done by other thread */
-		spin_lock_bh(&inputq->lock);
+		bh = spin_lock_bh(&inputq->lock, SOFTIRQ_ALL_MASK);
 		if (skb_peek(arrvq) == skb) {
 			skb_queue_splice_tail_init(&tmpq, inputq);
 			kfree_skb(__skb_dequeue(arrvq));
 		}
-		spin_unlock_bh(&inputq->lock);
+		spin_unlock_bh(&inputq->lock, bh);
 		__skb_queue_purge(&tmpq);
 		kfree_skb(skb);
 	}
@@ -2653,6 +2654,7 @@ static int tipc_sk_withdraw(struct tipc_sock *tsk, uint scope,
  */
 void tipc_sk_reinit(struct net *net)
 {
+	unsigned int bh;
 	struct tipc_net *tn = net_generic(net, tipc_net_id);
 	struct rhashtable_iter iter;
 	struct tipc_sock *tsk;
@@ -2664,11 +2666,11 @@ void tipc_sk_reinit(struct net *net)
 		rhashtable_walk_start(&iter);
 
 		while ((tsk = rhashtable_walk_next(&iter)) && !IS_ERR(tsk)) {
-			spin_lock_bh(&tsk->sk.sk_lock.slock);
+			bh = spin_lock_bh(&tsk->sk.sk_lock.slock, SOFTIRQ_ALL_MASK);
 			msg = &tsk->phdr;
 			msg_set_prevnode(msg, tipc_own_addr(net));
 			msg_set_orignode(msg, tipc_own_addr(net));
-			spin_unlock_bh(&tsk->sk.sk_lock.slock);
+			spin_unlock_bh(&tsk->sk.sk_lock.slock, bh);
 		}
 
 		rhashtable_walk_stop(&iter);

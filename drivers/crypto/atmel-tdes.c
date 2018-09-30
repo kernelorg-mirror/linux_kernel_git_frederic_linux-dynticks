@@ -198,10 +198,11 @@ static void atmel_tdes_write_n(struct atmel_tdes_dev *dd, u32 offset,
 
 static struct atmel_tdes_dev *atmel_tdes_find_dev(struct atmel_tdes_ctx *ctx)
 {
+	unsigned int bh;
 	struct atmel_tdes_dev *tdes_dd = NULL;
 	struct atmel_tdes_dev *tmp;
 
-	spin_lock_bh(&atmel_tdes.lock);
+	bh = spin_lock_bh(&atmel_tdes.lock, SOFTIRQ_ALL_MASK);
 	if (!ctx->dd) {
 		list_for_each_entry(tmp, &atmel_tdes.dev_list, list) {
 			tdes_dd = tmp;
@@ -211,7 +212,7 @@ static struct atmel_tdes_dev *atmel_tdes_find_dev(struct atmel_tdes_ctx *ctx)
 	} else {
 		tdes_dd = ctx->dd;
 	}
-	spin_unlock_bh(&atmel_tdes.lock);
+	spin_unlock_bh(&atmel_tdes.lock, bh);
 
 	return tdes_dd;
 }

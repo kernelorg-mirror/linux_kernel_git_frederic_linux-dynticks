@@ -123,6 +123,7 @@ static bool batadv_dat_to_purge(struct batadv_dat_entry *dat_entry)
 static void __batadv_dat_purge(struct batadv_priv *bat_priv,
 			       bool (*to_purge)(struct batadv_dat_entry *))
 {
+	unsigned int bh;
 	spinlock_t *list_lock; /* protects write access to the hash lists */
 	struct batadv_dat_entry *dat_entry;
 	struct hlist_node *node_tmp;
@@ -136,7 +137,7 @@ static void __batadv_dat_purge(struct batadv_priv *bat_priv,
 		head = &bat_priv->dat.hash->table[i];
 		list_lock = &bat_priv->dat.hash->list_locks[i];
 
-		spin_lock_bh(list_lock);
+		bh = spin_lock_bh(list_lock, SOFTIRQ_ALL_MASK);
 		hlist_for_each_entry_safe(dat_entry, node_tmp, head,
 					  hash_entry) {
 			/* if a helper function has been passed as parameter,
@@ -148,7 +149,7 @@ static void __batadv_dat_purge(struct batadv_priv *bat_priv,
 			hlist_del_rcu(&dat_entry->hash_entry);
 			batadv_dat_entry_put(dat_entry);
 		}
-		spin_unlock_bh(list_lock);
+		spin_unlock_bh(list_lock, bh);
 	}
 }
 

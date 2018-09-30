@@ -908,6 +908,7 @@ out_none:
 
 static struct net_device_stats *sc92031_get_stats(struct net_device *dev)
 {
+	unsigned int bh;
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
 
@@ -915,7 +916,7 @@ static struct net_device_stats *sc92031_get_stats(struct net_device *dev)
 	if (netif_running(dev)) {
 		int temp;
 
-		spin_lock_bh(&priv->lock);
+		bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 
 		/* Update the error count. */
 		temp = (ioread32(port_base + RxStatus0) >> 16) & 0xffff;
@@ -926,7 +927,7 @@ static struct net_device_stats *sc92031_get_stats(struct net_device *dev)
 		} else
 			dev->stats.rx_fifo_errors = temp + priv->rx_value;
 
-		spin_unlock_bh(&priv->lock);
+		spin_unlock_bh(&priv->lock, bh);
 	}
 
 	return &dev->stats;
@@ -994,6 +995,7 @@ out:
 
 static int sc92031_open(struct net_device *dev)
 {
+	unsigned int bh;
 	int err;
 	struct sc92031_priv *priv = netdev_priv(dev);
 	struct pci_dev *pdev = priv->pdev;
@@ -1021,12 +1023,12 @@ static int sc92031_open(struct net_device *dev)
 	priv->pm_config = 0;
 
 	/* Interrupts already disabled by sc92031_stop or sc92031_probe */
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 
 	_sc92031_reset(dev);
 	mmiowb();
 
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 	sc92031_enable_interrupts(dev);
 
 	if (netif_carrier_ok(dev))
@@ -1048,6 +1050,7 @@ out_alloc_rx_ring:
 
 static int sc92031_stop(struct net_device *dev)
 {
+	unsigned int bh;
 	struct sc92031_priv *priv = netdev_priv(dev);
 	struct pci_dev *pdev = priv->pdev;
 
@@ -1056,13 +1059,13 @@ static int sc92031_stop(struct net_device *dev)
 	/* Disable interrupts, stop Tx and Rx. */
 	sc92031_disable_interrupts(dev);
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 
 	_sc92031_disable_tx_rx(dev);
 	_sc92031_tx_clear(dev);
 	mmiowb();
 
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 
 	free_irq(pdev->irq, dev);
 	pci_free_consistent(pdev, TX_BUF_TOT_LEN, priv->tx_bufs,
@@ -1075,15 +1078,16 @@ static int sc92031_stop(struct net_device *dev)
 
 static void sc92031_set_multicast_list(struct net_device *dev)
 {
+	unsigned int bh;
 	struct sc92031_priv *priv = netdev_priv(dev);
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 
 	_sc92031_set_mar(dev);
 	_sc92031_set_rx_config(dev);
 	mmiowb();
 
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 }
 
 static void sc92031_tx_timeout(struct net_device *dev)
@@ -1126,6 +1130,7 @@ static int
 sc92031_ethtool_get_link_ksettings(struct net_device *dev,
 				   struct ethtool_link_ksettings *cmd)
 {
+	unsigned int bh;
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
 	u8 phy_address;
@@ -1133,7 +1138,7 @@ sc92031_ethtool_get_link_ksettings(struct net_device *dev,
 	u16 output_status;
 	u32 supported, advertising;
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 
 	phy_address = ioread32(port_base + Miicmd1) >> 27;
 	phy_ctrl = ioread32(port_base + PhyCtrl);
@@ -1142,7 +1147,7 @@ sc92031_ethtool_get_link_ksettings(struct net_device *dev,
 	_sc92031_mii_scan(port_base);
 	mmiowb();
 
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 
 	supported = SUPPORTED_10baseT_Half | SUPPORTED_10baseT_Full
 			| SUPPORTED_100baseT_Half | SUPPORTED_100baseT_Full
@@ -1190,6 +1195,7 @@ static int
 sc92031_ethtool_set_link_ksettings(struct net_device *dev,
 				   const struct ethtool_link_ksettings *cmd)
 {
+	unsigned int bh;
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
 	u32 speed = cmd->base.speed;
@@ -1247,7 +1253,7 @@ sc92031_ethtool_set_link_ksettings(struct net_device *dev,
 			phy_ctrl |= PhyCtrlDux;
 	}
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 
 	old_phy_ctrl = ioread32(port_base + PhyCtrl);
 	phy_ctrl |= old_phy_ctrl & ~(PhyCtrlAne | PhyCtrlDux
@@ -1255,7 +1261,7 @@ sc92031_ethtool_set_link_ksettings(struct net_device *dev,
 	if (phy_ctrl != old_phy_ctrl)
 		iowrite32(phy_ctrl, port_base + PhyCtrl);
 
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 
 	return 0;
 }
@@ -1263,13 +1269,14 @@ sc92031_ethtool_set_link_ksettings(struct net_device *dev,
 static void sc92031_ethtool_get_wol(struct net_device *dev,
 		struct ethtool_wolinfo *wolinfo)
 {
+	unsigned int bh;
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
 	u32 pm_config;
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	pm_config = ioread32(port_base + PMConfig);
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 
 	// FIXME: Guessed
 	wolinfo->supported = WAKE_PHY | WAKE_MAGIC
@@ -1290,11 +1297,12 @@ static void sc92031_ethtool_get_wol(struct net_device *dev,
 static int sc92031_ethtool_set_wol(struct net_device *dev,
 		struct ethtool_wolinfo *wolinfo)
 {
+	unsigned int bh;
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
 	u32 pm_config;
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 
 	pm_config = ioread32(port_base + PMConfig)
 			& ~(PM_LinkUp | PM_Magic | PM_WakeUp);
@@ -1313,19 +1321,20 @@ static int sc92031_ethtool_set_wol(struct net_device *dev,
 	iowrite32(pm_config, port_base + PMConfig);
 	mmiowb();
 
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 
 	return 0;
 }
 
 static int sc92031_ethtool_nway_reset(struct net_device *dev)
 {
+	unsigned int bh;
 	int err = 0;
 	struct sc92031_priv *priv = netdev_priv(dev);
 	void __iomem *port_base = priv->port_base;
 	u16 bmcr;
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 
 	bmcr = _sc92031_mii_read(port_base, MII_BMCR);
 	if (!(bmcr & BMCR_ANENABLE)) {
@@ -1339,7 +1348,7 @@ out:
 	_sc92031_mii_scan(port_base);
 	mmiowb();
 
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 
 	return err;
 }
@@ -1370,12 +1379,13 @@ static int sc92031_ethtool_get_sset_count(struct net_device *dev, int sset)
 static void sc92031_ethtool_get_ethtool_stats(struct net_device *dev,
 		struct ethtool_stats *stats, u64 *data)
 {
+	unsigned int bh;
 	struct sc92031_priv *priv = netdev_priv(dev);
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	data[0] = priv->tx_timeouts;
 	data[1] = priv->rx_loss;
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 }
 
 static const struct ethtool_ops sc92031_ethtool_ops = {
@@ -1513,6 +1523,7 @@ static void sc92031_remove(struct pci_dev *pdev)
 
 static int sc92031_suspend(struct pci_dev *pdev, pm_message_t state)
 {
+	unsigned int bh;
 	struct net_device *dev = pci_get_drvdata(pdev);
 	struct sc92031_priv *priv = netdev_priv(dev);
 
@@ -1526,13 +1537,13 @@ static int sc92031_suspend(struct pci_dev *pdev, pm_message_t state)
 	/* Disable interrupts, stop Tx and Rx. */
 	sc92031_disable_interrupts(dev);
 
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 
 	_sc92031_disable_tx_rx(dev);
 	_sc92031_tx_clear(dev);
 	mmiowb();
 
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 
 out:
 	pci_set_power_state(pdev, pci_choose_state(pdev, state));
@@ -1542,6 +1553,7 @@ out:
 
 static int sc92031_resume(struct pci_dev *pdev)
 {
+	unsigned int bh;
 	struct net_device *dev = pci_get_drvdata(pdev);
 	struct sc92031_priv *priv = netdev_priv(dev);
 
@@ -1552,12 +1564,12 @@ static int sc92031_resume(struct pci_dev *pdev)
 		goto out;
 
 	/* Interrupts already disabled by sc92031_suspend */
-	spin_lock_bh(&priv->lock);
+	bh = spin_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 
 	_sc92031_reset(dev);
 	mmiowb();
 
-	spin_unlock_bh(&priv->lock);
+	spin_unlock_bh(&priv->lock, bh);
 	sc92031_enable_interrupts(dev);
 
 	netif_device_attach(dev);

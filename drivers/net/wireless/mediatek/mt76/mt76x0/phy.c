@@ -899,12 +899,13 @@ static void mt76x0_phy_calibrate(struct work_struct *work)
 void mt76x0_phy_con_cal_onoff(struct mt76x0_dev *dev,
 			       struct ieee80211_bss_conf *info)
 {
+	unsigned int bh;
 	/* Start/stop collecting beacon data */
-	spin_lock_bh(&dev->con_mon_lock);
+	bh = spin_lock_bh(&dev->con_mon_lock, SOFTIRQ_ALL_MASK);
 	ether_addr_copy(dev->ap_bssid, info->bssid);
 	dev->avg_rssi = 0;
 	dev->bcn_freq_off = MT_FREQ_OFFSET_INVALID;
-	spin_unlock_bh(&dev->con_mon_lock);
+	spin_unlock_bh(&dev->con_mon_lock, bh);
 }
 
 static void

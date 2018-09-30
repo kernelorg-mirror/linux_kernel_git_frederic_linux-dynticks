@@ -190,8 +190,9 @@ static inline struct request_sock *reqsk_queue_remove(struct request_sock_queue 
 						      struct sock *parent)
 {
 	struct request_sock *req;
+	unsigned int bh;
 
-	spin_lock_bh(&queue->rskq_lock);
+	bh = spin_lock_bh(&queue->rskq_lock, SOFTIRQ_ALL_MASK);
 	req = queue->rskq_accept_head;
 	if (req) {
 		sk_acceptq_removed(parent);
@@ -199,7 +200,7 @@ static inline struct request_sock *reqsk_queue_remove(struct request_sock_queue 
 		if (queue->rskq_accept_head == NULL)
 			queue->rskq_accept_tail = NULL;
 	}
-	spin_unlock_bh(&queue->rskq_lock);
+	spin_unlock_bh(&queue->rskq_lock, bh);
 	return req;
 }
 

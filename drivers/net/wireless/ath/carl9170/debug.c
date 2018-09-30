@@ -216,7 +216,8 @@ DEBUGFS_DECLARE_RO_FILE(name, _read_bufsize)
 static char *carl9170_debugfs_mem_usage_read(struct ar9170 *ar, char *buf,
 					     size_t bufsize, ssize_t *len)
 {
-	spin_lock_bh(&ar->mem_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&ar->mem_lock, SOFTIRQ_ALL_MASK);
 
 	ADD(buf, *len, bufsize, "jar: [%*pb]\n",
 	    ar->fw.mem_blocks, ar->mem_bitmap);
@@ -230,7 +231,7 @@ static char *carl9170_debugfs_mem_usage_read(struct ar9170 *ar, char *buf,
 	    (atomic_read(&ar->mem_free_blocks) * ar->fw.mem_block_size) / 1024,
 	    (ar->fw.mem_blocks * ar->fw.mem_block_size) / 1024);
 
-	spin_unlock_bh(&ar->mem_lock);
+	spin_unlock_bh(&ar->mem_lock, bh);
 
 	return buf;
 }
@@ -239,13 +240,14 @@ DEBUGFS_DECLARE_RO_FILE(mem_usage, 512);
 static char *carl9170_debugfs_qos_stat_read(struct ar9170 *ar, char *buf,
 					    size_t bufsize, ssize_t *len)
 {
+	unsigned int bh;
 	ADD(buf, *len, bufsize, "%s QoS AC\n", modparam_noht ? "Hardware" :
 	    "Software");
 
 	ADD(buf, *len, bufsize, "[     VO            VI       "
 				 "     BE            BK      ]\n");
 
-	spin_lock_bh(&ar->tx_stats_lock);
+	bh = spin_lock_bh(&ar->tx_stats_lock, SOFTIRQ_ALL_MASK);
 	ADD(buf, *len, bufsize, "[length/limit  length/limit  "
 				 "length/limit  length/limit ]\n"
 				"[   %3d/%3d       %3d/%3d    "
@@ -261,7 +263,7 @@ static char *carl9170_debugfs_qos_stat_read(struct ar9170 *ar, char *buf,
 	    ar->tx_stats[0].count, ar->tx_stats[1].count,
 	    ar->tx_stats[2].count, ar->tx_stats[3].count);
 
-	spin_unlock_bh(&ar->tx_stats_lock);
+	spin_unlock_bh(&ar->tx_stats_lock, bh);
 
 	ADD(buf, *len, bufsize, "[  pend/waittx   pend/waittx "
 				 "  pend/waittx   pend/waittx]\n"
@@ -300,6 +302,7 @@ static void carl9170_debugfs_format_frame(struct ar9170 *ar,
 static char *carl9170_debugfs_ampdu_state_read(struct ar9170 *ar, char *buf,
 					       size_t bufsize, ssize_t *len)
 {
+	unsigned int bh;
 	struct carl9170_sta_tid *iter;
 	struct sk_buff *skb;
 	int cnt = 0, fc;
@@ -308,7 +311,7 @@ static char *carl9170_debugfs_ampdu_state_read(struct ar9170 *ar, char *buf,
 	rcu_read_lock();
 	list_for_each_entry_rcu(iter, &ar->tx_ampdu_list, list) {
 
-		spin_lock_bh(&iter->lock);
+		bh = spin_lock_bh(&iter->lock, SOFTIRQ_ALL_MASK);
 		ADD(buf, *len, bufsize, "Entry: #%2d TID:%1d, BSN:%4d, "
 		    "SNX:%4d, HSN:%4d, BAW:%2d, state:%1d, toggles:%d\n",
 		    cnt, iter->tid, iter->bsn, iter->snx, iter->hsn,
@@ -344,7 +347,7 @@ static char *carl9170_debugfs_ampdu_state_read(struct ar9170 *ar, char *buf,
 
 			fc++;
 		}
-		spin_unlock_bh(&iter->lock);
+		spin_unlock_bh(&iter->lock, bh);
 		cnt++;
 	}
 	rcu_read_unlock();
@@ -356,18 +359,19 @@ DEBUGFS_DECLARE_RO_FILE(ampdu_state, 8000);
 static void carl9170_debugfs_queue_dump(struct ar9170 *ar, char *buf,
 	ssize_t *len, size_t bufsize, struct sk_buff_head *queue)
 {
+	unsigned int bh;
 	struct sk_buff *skb;
 	char prefix[16];
 	int fc = 0;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 	skb_queue_walk(queue, skb) {
 		snprintf(prefix, sizeof(prefix), "%3d :", fc);
 		carl9170_debugfs_format_frame(ar, skb, prefix, buf,
 					      len, bufsize);
 		fc++;
 	}
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 }
 
 #define DEBUGFS_QUEUE_DUMP(q, qi)					\

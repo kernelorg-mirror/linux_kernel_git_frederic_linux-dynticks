@@ -585,6 +585,7 @@ static inline void *__rhashtable_insert_fast(
 	struct rhash_head *head;
 	spinlock_t *lock;
 	unsigned int hash;
+	unsigned int bh;
 	int elasticity;
 	void *data;
 
@@ -593,11 +594,11 @@ static inline void *__rhashtable_insert_fast(
 	tbl = rht_dereference_rcu(ht->tbl, ht);
 	hash = rht_head_hashfn(ht, tbl, obj, params);
 	lock = rht_bucket_lock(tbl, hash);
-	spin_lock_bh(lock);
+	bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 
 	if (unlikely(rcu_access_pointer(tbl->future_tbl))) {
 slow_path:
-		spin_unlock_bh(lock);
+		spin_unlock_bh(lock, bh);
 		rcu_read_unlock();
 		return rhashtable_insert_slow(ht, key, obj);
 	}
@@ -668,7 +669,7 @@ good:
 	data = NULL;
 
 out:
-	spin_unlock_bh(lock);
+	spin_unlock_bh(lock, bh);
 	rcu_read_unlock();
 
 	return data;
@@ -878,11 +879,12 @@ static inline int __rhashtable_remove_fast_one(
 	spinlock_t * lock;
 	unsigned int hash;
 	int err = -ENOENT;
+	unsigned int bh;
 
 	hash = rht_head_hashfn(ht, tbl, obj, params);
 	lock = rht_bucket_lock(tbl, hash);
 
-	spin_lock_bh(lock);
+	bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 
 	pprev = rht_bucket_var(tbl, hash);
 	rht_for_each_continue(he, *pprev, tbl, hash) {
@@ -929,7 +931,7 @@ static inline int __rhashtable_remove_fast_one(
 		break;
 	}
 
-	spin_unlock_bh(lock);
+	spin_unlock_bh(lock, bh);
 
 	if (err > 0) {
 		atomic_dec(&ht->nelems);
@@ -1023,6 +1025,7 @@ static inline int __rhashtable_replace_fast(
 	struct rhash_head *he;
 	spinlock_t *lock;
 	unsigned int hash;
+	unsigned int bh;
 	int err = -ENOENT;
 
 	/* Minimally, the old and new objects must have same hash
@@ -1034,7 +1037,7 @@ static inline int __rhashtable_replace_fast(
 
 	lock = rht_bucket_lock(tbl, hash);
 
-	spin_lock_bh(lock);
+	bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 
 	pprev = rht_bucket_var(tbl, hash);
 	rht_for_each_continue(he, *pprev, tbl, hash) {
@@ -1049,7 +1052,7 @@ static inline int __rhashtable_replace_fast(
 		break;
 	}
 
-	spin_unlock_bh(lock);
+	spin_unlock_bh(lock, bh);
 
 	return err;
 }

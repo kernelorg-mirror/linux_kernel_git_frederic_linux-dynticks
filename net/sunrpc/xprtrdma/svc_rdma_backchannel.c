@@ -29,6 +29,7 @@
 int svc_rdma_handle_bc_reply(struct rpc_xprt *xprt, __be32 *rdma_resp,
 			     struct xdr_buf *rcvbuf)
 {
+	unsigned int bh;
 	struct rpcrdma_xprt *r_xprt = rpcx_to_rdmax(xprt);
 	struct kvec *dst, *src = &rcvbuf->head[0];
 	struct rpc_rqst *req;
@@ -73,12 +74,12 @@ int svc_rdma_handle_bc_reply(struct rpc_xprt *xprt, __be32 *rdma_resp,
 	else if (credits > r_xprt->rx_buf.rb_bc_max_requests)
 		credits = r_xprt->rx_buf.rb_bc_max_requests;
 
-	spin_lock_bh(&xprt->transport_lock);
+	bh = spin_lock_bh(&xprt->transport_lock, SOFTIRQ_ALL_MASK);
 	cwnd = xprt->cwnd;
 	xprt->cwnd = credits << RPC_CWNDSHIFT;
 	if (xprt->cwnd > cwnd)
 		xprt_release_rqst_cong(req->rq_task);
-	spin_unlock_bh(&xprt->transport_lock);
+	spin_unlock_bh(&xprt->transport_lock, bh);
 
 
 	ret = 0;

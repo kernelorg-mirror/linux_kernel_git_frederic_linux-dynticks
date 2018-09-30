@@ -94,6 +94,7 @@ EXPORT_SYMBOL_GPL(cxgbi_device_portmap_create);
 
 void cxgbi_device_portmap_cleanup(struct cxgbi_device *cdev)
 {
+	unsigned int bh;
 	struct cxgbi_ports_map *pmap = &cdev->pmap;
 	struct cxgbi_sock *csk;
 	int i;
@@ -105,10 +106,10 @@ void cxgbi_device_portmap_cleanup(struct cxgbi_device *cdev)
 			log_debug(1 << CXGBI_DBG_SOCK,
 				"csk 0x%p, cdev 0x%p, offload down.\n",
 				csk, cdev);
-			spin_lock_bh(&csk->lock);
+			bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 			cxgbi_sock_set_flag(csk, CTPF_OFFLOAD_DOWN);
 			cxgbi_sock_closed(csk);
-			spin_unlock_bh(&csk->lock);
+			spin_unlock_bh(&csk->lock, bh);
 			cxgbi_sock_put(csk);
 		}
 	}
@@ -410,6 +411,7 @@ EXPORT_SYMBOL_GPL(cxgbi_hbas_add);
 static struct cxgbi_sock *find_sock_on_port(struct cxgbi_device *cdev,
 					    unsigned char port_id)
 {
+	unsigned int bh;
 	struct cxgbi_ports_map *pmap = &cdev->pmap;
 	unsigned int i;
 	unsigned int used;
@@ -417,26 +419,27 @@ static struct cxgbi_sock *find_sock_on_port(struct cxgbi_device *cdev,
 	if (!pmap->max_connect || !pmap->used)
 		return NULL;
 
-	spin_lock_bh(&pmap->lock);
+	bh = spin_lock_bh(&pmap->lock, SOFTIRQ_ALL_MASK);
 	used = pmap->used;
 	for (i = 0; used && i < pmap->max_connect; i++) {
 		struct cxgbi_sock *csk = pmap->port_csk[i];
 
 		if (csk) {
 			if (csk->port_id == port_id) {
-				spin_unlock_bh(&pmap->lock);
+				spin_unlock_bh(&pmap->lock, bh);
 				return csk;
 			}
 			used--;
 		}
 	}
-	spin_unlock_bh(&pmap->lock);
+	spin_unlock_bh(&pmap->lock, bh);
 
 	return NULL;
 }
 
 static int sock_get_port(struct cxgbi_sock *csk)
 {
+	unsigned int bh;
 	struct cxgbi_device *cdev = csk->cdev;
 	struct cxgbi_ports_map *pmap = &cdev->pmap;
 	unsigned int start;
@@ -460,9 +463,9 @@ static int sock_get_port(struct cxgbi_sock *csk)
 		return -EADDRINUSE;
 	}
 
-	spin_lock_bh(&pmap->lock);
+	bh = spin_lock_bh(&pmap->lock, SOFTIRQ_ALL_MASK);
 	if (pmap->used >= pmap->max_connect) {
-		spin_unlock_bh(&pmap->lock);
+		spin_unlock_bh(&pmap->lock, bh);
 		pr_info("cdev 0x%p, p#%u %s, ALL ports used.\n",
 			cdev, csk->port_id, cdev->ports[csk->port_id]->name);
 		return -EADDRNOTAVAIL;
@@ -477,7 +480,7 @@ static int sock_get_port(struct cxgbi_sock *csk)
 			*port = htons(pmap->sport_base + idx);
 			pmap->next = idx;
 			pmap->port_csk[idx] = csk;
-			spin_unlock_bh(&pmap->lock);
+			spin_unlock_bh(&pmap->lock, bh);
 			cxgbi_sock_get(csk);
 			log_debug(1 << CXGBI_DBG_SOCK,
 				"cdev 0x%p, p#%u %s, p %u, %u.\n",
@@ -487,7 +490,7 @@ static int sock_get_port(struct cxgbi_sock *csk)
 			return 0;
 		}
 	} while (idx != start);
-	spin_unlock_bh(&pmap->lock);
+	spin_unlock_bh(&pmap->lock, bh);
 
 	/* should not happen */
 	pr_warn("cdev 0x%p, p#%u %s, next %u?\n",
@@ -498,6 +501,7 @@ static int sock_get_port(struct cxgbi_sock *csk)
 
 static void sock_put_port(struct cxgbi_sock *csk)
 {
+	unsigned int bh;
 	struct cxgbi_device *cdev = csk->cdev;
 	struct cxgbi_ports_map *pmap = &cdev->pmap;
 	__be16 *port;
@@ -519,10 +523,10 @@ static void sock_put_port(struct cxgbi_sock *csk)
 			return;
 		}
 
-		spin_lock_bh(&pmap->lock);
+		bh = spin_lock_bh(&pmap->lock, SOFTIRQ_ALL_MASK);
 		pmap->port_csk[idx] = NULL;
 		pmap->used--;
-		spin_unlock_bh(&pmap->lock);
+		spin_unlock_bh(&pmap->lock, bh);
 
 		log_debug(1 << CXGBI_DBG_SOCK,
 			"cdev 0x%p, p#%u %s, release %u.\n",
@@ -865,12 +869,13 @@ EXPORT_SYMBOL_GPL(cxgbi_sock_closed);
 
 static void need_active_close(struct cxgbi_sock *csk)
 {
+	unsigned int bh;
 	int data_lost;
 	int close_req = 0;
 
 	log_debug(1 << CXGBI_DBG_SOCK, "csk 0x%p,%u,0x%lx,%u.\n",
 		csk, (csk)->state, (csk)->flags, (csk)->tid);
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	if (csk->dst)
 		dst_confirm(csk->dst);
 	data_lost = skb_queue_len(&csk->receive_queue);
@@ -894,7 +899,7 @@ static void need_active_close(struct cxgbi_sock *csk)
 			csk->cdev->csk_send_close_req(csk);
 	}
 
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 }
 
 void cxgbi_sock_fail_act_open(struct cxgbi_sock *csk, int errno)
@@ -913,16 +918,17 @@ EXPORT_SYMBOL_GPL(cxgbi_sock_fail_act_open);
 
 void cxgbi_sock_act_open_req_arp_failure(void *handle, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk = (struct cxgbi_sock *)skb->sk;
 	struct module *owner = csk->cdev->owner;
 
 	log_debug(1 << CXGBI_DBG_SOCK, "csk 0x%p,%u,0x%lx,%u.\n",
 		csk, (csk)->state, (csk)->flags, (csk)->tid);
 	cxgbi_sock_get(csk);
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	if (csk->state == CTP_ACTIVE_OPEN)
 		cxgbi_sock_fail_act_open(csk, -EHOSTUNREACH);
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	cxgbi_sock_put(csk);
 	__kfree_skb(skb);
 
@@ -932,8 +938,9 @@ EXPORT_SYMBOL_GPL(cxgbi_sock_act_open_req_arp_failure);
 
 void cxgbi_sock_rcv_abort_rpl(struct cxgbi_sock *csk)
 {
+	unsigned int bh;
 	cxgbi_sock_get(csk);
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	cxgbi_sock_set_flag(csk, CTPF_ABORT_RPL_RCVD);
 	if (cxgbi_sock_flag(csk, CTPF_ABORT_RPL_PENDING)) {
@@ -944,17 +951,18 @@ void cxgbi_sock_rcv_abort_rpl(struct cxgbi_sock *csk)
 		cxgbi_sock_closed(csk);
 	}
 
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	cxgbi_sock_put(csk);
 }
 EXPORT_SYMBOL_GPL(cxgbi_sock_rcv_abort_rpl);
 
 void cxgbi_sock_rcv_peer_close(struct cxgbi_sock *csk)
 {
+	unsigned int bh;
 	log_debug(1 << CXGBI_DBG_SOCK, "csk 0x%p,%u,0x%lx,%u.\n",
 		csk, (csk)->state, (csk)->flags, (csk)->tid);
 	cxgbi_sock_get(csk);
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	if (cxgbi_sock_flag(csk, CTPF_ABORT_RPL_PENDING))
 		goto done;
@@ -977,17 +985,18 @@ void cxgbi_sock_rcv_peer_close(struct cxgbi_sock *csk)
 	}
 	cxgbi_inform_iscsi_conn_closing(csk);
 done:
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	cxgbi_sock_put(csk);
 }
 EXPORT_SYMBOL_GPL(cxgbi_sock_rcv_peer_close);
 
 void cxgbi_sock_rcv_close_conn_rpl(struct cxgbi_sock *csk, u32 snd_nxt)
 {
+	unsigned int bh;
 	log_debug(1 << CXGBI_DBG_SOCK, "csk 0x%p,%u,0x%lx,%u.\n",
 		csk, (csk)->state, (csk)->flags, (csk)->tid);
 	cxgbi_sock_get(csk);
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	csk->snd_una = snd_nxt - 1;
 	if (cxgbi_sock_flag(csk, CTPF_ABORT_RPL_PENDING))
@@ -1008,7 +1017,7 @@ void cxgbi_sock_rcv_close_conn_rpl(struct cxgbi_sock *csk, u32 snd_nxt)
 			csk, csk->state, csk->flags, csk->tid);
 	}
 done:
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	cxgbi_sock_put(csk);
 }
 EXPORT_SYMBOL_GPL(cxgbi_sock_rcv_close_conn_rpl);
@@ -1016,12 +1025,13 @@ EXPORT_SYMBOL_GPL(cxgbi_sock_rcv_close_conn_rpl);
 void cxgbi_sock_rcv_wr_ack(struct cxgbi_sock *csk, unsigned int credits,
 			   unsigned int snd_una, int seq_chk)
 {
+	unsigned int bh;
 	log_debug(1 << CXGBI_DBG_TOE | 1 << CXGBI_DBG_SOCK,
 			"csk 0x%p,%u,0x%lx,%u, cr %u,%u+%u, snd_una %u,%d.\n",
 			csk, csk->state, csk->flags, csk->tid, credits,
 			csk->wr_cred, csk->wr_una_cred, snd_una, seq_chk);
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	csk->wr_cred += credits;
 	if (csk->wr_una_cred > csk->wr_max_cred - csk->wr_cred)
@@ -1073,7 +1083,7 @@ void cxgbi_sock_rcv_wr_ack(struct cxgbi_sock *csk, unsigned int credits,
 	} else
 		cxgbi_conn_tx_open(csk);
 done:
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 }
 EXPORT_SYMBOL_GPL(cxgbi_sock_rcv_wr_ack);
 
@@ -1133,11 +1143,12 @@ EXPORT_SYMBOL_GPL(cxgbi_sock_check_wr_invariants);
 
 static int cxgbi_sock_send_pdus(struct cxgbi_sock *csk, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cxgbi_device *cdev = csk->cdev;
 	struct sk_buff *next;
 	int err, copied = 0;
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	if (csk->state != CTP_ESTABLISHED) {
 		log_debug(1 << CXGBI_DBG_PDU_TX,
@@ -1196,7 +1207,7 @@ static int cxgbi_sock_send_pdus(struct cxgbi_sock *csk, struct sk_buff *skb)
 	if (likely(skb_queue_len(&csk->write_queue)))
 		cdev->csk_push_tx_frames(csk, 1);
 done:
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	return copied;
 
 out_err:

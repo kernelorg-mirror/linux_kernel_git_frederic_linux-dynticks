@@ -3798,7 +3798,7 @@ static inline unsigned int __netif_tx_lock_bh(struct netdev_queue *txq)
 {
 	unsigned int bh = 0;
 
-	spin_lock_bh(&txq->_xmit_lock);
+	spin_lock_bh(&txq->_xmit_lock, SOFTIRQ_ALL_MASK);
 	txq->xmit_lock_owner = smp_processor_id();
 
 	return bh;
@@ -3822,7 +3822,7 @@ static inline void __netif_tx_unlock_bh(struct netdev_queue *txq,
 					unsigned int bh)
 {
 	txq->xmit_lock_owner = -1;
-	spin_unlock_bh(&txq->_xmit_lock);
+	spin_unlock_bh(&txq->_xmit_lock, bh);
 }
 
 static inline void txq_trans_update(struct netdev_queue *txq)
@@ -3956,9 +3956,9 @@ static inline void netif_addr_lock_nested(struct net_device *dev)
 	spin_lock_nested(&dev->addr_list_lock, subclass);
 }
 
-static inline void netif_addr_lock_bh(struct net_device *dev)
+static inline unsigned int netif_addr_lock_bh(struct net_device *dev)
 {
-	spin_lock_bh(&dev->addr_list_lock);
+	return spin_lock_bh(&dev->addr_list_lock, SOFTIRQ_ALL_MASK);
 }
 
 static inline void netif_addr_unlock(struct net_device *dev)
@@ -3966,9 +3966,10 @@ static inline void netif_addr_unlock(struct net_device *dev)
 	spin_unlock(&dev->addr_list_lock);
 }
 
-static inline void netif_addr_unlock_bh(struct net_device *dev)
+static inline void netif_addr_unlock_bh(struct net_device *dev,
+					unsigned int bh)
 {
-	spin_unlock_bh(&dev->addr_list_lock);
+	spin_unlock_bh(&dev->addr_list_lock, bh);
 }
 
 /*

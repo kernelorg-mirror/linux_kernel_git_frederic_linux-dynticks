@@ -73,6 +73,7 @@ static ssize_t ath10k_thermal_show_temp(struct device *dev,
 					struct device_attribute *attr,
 					char *buf)
 {
+	unsigned int bh;
 	struct ath10k *ar = dev_get_drvdata(dev);
 	int ret, temperature;
 	unsigned long time_left;
@@ -105,9 +106,9 @@ static ssize_t ath10k_thermal_show_temp(struct device *dev,
 		goto out;
 	}
 
-	spin_lock_bh(&ar->data_lock);
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 	temperature = ar->thermal.temperature;
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 
 	/* display in millidegree celcius */
 	ret = snprintf(buf, PAGE_SIZE, "%d\n", temperature * 1000);
@@ -118,9 +119,10 @@ out:
 
 void ath10k_thermal_event_temperature(struct ath10k *ar, int temperature)
 {
-	spin_lock_bh(&ar->data_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 	ar->thermal.temperature = temperature;
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 	complete(&ar->thermal.wmi_sync);
 }
 

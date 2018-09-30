@@ -684,13 +684,14 @@ static struct ip_vs_dest *
 ip_vs_trash_get_dest(struct ip_vs_service *svc, int dest_af,
 		     const union nf_inet_addr *daddr, __be16 dport)
 {
+	unsigned int bh;
 	struct ip_vs_dest *dest;
 	struct netns_ipvs *ipvs = svc->ipvs;
 
 	/*
 	 * Find the destination in trash
 	 */
-	spin_lock_bh(&ipvs->dest_trash_lock);
+	bh = spin_lock_bh(&ipvs->dest_trash_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(dest, &ipvs->dest_trash, t_list) {
 		IP_VS_DBG_BUF(3, "Destination %u/%s:%u still in trash, "
 			      "dest->refcnt=%d\n",
@@ -715,7 +716,7 @@ ip_vs_trash_get_dest(struct ip_vs_service *svc, int dest_af,
 	dest = NULL;
 
 out:
-	spin_unlock_bh(&ipvs->dest_trash_lock);
+	spin_unlock_bh(&ipvs->dest_trash_lock, bh);
 
 	return dest;
 }
@@ -754,9 +755,10 @@ static void ip_vs_trash_cleanup(struct netns_ipvs *ipvs)
 static void
 ip_vs_copy_stats(struct ip_vs_kstats *dst, struct ip_vs_stats *src)
 {
+	unsigned int bh;
 #define IP_VS_SHOW_STATS_COUNTER(c) dst->c = src->kstats.c - src->kstats0.c
 
-	spin_lock_bh(&src->lock);
+	bh = spin_lock_bh(&src->lock, SOFTIRQ_ALL_MASK);
 
 	IP_VS_SHOW_STATS_COUNTER(conns);
 	IP_VS_SHOW_STATS_COUNTER(inpkts);
@@ -766,7 +768,7 @@ ip_vs_copy_stats(struct ip_vs_kstats *dst, struct ip_vs_stats *src)
 
 	ip_vs_read_estimator(dst, src);
 
-	spin_unlock_bh(&src->lock);
+	spin_unlock_bh(&src->lock, bh);
 }
 
 static void
@@ -787,7 +789,8 @@ ip_vs_export_stats_user(struct ip_vs_stats_user *dst, struct ip_vs_kstats *src)
 static void
 ip_vs_zero_stats(struct ip_vs_stats *stats)
 {
-	spin_lock_bh(&stats->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&stats->lock, SOFTIRQ_ALL_MASK);
 
 	/* get current counters as zero point, rates are zeroed */
 
@@ -801,7 +804,7 @@ ip_vs_zero_stats(struct ip_vs_stats *stats)
 
 	ip_vs_zero_estimator(stats);
 
-	spin_unlock_bh(&stats->lock);
+	spin_unlock_bh(&stats->lock, bh);
 }
 
 /*
@@ -811,6 +814,7 @@ static void
 __ip_vs_update_dest(struct ip_vs_service *svc, struct ip_vs_dest *dest,
 		    struct ip_vs_dest_user_kern *udest, int add)
 {
+	unsigned int bh;
 	struct netns_ipvs *ipvs = svc->ipvs;
 	struct ip_vs_service *old_svc;
 	struct ip_vs_scheduler *sched;
@@ -868,9 +872,9 @@ __ip_vs_update_dest(struct ip_vs_service *svc, struct ip_vs_dest *dest,
 
 	dest->af = udest->af;
 
-	spin_lock_bh(&dest->dst_lock);
+	bh = spin_lock_bh(&dest->dst_lock, SOFTIRQ_ALL_MASK);
 	__ip_vs_dst_cache_reset(dest);
-	spin_unlock_bh(&dest->dst_lock);
+	spin_unlock_bh(&dest->dst_lock, bh);
 
 	if (add) {
 		ip_vs_start_estimator(svc->ipvs, &dest->stats);
@@ -1069,6 +1073,7 @@ ip_vs_edit_dest(struct ip_vs_service *svc, struct ip_vs_dest_user_kern *udest)
 static void __ip_vs_del_dest(struct netns_ipvs *ipvs, struct ip_vs_dest *dest,
 			     bool cleanup)
 {
+	unsigned int bh;
 	ip_vs_stop_estimator(ipvs, &dest->stats);
 
 	/*
@@ -1076,7 +1081,7 @@ static void __ip_vs_del_dest(struct netns_ipvs *ipvs, struct ip_vs_dest *dest,
 	 */
 	ip_vs_rs_unhash(dest);
 
-	spin_lock_bh(&ipvs->dest_trash_lock);
+	bh = spin_lock_bh(&ipvs->dest_trash_lock, SOFTIRQ_ALL_MASK);
 	IP_VS_DBG_BUF(3, "Moving dest %s:%u into trash, dest->refcnt=%d\n",
 		      IP_VS_DBG_ADDR(dest->af, &dest->addr), ntohs(dest->port),
 		      refcount_read(&dest->refcnt));
@@ -1086,7 +1091,7 @@ static void __ip_vs_del_dest(struct netns_ipvs *ipvs, struct ip_vs_dest *dest,
 	/* dest lives in trash with reference */
 	list_add(&dest->t_list, &ipvs->dest_trash);
 	dest->idle_start = 0;
-	spin_unlock_bh(&ipvs->dest_trash_lock);
+	spin_unlock_bh(&ipvs->dest_trash_lock, bh);
 }
 
 
@@ -1542,9 +1547,10 @@ void ip_vs_service_net_cleanup(struct netns_ipvs *ipvs)
 static inline void
 ip_vs_forget_dev(struct ip_vs_dest *dest, struct net_device *dev)
 {
+	unsigned int bh;
 	struct ip_vs_dest_dst *dest_dst;
 
-	spin_lock_bh(&dest->dst_lock);
+	bh = spin_lock_bh(&dest->dst_lock, SOFTIRQ_ALL_MASK);
 	dest_dst = rcu_dereference_protected(dest->dest_dst, 1);
 	if (dest_dst && dest_dst->dst_cache->dev == dev) {
 		IP_VS_DBG_BUF(3, "Reset dev:%s dest %s:%u ,dest->refcnt=%d\n",
@@ -1554,7 +1560,7 @@ ip_vs_forget_dev(struct ip_vs_dest *dest, struct net_device *dev)
 			      refcount_read(&dest->refcnt));
 		__ip_vs_dst_cache_reset(dest);
 	}
-	spin_unlock_bh(&dest->dst_lock);
+	spin_unlock_bh(&dest->dst_lock, bh);
 
 }
 /* Netdev event receiver
@@ -1563,6 +1569,7 @@ ip_vs_forget_dev(struct ip_vs_dest *dest, struct net_device *dev)
 static int ip_vs_dst_event(struct notifier_block *this, unsigned long event,
 			   void *ptr)
 {
+	unsigned int bh;
 	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
 	struct net *net = dev_net(dev);
 	struct netns_ipvs *ipvs = net_ipvs(net);
@@ -1596,11 +1603,11 @@ static int ip_vs_dst_event(struct notifier_block *this, unsigned long event,
 		}
 	}
 
-	spin_lock_bh(&ipvs->dest_trash_lock);
+	bh = spin_lock_bh(&ipvs->dest_trash_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(dest, &ipvs->dest_trash, t_list) {
 		ip_vs_forget_dev(dest, dev);
 	}
-	spin_unlock_bh(&ipvs->dest_trash_lock);
+	spin_unlock_bh(&ipvs->dest_trash_lock, bh);
 	mutex_unlock(&__ip_vs_mutex);
 	LeaveFunction(2);
 	return NOTIFY_DONE;

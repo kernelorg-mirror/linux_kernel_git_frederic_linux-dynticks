@@ -228,24 +228,26 @@ static struct hsi_msg *ssip_alloc_data(struct ssi_protocol *ssi,
 
 static inline void ssip_release_cmd(struct hsi_msg *msg)
 {
+	unsigned int bh;
 	struct ssi_protocol *ssi = hsi_client_drvdata(msg->cl);
 
 	dev_dbg(&msg->cl->device, "Release cmd 0x%08x\n", ssip_get_cmd(msg));
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&msg->link, &ssi->cmdqueue);
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 }
 
 static struct hsi_msg *ssip_claim_cmd(struct ssi_protocol *ssi)
 {
+	unsigned int bh;
 	struct hsi_msg *msg;
 
 	BUG_ON(list_empty(&ssi->cmdqueue));
 
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	msg = list_first_entry(&ssi->cmdqueue, struct hsi_msg, link);
 	list_del(&msg->link);
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 	msg->destructor = ssip_release_cmd;
 
 	return msg;
@@ -353,15 +355,16 @@ EXPORT_SYMBOL_GPL(ssip_slave_get_master);
 
 int ssip_slave_start_tx(struct hsi_client *master)
 {
+	unsigned int bh;
 	struct ssi_protocol *ssi = hsi_client_drvdata(master);
 
 	dev_dbg(&master->device, "start TX %d\n", atomic_read(&ssi->tx_usecnt));
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	if (ssi->send_state == SEND_IDLE) {
 		ssip_set_txstate(ssi, WAIT4READY);
 		hsi_start_tx(master);
 	}
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 	atomic_inc(&ssi->tx_usecnt);
 
 	return 0;
@@ -370,18 +373,19 @@ EXPORT_SYMBOL_GPL(ssip_slave_start_tx);
 
 int ssip_slave_stop_tx(struct hsi_client *master)
 {
+	unsigned int bh;
 	struct ssi_protocol *ssi = hsi_client_drvdata(master);
 
 	WARN_ON_ONCE(atomic_read(&ssi->tx_usecnt) == 0);
 
 	if (atomic_dec_and_test(&ssi->tx_usecnt)) {
-		spin_lock_bh(&ssi->lock);
+		bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 		if ((ssi->send_state == SEND_READY) ||
 			(ssi->send_state == WAIT4READY)) {
 			ssip_set_txstate(ssi, SEND_IDLE);
 			hsi_stop_tx(master);
 		}
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 	}
 	dev_dbg(&master->device, "stop TX %d\n", atomic_read(&ssi->tx_usecnt));
 
@@ -401,17 +405,18 @@ static void ssip_reset(struct hsi_client *cl)
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 	struct list_head *head, *tmp;
 	struct hsi_msg *msg;
+	unsigned int bh;
 
 	if (netif_running(ssi->netdev))
 		netif_carrier_off(ssi->netdev);
 	hsi_flush(cl);
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	if (ssi->send_state != SEND_IDLE)
 		hsi_stop_tx(cl);
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 	if (test_and_clear_bit(SSIP_WAKETEST_FLAG, &ssi->flags))
 		ssi_waketest(cl, 0); /* FIXME: To be removed */
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	del_timer(&ssi->rx_wd);
 	del_timer(&ssi->tx_wd);
 	del_timer(&ssi->keep_alive);
@@ -428,15 +433,16 @@ static void ssip_reset(struct hsi_client *cl)
 		ssip_free_data(msg);
 	}
 	ssi->txqueue_len = 0;
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 }
 
 static void ssip_dump_state(struct hsi_client *cl)
 {
+	unsigned int bh;
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 	struct hsi_msg *msg;
 
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	dev_err(&cl->device, "Main state: %d\n", ssi->main_state);
 	dev_err(&cl->device, "Recv state: %d\n", ssi->recv_state);
 	dev_err(&cl->device, "Send state: %d\n", ssi->send_state);
@@ -449,7 +455,7 @@ static void ssip_dump_state(struct hsi_client *cl)
 
 	list_for_each_entry(msg, &ssi->txqueue, link)
 		dev_err(&cl->device, "pending TX data (%p)\n", msg);
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 }
 
 static void ssip_error(struct hsi_client *cl)
@@ -526,22 +532,23 @@ static void ssip_send_bootinfo_req_cmd(struct hsi_client *cl)
 
 static void ssip_start_rx(struct hsi_client *cl)
 {
+	unsigned int bh;
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 	struct hsi_msg *msg;
 
 	dev_dbg(&cl->device, "RX start M(%d) R(%d)\n", ssi->main_state,
 						ssi->recv_state);
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	/*
 	 * We can have two UP events in a row due to a short low
 	 * high transition. Therefore we need to ignore the sencond UP event.
 	 */
 	if ((ssi->main_state != ACTIVE) || (ssi->recv_state == RECV_READY)) {
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		return;
 	}
 	ssip_set_rxstate(ssi, RECV_READY);
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 
 	msg = ssip_claim_cmd(ssi);
 	ssip_set_cmd(msg, SSIP_READY_CMD);
@@ -552,13 +559,14 @@ static void ssip_start_rx(struct hsi_client *cl)
 
 static void ssip_stop_rx(struct hsi_client *cl)
 {
+	unsigned int bh;
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 
 	dev_dbg(&cl->device, "RX stop M(%d)\n", ssi->main_state);
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	if (likely(ssi->main_state == ACTIVE))
 		ssip_set_rxstate(ssi, RECV_IDLE);
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 }
 
 static void ssip_free_strans(struct hsi_msg *msg)
@@ -569,33 +577,35 @@ static void ssip_free_strans(struct hsi_msg *msg)
 
 static void ssip_strans_complete(struct hsi_msg *msg)
 {
+	unsigned int bh;
 	struct hsi_client *cl = msg->cl;
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 	struct hsi_msg *data;
 
 	data = msg->context;
 	ssip_release_cmd(msg);
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	ssip_set_txstate(ssi, SENDING);
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 	hsi_async_write(cl, data);
 }
 
 static int ssip_xmit(struct hsi_client *cl)
 {
+	unsigned int bh;
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 	struct hsi_msg *msg, *dmsg;
 	struct sk_buff *skb;
 
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&ssi->txqueue)) {
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		return 0;
 	}
 	dmsg = list_first_entry(&ssi->txqueue, struct hsi_msg, link);
 	list_del(&dmsg->link);
 	ssi->txqueue_len--;
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 
 	msg = ssip_claim_cmd(ssi);
 	skb = dmsg->context;
@@ -603,12 +613,12 @@ static int ssip_xmit(struct hsi_client *cl)
 	msg->complete = ssip_strans_complete;
 	msg->destructor = ssip_free_strans;
 
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	ssip_set_cmd(msg, SSIP_START_TRANS_CMD(SSIP_BYTES_TO_FRAMES(skb->len),
 								ssi->txid));
 	ssi->txid++;
 	ssip_set_txstate(ssi, SENDING);
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock,  bh);
 
 	dev_dbg(&cl->device, "Send STRANS (%d frames)\n",
 						SSIP_BYTES_TO_FRAMES(skb->len));
@@ -670,6 +680,7 @@ static void ssip_rx_bootinforeq(struct hsi_client *cl, u32 cmd)
 {
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 	struct hsi_msg *msg;
+	unsigned int bp;
 
 	/* Workaroud: Ignore CMT Loader message leftover */
 	if (cmd == SSIP_CMT_LOADER_SYNC)
@@ -682,17 +693,17 @@ static void ssip_rx_bootinforeq(struct hsi_client *cl, u32 cmd)
 		/* Fall through */
 	case INIT:
 	case HANDSHAKE:
-		spin_lock_bh(&ssi->lock);
+		bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 		ssi->main_state = HANDSHAKE;
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 
 		if (!test_and_set_bit(SSIP_WAKETEST_FLAG, &ssi->flags))
 			ssi_waketest(cl, 1); /* FIXME: To be removed */
 
-		spin_lock_bh(&ssi->lock);
+		bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 		/* Start boot handshake watchdog */
 		mod_timer(&ssi->tx_wd, jiffies + msecs_to_jiffies(SSIP_WDTOUT));
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		dev_dbg(&cl->device, "Send BOOTINFO_RESP\n");
 		if (SSIP_DATA_VERSION(cmd) != SSIP_LOCAL_VERID)
 			dev_warn(&cl->device, "boot info req verid mismatch\n");
@@ -709,42 +720,44 @@ static void ssip_rx_bootinforeq(struct hsi_client *cl, u32 cmd)
 
 static void ssip_rx_bootinforesp(struct hsi_client *cl, u32 cmd)
 {
+	unsigned int bh;
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 
 	if (SSIP_DATA_VERSION(cmd) != SSIP_LOCAL_VERID)
 		dev_warn(&cl->device, "boot info resp verid mismatch\n");
 
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	if (ssi->main_state != ACTIVE)
 		/* Use tx_wd as a boot watchdog in non ACTIVE state */
 		mod_timer(&ssi->tx_wd, jiffies + msecs_to_jiffies(SSIP_WDTOUT));
 	else
 		dev_dbg(&cl->device, "boot info resp ignored M(%d)\n",
 							ssi->main_state);
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 }
 
 static void ssip_rx_waketest(struct hsi_client *cl, u32 cmd)
 {
+	unsigned int bh;
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 	unsigned int wkres = SSIP_PAYLOAD(cmd);
 
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	if (ssi->main_state != HANDSHAKE) {
 		dev_dbg(&cl->device, "wake lines test ignored M(%d)\n",
 							ssi->main_state);
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		return;
 	}
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 
 	if (test_and_clear_bit(SSIP_WAKETEST_FLAG, &ssi->flags))
 		ssi_waketest(cl, 0); /* FIXME: To be removed */
 
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	ssi->main_state = ACTIVE;
 	del_timer(&ssi->tx_wd); /* Stop boot handshake timer */
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 
 	dev_notice(&cl->device, "WAKELINES TEST %s\n",
 				wkres & SSIP_WAKETEST_FAILED ? "FAILED" : "OK");
@@ -759,49 +772,51 @@ static void ssip_rx_waketest(struct hsi_client *cl, u32 cmd)
 
 static void ssip_rx_ready(struct hsi_client *cl)
 {
+	unsigned int bh;
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	if (unlikely(ssi->main_state != ACTIVE)) {
 		dev_dbg(&cl->device, "READY on wrong state: S(%d) M(%d)\n",
 					ssi->send_state, ssi->main_state);
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		return;
 	}
 	if (ssi->send_state != WAIT4READY) {
 		dev_dbg(&cl->device, "Ignore spurious READY command\n");
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		return;
 	}
 	ssip_set_txstate(ssi, SEND_READY);
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 	ssip_xmit(cl);
 }
 
 static void ssip_rx_strans(struct hsi_client *cl, u32 cmd)
 {
+	unsigned int bh;
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 	struct sk_buff *skb;
 	struct hsi_msg *msg;
 	int len = SSIP_PDU_LENGTH(cmd);
 
 	dev_dbg(&cl->device, "RX strans: %d frames\n", len);
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	if (unlikely(ssi->main_state != ACTIVE)) {
 		dev_err(&cl->device, "START TRANS wrong state: S(%d) M(%d)\n",
 					ssi->send_state, ssi->main_state);
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		return;
 	}
 	ssip_set_rxstate(ssi, RECEIVING);
 	if (unlikely(SSIP_MSG_ID(cmd) != ssi->rxid)) {
 		dev_err(&cl->device, "START TRANS id %d expected %d\n",
 					SSIP_MSG_ID(cmd), ssi->rxid);
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		goto out1;
 	}
 	ssi->rxid++;
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 	skb = netdev_alloc_skb(ssi->netdev, len * 4);
 	if (unlikely(!skb)) {
 		dev_err(&cl->device, "No memory for rx skb\n");
@@ -865,11 +880,12 @@ static void ssip_rxcmd_complete(struct hsi_msg *msg)
 
 static void ssip_swbreak_complete(struct hsi_msg *msg)
 {
+	unsigned int bh;
 	struct hsi_client *cl = msg->cl;
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 
 	ssip_release_cmd(msg);
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&ssi->txqueue)) {
 		if (atomic_read(&ssi->tx_usecnt)) {
 			ssip_set_txstate(ssi, SEND_READY);
@@ -877,9 +893,9 @@ static void ssip_swbreak_complete(struct hsi_msg *msg)
 			ssip_set_txstate(ssi, SEND_IDLE);
 			hsi_stop_tx(cl);
 		}
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 	} else {
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		ssip_xmit(cl);
 	}
 	netif_wake_queue(ssi->netdev);
@@ -887,6 +903,7 @@ static void ssip_swbreak_complete(struct hsi_msg *msg)
 
 static void ssip_tx_data_complete(struct hsi_msg *msg)
 {
+	unsigned int bh;
 	struct hsi_client *cl = msg->cl;
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 	struct hsi_msg *cmsg;
@@ -896,17 +913,17 @@ static void ssip_tx_data_complete(struct hsi_msg *msg)
 		ssip_error(cl);
 		goto out;
 	}
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&ssi->txqueue)) {
 		ssip_set_txstate(ssi, SENDING_SWBREAK);
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		cmsg = ssip_claim_cmd(ssi);
 		ssip_set_cmd(cmsg, SSIP_SWBREAK_CMD);
 		cmsg->complete = ssip_swbreak_complete;
 		dev_dbg(&cl->device, "Send SWBREAK\n");
 		hsi_async_write(cl, cmsg);
 	} else {
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		ssip_xmit(cl);
 	}
 out:
@@ -929,6 +946,7 @@ static void ssip_port_event(struct hsi_client *cl, unsigned long event)
 
 static int ssip_pn_open(struct net_device *dev)
 {
+	unsigned int bh;
 	struct hsi_client *cl = to_hsi_client(dev->dev.parent);
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 	int err;
@@ -950,9 +968,9 @@ static int ssip_pn_open(struct net_device *dev)
 	if (!test_and_set_bit(SSIP_WAKETEST_FLAG, &ssi->flags))
 		ssi_waketest(cl, 1); /* FIXME: To be removed */
 
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	ssi->main_state = HANDSHAKE;
-	spin_unlock_bh(&ssi->lock);
+	spin_unlock_bh(&ssi->lock, bh);
 
 	ssip_send_bootinfo_req_cmd(cl);
 
@@ -981,6 +999,7 @@ static void ssip_xmit_work(struct work_struct *work)
 
 static int ssip_pn_xmit(struct sk_buff *skb, struct net_device *dev)
 {
+	unsigned int bh;
 	struct hsi_client *cl = to_hsi_client(dev->dev.parent);
 	struct ssi_protocol *ssi = hsi_client_drvdata(cl);
 	struct hsi_msg *msg;
@@ -1009,9 +1028,9 @@ static int ssip_pn_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 	msg->complete = ssip_tx_data_complete;
 
-	spin_lock_bh(&ssi->lock);
+	bh = spin_lock_bh(&ssi->lock, SOFTIRQ_ALL_MASK);
 	if (unlikely(ssi->main_state != ACTIVE)) {
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		dev_dbg(&cl->device, "Dropping tx data: CMT is OFFLINE\n");
 		goto drop2;
 	}
@@ -1023,17 +1042,17 @@ static int ssip_pn_xmit(struct sk_buff *skb, struct net_device *dev)
 	}
 	if (ssi->send_state == SEND_IDLE) {
 		ssip_set_txstate(ssi, WAIT4READY);
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		dev_dbg(&cl->device, "Start TX qlen %d\n", ssi->txqueue_len);
 		hsi_start_tx(cl);
 	} else if (ssi->send_state == SEND_READY) {
 		/* Needed for cmt-speech workaround */
 		dev_dbg(&cl->device, "Start TX on SEND READY qlen %d\n",
 							ssi->txqueue_len);
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 		schedule_work(&ssi->work);
 	} else {
-		spin_unlock_bh(&ssi->lock);
+		spin_unlock_bh(&ssi->lock, bh);
 	}
 	dev->stats.tx_packets++;
 	dev->stats.tx_bytes += skb->len;

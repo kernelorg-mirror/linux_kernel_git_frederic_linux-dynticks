@@ -123,6 +123,7 @@ static void ecache_work(struct work_struct *work)
 int nf_conntrack_eventmask_report(unsigned int eventmask, struct nf_conn *ct,
 				  u32 portid, int report)
 {
+	unsigned int bh;
 	int ret = 0;
 	struct net *net = nf_ct_net(ct);
 	struct nf_ct_event_notifier *notify;
@@ -151,7 +152,7 @@ int nf_conntrack_eventmask_report(unsigned int eventmask, struct nf_conn *ct,
 
 		ret = notify->fcn(eventmask | missed, &item);
 		if (unlikely(ret < 0 || missed)) {
-			spin_lock_bh(&ct->lock);
+			bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 			if (ret < 0) {
 				/* This is a destroy event that has been
 				 * triggered by a process, we store the PORTID
@@ -167,7 +168,7 @@ int nf_conntrack_eventmask_report(unsigned int eventmask, struct nf_conn *ct,
 			} else {
 				e->missed &= ~missed;
 			}
-			spin_unlock_bh(&ct->lock);
+			spin_unlock_bh(&ct->lock, bh);
 		}
 	}
 out_unlock:
@@ -180,6 +181,7 @@ EXPORT_SYMBOL_GPL(nf_conntrack_eventmask_report);
  * disabled softirqs */
 void nf_ct_deliver_cached_events(struct nf_conn *ct)
 {
+	unsigned int bh;
 	struct net *net = nf_ct_net(ct);
 	unsigned long events, missed;
 	struct nf_ct_event_notifier *notify;
@@ -218,12 +220,12 @@ void nf_ct_deliver_cached_events(struct nf_conn *ct)
 	if (likely(ret == 0 && !missed))
 		goto out_unlock;
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	if (ret < 0)
 		e->missed |= events;
 	else
 		e->missed &= ~missed;
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 
 out_unlock:
 	rcu_read_unlock();

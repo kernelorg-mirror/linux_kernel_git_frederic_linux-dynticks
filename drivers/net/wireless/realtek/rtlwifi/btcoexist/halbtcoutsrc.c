@@ -67,6 +67,7 @@ static void halbtc_dbg_init(void)
  ***************************************************/
 static bool is_any_client_connect_to_ap(struct btc_coexist *btcoexist)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = btcoexist->adapter;
 	struct rtl_mac *mac = rtl_mac(rtlpriv);
 	struct rtl_sta_info *drv_priv;
@@ -81,12 +82,12 @@ static bool is_any_client_connect_to_ap(struct btc_coexist *btcoexist)
 				cnt++;
 			}
 		} else {
-			spin_lock_bh(&rtlpriv->locks.entry_list_lock);
+			bh = spin_lock_bh(&rtlpriv->locks.entry_list_lock, SOFTIRQ_ALL_MASK);
 			list_for_each_entry(drv_priv, &rtlpriv->entry_list,
 					    list) {
 				cnt++;
 			}
-			spin_unlock_bh(&rtlpriv->locks.entry_list_lock);
+			spin_unlock_bh(&rtlpriv->locks.entry_list_lock, bh);
 		}
 	}
 	if (cnt > 0)

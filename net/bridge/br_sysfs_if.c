@@ -308,6 +308,7 @@ static ssize_t brport_store(struct kobject *kobj,
 			    struct attribute *attr,
 			    const char *buf, size_t count)
 {
+	unsigned int bh;
 	struct brport_attribute *brport_attr = to_brport_attr(attr);
 	struct net_bridge_port *p = kobj_to_brport(kobj);
 	ssize_t ret = -EINVAL;
@@ -331,17 +332,17 @@ static ssize_t brport_store(struct kobject *kobj,
 			ret = -ENOMEM;
 			goto out_unlock;
 		}
-		spin_lock_bh(&p->br->lock);
+		bh = spin_lock_bh(&p->br->lock, SOFTIRQ_ALL_MASK);
 		ret = brport_attr->store_raw(p, buf_copy);
-		spin_unlock_bh(&p->br->lock);
+		spin_unlock_bh(&p->br->lock, bh);
 		kfree(buf_copy);
 	} else if (brport_attr->store) {
 		val = simple_strtoul(buf, &endp, 0);
 		if (endp == buf)
 			goto out_unlock;
-		spin_lock_bh(&p->br->lock);
+		bh = spin_lock_bh(&p->br->lock, SOFTIRQ_ALL_MASK);
 		ret = brport_attr->store(p, val);
-		spin_unlock_bh(&p->br->lock);
+		spin_unlock_bh(&p->br->lock, bh);
 	}
 
 	if (!ret) {

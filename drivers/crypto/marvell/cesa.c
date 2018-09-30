@@ -54,16 +54,17 @@ mv_cesa_dequeue_req_locked(struct mv_cesa_engine *engine,
 
 static void mv_cesa_rearm_engine(struct mv_cesa_engine *engine)
 {
+	unsigned int bh;
 	struct crypto_async_request *req = NULL, *backlog = NULL;
 	struct mv_cesa_ctx *ctx;
 
 
-	spin_lock_bh(&engine->lock);
+	bh = spin_lock_bh(&engine->lock, SOFTIRQ_ALL_MASK);
 	if (!engine->req) {
 		req = mv_cesa_dequeue_req_locked(engine, &backlog);
 		engine->req = req;
 	}
-	spin_unlock_bh(&engine->lock);
+	spin_unlock_bh(&engine->lock, bh);
 
 	if (!req)
 		return;
@@ -116,6 +117,7 @@ mv_cesa_complete_req(struct mv_cesa_ctx *ctx, struct crypto_async_request *req,
 
 static irqreturn_t mv_cesa_int(int irq, void *priv)
 {
+	unsigned int bh;
 	struct mv_cesa_engine *engine = priv;
 	struct crypto_async_request *req;
 	struct mv_cesa_ctx *ctx;
@@ -142,11 +144,11 @@ static irqreturn_t mv_cesa_int(int irq, void *priv)
 		res = mv_cesa_int_process(engine, status & mask);
 		ret = IRQ_HANDLED;
 
-		spin_lock_bh(&engine->lock);
+		bh = spin_lock_bh(&engine->lock, SOFTIRQ_ALL_MASK);
 		req = engine->req;
 		if (res != -EINPROGRESS)
 			engine->req = NULL;
-		spin_unlock_bh(&engine->lock);
+		spin_unlock_bh(&engine->lock, bh);
 
 		ctx = crypto_tfm_ctx(req->tfm);
 
@@ -173,15 +175,16 @@ static irqreturn_t mv_cesa_int(int irq, void *priv)
 int mv_cesa_queue_req(struct crypto_async_request *req,
 		      struct mv_cesa_req *creq)
 {
+	unsigned int bh;
 	int ret;
 	struct mv_cesa_engine *engine = creq->engine;
 
-	spin_lock_bh(&engine->lock);
+	bh = spin_lock_bh(&engine->lock, SOFTIRQ_ALL_MASK);
 	ret = crypto_enqueue_request(&engine->queue, req);
 	if ((mv_cesa_req_get_type(creq) == CESA_DMA_REQ) &&
 	    (ret == -EINPROGRESS || ret == -EBUSY))
 		mv_cesa_tdma_chain(engine, creq);
-	spin_unlock_bh(&engine->lock);
+	spin_unlock_bh(&engine->lock, bh);
 
 	if (ret != -EINPROGRESS)
 		return ret;

@@ -332,6 +332,7 @@ static int ap_query_queue(ap_qid_t qid, int *queue_depth, int *device_type,
 
 void ap_wait(enum ap_wait wait)
 {
+	unsigned int bh;
 	ktime_t hr_time;
 
 	switch (wait) {
@@ -345,13 +346,13 @@ void ap_wait(enum ap_wait wait)
 		}
 		/* Fall through */
 	case AP_WAIT_TIMEOUT:
-		spin_lock_bh(&ap_poll_timer_lock);
+		bh = spin_lock_bh(&ap_poll_timer_lock, SOFTIRQ_ALL_MASK);
 		if (!hrtimer_is_queued(&ap_poll_timer)) {
 			hr_time = poll_timeout;
 			hrtimer_forward_now(&ap_poll_timer, hr_time);
 			hrtimer_restart(&ap_poll_timer);
 		}
-		spin_unlock_bh(&ap_poll_timer_lock);
+		spin_unlock_bh(&ap_poll_timer_lock, bh);
 		break;
 	case AP_WAIT_NONE:
 	default:
@@ -367,13 +368,14 @@ void ap_wait(enum ap_wait wait)
  */
 void ap_request_timeout(struct timer_list *t)
 {
+	unsigned int bh;
 	struct ap_queue *aq = from_timer(aq, t, timeout);
 
 	if (ap_suspend_flag)
 		return;
-	spin_lock_bh(&aq->lock);
+	bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 	ap_wait(ap_sm_event(aq, AP_EVENT_TIMEOUT));
-	spin_unlock_bh(&aq->lock);
+	spin_unlock_bh(&aq->lock, bh);
 }
 
 /**
@@ -408,6 +410,7 @@ static void ap_interrupt_handler(struct airq_struct *airq)
  */
 static void ap_tasklet_fn(unsigned long dummy)
 {
+	unsigned int bh;
 	struct ap_card *ac;
 	struct ap_queue *aq;
 	enum ap_wait wait = AP_WAIT_NONE;
@@ -419,34 +422,35 @@ static void ap_tasklet_fn(unsigned long dummy)
 	if (ap_using_interrupts())
 		xchg(ap_airq.lsi_ptr, 0);
 
-	spin_lock_bh(&ap_list_lock);
+	bh = spin_lock_bh(&ap_list_lock, SOFTIRQ_ALL_MASK);
 	for_each_ap_card(ac) {
 		for_each_ap_queue(aq, ac) {
-			spin_lock_bh(&aq->lock);
+			spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 			wait = min(wait, ap_sm_event_loop(aq, AP_EVENT_POLL));
 			spin_unlock_bh(&aq->lock);
 		}
 	}
-	spin_unlock_bh(&ap_list_lock);
+	spin_unlock_bh(&ap_list_lock, bh);
 
 	ap_wait(wait);
 }
 
 static int ap_pending_requests(void)
 {
+	unsigned int bh;
 	struct ap_card *ac;
 	struct ap_queue *aq;
 
-	spin_lock_bh(&ap_list_lock);
+	bh = spin_lock_bh(&ap_list_lock, SOFTIRQ_ALL_MASK);
 	for_each_ap_card(ac) {
 		for_each_ap_queue(aq, ac) {
 			if (aq->queue_count == 0)
 				continue;
-			spin_unlock_bh(&ap_list_lock);
+			spin_unlock_bh(&ap_list_lock, bh);
 			return 1;
 		}
 	}
-	spin_unlock_bh(&ap_list_lock);
+	spin_unlock_bh(&ap_list_lock, bh);
 	return 0;
 }
 
@@ -756,6 +760,7 @@ EXPORT_SYMBOL(ap_apqn_in_matrix_owned_by_def_drv);
 
 static int ap_device_probe(struct device *dev)
 {
+	unsigned int bh;
 	struct ap_device *ap_dev = to_ap_dev(dev);
 	struct ap_driver *ap_drv = to_ap_drv(dev->driver);
 	int card, queue, devres, drvres, rc;
@@ -779,19 +784,19 @@ static int ap_device_probe(struct device *dev)
 	}
 
 	/* Add queue/card to list of active queues/cards */
-	spin_lock_bh(&ap_list_lock);
+	bh = spin_lock_bh(&ap_list_lock, SOFTIRQ_ALL_MASK);
 	if (is_card_dev(dev))
 		list_add(&to_ap_card(dev)->list, &ap_card_list);
 	else
 		list_add(&to_ap_queue(dev)->list,
 			 &to_ap_queue(dev)->card->queues);
-	spin_unlock_bh(&ap_list_lock);
+	spin_unlock_bh(&ap_list_lock, bh);
 
 	ap_dev->drv = ap_drv;
 	rc = ap_drv->probe ? ap_drv->probe(ap_dev) : -ENODEV;
 
 	if (rc) {
-		spin_lock_bh(&ap_list_lock);
+		spin_lock_bh(&ap_list_lock, SOFTIRQ_ALL_MASK);
 		if (is_card_dev(dev))
 			list_del_init(&to_ap_card(dev)->list);
 		else
@@ -805,6 +810,7 @@ static int ap_device_probe(struct device *dev)
 
 static int ap_device_remove(struct device *dev)
 {
+	unsigned int bh;
 	struct ap_device *ap_dev = to_ap_dev(dev);
 	struct ap_driver *ap_drv = ap_dev->drv;
 
@@ -812,12 +818,12 @@ static int ap_device_remove(struct device *dev)
 		ap_drv->remove(ap_dev);
 
 	/* Remove queue/card from list of active queues/cards */
-	spin_lock_bh(&ap_list_lock);
+	bh = spin_lock_bh(&ap_list_lock, SOFTIRQ_ALL_MASK);
 	if (is_card_dev(dev))
 		list_del_init(&to_ap_card(dev)->list);
 	else
 		list_del_init(&to_ap_queue(dev)->list);
-	spin_unlock_bh(&ap_list_lock);
+	spin_unlock_bh(&ap_list_lock, bh);
 
 	return 0;
 }
@@ -1002,15 +1008,16 @@ static ssize_t ap_domain_show(struct bus_type *bus, char *buf)
 static ssize_t ap_domain_store(struct bus_type *bus,
 			       const char *buf, size_t count)
 {
+	unsigned int bh;
 	int domain;
 
 	if (sscanf(buf, "%i\n", &domain) != 1 ||
 	    domain < 0 || domain > ap_max_domain_id ||
 	    !test_bit_inv(domain, ap_perms.aqm))
 		return -EINVAL;
-	spin_lock_bh(&ap_domain_lock);
+	bh = spin_lock_bh(&ap_domain_lock, SOFTIRQ_ALL_MASK);
 	ap_domain_index = domain;
-	spin_unlock_bh(&ap_domain_lock);
+	spin_unlock_bh(&ap_domain_lock, bh);
 
 	AP_DBF(DBF_DEBUG, "stored new default domain=%d\n", domain);
 
@@ -1107,6 +1114,7 @@ static ssize_t poll_timeout_show(struct bus_type *bus, char *buf)
 static ssize_t poll_timeout_store(struct bus_type *bus, const char *buf,
 				  size_t count)
 {
+	unsigned int bh;
 	unsigned long long time;
 	ktime_t hr_time;
 
@@ -1117,11 +1125,11 @@ static ssize_t poll_timeout_store(struct bus_type *bus, const char *buf,
 	poll_timeout = time;
 	hr_time = poll_timeout;
 
-	spin_lock_bh(&ap_poll_timer_lock);
+	bh = spin_lock_bh(&ap_poll_timer_lock, SOFTIRQ_ALL_MASK);
 	hrtimer_cancel(&ap_poll_timer);
 	hrtimer_set_expires(&ap_poll_timer, hr_time);
 	hrtimer_start_expires(&ap_poll_timer, HRTIMER_MODE_ABS);
-	spin_unlock_bh(&ap_poll_timer_lock);
+	spin_unlock_bh(&ap_poll_timer_lock, bh);
 
 	return count;
 }
@@ -1224,6 +1232,7 @@ static struct bus_attribute *const ap_bus_attrs[] = {
  */
 static int ap_select_domain(void)
 {
+	unsigned int bh;
 	int count, max_count, best_domain;
 	struct ap_queue_status status;
 	int i, j;
@@ -1233,10 +1242,10 @@ static int ap_select_domain(void)
 	 * the "domain=" parameter or the domain with the maximum number
 	 * of devices.
 	 */
-	spin_lock_bh(&ap_domain_lock);
+	bh = spin_lock_bh(&ap_domain_lock, SOFTIRQ_ALL_MASK);
 	if (ap_domain_index >= 0) {
 		/* Domain has already been selected. */
-		spin_unlock_bh(&ap_domain_lock);
+		spin_unlock_bh(&ap_domain_lock, bh);
 		return 0;
 	}
 	best_domain = -1;
@@ -1264,10 +1273,10 @@ static int ap_select_domain(void)
 	if (best_domain >= 0) {
 		ap_domain_index = best_domain;
 		AP_DBF(DBF_DEBUG, "new ap_domain_index=%d\n", ap_domain_index);
-		spin_unlock_bh(&ap_domain_lock);
+		spin_unlock_bh(&ap_domain_lock, bh);
 		return 0;
 	}
-	spin_unlock_bh(&ap_domain_lock);
+	spin_unlock_bh(&ap_domain_lock, bh);
 	return -ENODEV;
 }
 
@@ -1335,6 +1344,7 @@ static int __match_queue_device_with_qid(struct device *dev, void *data)
  */
 static void ap_scan_bus(struct work_struct *unused)
 {
+	unsigned int bh;
 	struct ap_queue *aq;
 	struct ap_card *ac;
 	struct device *dev;
@@ -1393,13 +1403,13 @@ static void ap_scan_bus(struct work_struct *unused)
 			}
 			rc = ap_query_queue(qid, &depth, &type, &func);
 			if (dev) {
-				spin_lock_bh(&aq->lock);
+				bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 				if (rc == -ENODEV ||
 				    /* adapter reconfiguration */
 				    (ac && ac->functions != func))
 					aq->state = AP_STATE_BORKED;
 				borked = aq->state == AP_STATE_BORKED;
-				spin_unlock_bh(&aq->lock);
+				spin_unlock_bh(&aq->lock, bh);
 				if (borked)	/* Remove broken device */
 					device_unregister(dev);
 				put_device(dev);
@@ -1446,9 +1456,9 @@ static void ap_scan_bus(struct work_struct *unused)
 			dev_set_name(&aq->ap_dev.device,
 				     "%02x.%04x", id, dom);
 			/* Start with a device reset */
-			spin_lock_bh(&aq->lock);
+			bh = spin_lock_bh(&aq->lock, SOFTIRQ_ALL_MASK);
 			ap_wait(ap_sm_event(aq, AP_EVENT_POLL));
-			spin_unlock_bh(&aq->lock);
+			spin_unlock_bh(&aq->lock, bh);
 			/* Register device */
 			rc = device_register(&aq->ap_dev.device);
 			if (rc) {

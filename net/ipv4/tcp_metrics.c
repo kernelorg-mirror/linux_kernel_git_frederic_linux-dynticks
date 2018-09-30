@@ -148,11 +148,12 @@ static struct tcp_metrics_block *tcpm_new(struct dst_entry *dst,
 					  struct inetpeer_addr *daddr,
 					  unsigned int hash)
 {
+	unsigned int bh;
 	struct tcp_metrics_block *tm;
 	struct net *net;
 	bool reclaim = false;
 
-	spin_lock_bh(&tcp_metrics_lock);
+	bh = spin_lock_bh(&tcp_metrics_lock, SOFTIRQ_ALL_MASK);
 	net = dev_net(dst->dev);
 
 	/* While waiting for the spin-lock the cache might have been populated
@@ -195,7 +196,7 @@ static struct tcp_metrics_block *tcpm_new(struct dst_entry *dst,
 	}
 
 out_unlock:
-	spin_unlock_bh(&tcp_metrics_lock);
+	spin_unlock_bh(&tcp_metrics_lock, bh);
 	return tm;
 }
 
@@ -879,6 +880,7 @@ out_free:
 
 static void tcp_metrics_flush_all(struct net *net)
 {
+	unsigned int bh;
 	unsigned int max_rows = 1U << tcp_metrics_hash_log;
 	struct tcpm_hash_bucket *hb = tcp_metrics_hash;
 	struct tcp_metrics_block *tm;
@@ -888,7 +890,7 @@ static void tcp_metrics_flush_all(struct net *net)
 		struct tcp_metrics_block __rcu **pp;
 		bool match;
 
-		spin_lock_bh(&tcp_metrics_lock);
+		bh = spin_lock_bh(&tcp_metrics_lock, SOFTIRQ_ALL_MASK);
 		pp = &hb->chain;
 		for (tm = deref_locked(*pp); tm; tm = deref_locked(*pp)) {
 			match = net ? net_eq(tm_net(tm), net) :
@@ -900,12 +902,13 @@ static void tcp_metrics_flush_all(struct net *net)
 				pp = &tm->tcpm_next;
 			}
 		}
-		spin_unlock_bh(&tcp_metrics_lock);
+		spin_unlock_bh(&tcp_metrics_lock, bh);
 	}
 }
 
 static int tcp_metrics_nl_cmd_del(struct sk_buff *skb, struct genl_info *info)
 {
+	unsigned int bh;
 	struct tcpm_hash_bucket *hb;
 	struct tcp_metrics_block *tm;
 	struct tcp_metrics_block __rcu **pp;
@@ -930,7 +933,7 @@ static int tcp_metrics_nl_cmd_del(struct sk_buff *skb, struct genl_info *info)
 	hash = hash_32(hash, tcp_metrics_hash_log);
 	hb = tcp_metrics_hash + hash;
 	pp = &hb->chain;
-	spin_lock_bh(&tcp_metrics_lock);
+	bh = spin_lock_bh(&tcp_metrics_lock, SOFTIRQ_ALL_MASK);
 	for (tm = deref_locked(*pp); tm; tm = deref_locked(*pp)) {
 		if (addr_same(&tm->tcpm_daddr, &daddr) &&
 		    (!src || addr_same(&tm->tcpm_saddr, &saddr)) &&
@@ -942,7 +945,7 @@ static int tcp_metrics_nl_cmd_del(struct sk_buff *skb, struct genl_info *info)
 			pp = &tm->tcpm_next;
 		}
 	}
-	spin_unlock_bh(&tcp_metrics_lock);
+	spin_unlock_bh(&tcp_metrics_lock, bh);
 	if (!found)
 		return -ESRCH;
 	return 0;

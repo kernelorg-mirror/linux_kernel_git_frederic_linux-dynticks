@@ -634,6 +634,7 @@ EXPORT_SYMBOL_GPL(svc_rqst_alloc);
 struct svc_rqst *
 svc_prepare_thread(struct svc_serv *serv, struct svc_pool *pool, int node)
 {
+	unsigned int bh;
 	struct svc_rqst	*rqstp;
 
 	rqstp = svc_rqst_alloc(serv, pool, node);
@@ -641,10 +642,10 @@ svc_prepare_thread(struct svc_serv *serv, struct svc_pool *pool, int node)
 		return ERR_PTR(-ENOMEM);
 
 	serv->sv_nrthreads++;
-	spin_lock_bh(&pool->sp_lock);
+	bh = spin_lock_bh(&pool->sp_lock, SOFTIRQ_ALL_MASK);
 	pool->sp_nrthreads++;
 	list_add_rcu(&rqstp->rq_all, &pool->sp_all_threads);
-	spin_unlock_bh(&pool->sp_lock);
+	spin_unlock_bh(&pool->sp_lock, bh);
 	return rqstp;
 }
 EXPORT_SYMBOL_GPL(svc_prepare_thread);
@@ -667,19 +668,20 @@ choose_pool(struct svc_serv *serv, struct svc_pool *pool, unsigned int *state)
 static inline struct task_struct *
 choose_victim(struct svc_serv *serv, struct svc_pool *pool, unsigned int *state)
 {
+	unsigned int bh;
 	unsigned int i;
 	struct task_struct *task = NULL;
 
 	if (pool != NULL) {
-		spin_lock_bh(&pool->sp_lock);
+		bh = spin_lock_bh(&pool->sp_lock, SOFTIRQ_ALL_MASK);
 	} else {
 		/* choose a pool in round-robin fashion */
 		for (i = 0; i < serv->sv_nrpools; i++) {
 			pool = &serv->sv_pools[--(*state) % serv->sv_nrpools];
-			spin_lock_bh(&pool->sp_lock);
+			bh = spin_lock_bh(&pool->sp_lock, SOFTIRQ_ALL_MASK);
 			if (!list_empty(&pool->sp_all_threads))
 				goto found_pool;
-			spin_unlock_bh(&pool->sp_lock);
+			spin_unlock_bh(&pool->sp_lock, bh);
 		}
 		return NULL;
 	}
@@ -697,7 +699,7 @@ found_pool:
 		list_del_rcu(&rqstp->rq_all);
 		task = rqstp->rq_task;
 	}
-	spin_unlock_bh(&pool->sp_lock);
+	spin_unlock_bh(&pool->sp_lock, bh);
 
 	return task;
 }
@@ -778,13 +780,14 @@ svc_signal_kthreads(struct svc_serv *serv, struct svc_pool *pool, int nrservs)
 int
 svc_set_num_threads(struct svc_serv *serv, struct svc_pool *pool, int nrservs)
 {
+	unsigned int bh;
 	if (pool == NULL) {
 		/* The -1 assumes caller has done a svc_get() */
 		nrservs -= (serv->sv_nrthreads-1);
 	} else {
-		spin_lock_bh(&pool->sp_lock);
+		bh = spin_lock_bh(&pool->sp_lock, SOFTIRQ_ALL_MASK);
 		nrservs -= pool->sp_nrthreads;
-		spin_unlock_bh(&pool->sp_lock);
+		spin_unlock_bh(&pool->sp_lock, bh);
 	}
 
 	if (nrservs > 0)
@@ -816,13 +819,14 @@ svc_stop_kthreads(struct svc_serv *serv, struct svc_pool *pool, int nrservs)
 int
 svc_set_num_threads_sync(struct svc_serv *serv, struct svc_pool *pool, int nrservs)
 {
+	unsigned int bh;
 	if (pool == NULL) {
 		/* The -1 assumes caller has done a svc_get() */
 		nrservs -= (serv->sv_nrthreads-1);
 	} else {
-		spin_lock_bh(&pool->sp_lock);
+		bh = spin_lock_bh(&pool->sp_lock, SOFTIRQ_ALL_MASK);
 		nrservs -= pool->sp_nrthreads;
-		spin_unlock_bh(&pool->sp_lock);
+		spin_unlock_bh(&pool->sp_lock, bh);
 	}
 
 	if (nrservs > 0)
@@ -851,14 +855,15 @@ EXPORT_SYMBOL_GPL(svc_rqst_free);
 void
 svc_exit_thread(struct svc_rqst *rqstp)
 {
+	unsigned int bh;
 	struct svc_serv	*serv = rqstp->rq_server;
 	struct svc_pool	*pool = rqstp->rq_pool;
 
-	spin_lock_bh(&pool->sp_lock);
+	bh = spin_lock_bh(&pool->sp_lock, SOFTIRQ_ALL_MASK);
 	pool->sp_nrthreads--;
 	if (!test_and_set_bit(RQ_VICTIM, &rqstp->rq_flags))
 		list_del_rcu(&rqstp->rq_all);
-	spin_unlock_bh(&pool->sp_lock);
+	spin_unlock_bh(&pool->sp_lock, bh);
 
 	svc_rqst_free(rqstp);
 

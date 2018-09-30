@@ -270,13 +270,14 @@ out:
 static int rhashtable_rehash_chain(struct rhashtable *ht,
 				    unsigned int old_hash)
 {
+	unsigned int bh;
 	struct bucket_table *old_tbl = rht_dereference(ht->tbl, ht);
 	spinlock_t *old_bucket_lock;
 	int err;
 
 	old_bucket_lock = rht_bucket_lock(old_tbl, old_hash);
 
-	spin_lock_bh(old_bucket_lock);
+	bh = spin_lock_bh(old_bucket_lock, SOFTIRQ_ALL_MASK);
 	while (!(err = rhashtable_rehash_one(ht, old_hash)))
 		;
 
@@ -284,7 +285,7 @@ static int rhashtable_rehash_chain(struct rhashtable *ht,
 		old_tbl->rehash++;
 		err = 0;
 	}
-	spin_unlock_bh(old_bucket_lock);
+	spin_unlock_bh(old_bucket_lock, bh);
 
 	return err;
 }
@@ -575,6 +576,7 @@ static struct bucket_table *rhashtable_insert_one(struct rhashtable *ht,
 static void *rhashtable_try_insert(struct rhashtable *ht, const void *key,
 				   struct rhash_head *obj)
 {
+	unsigned int bh;
 	struct bucket_table *new_tbl;
 	struct bucket_table *tbl;
 	unsigned int hash;
@@ -589,12 +591,12 @@ static void *rhashtable_try_insert(struct rhashtable *ht, const void *key,
 	for (;;) {
 		hash = rht_head_hashfn(ht, tbl, obj, ht->p);
 		lock = rht_bucket_lock(tbl, hash);
-		spin_lock_bh(lock);
+		bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 
 		if (tbl->rehash <= hash)
 			break;
 
-		spin_unlock_bh(lock);
+		spin_unlock_bh(lock, bh);
 		tbl = rht_dereference_rcu(tbl->future_tbl, ht);
 	}
 
@@ -617,7 +619,7 @@ static void *rhashtable_try_insert(struct rhashtable *ht, const void *key,
 		spin_unlock(rht_bucket_lock(tbl, hash));
 	}
 
-	spin_unlock_bh(lock);
+	spin_unlock_bh(lock, bh);
 
 	if (PTR_ERR(data) == -EAGAIN)
 		data = ERR_PTR(rhashtable_insert_rehash(ht, tbl) ?:

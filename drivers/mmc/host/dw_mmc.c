@@ -110,6 +110,7 @@ struct idmac_desc {
 #if defined(CONFIG_DEBUG_FS)
 static int dw_mci_req_show(struct seq_file *s, void *v)
 {
+	unsigned int bh;
 	struct dw_mci_slot *slot = s->private;
 	struct mmc_request *mrq;
 	struct mmc_command *cmd;
@@ -117,7 +118,7 @@ static int dw_mci_req_show(struct seq_file *s, void *v)
 	struct mmc_data	*data;
 
 	/* Make sure we get a consistent snapshot */
-	spin_lock_bh(&slot->host->lock);
+	bh = spin_lock_bh(&slot->host->lock, SOFTIRQ_ALL_MASK);
 	mrq = slot->mrq;
 
 	if (mrq) {
@@ -143,7 +144,7 @@ static int dw_mci_req_show(struct seq_file *s, void *v)
 				   stop->resp[2], stop->error);
 	}
 
-	spin_unlock_bh(&slot->host->lock);
+	spin_unlock_bh(&slot->host->lock, bh);
 
 	return 0;
 }
@@ -966,6 +967,7 @@ static void dw_mci_post_req(struct mmc_host *mmc,
 
 static int dw_mci_get_cd(struct mmc_host *mmc)
 {
+	unsigned int bh;
 	int present;
 	struct dw_mci_slot *slot = mmc_priv(mmc);
 	struct dw_mci *host = slot->host;
@@ -994,13 +996,13 @@ static int dw_mci_get_cd(struct mmc_host *mmc)
 		present = (mci_readl(slot->host, CDETECT) & (1 << slot->id))
 			== 0 ? 1 : 0;
 
-	spin_lock_bh(&host->lock);
+	bh = spin_lock_bh(&host->lock, SOFTIRQ_ALL_MASK);
 	if (present && !test_and_set_bit(DW_MMC_CARD_PRESENT, &slot->flags))
 		dev_dbg(&mmc->class_dev, "card is present\n");
 	else if (!present &&
 			!test_and_clear_bit(DW_MMC_CARD_PRESENT, &slot->flags))
 		dev_dbg(&mmc->class_dev, "card is not present\n");
-	spin_unlock_bh(&host->lock);
+	spin_unlock_bh(&host->lock, bh);
 
 	return present;
 }
@@ -1402,6 +1404,7 @@ static void dw_mci_queue_request(struct dw_mci *host, struct dw_mci_slot *slot,
 
 static void dw_mci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 {
+	unsigned int bh;
 	struct dw_mci_slot *slot = mmc_priv(mmc);
 	struct dw_mci *host = slot->host;
 
@@ -1419,11 +1422,11 @@ static void dw_mci_request(struct mmc_host *mmc, struct mmc_request *mrq)
 		return;
 	}
 
-	spin_lock_bh(&host->lock);
+	bh = spin_lock_bh(&host->lock, SOFTIRQ_ALL_MASK);
 
 	dw_mci_queue_request(host, slot, mrq);
 
-	spin_unlock_bh(&host->lock);
+	spin_unlock_bh(&host->lock, bh);
 }
 
 static void dw_mci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)

@@ -185,6 +185,7 @@ void wil_memcpy_toio_32(volatile void __iomem *dst, const void *src,
 
 static void wil_ring_fini_tx(struct wil6210_priv *wil, int id)
 {
+	unsigned int bh;
 	struct wil_ring *ring = &wil->ring_tx[id];
 	struct wil_ring_tx_data *txdata = &wil->ring_tx_data[id];
 
@@ -195,11 +196,11 @@ static void wil_ring_fini_tx(struct wil6210_priv *wil, int id)
 
 	wil_dbg_misc(wil, "vring_fini_tx: id=%d\n", id);
 
-	spin_lock_bh(&txdata->lock);
+	bh = spin_lock_bh(&txdata->lock, SOFTIRQ_ALL_MASK);
 	txdata->dot1x_open = false;
 	txdata->mid = U8_MAX;
 	txdata->enabled = 0; /* no Tx can be in progress or start anew */
-	spin_unlock_bh(&txdata->lock);
+	spin_unlock_bh(&txdata->lock, bh);
 	/* napi_synchronize waits for completion of the current NAPI but will
 	 * not prevent the next NAPI run.
 	 * Add a memory barrier to guarantee that txdata->enabled is zeroed
@@ -218,6 +219,7 @@ static void wil_disconnect_cid(struct wil6210_vif *vif, int cid,
 			       u16 reason_code, bool from_event)
 __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 {
+	unsigned int bh;
 	uint i;
 	struct wil6210_priv *wil = vif_to_wil(vif);
 	struct net_device *ndev = vif_to_ndev(vif);
@@ -261,13 +263,13 @@ __acquires(&sta->tid_rx_lock) __releases(&sta->tid_rx_lock)
 	for (i = 0; i < WIL_STA_TID_NUM; i++) {
 		struct wil_tid_ampdu_rx *r;
 
-		spin_lock_bh(&sta->tid_rx_lock);
+		bh = spin_lock_bh(&sta->tid_rx_lock, SOFTIRQ_ALL_MASK);
 
 		r = sta->tid_rx[i];
 		sta->tid_rx[i] = NULL;
 		wil_tid_ampdu_rx_free(wil, r);
 
-		spin_unlock_bh(&sta->tid_rx_lock);
+		spin_unlock_bh(&sta->tid_rx_lock, bh);
 	}
 	/* crypto context */
 	memset(sta->tid_crypto_rx, 0, sizeof(sta->tid_crypto_rx));

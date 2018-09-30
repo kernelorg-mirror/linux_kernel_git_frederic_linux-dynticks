@@ -41,7 +41,7 @@ void rtw_hal_sdio_update_tx_freepage(
 	u8 RequiredPublicFreePgNum = 0;
 	/* _irqL irql; */
 
-	/* spin_lock_bh(&pHalData->SdioTxFIFOFreePageLock); */
+	/* spin_lock_bh(&pHalData->SdioTxFIFOFreePageLock, SOFTIRQ_ALL_MASK); */
 
 	DedicatedPgNum = pHalData->SdioTxFIFOFreePage[PageIdx];
 	if (RequiredPageNum <= DedicatedPgNum) {

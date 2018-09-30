@@ -284,7 +284,7 @@ static inline void _clr_fwstate_(struct mlme_priv *pmlmepriv, int state)
  */
 static inline void clr_fwstate(struct mlme_priv *pmlmepriv, int state)
 {
-	spin_lock_bh(&pmlmepriv->lock);
+	spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 	if (check_fwstate(pmlmepriv, state) == true)
 		pmlmepriv->fw_state ^= state;
 	spin_unlock_bh(&pmlmepriv->lock);
@@ -292,7 +292,7 @@ static inline void clr_fwstate(struct mlme_priv *pmlmepriv, int state)
 
 static inline void clr_fwstate_ex(struct mlme_priv *pmlmepriv, int state)
 {
-	spin_lock_bh(&pmlmepriv->lock);
+	spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 	_clr_fwstate_(pmlmepriv, state);
 	spin_unlock_bh(&pmlmepriv->lock);
 }

@@ -86,15 +86,17 @@ static DEFINE_SPINLOCK(pool_lock);
 
 static void pool_register_ref(void)
 {
-	spin_lock_bh(&pool_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&pool_lock, SOFTIRQ_ALL_MASK);
 	singleton_pool_references++;
 	DFS_POOL_STAT_INC(pool_reference);
-	spin_unlock_bh(&pool_lock);
+	spin_unlock_bh(&pool_lock, bh);
 }
 
 static void pool_deregister_ref(void)
 {
-	spin_lock_bh(&pool_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&pool_lock, SOFTIRQ_ALL_MASK);
 	singleton_pool_references--;
 	DFS_POOL_STAT_DEC(pool_reference);
 	if (singleton_pool_references == 0) {
@@ -113,48 +115,52 @@ static void pool_deregister_ref(void)
 			kfree(ps);
 		}
 	}
-	spin_unlock_bh(&pool_lock);
+	spin_unlock_bh(&pool_lock, bh);
 }
 
 static void pool_put_pulse_elem(struct pulse_elem *pe)
 {
-	spin_lock_bh(&pool_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&pool_lock, SOFTIRQ_ALL_MASK);
 	list_add(&pe->head, &pulse_pool);
 	DFS_POOL_STAT_DEC(pulse_used);
-	spin_unlock_bh(&pool_lock);
+	spin_unlock_bh(&pool_lock, bh);
 }
 
 static void pool_put_pseq_elem(struct pri_sequence *pse)
 {
-	spin_lock_bh(&pool_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&pool_lock, SOFTIRQ_ALL_MASK);
 	list_add(&pse->head, &pseq_pool);
 	DFS_POOL_STAT_DEC(pseq_used);
-	spin_unlock_bh(&pool_lock);
+	spin_unlock_bh(&pool_lock, bh);
 }
 
 static struct pri_sequence *pool_get_pseq_elem(void)
 {
+	unsigned int bh;
 	struct pri_sequence *pse = NULL;
-	spin_lock_bh(&pool_lock);
+	bh = spin_lock_bh(&pool_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&pseq_pool)) {
 		pse = list_first_entry(&pseq_pool, struct pri_sequence, head);
 		list_del(&pse->head);
 		DFS_POOL_STAT_INC(pseq_used);
 	}
-	spin_unlock_bh(&pool_lock);
+	spin_unlock_bh(&pool_lock, bh);
 	return pse;
 }
 
 static struct pulse_elem *pool_get_pulse_elem(void)
 {
+	unsigned int bh;
 	struct pulse_elem *pe = NULL;
-	spin_lock_bh(&pool_lock);
+	bh = spin_lock_bh(&pool_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&pulse_pool)) {
 		pe = list_first_entry(&pulse_pool, struct pulse_elem, head);
 		list_del(&pe->head);
 		DFS_POOL_STAT_INC(pulse_used);
 	}
-	spin_unlock_bh(&pool_lock);
+	spin_unlock_bh(&pool_lock, bh);
 	return pe;
 }
 

@@ -188,6 +188,7 @@ int rxrpc_service_prealloc(struct rxrpc_sock *rx, gfp_t gfp)
  */
 void rxrpc_discard_prealloc(struct rxrpc_sock *rx)
 {
+	unsigned int bh;
 	struct rxrpc_backlog *b = rx->backlog;
 	struct rxrpc_net *rxnet = rxrpc_net(sock_net(&rx->sk));
 	unsigned int size = RXRPC_BACKLOG_MAX, head, tail;
@@ -199,8 +200,8 @@ void rxrpc_discard_prealloc(struct rxrpc_sock *rx)
 	/* Make sure that there aren't any incoming calls in progress before we
 	 * clear the preallocation buffers.
 	 */
-	spin_lock_bh(&rx->incoming_lock);
-	spin_unlock_bh(&rx->incoming_lock);
+	bh = spin_lock_bh(&rx->incoming_lock, SOFTIRQ_ALL_MASK);
+	spin_unlock_bh(&rx->incoming_lock, bh);
 
 	head = b->peer_backlog_head;
 	tail = b->peer_backlog_tail;

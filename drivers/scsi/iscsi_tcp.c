@@ -589,6 +589,7 @@ free_conn:
 
 static void iscsi_sw_tcp_release_conn(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct iscsi_session *session = conn->session;
 	struct iscsi_tcp_conn *tcp_conn = conn->dd_data;
 	struct iscsi_sw_tcp_conn *tcp_sw_conn = tcp_conn->dd_data;
@@ -601,9 +602,9 @@ static void iscsi_sw_tcp_release_conn(struct iscsi_conn *conn)
 	iscsi_sw_tcp_conn_restore_callbacks(conn);
 	sock_put(sock->sk);
 
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	tcp_sw_conn->sock = NULL;
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 	sockfd_put(sock);
 }
 
@@ -655,6 +656,7 @@ iscsi_sw_tcp_conn_bind(struct iscsi_cls_session *cls_session,
 		       struct iscsi_cls_conn *cls_conn, uint64_t transport_eph,
 		       int is_leading)
 {
+	unsigned int bh;
 	struct iscsi_session *session = cls_session->dd_data;
 	struct iscsi_conn *conn = cls_conn->dd_data;
 	struct iscsi_tcp_conn *tcp_conn = conn->dd_data;
@@ -675,10 +677,10 @@ iscsi_sw_tcp_conn_bind(struct iscsi_cls_session *cls_session,
 	if (err)
 		goto free_socket;
 
-	spin_lock_bh(&session->frwd_lock);
+	bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 	/* bind iSCSI connection and socket */
 	tcp_sw_conn->sock = sock;
-	spin_unlock_bh(&session->frwd_lock);
+	spin_unlock_bh(&session->frwd_lock, bh);
 
 	/* setup Socket parameters */
 	sk = sock->sk;
@@ -729,6 +731,7 @@ static int iscsi_sw_tcp_conn_set_param(struct iscsi_cls_conn *cls_conn,
 static int iscsi_sw_tcp_conn_get_param(struct iscsi_cls_conn *cls_conn,
 				       enum iscsi_param param, char *buf)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = cls_conn->dd_data;
 	struct iscsi_tcp_conn *tcp_conn = conn->dd_data;
 	struct iscsi_sw_tcp_conn *tcp_sw_conn = tcp_conn->dd_data;
@@ -739,9 +742,9 @@ static int iscsi_sw_tcp_conn_get_param(struct iscsi_cls_conn *cls_conn,
 	case ISCSI_PARAM_CONN_PORT:
 	case ISCSI_PARAM_CONN_ADDRESS:
 	case ISCSI_PARAM_LOCAL_PORT:
-		spin_lock_bh(&conn->session->frwd_lock);
+		bh = spin_lock_bh(&conn->session->frwd_lock, SOFTIRQ_ALL_MASK);
 		if (!tcp_sw_conn || !tcp_sw_conn->sock) {
-			spin_unlock_bh(&conn->session->frwd_lock);
+			spin_unlock_bh(&conn->session->frwd_lock, bh);
 			return -ENOTCONN;
 		}
 		if (param == ISCSI_PARAM_LOCAL_PORT)
@@ -750,7 +753,7 @@ static int iscsi_sw_tcp_conn_get_param(struct iscsi_cls_conn *cls_conn,
 		else
 			rc = kernel_getpeername(tcp_sw_conn->sock,
 						(struct sockaddr *)&addr);
-		spin_unlock_bh(&conn->session->frwd_lock);
+		spin_unlock_bh(&conn->session->frwd_lock, bh);
 		if (rc < 0)
 			return rc;
 
@@ -766,6 +769,7 @@ static int iscsi_sw_tcp_conn_get_param(struct iscsi_cls_conn *cls_conn,
 static int iscsi_sw_tcp_host_get_param(struct Scsi_Host *shost,
 				       enum iscsi_host_param param, char *buf)
 {
+	unsigned int bh;
 	struct iscsi_sw_tcp_host *tcp_sw_host = iscsi_host_priv(shost);
 	struct iscsi_session *session = tcp_sw_host->session;
 	struct iscsi_conn *conn;
@@ -779,23 +783,23 @@ static int iscsi_sw_tcp_host_get_param(struct Scsi_Host *shost,
 		if (!session)
 			return -ENOTCONN;
 
-		spin_lock_bh(&session->frwd_lock);
+		bh = spin_lock_bh(&session->frwd_lock, SOFTIRQ_ALL_MASK);
 		conn = session->leadconn;
 		if (!conn) {
-			spin_unlock_bh(&session->frwd_lock);
+			spin_unlock_bh(&session->frwd_lock, bh);
 			return -ENOTCONN;
 		}
 		tcp_conn = conn->dd_data;
 
 		tcp_sw_conn = tcp_conn->dd_data;
 		if (!tcp_sw_conn->sock) {
-			spin_unlock_bh(&session->frwd_lock);
+			spin_unlock_bh(&session->frwd_lock, bh);
 			return -ENOTCONN;
 		}
 
 		rc = kernel_getsockname(tcp_sw_conn->sock,
 					(struct sockaddr *)&addr);
-		spin_unlock_bh(&session->frwd_lock);
+		spin_unlock_bh(&session->frwd_lock, bh);
 		if (rc < 0)
 			return rc;
 

@@ -210,11 +210,12 @@ static struct txx9dmac_desc *txx9dmac_desc_alloc(struct txx9dmac_chan *dc,
 
 static struct txx9dmac_desc *txx9dmac_desc_get(struct txx9dmac_chan *dc)
 {
+	unsigned int bh;
 	struct txx9dmac_desc *desc, *_desc;
 	struct txx9dmac_desc *ret = NULL;
 	unsigned int i = 0;
 
-	spin_lock_bh(&dc->lock);
+	bh = spin_lock_bh(&dc->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(desc, _desc, &dc->free_list, desc_node) {
 		if (async_tx_test_ack(&desc->txd)) {
 			list_del(&desc->desc_node);
@@ -224,16 +225,16 @@ static struct txx9dmac_desc *txx9dmac_desc_get(struct txx9dmac_chan *dc)
 		dev_dbg(chan2dev(&dc->chan), "desc %p not ACKed\n", desc);
 		i++;
 	}
-	spin_unlock_bh(&dc->lock);
+	spin_unlock_bh(&dc->lock, bh);
 
 	dev_vdbg(chan2dev(&dc->chan), "scanned %u descriptors on freelist\n",
 		 i);
 	if (!ret) {
 		ret = txx9dmac_desc_alloc(dc, GFP_ATOMIC);
 		if (ret) {
-			spin_lock_bh(&dc->lock);
+			bh = spin_lock_bh(&dc->lock, SOFTIRQ_ALL_MASK);
 			dc->descs_allocated++;
-			spin_unlock_bh(&dc->lock);
+			spin_unlock_bh(&dc->lock, bh);
 		} else
 			dev_err(chan2dev(&dc->chan),
 				"not enough descriptors available\n");
@@ -263,12 +264,13 @@ static void txx9dmac_sync_desc_for_cpu(struct txx9dmac_chan *dc,
 static void txx9dmac_desc_put(struct txx9dmac_chan *dc,
 			      struct txx9dmac_desc *desc)
 {
+	unsigned int bh;
 	if (desc) {
 		struct txx9dmac_desc *child;
 
 		txx9dmac_sync_desc_for_cpu(dc, desc);
 
-		spin_lock_bh(&dc->lock);
+		bh = spin_lock_bh(&dc->lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(child, &desc->tx_list, desc_node)
 			dev_vdbg(chan2dev(&dc->chan),
 				 "moving child desc %p to freelist\n",
@@ -277,7 +279,7 @@ static void txx9dmac_desc_put(struct txx9dmac_chan *dc,
 		dev_vdbg(chan2dev(&dc->chan), "moving desc %p to freelist\n",
 			 desc);
 		list_add(&desc->desc_node, &dc->free_list);
-		spin_unlock_bh(&dc->lock);
+		spin_unlock_bh(&dc->lock, bh);
 	}
 }
 
@@ -693,18 +695,19 @@ static irqreturn_t txx9dmac_interrupt(int irq, void *dev_id)
 
 static dma_cookie_t txx9dmac_tx_submit(struct dma_async_tx_descriptor *tx)
 {
+	unsigned int bh;
 	struct txx9dmac_desc *desc = txd_to_txx9dmac_desc(tx);
 	struct txx9dmac_chan *dc = to_txx9dmac_chan(tx->chan);
 	dma_cookie_t cookie;
 
-	spin_lock_bh(&dc->lock);
+	bh = spin_lock_bh(&dc->lock, SOFTIRQ_ALL_MASK);
 	cookie = dma_cookie_assign(tx);
 
 	dev_vdbg(chan2dev(tx->chan), "tx_submit: queued %u %p\n",
 		 desc->txd.cookie, desc);
 
 	list_add_tail(&desc->desc_node, &dc->queue);
-	spin_unlock_bh(&dc->lock);
+	spin_unlock_bh(&dc->lock, bh);
 
 	return cookie;
 }
@@ -900,12 +903,13 @@ txx9dmac_prep_slave_sg(struct dma_chan *chan, struct scatterlist *sgl,
 
 static int txx9dmac_terminate_all(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct txx9dmac_chan *dc = to_txx9dmac_chan(chan);
 	struct txx9dmac_desc *desc, *_desc;
 	LIST_HEAD(list);
 
 	dev_vdbg(chan2dev(chan), "terminate_all\n");
-	spin_lock_bh(&dc->lock);
+	bh = spin_lock_bh(&dc->lock, SOFTIRQ_ALL_MASK);
 
 	txx9dmac_reset_chan(dc);
 
@@ -913,7 +917,7 @@ static int txx9dmac_terminate_all(struct dma_chan *chan)
 	list_splice_init(&dc->queue, &list);
 	list_splice_init(&dc->active_list, &list);
 
-	spin_unlock_bh(&dc->lock);
+	spin_unlock_bh(&dc->lock, bh);
 
 	/* Flush all pending and queued descriptors */
 	list_for_each_entry_safe(desc, _desc, &list, desc_node)
@@ -926,6 +930,7 @@ static enum dma_status
 txx9dmac_tx_status(struct dma_chan *chan, dma_cookie_t cookie,
 		   struct dma_tx_state *txstate)
 {
+	unsigned int bh;
 	struct txx9dmac_chan *dc = to_txx9dmac_chan(chan);
 	enum dma_status ret;
 
@@ -933,9 +938,9 @@ txx9dmac_tx_status(struct dma_chan *chan, dma_cookie_t cookie,
 	if (ret == DMA_COMPLETE)
 		return DMA_COMPLETE;
 
-	spin_lock_bh(&dc->lock);
+	bh = spin_lock_bh(&dc->lock, SOFTIRQ_ALL_MASK);
 	txx9dmac_scan_descriptors(dc);
-	spin_unlock_bh(&dc->lock);
+	spin_unlock_bh(&dc->lock, bh);
 
 	return dma_cookie_status(chan, cookie, txstate);
 }
@@ -964,9 +969,10 @@ static void txx9dmac_chain_dynamic(struct txx9dmac_chan *dc,
 
 static void txx9dmac_issue_pending(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct txx9dmac_chan *dc = to_txx9dmac_chan(chan);
 
-	spin_lock_bh(&dc->lock);
+	bh = spin_lock_bh(&dc->lock, SOFTIRQ_ALL_MASK);
 
 	if (!list_empty(&dc->active_list))
 		txx9dmac_scan_descriptors(dc);
@@ -983,11 +989,12 @@ static void txx9dmac_issue_pending(struct dma_chan *chan)
 		}
 	}
 
-	spin_unlock_bh(&dc->lock);
+	spin_unlock_bh(&dc->lock, bh);
 }
 
 static int txx9dmac_alloc_chan_resources(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct txx9dmac_chan *dc = to_txx9dmac_chan(chan);
 	struct txx9dmac_slave *ds = chan->private;
 	struct txx9dmac_desc *desc;
@@ -1020,24 +1027,24 @@ static int txx9dmac_alloc_chan_resources(struct dma_chan *chan)
 		txx9dmac_chan_set_INTENT(dc);
 	}
 
-	spin_lock_bh(&dc->lock);
+	bh = spin_lock_bh(&dc->lock, SOFTIRQ_ALL_MASK);
 	i = dc->descs_allocated;
 	while (dc->descs_allocated < TXX9_DMA_INITIAL_DESC_COUNT) {
-		spin_unlock_bh(&dc->lock);
+		spin_unlock_bh(&dc->lock, bh);
 
 		desc = txx9dmac_desc_alloc(dc, GFP_KERNEL);
 		if (!desc) {
 			dev_info(chan2dev(chan),
 				"only allocated %d descriptors\n", i);
-			spin_lock_bh(&dc->lock);
+			bh = spin_lock_bh(&dc->lock, SOFTIRQ_ALL_MASK);
 			break;
 		}
 		txx9dmac_desc_put(dc, desc);
 
-		spin_lock_bh(&dc->lock);
+		bh = spin_lock_bh(&dc->lock, SOFTIRQ_ALL_MASK);
 		i = ++dc->descs_allocated;
 	}
-	spin_unlock_bh(&dc->lock);
+	spin_unlock_bh(&dc->lock, bh);
 
 	dev_dbg(chan2dev(chan),
 		"alloc_chan_resources allocated %d descriptors\n", i);
@@ -1047,6 +1054,7 @@ static int txx9dmac_alloc_chan_resources(struct dma_chan *chan)
 
 static void txx9dmac_free_chan_resources(struct dma_chan *chan)
 {
+	unsigned int bh;
 	struct txx9dmac_chan *dc = to_txx9dmac_chan(chan);
 	struct txx9dmac_dev *ddev = dc->ddev;
 	struct txx9dmac_desc *desc, *_desc;
@@ -1060,10 +1068,10 @@ static void txx9dmac_free_chan_resources(struct dma_chan *chan)
 	BUG_ON(!list_empty(&dc->queue));
 	BUG_ON(channel_readl(dc, CSR) & TXX9_DMA_CSR_XFACT);
 
-	spin_lock_bh(&dc->lock);
+	bh = spin_lock_bh(&dc->lock, SOFTIRQ_ALL_MASK);
 	list_splice_init(&dc->free_list, &list);
 	dc->descs_allocated = 0;
-	spin_unlock_bh(&dc->lock);
+	spin_unlock_bh(&dc->lock, bh);
 
 	list_for_each_entry_safe(desc, _desc, &list, desc_node) {
 		dev_vdbg(chan2dev(chan), "  freeing descriptor %p\n", desc);

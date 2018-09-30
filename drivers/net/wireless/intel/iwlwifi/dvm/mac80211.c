@@ -872,6 +872,7 @@ static int iwlagn_mac_sta_state(struct ieee80211_hw *hw,
 				enum ieee80211_sta_state old_state,
 				enum ieee80211_sta_state new_state)
 {
+	unsigned int bh;
 	struct iwl_priv *priv = IWL_MAC80211_GET_DVM(hw);
 	struct iwl_vif_priv *vif_priv = (void *)vif->drv_priv;
 	enum {
@@ -913,10 +914,10 @@ static int iwlagn_mac_sta_state(struct ieee80211_hw *hw,
 		 * would also clear the in-progress flag). This is necessary
 		 * in case we never initialize LQ because association fails.
 		 */
-		spin_lock_bh(&priv->sta_lock);
+		bh = spin_lock_bh(&priv->sta_lock, SOFTIRQ_ALL_MASK);
 		priv->stations[iwl_sta_id(sta)].used &=
 			~IWL_STA_UCODE_INPROGRESS;
-		spin_unlock_bh(&priv->sta_lock);
+		spin_unlock_bh(&priv->sta_lock, bh);
 		break;
 	case REMOVE:
 		ret = iwlagn_mac_sta_remove(hw, vif, sta);

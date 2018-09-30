@@ -84,18 +84,20 @@ err1:
 
 static void set_bad_pkey_cntr(struct rxe_port *port)
 {
-	spin_lock_bh(&port->port_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&port->port_lock, SOFTIRQ_ALL_MASK);
 	port->attr.bad_pkey_cntr = min((u32)0xffff,
 				       port->attr.bad_pkey_cntr + 1);
-	spin_unlock_bh(&port->port_lock);
+	spin_unlock_bh(&port->port_lock, bh);
 }
 
 static void set_qkey_viol_cntr(struct rxe_port *port)
 {
-	spin_lock_bh(&port->port_lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&port->port_lock, SOFTIRQ_ALL_MASK);
 	port->attr.qkey_viol_cntr = min((u32)0xffff,
 					port->attr.qkey_viol_cntr + 1);
-	spin_unlock_bh(&port->port_lock);
+	spin_unlock_bh(&port->port_lock, bh);
 }
 
 static int check_keys(struct rxe_dev *rxe, struct rxe_pkt_info *pkt,
@@ -278,6 +280,7 @@ static inline void rxe_rcv_pkt(struct rxe_dev *rxe,
 
 static void rxe_rcv_mcast_pkt(struct rxe_dev *rxe, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct rxe_pkt_info *pkt = SKB_TO_PKT(skb);
 	struct rxe_mc_grp *mcg;
 	struct rxe_mc_elem *mce;
@@ -296,7 +299,7 @@ static void rxe_rcv_mcast_pkt(struct rxe_dev *rxe, struct sk_buff *skb)
 	if (!mcg)
 		goto err1;	/* mcast group not registered */
 
-	spin_lock_bh(&mcg->mcg_lock);
+	bh = spin_lock_bh(&mcg->mcg_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry(mce, &mcg->qp_list, qp_list) {
 		qp = mce->qp;
@@ -322,7 +325,7 @@ static void rxe_rcv_mcast_pkt(struct rxe_dev *rxe, struct sk_buff *skb)
 		rxe_rcv_pkt(rxe, pkt, skb);
 	}
 
-	spin_unlock_bh(&mcg->mcg_lock);
+	spin_unlock_bh(&mcg->mcg_lock, bh);
 
 	rxe_drop_ref(mcg);	/* drop ref from rxe_pool_get_key. */
 

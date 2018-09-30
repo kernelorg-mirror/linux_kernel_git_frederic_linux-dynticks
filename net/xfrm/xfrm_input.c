@@ -50,33 +50,35 @@ static DEFINE_PER_CPU(struct xfrm_trans_tasklet, xfrm_trans_tasklet);
 
 int xfrm_input_register_afinfo(const struct xfrm_input_afinfo *afinfo)
 {
+	unsigned int bh;
 	int err = 0;
 
 	if (WARN_ON(afinfo->family >= ARRAY_SIZE(xfrm_input_afinfo)))
 		return -EAFNOSUPPORT;
 
-	spin_lock_bh(&xfrm_input_afinfo_lock);
+	bh = spin_lock_bh(&xfrm_input_afinfo_lock, SOFTIRQ_ALL_MASK);
 	if (unlikely(xfrm_input_afinfo[afinfo->family] != NULL))
 		err = -EEXIST;
 	else
 		rcu_assign_pointer(xfrm_input_afinfo[afinfo->family], afinfo);
-	spin_unlock_bh(&xfrm_input_afinfo_lock);
+	spin_unlock_bh(&xfrm_input_afinfo_lock, bh);
 	return err;
 }
 EXPORT_SYMBOL(xfrm_input_register_afinfo);
 
 int xfrm_input_unregister_afinfo(const struct xfrm_input_afinfo *afinfo)
 {
+	unsigned int bh;
 	int err = 0;
 
-	spin_lock_bh(&xfrm_input_afinfo_lock);
+	bh = spin_lock_bh(&xfrm_input_afinfo_lock, SOFTIRQ_ALL_MASK);
 	if (likely(xfrm_input_afinfo[afinfo->family] != NULL)) {
 		if (unlikely(xfrm_input_afinfo[afinfo->family] != afinfo))
 			err = -EINVAL;
 		else
 			RCU_INIT_POINTER(xfrm_input_afinfo[afinfo->family], NULL);
 	}
-	spin_unlock_bh(&xfrm_input_afinfo_lock);
+	spin_unlock_bh(&xfrm_input_afinfo_lock, bh);
 	synchronize_rcu();
 	return err;
 }

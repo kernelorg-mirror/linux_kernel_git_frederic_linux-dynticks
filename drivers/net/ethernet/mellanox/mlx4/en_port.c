@@ -182,6 +182,7 @@ void mlx4_en_fold_software_stats(struct net_device *dev)
 
 int mlx4_en_DUMP_ETH_STATS(struct mlx4_en_dev *mdev, u8 port, u8 reset)
 {
+	unsigned int bh;
 	struct mlx4_counter tmp_counter_stats;
 	struct mlx4_en_stat_out_mbox *mlx4_en_stats;
 	struct mlx4_en_stat_out_flow_control_mbox *flowstats;
@@ -235,7 +236,7 @@ int mlx4_en_DUMP_ETH_STATS(struct mlx4_en_dev *mdev, u8 port, u8 reset)
 
 	flowstats = mailbox_priority->buf;
 
-	spin_lock_bh(&priv->stats_lock);
+	bh = spin_lock_bh(&priv->stats_lock, SOFTIRQ_ALL_MASK);
 
 	mlx4_en_fold_software_stats(dev);
 
@@ -422,7 +423,7 @@ int mlx4_en_DUMP_ETH_STATS(struct mlx4_en_dev *mdev, u8 port, u8 reset)
 	priv->tx_flowstats.tx_pause_transition =
 		be64_to_cpu(flowstats[0].tx_pause_transition);
 
-	spin_unlock_bh(&priv->stats_lock);
+	spin_unlock_bh(&priv->stats_lock, bh);
 
 out:
 	mlx4_free_cmd_mailbox(mdev->dev, mailbox);

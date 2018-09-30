@@ -123,6 +123,7 @@ static void ieee80211_ocb_housekeeping(struct ieee80211_sub_if_data *sdata)
 
 void ieee80211_ocb_work(struct ieee80211_sub_if_data *sdata)
 {
+	unsigned int bh;
 	struct ieee80211_if_ocb *ifocb = &sdata->u.ocb;
 	struct sta_info *sta;
 
@@ -131,7 +132,7 @@ void ieee80211_ocb_work(struct ieee80211_sub_if_data *sdata)
 
 	sdata_lock(sdata);
 
-	spin_lock_bh(&ifocb->incomplete_lock);
+	bh = spin_lock_bh(&ifocb->incomplete_lock, SOFTIRQ_ALL_MASK);
 	while (!list_empty(&ifocb->incomplete_stations)) {
 		sta = list_first_entry(&ifocb->incomplete_stations,
 				       struct sta_info, list);
@@ -140,9 +141,9 @@ void ieee80211_ocb_work(struct ieee80211_sub_if_data *sdata)
 
 		ieee80211_ocb_finish_sta(sta);
 		rcu_read_unlock();
-		spin_lock_bh(&ifocb->incomplete_lock);
+		spin_lock_bh(&ifocb->incomplete_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&ifocb->incomplete_lock);
+	spin_unlock_bh(&ifocb->incomplete_lock, bh);
 
 	if (test_and_clear_bit(OCB_WORK_HOUSEKEEPING, &ifocb->wrkq_flags))
 		ieee80211_ocb_housekeeping(sdata);
@@ -207,6 +208,7 @@ int ieee80211_ocb_join(struct ieee80211_sub_if_data *sdata,
 
 int ieee80211_ocb_leave(struct ieee80211_sub_if_data *sdata)
 {
+	unsigned int bh;
 	struct ieee80211_if_ocb *ifocb = &sdata->u.ocb;
 	struct ieee80211_local *local = sdata->local;
 	struct sta_info *sta;
@@ -214,7 +216,7 @@ int ieee80211_ocb_leave(struct ieee80211_sub_if_data *sdata)
 	ifocb->joined = false;
 	sta_info_flush(sdata);
 
-	spin_lock_bh(&ifocb->incomplete_lock);
+	bh = spin_lock_bh(&ifocb->incomplete_lock, SOFTIRQ_ALL_MASK);
 	while (!list_empty(&ifocb->incomplete_stations)) {
 		sta = list_first_entry(&ifocb->incomplete_stations,
 				       struct sta_info, list);
@@ -222,9 +224,9 @@ int ieee80211_ocb_leave(struct ieee80211_sub_if_data *sdata)
 		spin_unlock_bh(&ifocb->incomplete_lock);
 
 		sta_info_free(local, sta);
-		spin_lock_bh(&ifocb->incomplete_lock);
+		spin_lock_bh(&ifocb->incomplete_lock, SOFTIRQ_ALL_MASK);
 	}
-	spin_unlock_bh(&ifocb->incomplete_lock);
+	spin_unlock_bh(&ifocb->incomplete_lock, bh);
 
 	netif_carrier_off(sdata->dev);
 	clear_bit(SDATA_STATE_OFFCHANNEL, &sdata->state);

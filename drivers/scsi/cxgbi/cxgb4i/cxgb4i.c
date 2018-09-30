@@ -777,6 +777,7 @@ static inline void free_atid(struct cxgbi_sock *csk)
 
 static void do_act_establish(struct cxgbi_device *cdev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk;
 	struct cpl_act_establish *req = (struct cpl_act_establish *)skb->data;
 	unsigned short tcp_opt = ntohs(req->tcp_opt);
@@ -811,7 +812,7 @@ static void do_act_establish(struct cxgbi_device *cdev, struct sk_buff *skb)
 
 	free_atid(csk);
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	if (unlikely(csk->state != CTP_ACTIVE_OPEN))
 		pr_info("csk 0x%p,%u,0x%lx,%u, got EST.\n",
 			csk, csk->state, csk->flags, csk->tid);
@@ -848,7 +849,7 @@ static void do_act_establish(struct cxgbi_device *cdev, struct sk_buff *skb)
 			push_tx_frames(csk, 0);
 		cxgbi_conn_tx_open(csk);
 	}
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 
 rel_skb:
 	__kfree_skb(skb);
@@ -874,6 +875,7 @@ static int act_open_rpl_status_to_errno(int status)
 
 static void csk_act_open_retry_timer(struct timer_list *t)
 {
+	unsigned int bh;
 	struct sk_buff *skb = NULL;
 	struct cxgbi_sock *csk = from_timer(csk, t, retry_timer);
 	struct cxgb4_lld_info *lldi = cxgbi_cdev_priv(csk->cdev);
@@ -886,7 +888,7 @@ static void csk_act_open_retry_timer(struct timer_list *t)
 		csk, csk->state, csk->flags, csk->tid);
 
 	cxgbi_sock_get(csk);
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	if (t4) {
 		size = sizeof(struct cpl_act_open_req);
@@ -915,7 +917,7 @@ static void csk_act_open_retry_timer(struct timer_list *t)
 		send_act_open_func(csk, skb, csk->l2t);
 	}
 
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	cxgbi_sock_put(csk);
 
 }
@@ -929,6 +931,7 @@ static inline bool is_neg_adv(unsigned int status)
 
 static void do_act_open_rpl(struct cxgbi_device *cdev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk;
 	struct cpl_act_open_rpl *rpl = (struct cpl_act_open_rpl *)skb->data;
 	unsigned int tid = GET_TID(rpl);
@@ -960,7 +963,7 @@ static void do_act_open_rpl(struct cxgbi_device *cdev, struct sk_buff *skb)
 				 csk->csk_family);
 
 	cxgbi_sock_get(csk);
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	if (status == CPL_ERR_CONN_EXIST &&
 	    csk->retry_timer.function != csk_act_open_retry_timer) {
@@ -970,7 +973,7 @@ static void do_act_open_rpl(struct cxgbi_device *cdev, struct sk_buff *skb)
 		cxgbi_sock_fail_act_open(csk,
 					act_open_rpl_status_to_errno(status));
 
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	cxgbi_sock_put(csk);
 rel_skb:
 	__kfree_skb(skb);
@@ -1038,6 +1041,7 @@ static int abort_status_to_errno(struct cxgbi_sock *csk, int abort_reason,
 
 static void do_abort_req_rss(struct cxgbi_device *cdev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk;
 	struct cpl_abort_req_rss *req = (struct cpl_abort_req_rss *)skb->data;
 	unsigned int tid = GET_TID(req);
@@ -1059,7 +1063,7 @@ static void do_abort_req_rss(struct cxgbi_device *cdev, struct sk_buff *skb)
 		goto rel_skb;
 
 	cxgbi_sock_get(csk);
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	cxgbi_sock_clear_flag(csk, CTPF_ABORT_REQ_RCVD);
 
@@ -1078,7 +1082,7 @@ static void do_abort_req_rss(struct cxgbi_device *cdev, struct sk_buff *skb)
 		cxgbi_sock_closed(csk);
 	}
 
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	cxgbi_sock_put(csk);
 rel_skb:
 	__kfree_skb(skb);
@@ -1111,6 +1115,7 @@ rel_skb:
 
 static void do_rx_data(struct cxgbi_device *cdev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk;
 	struct cpl_rx_data *cpl = (struct cpl_rx_data *)skb->data;
 	unsigned int tid = GET_TID(cpl);
@@ -1123,15 +1128,16 @@ static void do_rx_data(struct cxgbi_device *cdev, struct sk_buff *skb)
 	} else {
 		/* not expecting this, reset the connection. */
 		pr_err("csk 0x%p, tid %u, rcv cpl_rx_data.\n", csk, tid);
-		spin_lock_bh(&csk->lock);
+		bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 		send_abort_req(csk);
-		spin_unlock_bh(&csk->lock);
+		spin_unlock_bh(&csk->lock, bh);
 	}
 	__kfree_skb(skb);
 }
 
 static void do_rx_iscsi_hdr(struct cxgbi_device *cdev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk;
 	struct cpl_iscsi_hdr *cpl = (struct cpl_iscsi_hdr *)skb->data;
 	unsigned short pdu_len_ddp = be16_to_cpu(cpl->pdu_len_ddp);
@@ -1150,7 +1156,7 @@ static void do_rx_iscsi_hdr(struct cxgbi_device *cdev, struct sk_buff *skb)
 		csk, csk->state, csk->flags, csk->tid, skb, skb->len,
 		pdu_len_ddp);
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	if (unlikely(csk->state >= CTP_PASSIVE_CLOSE)) {
 		log_debug(1 << CXGBI_DBG_TOE | 1 << CXGBI_DBG_SOCK,
@@ -1223,19 +1229,20 @@ static void do_rx_iscsi_hdr(struct cxgbi_device *cdev, struct sk_buff *skb)
 	}
 
 	__skb_queue_tail(&csk->receive_queue, skb);
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	return;
 
 abort_conn:
 	send_abort_req(csk);
 discard:
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 rel_skb:
 	__kfree_skb(skb);
 }
 
 static void do_rx_iscsi_data(struct cxgbi_device *cdev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk;
 	struct cpl_iscsi_hdr *cpl = (struct cpl_iscsi_hdr *)skb->data;
 	struct cxgb4_lld_info *lldi = cxgbi_cdev_priv(cdev);
@@ -1255,7 +1262,7 @@ static void do_rx_iscsi_data(struct cxgbi_device *cdev, struct sk_buff *skb)
 		  csk, csk->state, csk->flags, csk->tid, skb,
 		  skb->len, pdu_len_ddp);
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	if (unlikely(csk->state >= CTP_PASSIVE_CLOSE)) {
 		log_debug(1 << CXGBI_DBG_TOE | 1 << CXGBI_DBG_SOCK,
@@ -1286,13 +1293,13 @@ static void do_rx_iscsi_data(struct cxgbi_device *cdev, struct sk_buff *skb)
 		  csk, csk->state, csk->flags, skb, lskb);
 
 	__skb_queue_tail(&csk->receive_queue, skb);
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	return;
 
 abort_conn:
 	send_abort_req(csk);
 discard:
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 rel_skb:
 	__kfree_skb(skb);
 }
@@ -1332,6 +1339,7 @@ cxgb4i_process_ddpvld(struct cxgbi_sock *csk,
 static void do_rx_data_ddp(struct cxgbi_device *cdev,
 				  struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk;
 	struct sk_buff *lskb;
 	struct cpl_rx_data_ddp *rpl = (struct cpl_rx_data_ddp *)skb->data;
@@ -1350,7 +1358,7 @@ static void do_rx_data_ddp(struct cxgbi_device *cdev,
 		"csk 0x%p,%u,0x%lx, skb 0x%p,0x%x, lhdr 0x%p.\n",
 		csk, csk->state, csk->flags, skb, ddpvld, csk->skb_ulp_lhdr);
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	if (unlikely(csk->state >= CTP_PASSIVE_CLOSE)) {
 		log_debug(1 << CXGBI_DBG_TOE | 1 << CXGBI_DBG_SOCK,
@@ -1384,13 +1392,13 @@ static void do_rx_data_ddp(struct cxgbi_device *cdev,
 
 	cxgbi_skcb_set_flag(lskb, SKCBF_RX_STATUS);
 	cxgbi_conn_pdu_ready(csk);
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 	goto rel_skb;
 
 abort_conn:
 	send_abort_req(csk);
 discard:
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 rel_skb:
 	__kfree_skb(skb);
 }
@@ -1398,6 +1406,7 @@ rel_skb:
 static void
 do_rx_iscsi_cmp(struct cxgbi_device *cdev, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct cxgbi_sock *csk;
 	struct cpl_rx_iscsi_cmp *rpl = (struct cpl_rx_iscsi_cmp *)skb->data;
 	struct cxgb4_lld_info *lldi = cxgbi_cdev_priv(cdev);
@@ -1420,7 +1429,7 @@ do_rx_iscsi_cmp(struct cxgbi_device *cdev, struct sk_buff *skb)
 		  csk, csk->state, csk->flags, skb, ddpvld, csk->skb_ulp_lhdr,
 		  ntohs(rpl->len), pdu_len_ddp,  rpl->status);
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 
 	if (unlikely(csk->state >= CTP_PASSIVE_CLOSE)) {
 		log_debug(1 << CXGBI_DBG_TOE | 1 << CXGBI_DBG_SOCK,
@@ -1475,14 +1484,14 @@ do_rx_iscsi_cmp(struct cxgbi_device *cdev, struct sk_buff *skb)
 		  csk, skb, cxgbi_skcb_flags(skb));
 
 	cxgbi_conn_pdu_ready(csk);
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 
 	return;
 
 abort_conn:
 	send_abort_req(csk);
 discard:
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 rel_skb:
 	__kfree_skb(skb);
 }
@@ -1847,6 +1856,7 @@ static int ddp_ppod_write_idata(struct cxgbi_ppm *ppm, struct cxgbi_sock *csk,
 				struct scatterlist **sg_pp,
 				unsigned int *sg_off)
 {
+	unsigned int bh;
 	struct cxgbi_device *cdev = csk->cdev;
 	struct sk_buff *skb = ddp_ppod_init_idata(cdev, ppm, idx, npods,
 						  csk->tid);
@@ -1869,9 +1879,9 @@ static int ddp_ppod_write_idata(struct cxgbi_ppm *ppm, struct cxgbi_sock *csk,
 	cxgbi_skcb_set_flag(skb, SKCBF_TX_FLAG_COMPL);
 	set_wr_txq(skb, CPL_PRIORITY_DATA, csk->port_id);
 
-	spin_lock_bh(&csk->lock);
+	bh = spin_lock_bh(&csk->lock, SOFTIRQ_ALL_MASK);
 	cxgbi_sock_skb_entail(csk, skb);
-	spin_unlock_bh(&csk->lock);
+	spin_unlock_bh(&csk->lock, bh);
 
 	return 0;
 }

@@ -80,13 +80,14 @@ static u32 virtio_transport_get_local_cid(void)
 
 static void virtio_transport_loopback_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct virtio_vsock *vsock =
 		container_of(work, struct virtio_vsock, loopback_work);
 	LIST_HEAD(pkts);
 
-	spin_lock_bh(&vsock->loopback_list_lock);
+	bh = spin_lock_bh(&vsock->loopback_list_lock, SOFTIRQ_ALL_MASK);
 	list_splice_init(&vsock->loopback_list, &pkts);
-	spin_unlock_bh(&vsock->loopback_list_lock);
+	spin_unlock_bh(&vsock->loopback_list_lock, bh);
 
 	mutex_lock(&vsock->rx_lock);
 	while (!list_empty(&pkts)) {
@@ -103,11 +104,12 @@ static void virtio_transport_loopback_work(struct work_struct *work)
 static int virtio_transport_send_pkt_loopback(struct virtio_vsock *vsock,
 					      struct virtio_vsock_pkt *pkt)
 {
+	unsigned int bh;
 	int len = pkt->len;
 
-	spin_lock_bh(&vsock->loopback_list_lock);
+	bh = spin_lock_bh(&vsock->loopback_list_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&pkt->list, &vsock->loopback_list);
-	spin_unlock_bh(&vsock->loopback_list_lock);
+	spin_unlock_bh(&vsock->loopback_list_lock, bh);
 
 	queue_work(virtio_vsock_workqueue, &vsock->loopback_work);
 
@@ -117,6 +119,7 @@ static int virtio_transport_send_pkt_loopback(struct virtio_vsock *vsock,
 static void
 virtio_transport_send_pkt_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct virtio_vsock *vsock =
 		container_of(work, struct virtio_vsock, send_pkt_work);
 	struct virtqueue *vq;
@@ -133,16 +136,16 @@ virtio_transport_send_pkt_work(struct work_struct *work)
 		int ret, in_sg = 0, out_sg = 0;
 		bool reply;
 
-		spin_lock_bh(&vsock->send_pkt_list_lock);
+		bh = spin_lock_bh(&vsock->send_pkt_list_lock, SOFTIRQ_ALL_MASK);
 		if (list_empty(&vsock->send_pkt_list)) {
-			spin_unlock_bh(&vsock->send_pkt_list_lock);
+			spin_unlock_bh(&vsock->send_pkt_list_lock, bh);
 			break;
 		}
 
 		pkt = list_first_entry(&vsock->send_pkt_list,
 				       struct virtio_vsock_pkt, list);
 		list_del_init(&pkt->list);
-		spin_unlock_bh(&vsock->send_pkt_list_lock);
+		spin_unlock_bh(&vsock->send_pkt_list_lock, bh);
 
 		virtio_transport_deliver_tap_pkt(pkt);
 
@@ -160,7 +163,7 @@ virtio_transport_send_pkt_work(struct work_struct *work)
 		 * the vq
 		 */
 		if (ret < 0) {
-			spin_lock_bh(&vsock->send_pkt_list_lock);
+			spin_lock_bh(&vsock->send_pkt_list_lock, SOFTIRQ_ALL_MASK);
 			list_add(&pkt->list, &vsock->send_pkt_list);
 			spin_unlock_bh(&vsock->send_pkt_list_lock);
 			break;
@@ -192,6 +195,7 @@ virtio_transport_send_pkt_work(struct work_struct *work)
 static int
 virtio_transport_send_pkt(struct virtio_vsock_pkt *pkt)
 {
+	unsigned int bh;
 	struct virtio_vsock *vsock;
 	int len = pkt->len;
 
@@ -207,9 +211,9 @@ virtio_transport_send_pkt(struct virtio_vsock_pkt *pkt)
 	if (pkt->reply)
 		atomic_inc(&vsock->queued_replies);
 
-	spin_lock_bh(&vsock->send_pkt_list_lock);
+	bh = spin_lock_bh(&vsock->send_pkt_list_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&pkt->list, &vsock->send_pkt_list);
-	spin_unlock_bh(&vsock->send_pkt_list_lock);
+	spin_unlock_bh(&vsock->send_pkt_list_lock, bh);
 
 	queue_work(virtio_vsock_workqueue, &vsock->send_pkt_work);
 	return len;
@@ -218,6 +222,7 @@ virtio_transport_send_pkt(struct virtio_vsock_pkt *pkt)
 static int
 virtio_transport_cancel_pkt(struct vsock_sock *vsk)
 {
+	unsigned int bh;
 	struct virtio_vsock *vsock;
 	struct virtio_vsock_pkt *pkt, *n;
 	int cnt = 0;
@@ -228,13 +233,13 @@ virtio_transport_cancel_pkt(struct vsock_sock *vsk)
 		return -ENODEV;
 	}
 
-	spin_lock_bh(&vsock->send_pkt_list_lock);
+	bh = spin_lock_bh(&vsock->send_pkt_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(pkt, n, &vsock->send_pkt_list, list) {
 		if (pkt->vsk != vsk)
 			continue;
 		list_move(&pkt->list, &freeme);
 	}
-	spin_unlock_bh(&vsock->send_pkt_list_lock);
+	spin_unlock_bh(&vsock->send_pkt_list_lock, bh);
 
 	list_for_each_entry_safe(pkt, n, &freeme, list) {
 		if (pkt->reply)
@@ -628,6 +633,7 @@ out:
 
 static void virtio_vsock_remove(struct virtio_device *vdev)
 {
+	unsigned int bh;
 	struct virtio_vsock *vsock = vdev->priv;
 	struct virtio_vsock_pkt *pkt;
 
@@ -649,16 +655,16 @@ static void virtio_vsock_remove(struct virtio_device *vdev)
 		virtio_transport_free_pkt(pkt);
 	mutex_unlock(&vsock->tx_lock);
 
-	spin_lock_bh(&vsock->send_pkt_list_lock);
+	bh = spin_lock_bh(&vsock->send_pkt_list_lock, SOFTIRQ_ALL_MASK);
 	while (!list_empty(&vsock->send_pkt_list)) {
 		pkt = list_first_entry(&vsock->send_pkt_list,
 				       struct virtio_vsock_pkt, list);
 		list_del(&pkt->list);
 		virtio_transport_free_pkt(pkt);
 	}
-	spin_unlock_bh(&vsock->send_pkt_list_lock);
+	spin_unlock_bh(&vsock->send_pkt_list_lock, bh);
 
-	spin_lock_bh(&vsock->loopback_list_lock);
+	spin_lock_bh(&vsock->loopback_list_lock, SOFTIRQ_ALL_MASK);
 	while (!list_empty(&vsock->loopback_list)) {
 		pkt = list_first_entry(&vsock->loopback_list,
 				       struct virtio_vsock_pkt, list);

@@ -245,17 +245,18 @@ out_drop:
 
 static netdev_tx_t sp_xmit(struct sk_buff *skb, struct net_device *dev)
 {
+	unsigned int bh;
 	struct sixpack *sp = netdev_priv(dev);
 
 	if (skb->protocol == htons(ETH_P_IP))
 		return ax25_ip_xmit(skb);
 
-	spin_lock_bh(&sp->lock);
+	bh = spin_lock_bh(&sp->lock, SOFTIRQ_ALL_MASK);
 	/* We were not busy, so we are now... :-) */
 	netif_stop_queue(dev);
 	dev->stats.tx_bytes += skb->len;
 	sp_encaps(sp, skb->data, skb->len);
-	spin_unlock_bh(&sp->lock);
+	spin_unlock_bh(&sp->lock, bh);
 
 	dev_kfree_skb(skb);
 
@@ -274,15 +275,16 @@ static int sp_open_dev(struct net_device *dev)
 /* Close the low-level part of the 6pack channel. */
 static int sp_close(struct net_device *dev)
 {
+	unsigned int bh;
 	struct sixpack *sp = netdev_priv(dev);
 
-	spin_lock_bh(&sp->lock);
+	bh = spin_lock_bh(&sp->lock, SOFTIRQ_ALL_MASK);
 	if (sp->tty) {
 		/* TTY discipline is running. */
 		clear_bit(TTY_DO_WRITE_WAKEUP, &sp->tty->flags);
 	}
 	netif_stop_queue(dev);
-	spin_unlock_bh(&sp->lock);
+	spin_unlock_bh(&sp->lock, bh);
 
 	return 0;
 }
@@ -555,6 +557,7 @@ static inline int tnc_init(struct sixpack *sp)
  */
 static int sixpack_open(struct tty_struct *tty)
 {
+	unsigned int bh;
 	char *rbuff = NULL, *xbuff = NULL;
 	struct net_device *dev;
 	struct sixpack *sp;
@@ -592,7 +595,7 @@ static int sixpack_open(struct tty_struct *tty)
 		goto out_free;
 	}
 
-	spin_lock_bh(&sp->lock);
+	bh = spin_lock_bh(&sp->lock, SOFTIRQ_ALL_MASK);
 
 	sp->tty = tty;
 
@@ -624,7 +627,7 @@ static int sixpack_open(struct tty_struct *tty)
 
 	timer_setup(&sp->resync_t, resync_tnc, 0);
 
-	spin_unlock_bh(&sp->lock);
+	spin_unlock_bh(&sp->lock, bh);
 
 	/* Done.  We have linked the TTY line to a channel. */
 	tty->disc_data = sp;

@@ -93,7 +93,7 @@ void __lockfunc __raw_##op##_lock_irq(locktype##_t *lock)		\
 	_raw_##op##_lock_irqsave(lock);					\
 }									\
 									\
-void __lockfunc __raw_##op##_lock_bh(locktype##_t *lock)		\
+void __lockfunc __raw_##op##_lock_bh(locktype##_t *lock)	\
 {									\
 	unsigned long flags;						\
 									\
@@ -131,9 +131,11 @@ EXPORT_SYMBOL(_raw_spin_trylock);
 #endif
 
 #ifndef CONFIG_INLINE_SPIN_TRYLOCK_BH
-int __lockfunc _raw_spin_trylock_bh(raw_spinlock_t *lock)
+int __lockfunc _raw_spin_trylock_bh(raw_spinlock_t *lock,
+				    unsigned int *bh,
+				    unsigned int mask)
 {
-	return __raw_spin_trylock_bh(lock);
+	return __raw_spin_trylock_bh(lock, bh, mask);
 }
 EXPORT_SYMBOL(_raw_spin_trylock_bh);
 #endif
@@ -163,9 +165,9 @@ EXPORT_SYMBOL(_raw_spin_lock_irq);
 #endif
 
 #ifndef CONFIG_INLINE_SPIN_LOCK_BH
-void __lockfunc _raw_spin_lock_bh(raw_spinlock_t *lock)
+unsigned int __lockfunc _raw_spin_lock_bh(raw_spinlock_t *lock, unsigned int mask)
 {
-	__raw_spin_lock_bh(lock);
+	return __raw_spin_lock_bh(lock, mask);
 }
 EXPORT_SYMBOL(_raw_spin_lock_bh);
 #endif
@@ -195,9 +197,10 @@ EXPORT_SYMBOL(_raw_spin_unlock_irq);
 #endif
 
 #ifndef CONFIG_INLINE_SPIN_UNLOCK_BH
-void __lockfunc _raw_spin_unlock_bh(raw_spinlock_t *lock)
+void __lockfunc _raw_spin_unlock_bh(raw_spinlock_t *lock,
+				    unsigned int bh)
 {
-	__raw_spin_unlock_bh(lock);
+	__raw_spin_unlock_bh(lock, bh);
 }
 EXPORT_SYMBOL(_raw_spin_unlock_bh);
 #endif

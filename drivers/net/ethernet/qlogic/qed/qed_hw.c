@@ -111,26 +111,27 @@ void qed_ptt_pool_free(struct qed_hwfn *p_hwfn)
 
 struct qed_ptt *qed_ptt_acquire(struct qed_hwfn *p_hwfn)
 {
+	unsigned int bh;
 	struct qed_ptt *p_ptt;
 	unsigned int i;
 
 	/* Take the free PTT from the list */
 	for (i = 0; i < QED_BAR_ACQUIRE_TIMEOUT; i++) {
-		spin_lock_bh(&p_hwfn->p_ptt_pool->lock);
+		bh = spin_lock_bh(&p_hwfn->p_ptt_pool->lock, SOFTIRQ_ALL_MASK);
 
 		if (!list_empty(&p_hwfn->p_ptt_pool->free_list)) {
 			p_ptt = list_first_entry(&p_hwfn->p_ptt_pool->free_list,
 						 struct qed_ptt, list_entry);
 			list_del(&p_ptt->list_entry);
 
-			spin_unlock_bh(&p_hwfn->p_ptt_pool->lock);
+			spin_unlock_bh(&p_hwfn->p_ptt_pool->lock, bh);
 
 			DP_VERBOSE(p_hwfn, NETIF_MSG_HW,
 				   "allocated ptt %d\n", p_ptt->idx);
 			return p_ptt;
 		}
 
-		spin_unlock_bh(&p_hwfn->p_ptt_pool->lock);
+		spin_unlock_bh(&p_hwfn->p_ptt_pool->lock, bh);
 		usleep_range(1000, 2000);
 	}
 
@@ -140,9 +141,10 @@ struct qed_ptt *qed_ptt_acquire(struct qed_hwfn *p_hwfn)
 
 void qed_ptt_release(struct qed_hwfn *p_hwfn, struct qed_ptt *p_ptt)
 {
-	spin_lock_bh(&p_hwfn->p_ptt_pool->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&p_hwfn->p_ptt_pool->lock, SOFTIRQ_ALL_MASK);
 	list_add(&p_ptt->list_entry, &p_hwfn->p_ptt_pool->free_list);
-	spin_unlock_bh(&p_hwfn->p_ptt_pool->lock);
+	spin_unlock_bh(&p_hwfn->p_ptt_pool->lock, bh);
 }
 
 u32 qed_ptt_get_hw_addr(struct qed_hwfn *p_hwfn, struct qed_ptt *p_ptt)

@@ -60,6 +60,7 @@ void ath10k_sta_update_rx_tid_stats_ampdu(struct ath10k *ar, u16 peer_id, u8 tid
 					  struct htt_rx_indication_mpdu_range *ranges,
 					  int num_ranges)
 {
+	unsigned int bh;
 	struct ath10k_sta *arsta;
 	struct ath10k_peer *peer;
 	int i;
@@ -68,7 +69,7 @@ void ath10k_sta_update_rx_tid_stats_ampdu(struct ath10k *ar, u16 peer_id, u8 tid
 		return;
 
 	rcu_read_lock();
-	spin_lock_bh(&ar->data_lock);
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 
 	peer = ath10k_peer_find_by_id(ar, peer_id);
 	if (!peer)
@@ -82,7 +83,7 @@ void ath10k_sta_update_rx_tid_stats_ampdu(struct ath10k *ar, u16 peer_id, u8 tid
 						    ranges[i].mpdu_count);
 
 out:
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 	rcu_read_unlock();
 }
 
@@ -94,6 +95,7 @@ void ath10k_sta_update_rx_tid_stats(struct ath10k *ar, u8 *first_hdr,
 				    unsigned long int drop_cnt_filter,
 				    unsigned long int queued_msdus)
 {
+	unsigned int bh;
 	struct ieee80211_sta *sta;
 	struct ath10k_sta *arsta;
 	struct ieee80211_hdr *hdr;
@@ -119,7 +121,7 @@ void ath10k_sta_update_rx_tid_stats(struct ath10k *ar, u8 *first_hdr,
 
 	arsta = (struct ath10k_sta *)sta->drv_priv;
 
-	spin_lock_bh(&ar->data_lock);
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 	stats = &arsta->tid_stats[tid];
 	stats->rx_pkt_from_fw += num_msdus;
 	stats->rx_pkt_unchained += unchain_cnt;
@@ -130,7 +132,7 @@ void ath10k_sta_update_rx_tid_stats(struct ath10k *ar, u8 *first_hdr,
 	stats->rx_pkt_queued_for_mac += queued_msdus;
 	ath10k_rx_stats_update_amsdu_subfrm(ar, &arsta->tid_stats[tid],
 					    num_msdus);
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 
 exit:
 	rcu_read_unlock();
@@ -547,6 +549,7 @@ static ssize_t ath10k_dbg_sta_read_tid_stats(struct file *file,
 					     char __user *user_buf,
 					     size_t count, loff_t *ppos)
 {
+	unsigned int bh;
 	struct ieee80211_sta *sta = file->private_data;
 	struct ath10k_sta *arsta = (struct ath10k_sta *)sta->drv_priv;
 	struct ath10k *ar = arsta->arvif->ar;
@@ -562,7 +565,7 @@ static ssize_t ath10k_dbg_sta_read_tid_stats(struct file *file,
 
 	mutex_lock(&ar->conf_mutex);
 
-	spin_lock_bh(&ar->data_lock);
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 
 	len += scnprintf(buf + len, buf_len - len,
 			 "\n\t\tDriver Rx pkt stats per tid, ([tid] count)\n");
@@ -608,7 +611,7 @@ static ssize_t ath10k_dbg_sta_read_tid_stats(struct file *file,
 		PRINT_TID_STATS(rx_pkt_amsdu[i], "\t\t\t\t");
 	}
 
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 
 	ret = simple_read_from_buffer(user_buf, count, ppos, buf, len);
 

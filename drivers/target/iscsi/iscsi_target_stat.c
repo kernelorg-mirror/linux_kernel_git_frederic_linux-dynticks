@@ -98,15 +98,16 @@ static ssize_t iscsi_stat_instance_sessions_show(struct config_item *item,
 static ssize_t iscsi_stat_instance_fail_sess_show(struct config_item *item,
 		char *page)
 {
+	unsigned int bh;
 	struct iscsi_tiqn *tiqn = iscsi_instance_tiqn(item);
 	struct iscsi_sess_err_stats *sess_err = &tiqn->sess_err_stats;
 	u32 sess_err_count;
 
-	spin_lock_bh(&sess_err->lock);
+	bh = spin_lock_bh(&sess_err->lock, SOFTIRQ_ALL_MASK);
 	sess_err_count = (sess_err->digest_errors +
 			  sess_err->cxn_timeout_errors +
 			  sess_err->pdu_format_errors);
-	spin_unlock_bh(&sess_err->lock);
+	spin_unlock_bh(&sess_err->lock, bh);
 
 	return snprintf(page, PAGE_SIZE, "%u\n", sess_err_count);
 }
@@ -606,13 +607,14 @@ static ssize_t iscsi_stat_sess_inst_show(struct config_item *item, char *page)
 
 static ssize_t iscsi_stat_sess_node_show(struct config_item *item, char *page)
 {
+	unsigned int bh;
 	struct iscsi_node_acl *acl = iscsi_stat_nacl(item);
 	struct se_node_acl *se_nacl = &acl->se_node_acl;
 	struct iscsi_session *sess;
 	struct se_session *se_sess;
 	ssize_t ret = 0;
 
-	spin_lock_bh(&se_nacl->nacl_sess_lock);
+	bh = spin_lock_bh(&se_nacl->nacl_sess_lock, SOFTIRQ_ALL_MASK);
 	se_sess = se_nacl->nacl_sess;
 	if (se_sess) {
 		sess = se_sess->fabric_sess_ptr;
@@ -620,20 +622,21 @@ static ssize_t iscsi_stat_sess_node_show(struct config_item *item, char *page)
 			ret = snprintf(page, PAGE_SIZE, "%u\n",
 				sess->sess_ops->SessionType ? 0 : ISCSI_NODE_INDEX);
 	}
-	spin_unlock_bh(&se_nacl->nacl_sess_lock);
+	spin_unlock_bh(&se_nacl->nacl_sess_lock, bh);
 
 	return ret;
 }
 
 static ssize_t iscsi_stat_sess_indx_show(struct config_item *item, char *page)
 {
+	unsigned int bh;
 	struct iscsi_node_acl *acl = iscsi_stat_nacl(item);
 	struct se_node_acl *se_nacl = &acl->se_node_acl;
 	struct iscsi_session *sess;
 	struct se_session *se_sess;
 	ssize_t ret = 0;
 
-	spin_lock_bh(&se_nacl->nacl_sess_lock);
+	bh = spin_lock_bh(&se_nacl->nacl_sess_lock, SOFTIRQ_ALL_MASK);
 	se_sess = se_nacl->nacl_sess;
 	if (se_sess) {
 		sess = se_sess->fabric_sess_ptr;
@@ -641,7 +644,7 @@ static ssize_t iscsi_stat_sess_indx_show(struct config_item *item, char *page)
 			ret = snprintf(page, PAGE_SIZE, "%u\n",
 					sess->session_index);
 	}
-	spin_unlock_bh(&se_nacl->nacl_sess_lock);
+	spin_unlock_bh(&se_nacl->nacl_sess_lock, bh);
 
 	return ret;
 }
@@ -649,13 +652,14 @@ static ssize_t iscsi_stat_sess_indx_show(struct config_item *item, char *page)
 static ssize_t iscsi_stat_sess_cmd_pdus_show(struct config_item *item,
 		char *page)
 {
+	unsigned int bh;
 	struct iscsi_node_acl *acl = iscsi_stat_nacl(item);
 	struct se_node_acl *se_nacl = &acl->se_node_acl;
 	struct iscsi_session *sess;
 	struct se_session *se_sess;
 	ssize_t ret = 0;
 
-	spin_lock_bh(&se_nacl->nacl_sess_lock);
+	bh = spin_lock_bh(&se_nacl->nacl_sess_lock, SOFTIRQ_ALL_MASK);
 	se_sess = se_nacl->nacl_sess;
 	if (se_sess) {
 		sess = se_sess->fabric_sess_ptr;
@@ -663,7 +667,7 @@ static ssize_t iscsi_stat_sess_cmd_pdus_show(struct config_item *item,
 			ret = snprintf(page, PAGE_SIZE, "%lu\n",
 				       atomic_long_read(&sess->cmd_pdus));
 	}
-	spin_unlock_bh(&se_nacl->nacl_sess_lock);
+	spin_unlock_bh(&se_nacl->nacl_sess_lock, bh);
 
 	return ret;
 }
@@ -671,13 +675,14 @@ static ssize_t iscsi_stat_sess_cmd_pdus_show(struct config_item *item,
 static ssize_t iscsi_stat_sess_rsp_pdus_show(struct config_item *item,
 		char *page)
 {
+	unsigned int bh;
 	struct iscsi_node_acl *acl = iscsi_stat_nacl(item);
 	struct se_node_acl *se_nacl = &acl->se_node_acl;
 	struct iscsi_session *sess;
 	struct se_session *se_sess;
 	ssize_t ret = 0;
 
-	spin_lock_bh(&se_nacl->nacl_sess_lock);
+	bh = spin_lock_bh(&se_nacl->nacl_sess_lock, SOFTIRQ_ALL_MASK);
 	se_sess = se_nacl->nacl_sess;
 	if (se_sess) {
 		sess = se_sess->fabric_sess_ptr;
@@ -685,7 +690,7 @@ static ssize_t iscsi_stat_sess_rsp_pdus_show(struct config_item *item,
 			ret = snprintf(page, PAGE_SIZE, "%lu\n",
 				       atomic_long_read(&sess->rsp_pdus));
 	}
-	spin_unlock_bh(&se_nacl->nacl_sess_lock);
+	spin_unlock_bh(&se_nacl->nacl_sess_lock, bh);
 
 	return ret;
 }
@@ -693,13 +698,14 @@ static ssize_t iscsi_stat_sess_rsp_pdus_show(struct config_item *item,
 static ssize_t iscsi_stat_sess_txdata_octs_show(struct config_item *item,
 		char *page)
 {
+	unsigned int bh;
 	struct iscsi_node_acl *acl = iscsi_stat_nacl(item);
 	struct se_node_acl *se_nacl = &acl->se_node_acl;
 	struct iscsi_session *sess;
 	struct se_session *se_sess;
 	ssize_t ret = 0;
 
-	spin_lock_bh(&se_nacl->nacl_sess_lock);
+	bh = spin_lock_bh(&se_nacl->nacl_sess_lock, SOFTIRQ_ALL_MASK);
 	se_sess = se_nacl->nacl_sess;
 	if (se_sess) {
 		sess = se_sess->fabric_sess_ptr;
@@ -707,7 +713,7 @@ static ssize_t iscsi_stat_sess_txdata_octs_show(struct config_item *item,
 			ret = snprintf(page, PAGE_SIZE, "%lu\n",
 				       atomic_long_read(&sess->tx_data_octets));
 	}
-	spin_unlock_bh(&se_nacl->nacl_sess_lock);
+	spin_unlock_bh(&se_nacl->nacl_sess_lock, bh);
 
 	return ret;
 }
@@ -715,13 +721,14 @@ static ssize_t iscsi_stat_sess_txdata_octs_show(struct config_item *item,
 static ssize_t iscsi_stat_sess_rxdata_octs_show(struct config_item *item,
 		char *page)
 {
+	unsigned int bh;
 	struct iscsi_node_acl *acl = iscsi_stat_nacl(item);
 	struct se_node_acl *se_nacl = &acl->se_node_acl;
 	struct iscsi_session *sess;
 	struct se_session *se_sess;
 	ssize_t ret = 0;
 
-	spin_lock_bh(&se_nacl->nacl_sess_lock);
+	bh = spin_lock_bh(&se_nacl->nacl_sess_lock, SOFTIRQ_ALL_MASK);
 	se_sess = se_nacl->nacl_sess;
 	if (se_sess) {
 		sess = se_sess->fabric_sess_ptr;
@@ -729,7 +736,7 @@ static ssize_t iscsi_stat_sess_rxdata_octs_show(struct config_item *item,
 			ret = snprintf(page, PAGE_SIZE, "%lu\n",
 				       atomic_long_read(&sess->rx_data_octets));
 	}
-	spin_unlock_bh(&se_nacl->nacl_sess_lock);
+	spin_unlock_bh(&se_nacl->nacl_sess_lock, bh);
 
 	return ret;
 }
@@ -737,13 +744,14 @@ static ssize_t iscsi_stat_sess_rxdata_octs_show(struct config_item *item,
 static ssize_t iscsi_stat_sess_conn_digest_errors_show(struct config_item *item,
 		char *page)
 {
+	unsigned int bh;
 	struct iscsi_node_acl *acl = iscsi_stat_nacl(item);
 	struct se_node_acl *se_nacl = &acl->se_node_acl;
 	struct iscsi_session *sess;
 	struct se_session *se_sess;
 	ssize_t ret = 0;
 
-	spin_lock_bh(&se_nacl->nacl_sess_lock);
+	bh = spin_lock_bh(&se_nacl->nacl_sess_lock, SOFTIRQ_ALL_MASK);
 	se_sess = se_nacl->nacl_sess;
 	if (se_sess) {
 		sess = se_sess->fabric_sess_ptr;
@@ -751,7 +759,7 @@ static ssize_t iscsi_stat_sess_conn_digest_errors_show(struct config_item *item,
 			ret = snprintf(page, PAGE_SIZE, "%lu\n",
 				       atomic_long_read(&sess->conn_digest_errors));
 	}
-	spin_unlock_bh(&se_nacl->nacl_sess_lock);
+	spin_unlock_bh(&se_nacl->nacl_sess_lock, bh);
 
 	return ret;
 }
@@ -759,13 +767,14 @@ static ssize_t iscsi_stat_sess_conn_digest_errors_show(struct config_item *item,
 static ssize_t iscsi_stat_sess_conn_timeout_errors_show(
 		struct config_item *item, char *page)
 {
+	unsigned int bh;
 	struct iscsi_node_acl *acl = iscsi_stat_nacl(item);
 	struct se_node_acl *se_nacl = &acl->se_node_acl;
 	struct iscsi_session *sess;
 	struct se_session *se_sess;
 	ssize_t ret = 0;
 
-	spin_lock_bh(&se_nacl->nacl_sess_lock);
+	bh = spin_lock_bh(&se_nacl->nacl_sess_lock, SOFTIRQ_ALL_MASK);
 	se_sess = se_nacl->nacl_sess;
 	if (se_sess) {
 		sess = se_sess->fabric_sess_ptr;
@@ -773,7 +782,7 @@ static ssize_t iscsi_stat_sess_conn_timeout_errors_show(
 			ret = snprintf(page, PAGE_SIZE, "%lu\n",
 				       atomic_long_read(&sess->conn_timeout_errors));
 	}
-	spin_unlock_bh(&se_nacl->nacl_sess_lock);
+	spin_unlock_bh(&se_nacl->nacl_sess_lock, bh);
 
 	return ret;
 }

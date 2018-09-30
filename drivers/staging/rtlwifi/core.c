@@ -856,6 +856,7 @@ static int rtl_op_sta_add(struct ieee80211_hw *hw,
 			  struct ieee80211_vif *vif,
 			  struct ieee80211_sta *sta)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_phy *rtlphy = &rtlpriv->phy;
 	struct rtl_hal *rtlhal = rtl_hal(rtl_priv(hw));
@@ -864,9 +865,9 @@ static int rtl_op_sta_add(struct ieee80211_hw *hw,
 
 	if (sta) {
 		sta_entry = (struct rtl_sta_info *)sta->drv_priv;
-		spin_lock_bh(&rtlpriv->locks.entry_list_lock);
+		bh = spin_lock_bh(&rtlpriv->locks.entry_list_lock, SOFTIRQ_ALL_MASK);
 		list_add_tail(&sta_entry->list, &rtlpriv->entry_list);
-		spin_unlock_bh(&rtlpriv->locks.entry_list_lock);
+		spin_unlock_bh(&rtlpriv->locks.entry_list_lock, bh);
 		if (rtlhal->current_bandtype == BAND_ON_2_4G) {
 			sta_entry->wireless_mode = WIRELESS_MODE_G;
 			if (sta->supp_rates[0] <= 0xf)
@@ -916,6 +917,7 @@ static int rtl_op_sta_remove(struct ieee80211_hw *hw,
 			     struct ieee80211_vif *vif,
 			     struct ieee80211_sta *sta)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_sta_info *sta_entry;
 
@@ -929,9 +931,9 @@ static int rtl_op_sta_remove(struct ieee80211_hw *hw,
 		sta_entry = (struct rtl_sta_info *)sta->drv_priv;
 		sta_entry->wireless_mode = 0;
 		sta_entry->ratr_index = 0;
-		spin_lock_bh(&rtlpriv->locks.entry_list_lock);
+		bh = spin_lock_bh(&rtlpriv->locks.entry_list_lock, SOFTIRQ_ALL_MASK);
 		list_del(&sta_entry->list);
-		spin_unlock_bh(&rtlpriv->locks.entry_list_lock);
+		spin_unlock_bh(&rtlpriv->locks.entry_list_lock, bh);
 	}
 	return 0;
 }

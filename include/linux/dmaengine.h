@@ -558,10 +558,13 @@ static inline void dma_descriptor_unmap(struct dma_async_tx_descriptor *tx)
 }
 
 #ifndef CONFIG_ASYNC_TX_ENABLE_CHANNEL_SWITCH
-static inline void txd_lock(struct dma_async_tx_descriptor *txd)
+static inline unsigned int txd_lock(struct dma_async_tx_descriptor *txd)
 {
+	//FIXME
+	return 0;
 }
-static inline void txd_unlock(struct dma_async_tx_descriptor *txd)
+static inline void txd_unlock(struct dma_async_tx_descriptor *txd,
+	unsigned int bh)
 {
 }
 static inline void txd_chain(struct dma_async_tx_descriptor *txd, struct dma_async_tx_descriptor *next)
@@ -584,13 +587,14 @@ static inline struct dma_async_tx_descriptor *txd_parent(struct dma_async_tx_des
 }
 
 #else
-static inline void txd_lock(struct dma_async_tx_descriptor *txd)
+static inline unsigned int txd_lock(struct dma_async_tx_descriptor *txd)
 {
-	spin_lock_bh(&txd->lock);
+	return spin_lock_bh(&txd->lock, SOFTIRQ_ALL_MASK);
 }
-static inline void txd_unlock(struct dma_async_tx_descriptor *txd)
+static inline void txd_unlock(struct dma_async_tx_descriptor *txd,
+			      unsigned int bh)
 {
-	spin_unlock_bh(&txd->lock);
+	spin_unlock_bh(&txd->lock, bh);
 }
 static inline void txd_chain(struct dma_async_tx_descriptor *txd, struct dma_async_tx_descriptor *next)
 {

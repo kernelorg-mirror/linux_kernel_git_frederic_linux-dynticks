@@ -94,7 +94,7 @@ int tipc_bclink_reset_stats(struct net *net);
 
 static inline void tipc_bcast_lock(struct net *net)
 {
-	spin_lock_bh(&tipc_net(net)->bclock);
+	spin_lock_bh(&tipc_net(net)->bclock, SOFTIRQ_ALL_MASK);
 }
 
 static inline void tipc_bcast_unlock(struct net *net)

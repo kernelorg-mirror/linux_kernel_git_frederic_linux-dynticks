@@ -1819,7 +1819,8 @@ struct tcp_iter_state {
 	enum tcp_seq_states	state;
 	struct sock		*syn_wait_sk;
 	int			bucket, offset, sbucket, num;
-	loff_t			last_pos;
+	loff_t	     		last_pos;
+	unsigned int 		bh;
 };
 
 extern struct request_sock_ops tcp_request_sock_ops;

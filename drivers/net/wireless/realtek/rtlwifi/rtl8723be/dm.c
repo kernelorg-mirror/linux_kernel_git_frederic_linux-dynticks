@@ -318,6 +318,7 @@ static void rtl8723be_dm_find_minimum_rssi(struct ieee80211_hw *hw)
 
 static void rtl8723be_dm_check_rssi_monitor(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct dig_t *dm_digtable = &rtlpriv->dm_digtable;
 	struct rtl_sta_info *drv_priv;
@@ -325,7 +326,7 @@ static void rtl8723be_dm_check_rssi_monitor(struct ieee80211_hw *hw)
 	long tmp_entry_max_pwdb = 0, tmp_entry_min_pwdb = 0xff;
 
 	/* AP & ADHOC & MESH */
-	spin_lock_bh(&rtlpriv->locks.entry_list_lock);
+	bh = spin_lock_bh(&rtlpriv->locks.entry_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(drv_priv, &rtlpriv->entry_list, list) {
 		if (drv_priv->rssi_stat.undec_sm_pwdb <
 						tmp_entry_min_pwdb)
@@ -336,7 +337,7 @@ static void rtl8723be_dm_check_rssi_monitor(struct ieee80211_hw *hw)
 			tmp_entry_max_pwdb =
 				drv_priv->rssi_stat.undec_sm_pwdb;
 	}
-	spin_unlock_bh(&rtlpriv->locks.entry_list_lock);
+	spin_unlock_bh(&rtlpriv->locks.entry_list_lock, bh);
 
 	/* If associated entry is found */
 	if (tmp_entry_max_pwdb != 0) {
@@ -1234,6 +1235,7 @@ static void rtl8723be_dm_dynamic_atc_switch(struct ieee80211_hw *hw)
 
 static void rtl8723be_dm_common_info_self_update(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	u8 cnt = 0;
 	struct rtl_sta_info *drv_priv;
@@ -1249,11 +1251,11 @@ static void rtl8723be_dm_common_info_self_update(struct ieee80211_hw *hw)
 	if (rtlpriv->mac80211.opmode == NL80211_IFTYPE_AP ||
 		rtlpriv->mac80211.opmode == NL80211_IFTYPE_ADHOC ||
 		rtlpriv->mac80211.opmode == NL80211_IFTYPE_MESH_POINT) {
-		spin_lock_bh(&rtlpriv->locks.entry_list_lock);
+		bh = spin_lock_bh(&rtlpriv->locks.entry_list_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(drv_priv, &rtlpriv->entry_list, list) {
 			cnt++;
 		}
-		spin_unlock_bh(&rtlpriv->locks.entry_list_lock);
+		spin_unlock_bh(&rtlpriv->locks.entry_list_lock, bh);
 
 		if (cnt == 1)
 			rtlpriv->dm.one_entry_only = true;

@@ -33,7 +33,7 @@ gnet_stats_copy(struct gnet_dump *d, int type, void *buf, int size, int padattr)
 
 nla_put_failure:
 	if (d->lock)
-		spin_unlock_bh(d->lock);
+		spin_unlock_bh(d->lock, d->bh);
 	kfree(d->xstats);
 	d->xstats = NULL;
 	d->xstats_len = 0;
@@ -75,7 +75,7 @@ gnet_stats_start_copy_compat(struct sk_buff *skb, int type, int tc_stats_type,
 	d->padattr = padattr;
 	if (lock) {
 		d->lock = lock;
-		spin_lock_bh(lock);
+		d->bh = spin_lock_bh(lock, SOFTIRQ_ALL_MASK);
 	}
 	if (d->tail) {
 		int ret = gnet_stats_copy(d, type, NULL, 0, padattr);
@@ -353,7 +353,7 @@ gnet_stats_copy_app(struct gnet_dump *d, void *st, int len)
 
 err_out:
 	if (d->lock)
-		spin_unlock_bh(d->lock);
+		spin_unlock_bh(d->lock, d->bh);
 	d->xstats_len = 0;
 	return -1;
 }
@@ -389,7 +389,7 @@ gnet_stats_finish_copy(struct gnet_dump *d)
 	}
 
 	if (d->lock)
-		spin_unlock_bh(d->lock);
+		spin_unlock_bh(d->lock, d->bh);
 	kfree(d->xstats);
 	d->xstats = NULL;
 	d->xstats_len = 0;

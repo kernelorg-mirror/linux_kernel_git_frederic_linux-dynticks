@@ -135,6 +135,7 @@ void ath9k_wmi_event_drain(struct ath9k_htc_priv *priv)
 
 void ath9k_wmi_event_tasklet(unsigned long data)
 {
+	unsigned int bh;
 	struct wmi *wmi = (struct wmi *)data;
 	struct ath9k_htc_priv *priv = wmi->drv_priv;
 	struct wmi_cmd_hdr *hdr;
@@ -167,12 +168,12 @@ void ath9k_wmi_event_tasklet(unsigned long data)
 					     &wmi->drv_priv->fatal_work);
 			break;
 		case WMI_TXSTATUS_EVENTID:
-			spin_lock_bh(&priv->tx.tx_lock);
+			bh = spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 			if (priv->tx.flags & ATH9K_HTC_OP_TX_DRAIN) {
-				spin_unlock_bh(&priv->tx.tx_lock);
+				spin_unlock_bh(&priv->tx.tx_lock, bh);
 				break;
 			}
-			spin_unlock_bh(&priv->tx.tx_lock);
+			spin_unlock_bh(&priv->tx.tx_lock, bh);
 
 			ath9k_htc_txstatus(priv, wmi_event);
 			break;

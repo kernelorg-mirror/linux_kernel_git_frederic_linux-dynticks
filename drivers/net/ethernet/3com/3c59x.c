@@ -3153,12 +3153,13 @@ static void mdio_sync(struct vortex_private *vp, int bits)
 
 static int mdio_read(struct net_device *dev, int phy_id, int location)
 {
+	unsigned int bh;
 	int i;
 	struct vortex_private *vp = netdev_priv(dev);
 	int read_cmd = (0xf6 << 10) | (phy_id << 5) | location;
 	unsigned int retval = 0;
 
-	spin_lock_bh(&vp->mii_lock);
+	bh = spin_lock_bh(&vp->mii_lock, SOFTIRQ_ALL_MASK);
 
 	if (mii_preamble_required)
 		mdio_sync(vp, 32);
@@ -3184,18 +3185,19 @@ static int mdio_read(struct net_device *dev, int phy_id, int location)
 		mdio_delay(vp);
 	}
 
-	spin_unlock_bh(&vp->mii_lock);
+	spin_unlock_bh(&vp->mii_lock, bh);
 
 	return retval & 0x20000 ? 0xffff : retval>>1 & 0xffff;
 }
 
 static void mdio_write(struct net_device *dev, int phy_id, int location, int value)
 {
+	unsigned int bh;
 	struct vortex_private *vp = netdev_priv(dev);
 	int write_cmd = 0x50020000 | (phy_id << 23) | (location << 18) | value;
 	int i;
 
-	spin_lock_bh(&vp->mii_lock);
+	bh = spin_lock_bh(&vp->mii_lock, SOFTIRQ_ALL_MASK);
 
 	if (mii_preamble_required)
 		mdio_sync(vp, 32);
@@ -3218,7 +3220,7 @@ static void mdio_write(struct net_device *dev, int phy_id, int location, int val
 		mdio_delay(vp);
 	}
 
-	spin_unlock_bh(&vp->mii_lock);
+	spin_unlock_bh(&vp->mii_lock, bh);
 }
 
 /* ACPI: Advanced Configuration and Power Interface. */

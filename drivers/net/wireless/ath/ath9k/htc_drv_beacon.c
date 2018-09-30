@@ -137,13 +137,14 @@ void ath9k_htc_beaconep(void *drv_priv, struct sk_buff *skb,
 static void ath9k_htc_send_buffered(struct ath9k_htc_priv *priv,
 				    int slot)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(priv->ah);
 	struct ieee80211_vif *vif;
 	struct sk_buff *skb;
 	struct ieee80211_hdr *hdr;
 	int padpos, padsize, ret, tx_slot;
 
-	spin_lock_bh(&priv->beacon_lock);
+	bh = spin_lock_bh(&priv->beacon_lock, SOFTIRQ_ALL_MASK);
 
 	vif = priv->beacon.bslot[slot];
 
@@ -177,7 +178,7 @@ static void ath9k_htc_send_buffered(struct ath9k_htc_priv *priv,
 
 			ath_dbg(common, XMIT, "Failed to send CAB frame\n");
 		} else {
-			spin_lock_bh(&priv->tx.tx_lock);
+			spin_lock_bh(&priv->tx.tx_lock, SOFTIRQ_ALL_MASK);
 			priv->tx.queued_cnt++;
 			spin_unlock_bh(&priv->tx.tx_lock);
 		}
@@ -185,12 +186,13 @@ static void ath9k_htc_send_buffered(struct ath9k_htc_priv *priv,
 		skb = ieee80211_get_buffered_bc(priv->hw, vif);
 	}
 
-	spin_unlock_bh(&priv->beacon_lock);
+	spin_unlock_bh(&priv->beacon_lock, bh);
 }
 
 static void ath9k_htc_send_beacon(struct ath9k_htc_priv *priv,
 				  int slot)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(priv->ah);
 	struct ieee80211_vif *vif;
 	struct ath9k_htc_vif *avp;
@@ -204,20 +206,20 @@ static void ath9k_htc_send_beacon(struct ath9k_htc_priv *priv,
 
 	memset(&beacon_hdr, 0, sizeof(struct tx_beacon_header));
 
-	spin_lock_bh(&priv->beacon_lock);
+	bh = spin_lock_bh(&priv->beacon_lock, SOFTIRQ_ALL_MASK);
 
 	vif = priv->beacon.bslot[slot];
 	avp = (struct ath9k_htc_vif *)vif->drv_priv;
 
 	if (unlikely(test_bit(ATH_OP_SCANNING, &common->op_flags))) {
-		spin_unlock_bh(&priv->beacon_lock);
+		spin_unlock_bh(&priv->beacon_lock, bh);
 		return;
 	}
 
 	/* Get a new beacon */
 	beacon = ieee80211_beacon_get(priv->hw, vif);
 	if (!beacon) {
-		spin_unlock_bh(&priv->beacon_lock);
+		spin_unlock_bh(&priv->beacon_lock, bh);
 		return;
 	}
 
@@ -256,7 +258,7 @@ static void ath9k_htc_send_beacon(struct ath9k_htc_priv *priv,
 		dev_kfree_skb_any(beacon);
 	}
 
-	spin_unlock_bh(&priv->beacon_lock);
+	spin_unlock_bh(&priv->beacon_lock, bh);
 
 	ath9k_htc_csa_is_finished(priv);
 }
@@ -287,6 +289,7 @@ static int ath9k_htc_choose_bslot(struct ath9k_htc_priv *priv,
 void ath9k_htc_swba(struct ath9k_htc_priv *priv,
 		    struct wmi_event_swba *swba)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(priv->ah);
 	int slot;
 
@@ -308,12 +311,12 @@ void ath9k_htc_swba(struct ath9k_htc_priv *priv,
 	}
 
 	slot = ath9k_htc_choose_bslot(priv, swba);
-	spin_lock_bh(&priv->beacon_lock);
+	bh = spin_lock_bh(&priv->beacon_lock, SOFTIRQ_ALL_MASK);
 	if (priv->beacon.bslot[slot] == NULL) {
-		spin_unlock_bh(&priv->beacon_lock);
+		spin_unlock_bh(&priv->beacon_lock, bh);
 		return;
 	}
-	spin_unlock_bh(&priv->beacon_lock);
+	spin_unlock_bh(&priv->beacon_lock, bh);
 
 	ath9k_htc_send_buffered(priv, slot);
 	ath9k_htc_send_beacon(priv, slot);
@@ -322,11 +325,12 @@ void ath9k_htc_swba(struct ath9k_htc_priv *priv,
 void ath9k_htc_assign_bslot(struct ath9k_htc_priv *priv,
 			    struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(priv->ah);
 	struct ath9k_htc_vif *avp = (struct ath9k_htc_vif *)vif->drv_priv;
 	int i = 0;
 
-	spin_lock_bh(&priv->beacon_lock);
+	bh = spin_lock_bh(&priv->beacon_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < ATH9K_HTC_MAX_BCN_VIF; i++) {
 		if (priv->beacon.bslot[i] == NULL) {
 			avp->bslot = i;
@@ -335,7 +339,7 @@ void ath9k_htc_assign_bslot(struct ath9k_htc_priv *priv,
 	}
 
 	priv->beacon.bslot[avp->bslot] = vif;
-	spin_unlock_bh(&priv->beacon_lock);
+	spin_unlock_bh(&priv->beacon_lock, bh);
 
 	ath_dbg(common, CONFIG, "Added interface at beacon slot: %d\n",
 		avp->bslot);
@@ -344,12 +348,13 @@ void ath9k_htc_assign_bslot(struct ath9k_htc_priv *priv,
 void ath9k_htc_remove_bslot(struct ath9k_htc_priv *priv,
 			    struct ieee80211_vif *vif)
 {
+	unsigned int bh;
 	struct ath_common *common = ath9k_hw_common(priv->ah);
 	struct ath9k_htc_vif *avp = (struct ath9k_htc_vif *)vif->drv_priv;
 
-	spin_lock_bh(&priv->beacon_lock);
+	bh = spin_lock_bh(&priv->beacon_lock, SOFTIRQ_ALL_MASK);
 	priv->beacon.bslot[avp->bslot] = NULL;
-	spin_unlock_bh(&priv->beacon_lock);
+	spin_unlock_bh(&priv->beacon_lock, bh);
 
 	ath_dbg(common, CONFIG, "Removed interface at beacon slot: %d\n",
 		avp->bslot);

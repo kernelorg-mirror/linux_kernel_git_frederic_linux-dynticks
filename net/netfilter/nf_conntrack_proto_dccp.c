@@ -441,6 +441,7 @@ static u64 dccp_ack_seq(const struct dccp_hdr *dh)
 static int dccp_packet(struct nf_conn *ct, const struct sk_buff *skb,
 		       unsigned int dataoff, enum ip_conntrack_info ctinfo)
 {
+	unsigned int bh;
 	enum ip_conntrack_dir dir = CTINFO2DIR(ctinfo);
 	struct dccp_hdr _dh, *dh;
 	u_int8_t type, old_state, new_state;
@@ -458,7 +459,7 @@ static int dccp_packet(struct nf_conn *ct, const struct sk_buff *skb,
 		return NF_ACCEPT;
 	}
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 
 	role = ct->proto.dccp.role[dir];
 	old_state = ct->proto.dccp.state;
@@ -502,11 +503,11 @@ static int dccp_packet(struct nf_conn *ct, const struct sk_buff *skb,
 		ct->proto.dccp.last_dir = dir;
 		ct->proto.dccp.last_pkt = type;
 
-		spin_unlock_bh(&ct->lock);
+		spin_unlock_bh(&ct->lock, bh);
 		nf_ct_l4proto_log_invalid(skb, ct, "%s", "invalid packet");
 		return NF_ACCEPT;
 	case CT_DCCP_INVALID:
-		spin_unlock_bh(&ct->lock);
+		spin_unlock_bh(&ct->lock, bh);
 		nf_ct_l4proto_log_invalid(skb, ct, "%s", "invalid state transition");
 		return -NF_ACCEPT;
 	}
@@ -514,7 +515,7 @@ static int dccp_packet(struct nf_conn *ct, const struct sk_buff *skb,
 	ct->proto.dccp.last_dir = dir;
 	ct->proto.dccp.last_pkt = type;
 	ct->proto.dccp.state = new_state;
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 
 	if (new_state != old_state)
 		nf_conntrack_event_cache(IPCT_PROTOINFO, ct);
@@ -601,9 +602,10 @@ static void dccp_print_conntrack(struct seq_file *s, struct nf_conn *ct)
 static int dccp_to_nlattr(struct sk_buff *skb, struct nlattr *nla,
 			  struct nf_conn *ct)
 {
+	unsigned int bh;
 	struct nlattr *nest_parms;
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	nest_parms = nla_nest_start(skb, CTA_PROTOINFO_DCCP | NLA_F_NESTED);
 	if (!nest_parms)
 		goto nla_put_failure;
@@ -615,11 +617,11 @@ static int dccp_to_nlattr(struct sk_buff *skb, struct nlattr *nla,
 			 CTA_PROTOINFO_DCCP_PAD))
 		goto nla_put_failure;
 	nla_nest_end(skb, nest_parms);
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 	return 0;
 
 nla_put_failure:
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 	return -1;
 }
 
@@ -638,6 +640,7 @@ static const struct nla_policy dccp_nla_policy[CTA_PROTOINFO_DCCP_MAX + 1] = {
 
 static int nlattr_to_dccp(struct nlattr *cda[], struct nf_conn *ct)
 {
+	unsigned int bh;
 	struct nlattr *attr = cda[CTA_PROTOINFO_DCCP];
 	struct nlattr *tb[CTA_PROTOINFO_DCCP_MAX + 1];
 	int err;
@@ -657,7 +660,7 @@ static int nlattr_to_dccp(struct nlattr *cda[], struct nf_conn *ct)
 		return -EINVAL;
 	}
 
-	spin_lock_bh(&ct->lock);
+	bh = spin_lock_bh(&ct->lock, SOFTIRQ_ALL_MASK);
 	ct->proto.dccp.state = nla_get_u8(tb[CTA_PROTOINFO_DCCP_STATE]);
 	if (nla_get_u8(tb[CTA_PROTOINFO_DCCP_ROLE]) == CT_DCCP_ROLE_CLIENT) {
 		ct->proto.dccp.role[IP_CT_DIR_ORIGINAL] = CT_DCCP_ROLE_CLIENT;
@@ -670,7 +673,7 @@ static int nlattr_to_dccp(struct nlattr *cda[], struct nf_conn *ct)
 		ct->proto.dccp.handshake_seq =
 		be64_to_cpu(nla_get_be64(tb[CTA_PROTOINFO_DCCP_HANDSHAKE_SEQ]));
 	}
-	spin_unlock_bh(&ct->lock);
+	spin_unlock_bh(&ct->lock, bh);
 	return 0;
 }
 #endif

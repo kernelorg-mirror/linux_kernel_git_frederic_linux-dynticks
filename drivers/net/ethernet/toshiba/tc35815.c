@@ -1137,6 +1137,7 @@ static int tc35815_tx_full(struct net_device *dev)
 
 static void tc35815_restart(struct net_device *dev)
 {
+	unsigned int bh;
 	struct tc35815_local *lp = netdev_priv(dev);
 	int ret;
 
@@ -1146,7 +1147,7 @@ static void tc35815_restart(struct net_device *dev)
 			printk(KERN_ERR "%s: PHY init failed.\n", dev->name);
 	}
 
-	spin_lock_bh(&lp->rx_lock);
+	bh = spin_lock_bh(&lp->rx_lock, SOFTIRQ_ALL_MASK);
 	spin_lock_irq(&lp->lock);
 	tc35815_chip_reset(dev);
 	tc35815_clear_queues(dev);
@@ -1154,7 +1155,7 @@ static void tc35815_restart(struct net_device *dev)
 	/* Reconfigure CAM again since tc35815_chip_init() initialize it. */
 	tc35815_set_multicast_list(dev);
 	spin_unlock_irq(&lp->lock);
-	spin_unlock_bh(&lp->rx_lock);
+	spin_unlock_bh(&lp->rx_lock, bh);
 
 	netif_wake_queue(dev);
 }

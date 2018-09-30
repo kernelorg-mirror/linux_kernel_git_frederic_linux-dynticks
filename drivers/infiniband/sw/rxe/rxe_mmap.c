@@ -43,16 +43,17 @@
 
 void rxe_mmap_release(struct kref *ref)
 {
+	unsigned int bh;
 	struct rxe_mmap_info *ip = container_of(ref,
 					struct rxe_mmap_info, ref);
 	struct rxe_dev *rxe = to_rdev(ip->context->device);
 
-	spin_lock_bh(&rxe->pending_lock);
+	bh = spin_lock_bh(&rxe->pending_lock, SOFTIRQ_ALL_MASK);
 
 	if (!list_empty(&ip->pending_mmaps))
 		list_del(&ip->pending_mmaps);
 
-	spin_unlock_bh(&rxe->pending_lock);
+	spin_unlock_bh(&rxe->pending_lock, bh);
 
 	vfree(ip->obj);		/* buf */
 	kfree(ip);
@@ -89,6 +90,7 @@ static const struct vm_operations_struct rxe_vm_ops = {
  */
 int rxe_mmap(struct ib_ucontext *context, struct vm_area_struct *vma)
 {
+	unsigned int bh;
 	struct rxe_dev *rxe = to_rdev(context->device);
 	unsigned long offset = vma->vm_pgoff << PAGE_SHIFT;
 	unsigned long size = vma->vm_end - vma->vm_start;
@@ -100,7 +102,7 @@ int rxe_mmap(struct ib_ucontext *context, struct vm_area_struct *vma)
 	 * Normally, this list is very short since a call to create a
 	 * CQ, QP, or SRQ is soon followed by a call to mmap().
 	 */
-	spin_lock_bh(&rxe->pending_lock);
+	bh = spin_lock_bh(&rxe->pending_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(ip, pp, &rxe->pending_mmaps, pending_mmaps) {
 		if (context != ip->context || (__u64)offset != ip->info.offset)
 			continue;
@@ -108,7 +110,7 @@ int rxe_mmap(struct ib_ucontext *context, struct vm_area_struct *vma)
 		/* Don't allow a mmap larger than the object. */
 		if (size > ip->info.size) {
 			pr_err("mmap region is larger than the object!\n");
-			spin_unlock_bh(&rxe->pending_lock);
+			spin_unlock_bh(&rxe->pending_lock, bh);
 			ret = -EINVAL;
 			goto done;
 		}
@@ -116,13 +118,13 @@ int rxe_mmap(struct ib_ucontext *context, struct vm_area_struct *vma)
 		goto found_it;
 	}
 	pr_warn("unable to find pending mmap info\n");
-	spin_unlock_bh(&rxe->pending_lock);
+	spin_unlock_bh(&rxe->pending_lock, bh);
 	ret = -EINVAL;
 	goto done;
 
 found_it:
 	list_del_init(&ip->pending_mmaps);
-	spin_unlock_bh(&rxe->pending_lock);
+	spin_unlock_bh(&rxe->pending_lock, bh);
 
 	ret = remap_vmalloc_range(vma, ip->obj, 0);
 	if (ret) {
@@ -145,6 +147,7 @@ struct rxe_mmap_info *rxe_create_mmap_info(struct rxe_dev *rxe,
 					   struct ib_ucontext *context,
 					   void *obj)
 {
+	unsigned int bh;
 	struct rxe_mmap_info *ip;
 
 	ip = kmalloc(sizeof(*ip), GFP_KERNEL);
@@ -153,7 +156,7 @@ struct rxe_mmap_info *rxe_create_mmap_info(struct rxe_dev *rxe,
 
 	size = PAGE_ALIGN(size);
 
-	spin_lock_bh(&rxe->mmap_offset_lock);
+	bh = spin_lock_bh(&rxe->mmap_offset_lock, SOFTIRQ_ALL_MASK);
 
 	if (rxe->mmap_offset == 0)
 		rxe->mmap_offset = ALIGN(PAGE_SIZE, SHMLBA);
@@ -161,7 +164,7 @@ struct rxe_mmap_info *rxe_create_mmap_info(struct rxe_dev *rxe,
 	ip->info.offset = rxe->mmap_offset;
 	rxe->mmap_offset += ALIGN(size, SHMLBA);
 
-	spin_unlock_bh(&rxe->mmap_offset_lock);
+	spin_unlock_bh(&rxe->mmap_offset_lock, bh);
 
 	INIT_LIST_HEAD(&ip->pending_mmaps);
 	ip->info.size = size;

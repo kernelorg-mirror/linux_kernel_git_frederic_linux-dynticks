@@ -892,44 +892,47 @@ static void dasd_profile_end(struct dasd_block *block,
 
 void dasd_profile_reset(struct dasd_profile *profile)
 {
+	unsigned int bh;
 	struct dasd_profile_info *data;
 
-	spin_lock_bh(&profile->lock);
+	bh = spin_lock_bh(&profile->lock, SOFTIRQ_ALL_MASK);
 	data = profile->data;
 	if (!data) {
-		spin_unlock_bh(&profile->lock);
+		spin_unlock_bh(&profile->lock, bh);
 		return;
 	}
 	memset(data, 0, sizeof(*data));
 	ktime_get_real_ts64(&data->starttod);
-	spin_unlock_bh(&profile->lock);
+	spin_unlock_bh(&profile->lock, bh);
 }
 
 int dasd_profile_on(struct dasd_profile *profile)
 {
+	unsigned int bh;
 	struct dasd_profile_info *data;
 
 	data = kzalloc(sizeof(*data), GFP_KERNEL);
 	if (!data)
 		return -ENOMEM;
-	spin_lock_bh(&profile->lock);
+	bh = spin_lock_bh(&profile->lock, SOFTIRQ_ALL_MASK);
 	if (profile->data) {
-		spin_unlock_bh(&profile->lock);
+		spin_unlock_bh(&profile->lock, bh);
 		kfree(data);
 		return 0;
 	}
 	ktime_get_real_ts64(&data->starttod);
 	profile->data = data;
-	spin_unlock_bh(&profile->lock);
+	spin_unlock_bh(&profile->lock, bh);
 	return 0;
 }
 
 void dasd_profile_off(struct dasd_profile *profile)
 {
-	spin_lock_bh(&profile->lock);
+	unsigned int bh;
+	bh = spin_lock_bh(&profile->lock, SOFTIRQ_ALL_MASK);
 	kfree(profile->data);
 	profile->data = NULL;
-	spin_unlock_bh(&profile->lock);
+	spin_unlock_bh(&profile->lock, bh);
 }
 
 char *dasd_get_user_string(const char __user *user_buf, size_t user_len)
@@ -1052,19 +1055,20 @@ static void dasd_stats_seq_print(struct seq_file *m,
 
 static int dasd_stats_show(struct seq_file *m, void *v)
 {
+	unsigned int bh;
 	struct dasd_profile *profile;
 	struct dasd_profile_info *data;
 
 	profile = m->private;
-	spin_lock_bh(&profile->lock);
+	bh = spin_lock_bh(&profile->lock, SOFTIRQ_ALL_MASK);
 	data = profile->data;
 	if (!data) {
-		spin_unlock_bh(&profile->lock);
+		spin_unlock_bh(&profile->lock, bh);
 		seq_puts(m, "disabled\n");
 		return 0;
 	}
 	dasd_stats_seq_print(m, data);
-	spin_unlock_bh(&profile->lock);
+	spin_unlock_bh(&profile->lock, bh);
 	return 0;
 }
 
@@ -1862,6 +1866,7 @@ static void __dasd_process_cqr(struct dasd_device *device,
 static void __dasd_device_process_final_queue(struct dasd_device *device,
 					      struct list_head *final_queue)
 {
+	unsigned int bh;
 	struct list_head *l, *n;
 	struct dasd_ccw_req *cqr;
 	struct dasd_block *block;
@@ -1873,9 +1878,9 @@ static void __dasd_device_process_final_queue(struct dasd_device *device,
 		if (!block) {
 			__dasd_process_cqr(device, cqr);
 		} else {
-			spin_lock_bh(&block->queue_lock);
+			bh = spin_lock_bh(&block->queue_lock, SOFTIRQ_ALL_MASK);
 			__dasd_process_cqr(device, cqr);
-			spin_unlock_bh(&block->queue_lock);
+			spin_unlock_bh(&block->queue_lock, bh);
 		}
 	}
 }
@@ -2848,13 +2853,14 @@ static int _dasd_requeue_request(struct dasd_ccw_req *cqr)
  */
 static int dasd_flush_block_queue(struct dasd_block *block)
 {
+	unsigned int bh;
 	struct dasd_ccw_req *cqr, *n;
 	int rc, i;
 	struct list_head flush_queue;
 	unsigned long flags;
 
 	INIT_LIST_HEAD(&flush_queue);
-	spin_lock_bh(&block->queue_lock);
+	bh = spin_lock_bh(&block->queue_lock, SOFTIRQ_ALL_MASK);
 	rc = 0;
 restart:
 	list_for_each_entry_safe(cqr, n, &block->ccw_queue, blocklist) {
@@ -2875,14 +2881,14 @@ restart:
 			/* moved more than one request - need to restart */
 			goto restart;
 	}
-	spin_unlock_bh(&block->queue_lock);
+	spin_unlock_bh(&block->queue_lock, bh);
 	/* Now call the callback function of flushed requests */
 restart_cb:
 	list_for_each_entry_safe(cqr, n, &flush_queue, blocklist) {
 		wait_event(dasd_flush_wq, (cqr->status < DASD_CQR_QUEUED));
 		/* Process finished ERP request. */
 		if (cqr->refers) {
-			spin_lock_bh(&block->queue_lock);
+			spin_lock_bh(&block->queue_lock, SOFTIRQ_ALL_MASK);
 			__dasd_process_erp(block->base, cqr);
 			spin_unlock_bh(&block->queue_lock);
 			/* restart list_for_xx loop since dasd_process_erp

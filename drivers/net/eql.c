@@ -229,9 +229,10 @@ static void eql_kill_one_slave(slave_queue_t *queue, slave_t *slave)
 
 static void eql_kill_slave_queue(slave_queue_t *queue)
 {
+	unsigned int bh;
 	struct list_head *head, *tmp, *this;
 
-	spin_lock_bh(&queue->lock);
+	bh = spin_lock_bh(&queue->lock, SOFTIRQ_ALL_MASK);
 
 	head = &queue->all_slaves;
 	list_for_each_safe(this, tmp, head) {
@@ -240,7 +241,7 @@ static void eql_kill_slave_queue(slave_queue_t *queue)
 		eql_kill_one_slave(queue, s);
 	}
 
-	spin_unlock_bh(&queue->lock);
+	spin_unlock_bh(&queue->lock, bh);
 }
 
 static int eql_close(struct net_device *dev)
@@ -406,6 +407,7 @@ static int __eql_insert_slave(slave_queue_t *queue, slave_t *slave)
 
 static int eql_enslave(struct net_device *master_dev, slaving_request_t __user *srqp)
 {
+	unsigned int bh;
 	struct net_device *slave_dev;
 	slaving_request_t srq;
 
@@ -432,12 +434,12 @@ static int eql_enslave(struct net_device *master_dev, slaving_request_t __user *
 			s->priority_bps = srq.priority;
 			s->priority_Bps = srq.priority / 8;
 
-			spin_lock_bh(&eql->queue.lock);
+			bh = spin_lock_bh(&eql->queue.lock, SOFTIRQ_ALL_MASK);
 			ret = __eql_insert_slave(&eql->queue, s);
 			if (ret)
 				kfree(s);
 
-			spin_unlock_bh(&eql->queue.lock);
+			spin_unlock_bh(&eql->queue.lock, bh);
 
 			return ret;
 		}
@@ -448,6 +450,7 @@ static int eql_enslave(struct net_device *master_dev, slaving_request_t __user *
 
 static int eql_emancipate(struct net_device *master_dev, slaving_request_t __user *srqp)
 {
+	unsigned int bh;
 	equalizer_t *eql = netdev_priv(master_dev);
 	struct net_device *slave_dev;
 	slaving_request_t srq;
@@ -461,7 +464,7 @@ static int eql_emancipate(struct net_device *master_dev, slaving_request_t __use
 		return -ENODEV;
 
 	ret = -EINVAL;
-	spin_lock_bh(&eql->queue.lock);
+	bh = spin_lock_bh(&eql->queue.lock, SOFTIRQ_ALL_MASK);
 	if (eql_is_slave(slave_dev)) {
 		slave_t *slave = __eql_find_slave_dev(&eql->queue, slave_dev);
 		if (slave) {
@@ -469,13 +472,14 @@ static int eql_emancipate(struct net_device *master_dev, slaving_request_t __use
 			ret = 0;
 		}
 	}
-	spin_unlock_bh(&eql->queue.lock);
+	spin_unlock_bh(&eql->queue.lock, bh);
 
 	return ret;
 }
 
 static int eql_g_slave_cfg(struct net_device *dev, slave_config_t __user *scp)
 {
+	unsigned int bh;
 	equalizer_t *eql = netdev_priv(dev);
 	slave_t *slave;
 	struct net_device *slave_dev;
@@ -491,7 +495,7 @@ static int eql_g_slave_cfg(struct net_device *dev, slave_config_t __user *scp)
 
 	ret = -EINVAL;
 
-	spin_lock_bh(&eql->queue.lock);
+	bh = spin_lock_bh(&eql->queue.lock, SOFTIRQ_ALL_MASK);
 	if (eql_is_slave(slave_dev)) {
 		slave = __eql_find_slave_dev(&eql->queue, slave_dev);
 		if (slave) {
@@ -499,7 +503,7 @@ static int eql_g_slave_cfg(struct net_device *dev, slave_config_t __user *scp)
 			ret = 0;
 		}
 	}
-	spin_unlock_bh(&eql->queue.lock);
+	spin_unlock_bh(&eql->queue.lock, bh);
 
 	if (!ret && copy_to_user(scp, &sc, sizeof (slave_config_t)))
 		ret = -EFAULT;
@@ -509,6 +513,7 @@ static int eql_g_slave_cfg(struct net_device *dev, slave_config_t __user *scp)
 
 static int eql_s_slave_cfg(struct net_device *dev, slave_config_t __user *scp)
 {
+	unsigned int bh;
 	slave_t *slave;
 	equalizer_t *eql;
 	struct net_device *slave_dev;
@@ -525,7 +530,7 @@ static int eql_s_slave_cfg(struct net_device *dev, slave_config_t __user *scp)
 	ret = -EINVAL;
 
 	eql = netdev_priv(dev);
-	spin_lock_bh(&eql->queue.lock);
+	bh = spin_lock_bh(&eql->queue.lock, SOFTIRQ_ALL_MASK);
 	if (eql_is_slave(slave_dev)) {
 		slave = __eql_find_slave_dev(&eql->queue, slave_dev);
 		if (slave) {
@@ -535,7 +540,7 @@ static int eql_s_slave_cfg(struct net_device *dev, slave_config_t __user *scp)
 			ret = 0;
 		}
 	}
-	spin_unlock_bh(&eql->queue.lock);
+	spin_unlock_bh(&eql->queue.lock, bh);
 
 	return ret;
 }

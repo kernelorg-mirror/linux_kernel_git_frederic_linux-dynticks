@@ -300,6 +300,7 @@ static int __add_metainfo(const struct tcf_meta_ops *ops,
 			  struct tcf_ife_info *ife, u32 metaid, void *metaval,
 			  int len, bool atomic, bool exists)
 {
+	unsigned int bh;
 	struct tcf_meta_info *mi = NULL;
 	int ret = 0;
 
@@ -318,10 +319,10 @@ static int __add_metainfo(const struct tcf_meta_ops *ops,
 	}
 
 	if (exists)
-		spin_lock_bh(&ife->tcf_lock);
+		bh = spin_lock_bh(&ife->tcf_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&mi->metalist, &ife->metalist);
 	if (exists)
-		spin_unlock_bh(&ife->tcf_lock);
+		spin_unlock_bh(&ife->tcf_lock, bh);
 
 	return ret;
 }
@@ -428,12 +429,13 @@ static void _tcf_ife_cleanup(struct tc_action *a)
 
 static void tcf_ife_cleanup(struct tc_action *a)
 {
+	unsigned int bh;
 	struct tcf_ife_info *ife = to_ife(a);
 	struct tcf_ife_params *p;
 
-	spin_lock_bh(&ife->tcf_lock);
+	bh = spin_lock_bh(&ife->tcf_lock, SOFTIRQ_ALL_MASK);
 	_tcf_ife_cleanup(a);
-	spin_unlock_bh(&ife->tcf_lock);
+	spin_unlock_bh(&ife->tcf_lock, bh);
 
 	p = rcu_dereference_protected(ife->params, 1);
 	if (p)
@@ -471,6 +473,7 @@ static int tcf_ife_init(struct net *net, struct nlattr *nla,
 			int ovr, int bind, bool rtnl_held,
 			struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct tc_action_net *tn = net_generic(net, ife_net_id);
 	struct nlattr *tb[TCA_IFE_MAX + 1];
 	struct nlattr *tb2[IFE_META_MAX + 1];
@@ -589,13 +592,13 @@ metadata_parse_err:
 	}
 
 	if (exists)
-		spin_lock_bh(&ife->tcf_lock);
+		bh = spin_lock_bh(&ife->tcf_lock, SOFTIRQ_ALL_MASK);
 	ife->tcf_action = parm->action;
 	/* protected by tcf_lock when modifying existing action */
 	rcu_swap_protected(ife->params, p, 1);
 
 	if (exists)
-		spin_unlock_bh(&ife->tcf_lock);
+		spin_unlock_bh(&ife->tcf_lock, bh);
 	if (p)
 		kfree_rcu(p, rcu);
 
@@ -608,6 +611,7 @@ metadata_parse_err:
 static int tcf_ife_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 			int ref)
 {
+	unsigned int bh;
 	unsigned char *b = skb_tail_pointer(skb);
 	struct tcf_ife_info *ife = to_ife(a);
 	struct tcf_ife_params *p;
@@ -618,7 +622,7 @@ static int tcf_ife_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 	};
 	struct tcf_t t;
 
-	spin_lock_bh(&ife->tcf_lock);
+	bh = spin_lock_bh(&ife->tcf_lock, SOFTIRQ_ALL_MASK);
 	opt.action = ife->tcf_action;
 	p = rcu_dereference_protected(ife->params,
 				      lockdep_is_held(&ife->tcf_lock));
@@ -649,11 +653,11 @@ static int tcf_ife_dump(struct sk_buff *skb, struct tc_action *a, int bind,
 		pr_info("Failed to dump metalist\n");
 	}
 
-	spin_unlock_bh(&ife->tcf_lock);
+	spin_unlock_bh(&ife->tcf_lock, bh);
 	return skb->len;
 
 nla_put_failure:
-	spin_unlock_bh(&ife->tcf_lock);
+	spin_unlock_bh(&ife->tcf_lock, bh);
 	nlmsg_trim(skb, b);
 	return -1;
 }

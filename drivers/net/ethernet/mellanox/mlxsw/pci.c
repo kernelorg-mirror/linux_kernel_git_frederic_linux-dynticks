@@ -1547,6 +1547,7 @@ static bool mlxsw_pci_skb_transmit_busy(void *bus_priv,
 static int mlxsw_pci_skb_transmit(void *bus_priv, struct sk_buff *skb,
 				  const struct mlxsw_tx_info *tx_info)
 {
+	unsigned int bh;
 	struct mlxsw_pci *mlxsw_pci = bus_priv;
 	struct mlxsw_pci_queue *q;
 	struct mlxsw_pci_queue_elem_info *elem_info;
@@ -1561,7 +1562,7 @@ static int mlxsw_pci_skb_transmit(void *bus_priv, struct sk_buff *skb,
 	}
 
 	q = mlxsw_pci_sdq_pick(mlxsw_pci, tx_info);
-	spin_lock_bh(&q->lock);
+	bh = spin_lock_bh(&q->lock, SOFTIRQ_ALL_MASK);
 	elem_info = mlxsw_pci_queue_elem_info_producer_get(q);
 	if (!elem_info) {
 		/* queue is full */
@@ -1605,7 +1606,7 @@ unmap_frags:
 	for (; i >= 0; i--)
 		mlxsw_pci_wqe_frag_unmap(mlxsw_pci, wqe, i, DMA_TO_DEVICE);
 unlock:
-	spin_unlock_bh(&q->lock);
+	spin_unlock_bh(&q->lock, bh);
 	return err;
 }
 

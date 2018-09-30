@@ -983,11 +983,12 @@ EXPORT_SYMBOL(qdisc_destroy);
 struct Qdisc *dev_graft_qdisc(struct netdev_queue *dev_queue,
 			      struct Qdisc *qdisc)
 {
+	unsigned int bh;
 	struct Qdisc *oqdisc = dev_queue->qdisc_sleeping;
 	spinlock_t *root_lock;
 
 	root_lock = qdisc_lock(oqdisc);
-	spin_lock_bh(root_lock);
+	bh = spin_lock_bh(root_lock, SOFTIRQ_ALL_MASK);
 
 	/* ... and graft new one */
 	if (qdisc == NULL)
@@ -995,7 +996,7 @@ struct Qdisc *dev_graft_qdisc(struct netdev_queue *dev_queue,
 	dev_queue->qdisc_sleeping = qdisc;
 	rcu_assign_pointer(dev_queue->qdisc, &noop_qdisc);
 
-	spin_unlock_bh(root_lock);
+	spin_unlock_bh(root_lock, bh);
 
 	return oqdisc;
 }
@@ -1095,6 +1096,7 @@ static void dev_deactivate_queue(struct net_device *dev,
 				 struct netdev_queue *dev_queue,
 				 void *_qdisc_default)
 {
+	unsigned int bh, bh2;
 	struct Qdisc *qdisc_default = _qdisc_default;
 	struct Qdisc *qdisc;
 
@@ -1103,8 +1105,8 @@ static void dev_deactivate_queue(struct net_device *dev,
 		bool nolock = qdisc->flags & TCQ_F_NOLOCK;
 
 		if (nolock)
-			spin_lock_bh(&qdisc->seqlock);
-		spin_lock_bh(qdisc_lock(qdisc));
+			bh = spin_lock_bh(&qdisc->seqlock, SOFTIRQ_ALL_MASK);
+		bh2 = spin_lock_bh(qdisc_lock(qdisc), SOFTIRQ_ALL_MASK);
 
 		if (!(qdisc->flags & TCQ_F_BUILTIN))
 			set_bit(__QDISC_STATE_DEACTIVATED, &qdisc->state);
@@ -1112,14 +1114,15 @@ static void dev_deactivate_queue(struct net_device *dev,
 		rcu_assign_pointer(dev_queue->qdisc, qdisc_default);
 		qdisc_reset(qdisc);
 
-		spin_unlock_bh(qdisc_lock(qdisc));
+		spin_unlock_bh(qdisc_lock(qdisc), bh2);
 		if (nolock)
-			spin_unlock_bh(&qdisc->seqlock);
+			spin_unlock_bh(&qdisc->seqlock, bh);
 	}
 }
 
 static bool some_qdisc_is_busy(struct net_device *dev)
 {
+	unsigned int bh;
 	unsigned int i;
 
 	for (i = 0; i < dev->num_tx_queues; i++) {
@@ -1132,12 +1135,12 @@ static bool some_qdisc_is_busy(struct net_device *dev)
 		q = dev_queue->qdisc_sleeping;
 
 		root_lock = qdisc_lock(q);
-		spin_lock_bh(root_lock);
+		bh = spin_lock_bh(root_lock, SOFTIRQ_ALL_MASK);
 
 		val = (qdisc_is_running(q) ||
 		       test_bit(__QDISC_STATE_SCHED, &q->state));
 
-		spin_unlock_bh(root_lock);
+		spin_unlock_bh(root_lock, bh);
 
 		if (val)
 			return true;

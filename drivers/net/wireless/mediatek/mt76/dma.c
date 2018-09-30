@@ -138,6 +138,7 @@ mt76_dma_sync_idx(struct mt76_dev *dev, struct mt76_queue *q)
 static void
 mt76_dma_tx_cleanup(struct mt76_dev *dev, enum mt76_txq_id qid, bool flush)
 {
+	unsigned int bh;
 	struct mt76_queue *q = &dev->q_tx[qid];
 	struct mt76_queue_entry entry;
 	bool wake = false;
@@ -146,7 +147,7 @@ mt76_dma_tx_cleanup(struct mt76_dev *dev, enum mt76_txq_id qid, bool flush)
 	if (!q->ndesc)
 		return;
 
-	spin_lock_bh(&q->lock);
+	bh = spin_lock_bh(&q->lock, SOFTIRQ_ALL_MASK);
 	if (flush)
 		last = -1;
 	else
@@ -182,7 +183,7 @@ mt76_dma_tx_cleanup(struct mt76_dev *dev, enum mt76_txq_id qid, bool flush)
 	if (!q->queued)
 		wake_up(&dev->tx_wait);
 
-	spin_unlock_bh(&q->lock);
+	spin_unlock_bh(&q->lock, bh);
 
 	if (wake)
 		ieee80211_wake_queue(dev->hw, qid);
@@ -316,6 +317,7 @@ EXPORT_SYMBOL_GPL(mt76_dma_tx_queue_skb);
 static int
 mt76_dma_rx_fill(struct mt76_dev *dev, struct mt76_queue *q, bool napi)
 {
+	unsigned int bh;
 	dma_addr_t addr;
 	void *buf;
 	int frames = 0;
@@ -329,7 +331,7 @@ mt76_dma_rx_fill(struct mt76_dev *dev, struct mt76_queue *q, bool napi)
 	else
 		alloc = netdev_alloc_frag;
 
-	spin_lock_bh(&q->lock);
+	bh = spin_lock_bh(&q->lock, SOFTIRQ_ALL_MASK);
 
 	while (q->queued < q->ndesc - 1) {
 		struct mt76_queue_buf qbuf;
@@ -353,7 +355,7 @@ mt76_dma_rx_fill(struct mt76_dev *dev, struct mt76_queue *q, bool napi)
 	if (frames)
 		mt76_dma_kick_queue(dev, q);
 
-	spin_unlock_bh(&q->lock);
+	spin_unlock_bh(&q->lock, bh);
 
 	return frames;
 }
@@ -361,10 +363,11 @@ mt76_dma_rx_fill(struct mt76_dev *dev, struct mt76_queue *q, bool napi)
 static void
 mt76_dma_rx_cleanup(struct mt76_dev *dev, struct mt76_queue *q)
 {
+	unsigned int bh;
 	void *buf;
 	bool more;
 
-	spin_lock_bh(&q->lock);
+	bh = spin_lock_bh(&q->lock, SOFTIRQ_ALL_MASK);
 	do {
 		buf = mt76_dma_dequeue(dev, q, true, NULL, NULL, &more);
 		if (!buf)
@@ -372,7 +375,7 @@ mt76_dma_rx_cleanup(struct mt76_dev *dev, struct mt76_queue *q)
 
 		skb_free_frag(buf);
 	} while (1);
-	spin_unlock_bh(&q->lock);
+	spin_unlock_bh(&q->lock, bh);
 }
 
 static void

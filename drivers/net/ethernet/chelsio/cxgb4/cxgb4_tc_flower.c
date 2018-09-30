@@ -819,6 +819,7 @@ static void ch_flower_stats_cb(struct timer_list *t)
 int cxgb4_tc_flower_stats(struct net_device *dev,
 			  struct tc_cls_flower_offload *cls)
 {
+	unsigned int bh;
 	struct adapter *adap = netdev2adap(dev);
 	struct ch_tc_flower_stats *ofld_stats;
 	struct ch_tc_flower_entry *ch_flower;
@@ -838,7 +839,7 @@ int cxgb4_tc_flower_stats(struct net_device *dev,
 	if (ret < 0)
 		goto err;
 
-	spin_lock_bh(&ch_flower->lock);
+	bh = spin_lock_bh(&ch_flower->lock, SOFTIRQ_ALL_MASK);
 	ofld_stats = &ch_flower->stats;
 	if (ofld_stats->packet_count != packets) {
 		if (ofld_stats->prev_packet_count != packets)
@@ -851,7 +852,7 @@ int cxgb4_tc_flower_stats(struct net_device *dev,
 		ofld_stats->byte_count = bytes;
 		ofld_stats->prev_packet_count = packets;
 	}
-	spin_unlock_bh(&ch_flower->lock);
+	spin_unlock_bh(&ch_flower->lock, bh);
 	return 0;
 
 err:

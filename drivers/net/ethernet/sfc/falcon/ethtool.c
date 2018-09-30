@@ -434,6 +434,7 @@ static void ef4_ethtool_get_stats(struct net_device *net_dev,
 				  struct ethtool_stats *stats,
 				  u64 *data)
 {
+	unsigned int bh;
 	struct ef4_nic *efx = netdev_priv(net_dev);
 	const struct ef4_sw_stat_desc *stat;
 	struct ef4_channel *channel;
@@ -441,7 +442,7 @@ static void ef4_ethtool_get_stats(struct net_device *net_dev,
 	struct ef4_rx_queue *rx_queue;
 	int i;
 
-	spin_lock_bh(&efx->stats_lock);
+	bh = spin_lock_bh(&efx->stats_lock, SOFTIRQ_ALL_MASK);
 
 	/* Get NIC statistics */
 	data += efx->type->update_stats(efx, data, NULL);
@@ -472,7 +473,7 @@ static void ef4_ethtool_get_stats(struct net_device *net_dev,
 	}
 	data += EF4_ETHTOOL_SW_STAT_COUNT;
 
-	spin_unlock_bh(&efx->stats_lock);
+	spin_unlock_bh(&efx->stats_lock, bh);
 
 	ef4_for_each_channel(channel, efx) {
 		if (ef4_channel_has_tx_queues(channel)) {

@@ -266,6 +266,7 @@ static int ieee80211_add_nan_func(struct wiphy *wiphy,
 				  struct wireless_dev *wdev,
 				  struct cfg80211_nan_func *nan_func)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = IEEE80211_WDEV_TO_SUB_IF(wdev);
 	int ret;
 
@@ -275,12 +276,12 @@ static int ieee80211_add_nan_func(struct wiphy *wiphy,
 	if (!ieee80211_sdata_running(sdata))
 		return -ENETDOWN;
 
-	spin_lock_bh(&sdata->u.nan.func_lock);
+	bh = spin_lock_bh(&sdata->u.nan.func_lock, SOFTIRQ_ALL_MASK);
 
 	ret = idr_alloc(&sdata->u.nan.function_inst_ids,
 			nan_func, 1, sdata->local->hw.max_nan_de_entries + 1,
 			GFP_ATOMIC);
-	spin_unlock_bh(&sdata->u.nan.func_lock);
+	spin_unlock_bh(&sdata->u.nan.func_lock, bh);
 
 	if (ret < 0)
 		return ret;
@@ -291,7 +292,7 @@ static int ieee80211_add_nan_func(struct wiphy *wiphy,
 
 	ret = drv_add_nan_func(sdata->local, sdata, nan_func);
 	if (ret) {
-		spin_lock_bh(&sdata->u.nan.func_lock);
+		spin_lock_bh(&sdata->u.nan.func_lock, SOFTIRQ_ALL_MASK);
 		idr_remove(&sdata->u.nan.function_inst_ids,
 			   nan_func->instance_id);
 		spin_unlock_bh(&sdata->u.nan.func_lock);
@@ -320,6 +321,7 @@ ieee80211_find_nan_func_by_cookie(struct ieee80211_sub_if_data *sdata,
 static void ieee80211_del_nan_func(struct wiphy *wiphy,
 				  struct wireless_dev *wdev, u64 cookie)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = IEEE80211_WDEV_TO_SUB_IF(wdev);
 	struct cfg80211_nan_func *func;
 	u8 instance_id = 0;
@@ -328,13 +330,13 @@ static void ieee80211_del_nan_func(struct wiphy *wiphy,
 	    !ieee80211_sdata_running(sdata))
 		return;
 
-	spin_lock_bh(&sdata->u.nan.func_lock);
+	bh = spin_lock_bh(&sdata->u.nan.func_lock, SOFTIRQ_ALL_MASK);
 
 	func = ieee80211_find_nan_func_by_cookie(sdata, cookie);
 	if (func)
 		instance_id = func->instance_id;
 
-	spin_unlock_bh(&sdata->u.nan.func_lock);
+	spin_unlock_bh(&sdata->u.nan.func_lock, bh);
 
 	if (instance_id)
 		drv_del_nan_func(sdata->local, sdata, instance_id);
@@ -3653,6 +3655,7 @@ void ieee80211_nan_func_terminated(struct ieee80211_vif *vif,
 				   enum nl80211_nan_func_term_reason reason,
 				   gfp_t gfp)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = vif_to_sdata(vif);
 	struct cfg80211_nan_func *func;
 	u64 cookie;
@@ -3660,18 +3663,18 @@ void ieee80211_nan_func_terminated(struct ieee80211_vif *vif,
 	if (WARN_ON(vif->type != NL80211_IFTYPE_NAN))
 		return;
 
-	spin_lock_bh(&sdata->u.nan.func_lock);
+	bh = spin_lock_bh(&sdata->u.nan.func_lock, SOFTIRQ_ALL_MASK);
 
 	func = idr_find(&sdata->u.nan.function_inst_ids, inst_id);
 	if (WARN_ON(!func)) {
-		spin_unlock_bh(&sdata->u.nan.func_lock);
+		spin_unlock_bh(&sdata->u.nan.func_lock, bh);
 		return;
 	}
 
 	cookie = func->cookie;
 	idr_remove(&sdata->u.nan.function_inst_ids, inst_id);
 
-	spin_unlock_bh(&sdata->u.nan.func_lock);
+	spin_unlock_bh(&sdata->u.nan.func_lock, bh);
 
 	cfg80211_free_nan_func(func);
 
@@ -3684,22 +3687,23 @@ void ieee80211_nan_func_match(struct ieee80211_vif *vif,
 			      struct cfg80211_nan_match_params *match,
 			      gfp_t gfp)
 {
+	unsigned int bh;
 	struct ieee80211_sub_if_data *sdata = vif_to_sdata(vif);
 	struct cfg80211_nan_func *func;
 
 	if (WARN_ON(vif->type != NL80211_IFTYPE_NAN))
 		return;
 
-	spin_lock_bh(&sdata->u.nan.func_lock);
+	bh = spin_lock_bh(&sdata->u.nan.func_lock, SOFTIRQ_ALL_MASK);
 
 	func = idr_find(&sdata->u.nan.function_inst_ids,  match->inst_id);
 	if (WARN_ON(!func)) {
-		spin_unlock_bh(&sdata->u.nan.func_lock);
+		spin_unlock_bh(&sdata->u.nan.func_lock, bh);
 		return;
 	}
 	match->cookie = func->cookie;
 
-	spin_unlock_bh(&sdata->u.nan.func_lock);
+	spin_unlock_bh(&sdata->u.nan.func_lock, bh);
 
 	cfg80211_nan_match(ieee80211_vif_to_wdev(vif), match, gfp);
 }
@@ -3769,6 +3773,7 @@ static int ieee80211_get_txq_stats(struct wiphy *wiphy,
 				   struct wireless_dev *wdev,
 				   struct cfg80211_txq_stats *txqstats)
 {
+	unsigned int bh;
 	struct ieee80211_local *local = wiphy_priv(wiphy);
 	struct ieee80211_sub_if_data *sdata;
 	int ret = 0;
@@ -3776,7 +3781,7 @@ static int ieee80211_get_txq_stats(struct wiphy *wiphy,
 	if (!local->ops->wake_tx_queue)
 		return 1;
 
-	spin_lock_bh(&local->fq.lock);
+	bh = spin_lock_bh(&local->fq.lock, SOFTIRQ_ALL_MASK);
 	rcu_read_lock();
 
 	if (wdev) {
@@ -3804,7 +3809,7 @@ static int ieee80211_get_txq_stats(struct wiphy *wiphy,
 
 out:
 	rcu_read_unlock();
-	spin_unlock_bh(&local->fq.lock);
+	spin_unlock_bh(&local->fq.lock, bh);
 
 	return ret;
 }

@@ -461,6 +461,7 @@ static bool _rtl_update_earlymode_info(struct ieee80211_hw *hw,
 				       struct sk_buff *skb,
 				       struct rtl_tcb_desc *tcb_desc, u8 tid)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct ieee80211_tx_info *info = IEEE80211_SKB_CB(skb);
 	struct rtl_hal *rtlhal = rtl_hal(rtl_priv(hw));
@@ -473,7 +474,7 @@ static bool _rtl_update_earlymode_info(struct ieee80211_hw *hw,
 
 	/* The most skb num is 6 */
 	tcb_desc->empkt_num = 0;
-	spin_lock_bh(&rtlpriv->locks.waitq_lock);
+	bh = spin_lock_bh(&rtlpriv->locks.waitq_lock, SOFTIRQ_ALL_MASK);
 	skb_queue_walk(&rtlpriv->mac80211.skb_waitq[tid], next_skb) {
 		struct ieee80211_tx_info *next_info;
 
@@ -493,7 +494,7 @@ static bool _rtl_update_earlymode_info(struct ieee80211_hw *hw,
 		if (tcb_desc->empkt_num >= rtlhal->max_earlymode_num)
 			break;
 	}
-	spin_unlock_bh(&rtlpriv->locks.waitq_lock);
+	spin_unlock_bh(&rtlpriv->locks.waitq_lock, bh);
 
 	return true;
 }
@@ -501,6 +502,7 @@ static bool _rtl_update_earlymode_info(struct ieee80211_hw *hw,
 /* just for early mode now */
 static void _rtl_pci_tx_chk_waitq(struct ieee80211_hw *hw)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_mac *mac = rtl_mac(rtl_priv(hw));
 	struct rtl_pci *rtlpci = rtl_pcidev(rtl_pcipriv(hw));
@@ -527,16 +529,16 @@ static void _rtl_pci_tx_chk_waitq(struct ieee80211_hw *hw)
 			struct rtl_tcb_desc tcb_desc;
 
 			memset(&tcb_desc, 0, sizeof(struct rtl_tcb_desc));
-			spin_lock_bh(&rtlpriv->locks.waitq_lock);
+			bh = spin_lock_bh(&rtlpriv->locks.waitq_lock, SOFTIRQ_ALL_MASK);
 			if (!skb_queue_empty(&mac->skb_waitq[tid]) &&
 			    (ring->entries - skb_queue_len(&ring->queue) >
 			     rtlhal->max_earlymode_num)) {
 				skb = skb_dequeue(&mac->skb_waitq[tid]);
 			} else {
-				spin_unlock_bh(&rtlpriv->locks.waitq_lock);
+				spin_unlock_bh(&rtlpriv->locks.waitq_lock, bh);
 				break;
 			}
-			spin_unlock_bh(&rtlpriv->locks.waitq_lock);
+			spin_unlock_bh(&rtlpriv->locks.waitq_lock, bh);
 
 			/* Some macaddr can't do early mode. like
 			 * multicast/broadcast/no_qos data
@@ -1584,6 +1586,7 @@ static bool rtl_pci_tx_chk_waitq_insert(struct ieee80211_hw *hw,
 					struct ieee80211_sta *sta,
 					struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct rtl_priv *rtlpriv = rtl_priv(hw);
 	struct rtl_sta_info *sta_entry = NULL;
 	u8 tid = rtl_get_tid(skb);
@@ -1612,9 +1615,9 @@ static bool rtl_pci_tx_chk_waitq_insert(struct ieee80211_hw *hw,
 	if (!rtlpriv->link_info.higher_busytxtraffic[tid])
 		return false;
 
-	spin_lock_bh(&rtlpriv->locks.waitq_lock);
+	bh = spin_lock_bh(&rtlpriv->locks.waitq_lock, SOFTIRQ_ALL_MASK);
 	skb_queue_tail(&rtlpriv->mac80211.skb_waitq[tid], skb);
-	spin_unlock_bh(&rtlpriv->locks.waitq_lock);
+	spin_unlock_bh(&rtlpriv->locks.waitq_lock, bh);
 
 	return true;
 }

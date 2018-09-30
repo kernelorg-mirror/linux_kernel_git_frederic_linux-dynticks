@@ -8180,6 +8180,7 @@ static bool bnxt_fltr_match(struct bnxt_ntuple_filter *f1,
 static int bnxt_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 			      u16 rxq_index, u32 flow_id)
 {
+	unsigned int bh;
 	struct bnxt *bp = netdev_priv(dev);
 	struct bnxt_ntuple_filter *fltr, *new_fltr;
 	struct flow_keys *fkeys;
@@ -8246,11 +8247,11 @@ static int bnxt_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 	}
 	rcu_read_unlock();
 
-	spin_lock_bh(&bp->ntp_fltr_lock);
+	bh = spin_lock_bh(&bp->ntp_fltr_lock, SOFTIRQ_ALL_MASK);
 	bit_id = bitmap_find_free_region(bp->ntp_fltr_bmap,
 					 BNXT_NTP_FLTR_MAX_FLTR, 0);
 	if (bit_id < 0) {
-		spin_unlock_bh(&bp->ntp_fltr_lock);
+		spin_unlock_bh(&bp->ntp_fltr_lock, bh);
 		rc = -ENOMEM;
 		goto err_free;
 	}
@@ -8261,7 +8262,7 @@ static int bnxt_rx_flow_steer(struct net_device *dev, const struct sk_buff *skb,
 	new_fltr->rxq = rxq_index;
 	hlist_add_head_rcu(&new_fltr->hash, head);
 	bp->ntp_fltr_count++;
-	spin_unlock_bh(&bp->ntp_fltr_lock);
+	spin_unlock_bh(&bp->ntp_fltr_lock, bh);
 
 	set_bit(BNXT_RX_NTP_FLTR_SP_EVENT, &bp->sp_event);
 	bnxt_queue_sp_work(bp);
@@ -8275,6 +8276,7 @@ err_free:
 
 static void bnxt_cfg_ntp_filters(struct bnxt *bp)
 {
+	unsigned int bh;
 	int i;
 
 	for (i = 0; i < BNXT_NTP_FLTR_HASH_SIZE; i++) {
@@ -8305,10 +8307,10 @@ static void bnxt_cfg_ntp_filters(struct bnxt *bp)
 			}
 
 			if (del) {
-				spin_lock_bh(&bp->ntp_fltr_lock);
+				bh = spin_lock_bh(&bp->ntp_fltr_lock, SOFTIRQ_ALL_MASK);
 				hlist_del_rcu(&fltr->hash);
 				bp->ntp_fltr_count--;
-				spin_unlock_bh(&bp->ntp_fltr_lock);
+				spin_unlock_bh(&bp->ntp_fltr_lock, bh);
 				synchronize_rcu();
 				clear_bit(fltr->sw_id, bp->ntp_fltr_bmap);
 				kfree(fltr);

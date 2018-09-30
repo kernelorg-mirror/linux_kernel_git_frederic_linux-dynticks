@@ -98,6 +98,7 @@ void zfcp_fc_inverse_conditional_port_scan(struct zfcp_adapter *adapter)
  */
 void zfcp_fc_post_event(struct work_struct *work)
 {
+	unsigned int bh;
 	struct zfcp_fc_event *event = NULL, *tmp = NULL;
 	LIST_HEAD(tmp_lh);
 	struct zfcp_fc_events *events = container_of(work,
@@ -105,9 +106,9 @@ void zfcp_fc_post_event(struct work_struct *work)
 	struct zfcp_adapter *adapter = container_of(events, struct zfcp_adapter,
 						events);
 
-	spin_lock_bh(&events->list_lock);
+	bh = spin_lock_bh(&events->list_lock, SOFTIRQ_ALL_MASK);
 	list_splice_init(&events->list, &tmp_lh);
-	spin_unlock_bh(&events->list_lock);
+	spin_unlock_bh(&events->list_lock, bh);
 
 	list_for_each_entry_safe(event, tmp, &tmp_lh, list) {
 		fc_host_post_event(adapter->scsi_host, fc_get_event_number(),

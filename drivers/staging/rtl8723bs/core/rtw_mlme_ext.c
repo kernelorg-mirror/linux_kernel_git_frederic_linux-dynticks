@@ -667,7 +667,7 @@ unsigned int OnProbeReq(struct adapter *padapter, union recv_frame *precv_frame)
 				return _SUCCESS;
 			}
 
-			spin_lock_bh(&pstapriv->asoc_list_lock);
+			spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 			if (list_empty(&psta->asoc_list)) {
 				psta->expire_to = pstapriv->expire_to;
 				list_add_tail(&psta->asoc_list, &pstapriv->asoc_list);
@@ -718,7 +718,7 @@ unsigned int OnProbeReq(struct adapter *padapter, union recv_frame *precv_frame)
 
 			memset((void *)&psta->sta_stats, 0, sizeof(struct stainfo_stats));
 
-			spin_lock_bh(&psta->lock);
+			spin_lock_bh(&psta->lock, SOFTIRQ_ALL_MASK);
 			psta->state |= _FW_LINKED;
 			spin_unlock_bh(&psta->lock);
 
@@ -894,6 +894,7 @@ _END_ONBEACON_:
 
 unsigned int OnAuth(struct adapter *padapter, union recv_frame *precv_frame)
 {
+	unsigned int bh;
 	unsigned int	auth_mode, seq, ie_len;
 	unsigned char *sa, *p;
 	u16 algorithm;
@@ -979,7 +980,7 @@ unsigned int OnAuth(struct adapter *padapter, union recv_frame *precv_frame)
 		/* pstat->capability = 0; */
 	} else{
 
-		spin_lock_bh(&pstapriv->asoc_list_lock);
+		bh = spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 		if (list_empty(&pstat->asoc_list) == false) {
 			list_del_init(&pstat->asoc_list);
 			pstapriv->asoc_list_cnt--;
@@ -987,20 +988,20 @@ unsigned int OnAuth(struct adapter *padapter, union recv_frame *precv_frame)
 				/* TODO: STA re_auth within expire_to */
 			}
 		}
-		spin_unlock_bh(&pstapriv->asoc_list_lock);
+		spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 
 		if (seq == 1) {
 			/* TODO: STA re_auth and auth timeout */
 		}
 	}
 
-	spin_lock_bh(&pstapriv->auth_list_lock);
+	bh = spin_lock_bh(&pstapriv->auth_list_lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&pstat->auth_list)) {
 
 		list_add_tail(&pstat->auth_list, &pstapriv->auth_list);
 		pstapriv->auth_list_cnt++;
 	}
-	spin_unlock_bh(&pstapriv->auth_list_lock);
+	spin_unlock_bh(&pstapriv->auth_list_lock, bh);
 
 	if (pstat->auth_seq == 0)
 		pstat->expire_to = pstapriv->auth_to;
@@ -1181,6 +1182,7 @@ authclnt_fail:
 
 unsigned int OnAssocReq(struct adapter *padapter, union recv_frame *precv_frame)
 {
+	unsigned int bh;
 	u16 capab_info, listen_interval;
 	struct rtw_ieee802_11_elems elems;
 	struct sta_info *pstat;
@@ -1592,14 +1594,14 @@ unsigned int OnAssocReq(struct adapter *padapter, union recv_frame *precv_frame)
 	pstat->state &= (~WIFI_FW_ASSOC_STATE);
 	pstat->state |= WIFI_FW_ASSOC_SUCCESS;
 
-	spin_lock_bh(&pstapriv->auth_list_lock);
+	bh = spin_lock_bh(&pstapriv->auth_list_lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&pstat->auth_list)) {
 		list_del_init(&pstat->auth_list);
 		pstapriv->auth_list_cnt--;
 	}
-	spin_unlock_bh(&pstapriv->auth_list_lock);
+	spin_unlock_bh(&pstapriv->auth_list_lock, bh);
 
-	spin_lock_bh(&pstapriv->asoc_list_lock);
+	spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&pstat->asoc_list)) {
 		pstat->expire_to = pstapriv->expire_to;
 		list_add_tail(&pstat->asoc_list, &pstapriv->asoc_list);
@@ -1619,7 +1621,7 @@ unsigned int OnAssocReq(struct adapter *padapter, union recv_frame *precv_frame)
 		else
 			issue_asocrsp(padapter, status, pstat, WIFI_REASSOCRSP);
 
-		spin_lock_bh(&pstat->lock);
+		spin_lock_bh(&pstat->lock, SOFTIRQ_ALL_MASK);
 		if (pstat->passoc_req) {
 			kfree(pstat->passoc_req);
 			pstat->passoc_req = NULL;
@@ -1751,6 +1753,7 @@ report_assoc_result:
 
 unsigned int OnDeAuth(struct adapter *padapter, union recv_frame *precv_frame)
 {
+	unsigned int bh;
 	unsigned short	reason;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct mlme_ext_priv *pmlmeext = &padapter->mlmeextpriv;
@@ -1769,7 +1772,7 @@ unsigned int OnDeAuth(struct adapter *padapter, union recv_frame *precv_frame)
 		struct sta_info *psta;
 		struct sta_priv *pstapriv = &padapter->stapriv;
 
-		/* spin_lock_bh(&(pstapriv->sta_hash_lock)); */
+		/* spin_lock_bh(&(pstapriv->sta_hash_lock), SOFTIRQ_ALL_MASK); */
 		/* rtw_free_stainfo(padapter, psta); */
 		/* spin_unlock_bh(&(pstapriv->sta_hash_lock)); */
 
@@ -1780,14 +1783,14 @@ unsigned int OnDeAuth(struct adapter *padapter, union recv_frame *precv_frame)
 		if (psta) {
 			u8 updated = false;
 
-			spin_lock_bh(&pstapriv->asoc_list_lock);
+			bh = spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 			if (list_empty(&psta->asoc_list) == false) {
 				list_del_init(&psta->asoc_list);
 				pstapriv->asoc_list_cnt--;
 				updated = ap_free_sta(padapter, psta, false, reason);
 
 			}
-			spin_unlock_bh(&pstapriv->asoc_list_lock);
+			spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 
 			associated_clients_update(padapter, updated);
 		}
@@ -1826,6 +1829,7 @@ unsigned int OnDeAuth(struct adapter *padapter, union recv_frame *precv_frame)
 
 unsigned int OnDisassoc(struct adapter *padapter, union recv_frame *precv_frame)
 {
+	unsigned int bh;
 	unsigned short	reason;
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	struct mlme_ext_priv *pmlmeext = &padapter->mlmeextpriv;
@@ -1844,7 +1848,7 @@ unsigned int OnDisassoc(struct adapter *padapter, union recv_frame *precv_frame)
 		struct sta_info *psta;
 		struct sta_priv *pstapriv = &padapter->stapriv;
 
-		/* spin_lock_bh(&(pstapriv->sta_hash_lock)); */
+		/* spin_lock_bh(&(pstapriv->sta_hash_lock), SOFTIRQ_ALL_MASK); */
 		/* rtw_free_stainfo(padapter, psta); */
 		/* spin_unlock_bh(&(pstapriv->sta_hash_lock)); */
 
@@ -1855,14 +1859,14 @@ unsigned int OnDisassoc(struct adapter *padapter, union recv_frame *precv_frame)
 		if (psta) {
 			u8 updated = false;
 
-			spin_lock_bh(&pstapriv->asoc_list_lock);
+			bh = spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 			if (list_empty(&psta->asoc_list) == false) {
 				list_del_init(&psta->asoc_list);
 				pstapriv->asoc_list_cnt--;
 				updated = ap_free_sta(padapter, psta, false, reason);
 
 			}
-			spin_unlock_bh(&pstapriv->asoc_list_lock);
+			spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 
 			associated_clients_update(padapter, updated);
 		}
@@ -2449,6 +2453,7 @@ static int update_hidden_ssid(u8 *ies, u32 ies_len, u8 hidden_ssid_mode)
 
 void issue_beacon(struct adapter *padapter, int timeout_ms)
 {
+	unsigned int bh;
 	struct xmit_frame	*pmgntframe;
 	struct pkt_attrib	*pattrib;
 	unsigned char *pframe;
@@ -2470,7 +2475,7 @@ void issue_beacon(struct adapter *padapter, int timeout_ms)
 		return;
 	}
 
-	spin_lock_bh(&pmlmepriv->bcn_update_lock);
+	bh = spin_lock_bh(&pmlmepriv->bcn_update_lock, SOFTIRQ_ALL_MASK);
 
 	/* update attribute */
 	pattrib = &pmgntframe->attrib;
@@ -2586,7 +2591,7 @@ _issue_bcn:
 
 	pmlmepriv->update_bcn = false;
 
-	spin_unlock_bh(&pmlmepriv->bcn_update_lock);
+	spin_unlock_bh(&pmlmepriv->bcn_update_lock, bh);
 
 	if ((pattrib->pktlen + TXDESC_SIZE) > 512) {
 		DBG_871X("beacon frame too large\n");
@@ -4049,6 +4054,7 @@ void issue_action_BA(struct adapter *padapter, unsigned char *raddr, unsigned ch
 
 static void issue_action_BSSCoexistPacket(struct adapter *padapter)
 {
+	unsigned int bh;
 	struct list_head		*plist, *phead;
 	unsigned char category, action;
 	struct xmit_frame			*pmgntframe;
@@ -4126,7 +4132,7 @@ static void issue_action_BSSCoexistPacket(struct adapter *padapter)
 	if (pmlmepriv->num_sta_no_ht > 0) {
 		int i;
 
-		spin_lock_bh(&(pmlmepriv->scanned_queue.lock));
+		bh = spin_lock_bh(&(pmlmepriv->scanned_queue.lock), SOFTIRQ_ALL_MASK);
 
 		phead = get_list_head(queue);
 		plist = get_next(phead);
@@ -4159,7 +4165,7 @@ static void issue_action_BSSCoexistPacket(struct adapter *padapter)
 
 		}
 
-		spin_unlock_bh(&(pmlmepriv->scanned_queue.lock));
+		spin_unlock_bh(&(pmlmepriv->scanned_queue.lock), bh);
 
 
 		for (i = 0; i < 8; i++) {
@@ -5351,6 +5357,7 @@ Following are the event callback functions
 /* for sta/adhoc mode */
 void update_sta_info(struct adapter *padapter, struct sta_info *psta)
 {
+	unsigned int bh;
 	struct mlme_priv *pmlmepriv = &(padapter->mlmepriv);
 	struct mlme_ext_priv *pmlmeext = &padapter->mlmeextpriv;
 	struct mlme_ext_info *pmlmeinfo = &(pmlmeext->mlmext_info);
@@ -5403,9 +5410,9 @@ void update_sta_info(struct adapter *padapter, struct sta_info *psta)
 
 	update_ldpc_stbc_cap(psta);
 
-	spin_lock_bh(&psta->lock);
+	bh = spin_lock_bh(&psta->lock, SOFTIRQ_ALL_MASK);
 	psta->state = _FW_LINKED;
-	spin_unlock_bh(&psta->lock);
+	spin_unlock_bh(&psta->lock, bh);
 
 }
 
@@ -5621,6 +5628,7 @@ Following are the functions for the timer handlers
 *****************************************************************************/
 void _linked_info_dump(struct adapter *padapter)
 {
+	unsigned int bh;
 	int i;
 	struct mlme_ext_priv    *pmlmeext = &padapter->mlmeextpriv;
 	struct mlme_ext_info    *pmlmeinfo = &(pmlmeext->mlmext_info);
@@ -5642,7 +5650,7 @@ void _linked_info_dump(struct adapter *padapter)
 			struct sta_info *psta = NULL;
 			struct sta_priv *pstapriv = &padapter->stapriv;
 
-			spin_lock_bh(&pstapriv->asoc_list_lock);
+			bh = spin_lock_bh(&pstapriv->asoc_list_lock, SOFTIRQ_ALL_MASK);
 			phead = &pstapriv->asoc_list;
 			plist = get_next(phead);
 			while (phead != plist) {
@@ -5652,7 +5660,7 @@ void _linked_info_dump(struct adapter *padapter)
 				DBG_871X("STA[" MAC_FMT "]:UndecoratedSmoothedPWDB:%d\n",
 					MAC_ARG(psta->hwaddr), psta->rssi_stat.UndecoratedSmoothedPWDB);
 			}
-			spin_unlock_bh(&pstapriv->asoc_list_lock);
+			spin_unlock_bh(&pstapriv->asoc_list_lock, bh);
 
 		}
 		for (i = 0; i < NUM_STA; i++) {
@@ -5944,11 +5952,12 @@ void addba_timer_hdl(struct timer_list *t)
 
 void sa_query_timer_hdl(struct timer_list *t)
 {
+	unsigned int bh;
 	struct adapter *padapter =
 		from_timer(padapter, t, mlmeextpriv.sa_query_timer);
 	struct mlme_priv *pmlmepriv = &padapter->mlmepriv;
 	/* disconnect */
-	spin_lock_bh(&pmlmepriv->lock);
+	bh = spin_lock_bh(&pmlmepriv->lock, SOFTIRQ_ALL_MASK);
 
 	if (check_fwstate(pmlmepriv, _FW_LINKED)) {
 		rtw_disassoc_cmd(padapter, 0, true);
@@ -5956,7 +5965,7 @@ void sa_query_timer_hdl(struct timer_list *t)
 		rtw_free_assoc_resources(padapter, 1);
 	}
 
-	spin_unlock_bh(&pmlmepriv->lock);
+	spin_unlock_bh(&pmlmepriv->lock, bh);
 	DBG_871X("SA query timeout disconnect\n");
 }
 
@@ -6736,6 +6745,7 @@ u8 h2c_msg_hdl(struct adapter *padapter, unsigned char *pbuf)
 
 u8 chk_bmc_sleepq_hdl(struct adapter *padapter, unsigned char *pbuf)
 {
+	unsigned int bh;
 	struct sta_info *psta_bmc;
 	struct list_head	*xmitframe_plist, *xmitframe_phead;
 	struct xmit_frame *pxmitframe = NULL;
@@ -6750,8 +6760,8 @@ u8 chk_bmc_sleepq_hdl(struct adapter *padapter, unsigned char *pbuf)
 	if ((pstapriv->tim_bitmap&BIT(0)) && (psta_bmc->sleepq_len > 0)) {
 		msleep(10);/*  10ms, ATIM(HIQ) Windows */
 
-		/* spin_lock_bh(&psta_bmc->sleep_q.lock); */
-		spin_lock_bh(&pxmitpriv->lock);
+		/* spin_lock_bh(&psta_bmc->sleep_q.lock, SOFTIRQ_ALL_MASK); */
+		bh = spin_lock_bh(&pxmitpriv->lock, SOFTIRQ_ALL_MASK);
 
 		xmitframe_phead = get_list_head(&psta_bmc->sleep_q);
 		xmitframe_plist = get_next(xmitframe_phead);
@@ -6778,7 +6788,7 @@ u8 chk_bmc_sleepq_hdl(struct adapter *padapter, unsigned char *pbuf)
 		}
 
 		/* spin_unlock_bh(&psta_bmc->sleep_q.lock); */
-		spin_unlock_bh(&pxmitpriv->lock);
+		spin_unlock_bh(&pxmitpriv->lock, bh);
 
 		/* check hi queue and bmc_sleepq */
 		rtw_chk_hi_queue_cmd(padapter);

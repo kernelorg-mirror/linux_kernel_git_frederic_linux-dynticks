@@ -95,9 +95,10 @@ struct llc_sap *llc_sap_open(unsigned char lsap,
 					 struct packet_type *pt,
 					 struct net_device *orig_dev))
 {
+	unsigned int bh;
 	struct llc_sap *sap = NULL;
 
-	spin_lock_bh(&llc_sap_list_lock);
+	bh = spin_lock_bh(&llc_sap_list_lock, SOFTIRQ_ALL_MASK);
 	if (__llc_sap_find(lsap)) /* SAP already exists */
 		goto out;
 	sap = llc_sap_alloc();
@@ -107,7 +108,7 @@ struct llc_sap *llc_sap_open(unsigned char lsap,
 	sap->rcv_func	= func;
 	list_add_tail_rcu(&sap->node, &llc_sap_list);
 out:
-	spin_unlock_bh(&llc_sap_list_lock);
+	spin_unlock_bh(&llc_sap_list_lock, bh);
 	return sap;
 }
 
@@ -122,11 +123,12 @@ out:
  */
 void llc_sap_close(struct llc_sap *sap)
 {
+	unsigned int bh;
 	WARN_ON(sap->sk_count);
 
-	spin_lock_bh(&llc_sap_list_lock);
+	bh = spin_lock_bh(&llc_sap_list_lock, SOFTIRQ_ALL_MASK);
 	list_del_rcu(&sap->node);
-	spin_unlock_bh(&llc_sap_list_lock);
+	spin_unlock_bh(&llc_sap_list_lock, bh);
 
 	synchronize_rcu();
 

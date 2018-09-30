@@ -471,14 +471,15 @@ static inline struct net_device *qdisc_dev(const struct Qdisc *qdisc)
 	return qdisc->dev_queue->dev;
 }
 
-static inline void sch_tree_lock(const struct Qdisc *q)
+static inline unsigned int sch_tree_lock(const struct Qdisc *q)
 {
-	spin_lock_bh(qdisc_root_sleeping_lock(q));
+	return spin_lock_bh(qdisc_root_sleeping_lock(q), SOFTIRQ_ALL_MASK);
 }
 
-static inline void sch_tree_unlock(const struct Qdisc *q)
+static inline void sch_tree_unlock(const struct Qdisc *q,
+				   unsigned int bh)
 {
-	spin_unlock_bh(qdisc_root_sleeping_lock(q));
+	spin_unlock_bh(qdisc_root_sleeping_lock(q), bh);
 }
 
 extern struct Qdisc noop_qdisc;
@@ -608,13 +609,14 @@ static inline bool skb_skip_tc_classify(struct sk_buff *skb)
 static inline void qdisc_reset_all_tx_gt(struct net_device *dev, unsigned int i)
 {
 	struct Qdisc *qdisc;
+	unsigned int bh;
 
 	for (; i < dev->num_tx_queues; i++) {
 		qdisc = rtnl_dereference(netdev_get_tx_queue(dev, i)->qdisc);
 		if (qdisc) {
-			spin_lock_bh(qdisc_lock(qdisc));
+			bh = spin_lock_bh(qdisc_lock(qdisc), SOFTIRQ_ALL_MASK);
 			qdisc_reset(qdisc);
-			spin_unlock_bh(qdisc_lock(qdisc));
+			spin_unlock_bh(qdisc_lock(qdisc), bh);
 		}
 	}
 }
@@ -990,8 +992,9 @@ static inline struct Qdisc *qdisc_replace(struct Qdisc *sch, struct Qdisc *new,
 					  struct Qdisc **pold)
 {
 	struct Qdisc *old;
+	unsigned int bh;
 
-	sch_tree_lock(sch);
+	bh = sch_tree_lock(sch);
 	old = *pold;
 	*pold = new;
 	if (old != NULL) {
@@ -1001,7 +1004,7 @@ static inline struct Qdisc *qdisc_replace(struct Qdisc *sch, struct Qdisc *new,
 		qdisc_reset(old);
 		qdisc_tree_reduce_backlog(old, qlen, backlog);
 	}
-	sch_tree_unlock(sch);
+	sch_tree_unlock(sch, bh);
 
 	return old;
 }

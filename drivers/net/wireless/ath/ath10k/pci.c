@@ -774,6 +774,7 @@ static inline const char *ath10k_pci_get_irq_method(struct ath10k *ar)
 
 static int __ath10k_pci_rx_post_buf(struct ath10k_pci_pipe *pipe)
 {
+	unsigned int bh;
 	struct ath10k *ar = pipe->hif_ce_state;
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	struct ath10k_ce_pipe *ce_pipe = pipe->ce_hdl;
@@ -798,9 +799,9 @@ static int __ath10k_pci_rx_post_buf(struct ath10k_pci_pipe *pipe)
 
 	ATH10K_SKB_RXCB(skb)->paddr = paddr;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 	ret = ce_pipe->ops->ce_rx_post_buf(ce_pipe, skb, paddr);
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 	if (ret) {
 		dma_unmap_single(ar->dev, paddr, skb->len + skb_tailroom(skb),
 				 DMA_FROM_DEVICE);
@@ -813,6 +814,7 @@ static int __ath10k_pci_rx_post_buf(struct ath10k_pci_pipe *pipe)
 
 static void ath10k_pci_rx_post_pipe(struct ath10k_pci_pipe *pipe)
 {
+	unsigned int bh;
 	struct ath10k *ar = pipe->hif_ce_state;
 	struct ath10k_pci *ar_pci = ath10k_pci_priv(ar);
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
@@ -825,9 +827,9 @@ static void ath10k_pci_rx_post_pipe(struct ath10k_pci_pipe *pipe)
 	if (!ce_pipe->dest_ring)
 		return;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 	num = __ath10k_ce_rx_num_free_bufs(ce_pipe);
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	while (num >= 0) {
 		ret = __ath10k_pci_rx_post_buf(pipe);
@@ -897,6 +899,7 @@ static u32 ath10k_pci_targ_cpu_to_ce_addr(struct ath10k *ar, u32 addr)
 static int ath10k_pci_diag_read_mem(struct ath10k *ar, u32 address, void *data,
 				    int nbytes)
 {
+	unsigned int bh;
 	struct ath10k_pci *ar_pci = ath10k_pci_priv(ar);
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	int ret = 0;
@@ -909,7 +912,7 @@ static int ath10k_pci_diag_read_mem(struct ath10k *ar, u32 address, void *data,
 	void *data_buf = NULL;
 	int i;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 
 	ce_diag = ar_pci->ce_diag;
 
@@ -1003,7 +1006,7 @@ done:
 		dma_free_coherent(ar->dev, alloc_nbytes, data_buf,
 				  ce_data_base);
 
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	return ret;
 }
@@ -1050,6 +1053,7 @@ static int __ath10k_pci_diag_read_hi(struct ath10k *ar, void *dest,
 int ath10k_pci_diag_write_mem(struct ath10k *ar, u32 address,
 			      const void *data, int nbytes)
 {
+	unsigned int bh;
 	struct ath10k_pci *ar_pci = ath10k_pci_priv(ar);
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	int ret = 0;
@@ -1061,7 +1065,7 @@ int ath10k_pci_diag_write_mem(struct ath10k *ar, u32 address,
 	dma_addr_t ce_data_base = 0;
 	int i;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 
 	ce_diag = ar_pci->ce_diag;
 
@@ -1165,7 +1169,7 @@ done:
 		ath10k_warn(ar, "failed to write diag value at 0x%x: %d\n",
 			    address, ret);
 
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 
 	return ret;
 }
@@ -1359,6 +1363,7 @@ static void ath10k_pci_htt_rx_cb(struct ath10k_ce_pipe *ce_state)
 int ath10k_pci_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 			 struct ath10k_hif_sg_item *items, int n_items)
 {
+	unsigned int bh;
 	struct ath10k_pci *ar_pci = ath10k_pci_priv(ar);
 	struct ath10k_ce *ce = ath10k_ce_priv(ar);
 	struct ath10k_pci_pipe *pci_pipe = &ar_pci->pipe_info[pipe_id];
@@ -1369,7 +1374,7 @@ int ath10k_pci_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 	unsigned int write_index;
 	int err, i = 0;
 
-	spin_lock_bh(&ce->ce_lock);
+	bh = spin_lock_bh(&ce->ce_lock, SOFTIRQ_ALL_MASK);
 
 	nentries_mask = src_ring->nentries_mask;
 	sw_index = src_ring->sw_index;
@@ -1415,14 +1420,14 @@ int ath10k_pci_hif_tx_sg(struct ath10k *ar, u8 pipe_id,
 	if (err)
 		goto err;
 
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 	return 0;
 
 err:
 	for (; i > 0; i--)
 		__ath10k_ce_send_revert(ce_pipe);
 
-	spin_unlock_bh(&ce->ce_lock);
+	spin_unlock_bh(&ce->ce_lock, bh);
 	return err;
 }
 
@@ -1742,10 +1747,11 @@ static void ath10k_pci_dump_memory(struct ath10k *ar,
 
 static void ath10k_pci_fw_crashed_dump(struct ath10k *ar)
 {
+	unsigned int bh;
 	struct ath10k_fw_crash_data *crash_data;
 	char guid[UUID_STRING_LEN + 1];
 
-	spin_lock_bh(&ar->data_lock);
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 
 	ar->stats.fw_crash_counter++;
 
@@ -1762,7 +1768,7 @@ static void ath10k_pci_fw_crashed_dump(struct ath10k *ar)
 	ath10k_ce_dump_registers(ar, crash_data);
 	ath10k_pci_dump_memory(ar, crash_data);
 
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 
 	queue_work(ar->workqueue, &ar->restart_work);
 }
@@ -2597,13 +2603,14 @@ static void ath10k_pci_warm_reset_clear_lf(struct ath10k *ar)
 
 static int ath10k_pci_warm_reset(struct ath10k *ar)
 {
+	unsigned int bh;
 	int ret;
 
 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "boot warm reset\n");
 
-	spin_lock_bh(&ar->data_lock);
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 	ar->stats.fw_warm_reset_counter++;
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 
 	ath10k_pci_irq_disable(ar);
 
@@ -3315,15 +3322,16 @@ int ath10k_pci_wait_for_target_init(struct ath10k *ar)
 
 static int ath10k_pci_cold_reset(struct ath10k *ar)
 {
+	unsigned int bh;
 	u32 val;
 
 	ath10k_dbg(ar, ATH10K_DBG_BOOT, "boot cold reset\n");
 
-	spin_lock_bh(&ar->data_lock);
+	bh = spin_lock_bh(&ar->data_lock, SOFTIRQ_ALL_MASK);
 
 	ar->stats.fw_cold_reset_counter++;
 
-	spin_unlock_bh(&ar->data_lock);
+	spin_unlock_bh(&ar->data_lock, bh);
 
 	/* Put Target, including PCIe, into RESET. */
 	val = ath10k_pci_reg_read32(ar, SOC_GLOBAL_RESET_ADDRESS);

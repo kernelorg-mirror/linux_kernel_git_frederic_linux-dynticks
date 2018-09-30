@@ -134,6 +134,7 @@ teql_reset(struct Qdisc *sch)
 static void
 teql_destroy(struct Qdisc *sch)
 {
+	unsigned int bh;
 	struct Qdisc *q, *prev;
 	struct teql_sched_data *dat = qdisc_priv(sch);
 	struct teql_master *master = dat->m;
@@ -154,9 +155,9 @@ teql_destroy(struct Qdisc *sch)
 						master->slaves = NULL;
 
 						root_lock = qdisc_root_sleeping_lock(rtnl_dereference(txq->qdisc));
-						spin_lock_bh(root_lock);
+						bh = spin_lock_bh(root_lock, SOFTIRQ_ALL_MASK);
 						qdisc_reset(rtnl_dereference(txq->qdisc));
-						spin_unlock_bh(root_lock);
+						spin_unlock_bh(root_lock, bh);
 					}
 				}
 				skb_queue_purge(&dat->q);

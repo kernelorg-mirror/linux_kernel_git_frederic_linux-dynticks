@@ -167,6 +167,7 @@ int sun4i_hash_import_sha1(struct ahash_request *areq, const void *in)
  */
 static int sun4i_hash(struct ahash_request *areq)
 {
+	unsigned int bh;
 	/*
 	 * i is the total bytes read from SGs, to be compared to areq->nbytes
 	 * i is important because we cannot rely on SG length since the sum of
@@ -211,7 +212,7 @@ static int sun4i_hash(struct ahash_request *areq)
 		return 0;
 	}
 
-	spin_lock_bh(&ss->slock);
+	bh = spin_lock_bh(&ss->slock, SOFTIRQ_ALL_MASK);
 
 	/*
 	 * if some data have been processed before,
@@ -479,7 +480,7 @@ hash_final:
 
 release_ss:
 	writel(0, ss->base + SS_CTL);
-	spin_unlock_bh(&ss->slock);
+	spin_unlock_bh(&ss->slock, bh);
 	return err;
 }
 
