@@ -5,7 +5,7 @@
 #include <linux/threads.h>
 
 typedef struct {
-	u16	     __softirq_pending;
+	unsigned int __softirq_pending;
 #if IS_ENABLED(CONFIG_KVM_INTEL)
 	u8	     kvm_cpu_l1tf_flush_l1d;
 #endif
