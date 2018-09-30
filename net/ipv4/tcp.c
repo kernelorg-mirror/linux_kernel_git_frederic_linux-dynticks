@@ -3665,16 +3665,19 @@ EXPORT_SYMBOL(tcp_alloc_md5sig_pool);
  *	and BH disabled, to make sure another thread or softirq handling
  *	wont try to get same context.
  */
-struct tcp_md5sig_pool *tcp_get_md5sig_pool(void)
+struct tcp_md5sig_pool *tcp_get_md5sig_pool(unsigned int *bh)
 {
 	local_bh_disable();
+	*bh = 0;
 
 	if (tcp_md5sig_pool_populated) {
 		/* coupled with smp_wmb() in __tcp_alloc_md5sig_pool() */
 		smp_rmb();
 		return this_cpu_ptr(&tcp_md5sig_pool);
 	}
+
 	local_bh_enable();
+
 	return NULL;
 }
 EXPORT_SYMBOL(tcp_get_md5sig_pool);
