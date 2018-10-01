@@ -607,7 +607,7 @@ void cio_tsch(struct subchannel *sch)
 		inc_irq_stat(IRQIO_CIO);
 	if (!irq_context) {
 		irq_exit();
-		_local_bh_enable();
+		local_bh_enable_no_softirq();
 	}
 }
 

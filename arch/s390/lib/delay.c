@@ -91,7 +91,7 @@ void __udelay(unsigned long long usecs)
 	if (raw_irqs_disabled_flags(flags)) {
 		local_bh_disable();
 		__udelay_disabled(usecs);
-		_local_bh_enable();
+		local_bh_enable_no_softirq();
 		goto out;
 	}
 	__udelay_enabled(usecs);
