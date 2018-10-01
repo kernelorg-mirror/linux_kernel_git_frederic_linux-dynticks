@@ -156,12 +156,12 @@ static void __local_bh_enable(unsigned int cnt)
  * Special-case - softirqs can safely be enabled by __do_softirq(),
  * without processing still-pending softirqs:
  */
-void _local_bh_enable(void)
+void local_bh_enable_no_softirq(void)
 {
 	WARN_ON_ONCE(in_irq());
 	__local_bh_enable(SOFTIRQ_DISABLE_OFFSET);
 }
-EXPORT_SYMBOL(_local_bh_enable);
+EXPORT_SYMBOL(local_bh_enable_no_softirq);
 
 void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
 {
@@ -351,7 +351,7 @@ void irq_enter(void)
 		 */
 		local_bh_disable();
 		tick_irq_enter();
-		_local_bh_enable();
+		local_bh_enable_no_softirq();
 	}
 
 	__irq_enter();
