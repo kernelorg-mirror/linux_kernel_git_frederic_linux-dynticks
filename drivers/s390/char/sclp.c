@@ -572,7 +572,7 @@ sclp_sync_wait(void)
 	local_irq_disable();
 	__ctl_load(cr0, 0, 0);
 	if (!irq_context)
-		_local_bh_enable();
+		local_bh_enable_no_softirq();
 	local_tick_enable(old_tick);
 	local_irq_restore(flags);
 }
