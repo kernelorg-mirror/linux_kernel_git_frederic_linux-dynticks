@@ -2874,7 +2874,7 @@ EXPORT_SYMBOL(release_sock);
  *
  *   sk_lock.slock unlocked, owned = 1, BH enabled
  */
-bool lock_sock_fast(struct sock *sk)
+bool lock_sock_fast(struct sock *sk, unsigned int *bh)
 {
 	might_sleep();
 	spin_lock_bh(&sk->sk_lock.slock);

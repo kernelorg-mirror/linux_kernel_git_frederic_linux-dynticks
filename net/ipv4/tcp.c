@@ -605,6 +605,7 @@ EXPORT_SYMBOL(tcp_poll);
 int tcp_ioctl(struct sock *sk, int cmd, unsigned long arg)
 {
 	struct tcp_sock *tp = tcp_sk(sk);
+	unsigned int bh;
 	int answ;
 	bool slow;
 
@@ -613,9 +614,9 @@ int tcp_ioctl(struct sock *sk, int cmd, unsigned long arg)
 		if (sk->sk_state == TCP_LISTEN)
 			return -EINVAL;
 
-		slow = lock_sock_fast(sk);
+		slow = lock_sock_fast(sk, &bh);
 		answ = tcp_inq(sk);
-		unlock_sock_fast(sk, slow);
+		unlock_sock_fast(sk, slow, bh);
 		break;
 	case SIOCATMARK:
 		answ = tp->urg_data && tp->urg_seq == tp->copied_seq;
@@ -3101,6 +3102,7 @@ void tcp_get_info(struct sock *sk, struct tcp_info *info)
 {
 	const struct tcp_sock *tp = tcp_sk(sk); /* iff sk_type == SOCK_STREAM */
 	const struct inet_connection_sock *icsk = inet_csk(sk);
+	unsigned int bh;
 	u32 now;
 	u64 rate64;
 	bool slow;
@@ -3134,7 +3136,7 @@ void tcp_get_info(struct sock *sk, struct tcp_info *info)
 		return;
 	}
 
-	slow = lock_sock_fast(sk);
+	slow = lock_sock_fast(sk, &bh);
 
 	info->tcpi_ca_state = icsk->icsk_ca_state;
 	info->tcpi_retransmits = icsk->icsk_retransmits;
@@ -3208,7 +3210,7 @@ void tcp_get_info(struct sock *sk, struct tcp_info *info)
 	info->tcpi_bytes_retrans = tp->bytes_retrans;
 	info->tcpi_dsack_dups = tp->dsack_dups;
 	info->tcpi_reord_seen = tp->reord_seen;
-	unlock_sock_fast(sk, slow);
+	unlock_sock_fast(sk, slow, bh);
 }
 EXPORT_SYMBOL_GPL(tcp_get_info);
 

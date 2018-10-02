@@ -1500,7 +1500,7 @@ void release_sock(struct sock *sk);
 				SINGLE_DEPTH_NESTING)
 #define bh_unlock_sock(__sk)	spin_unlock(&((__sk)->sk_lock.slock))
 
-bool lock_sock_fast(struct sock *sk);
+bool lock_sock_fast(struct sock *sk, unsigned int *bh);
 /**
  * unlock_sock_fast - complement of lock_sock_fast
  * @sk: socket
@@ -1509,7 +1509,8 @@ bool lock_sock_fast(struct sock *sk);
  * fast unlock socket for user context.
  * If slow mode is on, we call regular release_sock()
  */
-static inline void unlock_sock_fast(struct sock *sk, bool slow)
+static inline void unlock_sock_fast(struct sock *sk, bool slow,
+				    unsigned int bh)
 {
 	if (slow)
 		release_sock(sk);

@@ -334,17 +334,18 @@ EXPORT_SYMBOL(skb_free_datagram);
 void __skb_free_datagram_locked(struct sock *sk, struct sk_buff *skb, int len)
 {
 	bool slow;
+	unsigned int bh;
 
 	if (!skb_unref(skb)) {
 		sk_peek_offset_bwd(sk, len);
 		return;
 	}
 
-	slow = lock_sock_fast(sk);
+	slow = lock_sock_fast(sk, &bh);
 	sk_peek_offset_bwd(sk, len);
 	skb_orphan(skb);
 	sk_mem_reclaim_partial(sk);
-	unlock_sock_fast(sk, slow);
+	unlock_sock_fast(sk, slow, bh);
 
 	/* skb is now orphaned, can be freed outside of locked section */
 	__kfree_skb(skb);
