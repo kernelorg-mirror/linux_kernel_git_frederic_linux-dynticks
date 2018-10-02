@@ -96,9 +96,9 @@ void nf_log_trace(struct net *net,
 
 struct nf_log_buf;
 
-struct nf_log_buf *nf_log_buf_open(void);
+struct nf_log_buf *nf_log_buf_open(unsigned int *bh);
 __printf(2, 3) int nf_log_buf_add(struct nf_log_buf *m, const char *f, ...);
-void nf_log_buf_close(struct nf_log_buf *m);
+void nf_log_buf_close(struct nf_log_buf *m, unsigned int bh);
 
 /* common logging functions */
 int nf_log_dump_udp_header(struct nf_log_buf *m, const struct sk_buff *skb,

@@ -85,12 +85,13 @@ static void nf_log_arp_packet(struct net *net, u_int8_t pf,
 			      const char *prefix)
 {
 	struct nf_log_buf *m;
+	unsigned int bh;
 
 	/* FIXME: Disabled from containers until syslog ns is supported */
 	if (!net_eq(net, &init_net) && !sysctl_nf_log_all_netns)
 		return;
 
-	m = nf_log_buf_open();
+	m = nf_log_buf_open(&bh);
 
 	if (!loginfo)
 		loginfo = &default_loginfo;
@@ -99,7 +100,7 @@ static void nf_log_arp_packet(struct net *net, u_int8_t pf,
 				  prefix);
 	dump_arp_packet(m, loginfo, skb, 0);
 
-	nf_log_buf_close(m);
+	nf_log_buf_close(m, bh);
 }
 
 static struct nf_logger nf_arp_logger __read_mostly = {

@@ -292,7 +292,7 @@ __printf(2, 3) int nf_log_buf_add(struct nf_log_buf *m, const char *f, ...)
 }
 EXPORT_SYMBOL_GPL(nf_log_buf_add);
 
-struct nf_log_buf *nf_log_buf_open(void)
+struct nf_log_buf *nf_log_buf_open(unsigned int *bh)
 {
 	struct nf_log_buf *m = kmalloc(sizeof(*m), GFP_ATOMIC);
 
@@ -307,7 +307,7 @@ struct nf_log_buf *nf_log_buf_open(void)
 }
 EXPORT_SYMBOL_GPL(nf_log_buf_open);
 
-void nf_log_buf_close(struct nf_log_buf *m)
+void nf_log_buf_close(struct nf_log_buf *m, unsigned int bh)
 {
 	m->buf[m->count] = 0;
 	printk("%s\n", m->buf);
