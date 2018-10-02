@@ -64,4 +64,7 @@ static inline void local_bh_enable(void)
 	__local_bh_enable_ip(_THIS_IP_, SOFTIRQ_DISABLE_OFFSET);
 }
 
+extern void local_bh_disable_all(void);
+extern void local_bh_enable_all(void);
+
 #endif /* _LINUX_BH_H */

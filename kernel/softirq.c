@@ -197,6 +197,16 @@ void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
 }
 EXPORT_SYMBOL(__local_bh_enable_ip);
 
+void local_bh_disable_all(void)
+{
+	local_bh_disable();
+}
+
+void local_bh_enable_all(void)
+{
+	local_bh_enable();
+}
+
 /*
  * We restart softirq processing for at most MAX_SOFTIRQ_RESTART times,
  * but break the loop if need_resched() is set or after 2 ms.
