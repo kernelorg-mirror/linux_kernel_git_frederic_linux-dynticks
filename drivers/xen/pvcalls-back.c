@@ -313,6 +313,7 @@ static struct sock_mapping *pvcalls_new_active_socket(
 		uint32_t evtchn,
 		struct socket *sock)
 {
+	unsigned int bh;
 	int ret;
 	struct sock_mapping *map;
 	void *page;
@@ -367,12 +368,12 @@ static struct sock_mapping *pvcalls_new_active_socket(
 	list_add_tail(&map->list, &fedata->socket_mappings);
 	up(&fedata->socket_lock);
 
-	write_lock_bh(&map->sock->sk->sk_callback_lock);
+	bh = write_lock_bh(&map->sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	map->saved_data_ready = map->sock->sk->sk_data_ready;
 	map->sock->sk->sk_user_data = map;
 	map->sock->sk->sk_data_ready = pvcalls_sk_data_ready;
 	map->sock->sk->sk_state_change = pvcalls_sk_state_change;
-	write_unlock_bh(&map->sock->sk->sk_callback_lock);
+	write_unlock_bh(&map->sock->sk->sk_callback_lock, bh);
 
 	return map;
 out:
@@ -433,12 +434,13 @@ static int pvcalls_back_release_active(struct xenbus_device *dev,
 				       struct pvcalls_fedata *fedata,
 				       struct sock_mapping *map)
 {
+	unsigned int bh;
 	disable_irq(map->irq);
 	if (map->sock->sk != NULL) {
-		write_lock_bh(&map->sock->sk->sk_callback_lock);
+		bh = write_lock_bh(&map->sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		map->sock->sk->sk_user_data = NULL;
 		map->sock->sk->sk_data_ready = map->saved_data_ready;
-		write_unlock_bh(&map->sock->sk->sk_callback_lock);
+		write_unlock_bh(&map->sock->sk->sk_callback_lock, bh);
 	}
 
 	atomic_set(&map->release, 1);
@@ -458,11 +460,12 @@ static int pvcalls_back_release_passive(struct xenbus_device *dev,
 					struct pvcalls_fedata *fedata,
 					struct sockpass_mapping *mappass)
 {
+	unsigned int bh;
 	if (mappass->sock->sk != NULL) {
-		write_lock_bh(&mappass->sock->sk->sk_callback_lock);
+		bh = write_lock_bh(&mappass->sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		mappass->sock->sk->sk_user_data = NULL;
 		mappass->sock->sk->sk_data_ready = mappass->saved_data_ready;
-		write_unlock_bh(&mappass->sock->sk->sk_callback_lock);
+		write_unlock_bh(&mappass->sock->sk->sk_callback_lock, bh);
 	}
 	sock_release(mappass->sock);
 	flush_workqueue(mappass->wq);
@@ -617,6 +620,7 @@ static void pvcalls_pass_sk_data_ready(struct sock *sock)
 static int pvcalls_back_bind(struct xenbus_device *dev,
 			     struct xen_pvcalls_request *req)
 {
+	unsigned int bh;
 	struct pvcalls_fedata *fedata;
 	int ret;
 	struct sockpass_mapping *map;
@@ -657,11 +661,11 @@ static int pvcalls_back_bind(struct xenbus_device *dev,
 	if (ret)
 		goto out;
 
-	write_lock_bh(&map->sock->sk->sk_callback_lock);
+	bh = write_lock_bh(&map->sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	map->saved_data_ready = map->sock->sk->sk_data_ready;
 	map->sock->sk->sk_user_data = map;
 	map->sock->sk->sk_data_ready = pvcalls_pass_sk_data_ready;
-	write_unlock_bh(&map->sock->sk->sk_callback_lock);
+	write_unlock_bh(&map->sock->sk->sk_callback_lock, bh);
 
 out:
 	if (ret) {

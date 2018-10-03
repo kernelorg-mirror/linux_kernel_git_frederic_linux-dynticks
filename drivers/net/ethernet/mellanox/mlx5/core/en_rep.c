@@ -386,6 +386,7 @@ static void mlx5e_rep_update_flows(struct mlx5e_priv *priv,
 
 static void mlx5e_rep_neigh_update(struct work_struct *work)
 {
+	unsigned int bh;
 	struct mlx5e_neigh_hash_entry *nhe =
 		container_of(work, struct mlx5e_neigh_hash_entry, neigh_update_work);
 	struct neighbour *n = nhe->n;
@@ -403,11 +404,11 @@ static void mlx5e_rep_neigh_update(struct work_struct *work)
 	 * We use this lock to avoid inconsistency between the neigh validity
 	 * and it's hw address.
 	 */
-	read_lock_bh(&n->lock);
+	bh = read_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 	memcpy(ha, n->ha, ETH_ALEN);
 	nud_state = n->nud_state;
 	dead = n->dead;
-	read_unlock_bh(&n->lock);
+	read_unlock_bh(&n->lock, bh);
 
 	neigh_connected = (nud_state & NUD_VALID) && !dead;
 

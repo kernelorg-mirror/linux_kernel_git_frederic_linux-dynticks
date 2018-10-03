@@ -185,20 +185,22 @@ static DEFINE_RWLOCK(raw_lock);
 
 static int raw_hash(struct sock *sk)
 {
-	write_lock_bh(&raw_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&raw_lock, SOFTIRQ_ALL_MASK);
 	sk_add_node(sk, &raw_head);
 	sock_prot_inuse_add(sock_net(sk), sk->sk_prot, 1);
-	write_unlock_bh(&raw_lock);
+	write_unlock_bh(&raw_lock, bh);
 
 	return 0;
 }
 
 static void raw_unhash(struct sock *sk)
 {
-	write_lock_bh(&raw_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&raw_lock, SOFTIRQ_ALL_MASK);
 	if (sk_del_node_init(sk))
 		sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
-	write_unlock_bh(&raw_lock);
+	write_unlock_bh(&raw_lock, bh);
 }
 
 static void raw_close(struct sock *sk, long timeout)
@@ -467,20 +469,22 @@ static inline struct dgram_sock *dgram_sk(const struct sock *sk)
 
 static int dgram_hash(struct sock *sk)
 {
-	write_lock_bh(&dgram_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&dgram_lock, SOFTIRQ_ALL_MASK);
 	sk_add_node(sk, &dgram_head);
 	sock_prot_inuse_add(sock_net(sk), sk->sk_prot, 1);
-	write_unlock_bh(&dgram_lock);
+	write_unlock_bh(&dgram_lock, bh);
 
 	return 0;
 }
 
 static void dgram_unhash(struct sock *sk)
 {
-	write_lock_bh(&dgram_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&dgram_lock, SOFTIRQ_ALL_MASK);
 	if (sk_del_node_init(sk))
 		sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
-	write_unlock_bh(&dgram_lock);
+	write_unlock_bh(&dgram_lock, bh);
 }
 
 static int dgram_init(struct sock *sk)

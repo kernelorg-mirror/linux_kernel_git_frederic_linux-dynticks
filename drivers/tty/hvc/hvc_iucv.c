@@ -1237,6 +1237,7 @@ static const char *hvc_iucv_parse_filter(const char *filter, char *dest)
  */
 static int hvc_iucv_setup_filter(const char *val)
 {
+	unsigned int bh;
 	const char *residual;
 	int err;
 	size_t size, count;
@@ -1279,11 +1280,11 @@ static int hvc_iucv_setup_filter(const char *val)
 	}
 
 out_replace_filter:
-	write_lock_bh(&hvc_iucv_filter_lock);
+	bh = write_lock_bh(&hvc_iucv_filter_lock, SOFTIRQ_ALL_MASK);
 	old_filter = hvc_iucv_filter;
 	hvc_iucv_filter_size = size;
 	hvc_iucv_filter = array;
-	write_unlock_bh(&hvc_iucv_filter_lock);
+	write_unlock_bh(&hvc_iucv_filter_lock, bh);
 	kfree(old_filter);
 
 	err = 0;
@@ -1330,6 +1331,7 @@ static int param_set_vmidfilter(const char *val, const struct kernel_param *kp)
  */
 static int param_get_vmidfilter(char *buffer, const struct kernel_param *kp)
 {
+	unsigned int bh;
 	int rc;
 	size_t index, len;
 	void *start, *end;
@@ -1338,7 +1340,7 @@ static int param_get_vmidfilter(char *buffer, const struct kernel_param *kp)
 		return -ENODEV;
 
 	rc = 0;
-	read_lock_bh(&hvc_iucv_filter_lock);
+	bh = read_lock_bh(&hvc_iucv_filter_lock, SOFTIRQ_ALL_MASK);
 	for (index = 0; index < hvc_iucv_filter_size; index++) {
 		start = hvc_iucv_filter + (8 * index);
 		end   = memchr(start, ' ', 8);
@@ -1347,7 +1349,7 @@ static int param_get_vmidfilter(char *buffer, const struct kernel_param *kp)
 		rc += len;
 		buffer[rc++] = ',';
 	}
-	read_unlock_bh(&hvc_iucv_filter_lock);
+	read_unlock_bh(&hvc_iucv_filter_lock, bh);
 	if (rc)
 		buffer[--rc] = '\0';	/* replace last comma and update rc */
 	return rc;

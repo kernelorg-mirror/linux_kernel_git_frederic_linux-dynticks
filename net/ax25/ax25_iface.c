@@ -47,19 +47,21 @@ static DEFINE_SPINLOCK(listen_lock);
  */
 void ax25_register_pid(struct ax25_protocol *ap)
 {
-	write_lock_bh(&protocol_list_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&protocol_list_lock, SOFTIRQ_ALL_MASK);
 	ap->next = protocol_list;
 	protocol_list = ap;
-	write_unlock_bh(&protocol_list_lock);
+	write_unlock_bh(&protocol_list_lock, bh);
 }
 
 EXPORT_SYMBOL_GPL(ax25_register_pid);
 
 void ax25_protocol_release(unsigned int pid)
 {
+	unsigned int bh;
 	struct ax25_protocol *protocol;
 
-	write_lock_bh(&protocol_list_lock);
+	bh = write_lock_bh(&protocol_list_lock, SOFTIRQ_ALL_MASK);
 	protocol = protocol_list;
 	if (protocol == NULL)
 		goto out;
@@ -78,7 +80,7 @@ void ax25_protocol_release(unsigned int pid)
 		protocol = protocol->next;
 	}
 out:
-	write_unlock_bh(&protocol_list_lock);
+	write_unlock_bh(&protocol_list_lock, bh);
 }
 
 EXPORT_SYMBOL(ax25_protocol_release);
@@ -208,16 +210,17 @@ void ax25_link_failed(ax25_cb *ax25, int reason)
 
 int ax25_protocol_is_registered(unsigned int pid)
 {
+	unsigned int bh;
 	struct ax25_protocol *protocol;
 	int res = 0;
 
-	read_lock_bh(&protocol_list_lock);
+	bh = read_lock_bh(&protocol_list_lock, SOFTIRQ_ALL_MASK);
 	for (protocol = protocol_list; protocol != NULL; protocol = protocol->next)
 		if (protocol->pid == pid) {
 			res = 1;
 			break;
 		}
-	read_unlock_bh(&protocol_list_lock);
+	read_unlock_bh(&protocol_list_lock, bh);
 
 	return res;
 }

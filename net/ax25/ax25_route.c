@@ -44,9 +44,10 @@ static DEFINE_RWLOCK(ax25_route_lock);
 
 void ax25_rt_device_down(struct net_device *dev)
 {
+	unsigned int bh;
 	ax25_route *s, *t, *ax25_rt;
 
-	write_lock_bh(&ax25_route_lock);
+	bh = write_lock_bh(&ax25_route_lock, SOFTIRQ_ALL_MASK);
 	ax25_rt = ax25_route_list;
 	while (ax25_rt != NULL) {
 		s       = ax25_rt;
@@ -69,11 +70,12 @@ void ax25_rt_device_down(struct net_device *dev)
 			}
 		}
 	}
-	write_unlock_bh(&ax25_route_lock);
+	write_unlock_bh(&ax25_route_lock, bh);
 }
 
 static int __must_check ax25_rt_add(struct ax25_routes_struct *route)
 {
+	unsigned int bh;
 	ax25_route *ax25_rt;
 	ax25_dev *ax25_dev;
 	int i;
@@ -83,7 +85,7 @@ static int __must_check ax25_rt_add(struct ax25_routes_struct *route)
 	if (route->digi_count > AX25_MAX_DIGIS)
 		return -EINVAL;
 
-	write_lock_bh(&ax25_route_lock);
+	bh = write_lock_bh(&ax25_route_lock, SOFTIRQ_ALL_MASK);
 
 	ax25_rt = ax25_route_list;
 	while (ax25_rt != NULL) {
@@ -93,7 +95,7 @@ static int __must_check ax25_rt_add(struct ax25_routes_struct *route)
 			ax25_rt->digipeat = NULL;
 			if (route->digi_count != 0) {
 				if ((ax25_rt->digipeat = kmalloc(sizeof(ax25_digi), GFP_ATOMIC)) == NULL) {
-					write_unlock_bh(&ax25_route_lock);
+					write_unlock_bh(&ax25_route_lock, bh);
 					return -ENOMEM;
 				}
 				ax25_rt->digipeat->lastrepeat = -1;
@@ -103,14 +105,14 @@ static int __must_check ax25_rt_add(struct ax25_routes_struct *route)
 					ax25_rt->digipeat->calls[i]    = route->digi_addr[i];
 				}
 			}
-			write_unlock_bh(&ax25_route_lock);
+			write_unlock_bh(&ax25_route_lock, bh);
 			return 0;
 		}
 		ax25_rt = ax25_rt->next;
 	}
 
 	if ((ax25_rt = kmalloc(sizeof(ax25_route), GFP_ATOMIC)) == NULL) {
-		write_unlock_bh(&ax25_route_lock);
+		write_unlock_bh(&ax25_route_lock, bh);
 		return -ENOMEM;
 	}
 
@@ -121,7 +123,7 @@ static int __must_check ax25_rt_add(struct ax25_routes_struct *route)
 	ax25_rt->ip_mode      = ' ';
 	if (route->digi_count != 0) {
 		if ((ax25_rt->digipeat = kmalloc(sizeof(ax25_digi), GFP_ATOMIC)) == NULL) {
-			write_unlock_bh(&ax25_route_lock);
+			write_unlock_bh(&ax25_route_lock, bh);
 			kfree(ax25_rt);
 			return -ENOMEM;
 		}
@@ -134,7 +136,7 @@ static int __must_check ax25_rt_add(struct ax25_routes_struct *route)
 	}
 	ax25_rt->next   = ax25_route_list;
 	ax25_route_list = ax25_rt;
-	write_unlock_bh(&ax25_route_lock);
+	write_unlock_bh(&ax25_route_lock, bh);
 
 	return 0;
 }
@@ -147,13 +149,14 @@ void __ax25_put_route(ax25_route *ax25_rt)
 
 static int ax25_rt_del(struct ax25_routes_struct *route)
 {
+	unsigned int bh;
 	ax25_route *s, *t, *ax25_rt;
 	ax25_dev *ax25_dev;
 
 	if ((ax25_dev = ax25_addr_ax25dev(&route->port_addr)) == NULL)
 		return -EINVAL;
 
-	write_lock_bh(&ax25_route_lock);
+	bh = write_lock_bh(&ax25_route_lock, SOFTIRQ_ALL_MASK);
 
 	ax25_rt = ax25_route_list;
 	while (ax25_rt != NULL) {
@@ -175,13 +178,14 @@ static int ax25_rt_del(struct ax25_routes_struct *route)
 			}
 		}
 	}
-	write_unlock_bh(&ax25_route_lock);
+	write_unlock_bh(&ax25_route_lock, bh);
 
 	return 0;
 }
 
 static int ax25_rt_opt(struct ax25_route_opt_struct *rt_option)
 {
+	unsigned int bh;
 	ax25_route *ax25_rt;
 	ax25_dev *ax25_dev;
 	int err = 0;
@@ -189,7 +193,7 @@ static int ax25_rt_opt(struct ax25_route_opt_struct *rt_option)
 	if ((ax25_dev = ax25_addr_ax25dev(&rt_option->port_addr)) == NULL)
 		return -EINVAL;
 
-	write_lock_bh(&ax25_route_lock);
+	bh = write_lock_bh(&ax25_route_lock, SOFTIRQ_ALL_MASK);
 
 	ax25_rt = ax25_route_list;
 	while (ax25_rt != NULL) {
@@ -217,7 +221,7 @@ static int ax25_rt_opt(struct ax25_route_opt_struct *rt_option)
 	}
 
 out:
-	write_unlock_bh(&ax25_route_lock);
+	write_unlock_bh(&ax25_route_lock, bh);
 	return err;
 }
 
@@ -477,9 +481,10 @@ struct sk_buff *ax25_rt_build_path(struct sk_buff *skb, ax25_address *src,
  */
 void __exit ax25_rt_free(void)
 {
+	unsigned int bh;
 	ax25_route *s, *ax25_rt = ax25_route_list;
 
-	write_lock_bh(&ax25_route_lock);
+	bh = write_lock_bh(&ax25_route_lock, SOFTIRQ_ALL_MASK);
 	while (ax25_rt != NULL) {
 		s       = ax25_rt;
 		ax25_rt = ax25_rt->next;
@@ -487,5 +492,5 @@ void __exit ax25_rt_free(void)
 		kfree(s->digipeat);
 		kfree(s);
 	}
-	write_unlock_bh(&ax25_route_lock);
+	write_unlock_bh(&ax25_route_lock, bh);
 }

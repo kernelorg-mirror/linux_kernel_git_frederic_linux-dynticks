@@ -598,10 +598,11 @@ static void o2net_set_nn_state(struct o2net_node *nn,
 /* see o2net_register_callbacks() */
 static void o2net_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	void (*ready)(struct sock *sk);
 	struct o2net_sock_container *sc;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sc = sk->sk_user_data;
 	if (sc) {
 		sclog(sc, "data_ready hit\n");
@@ -611,7 +612,7 @@ static void o2net_data_ready(struct sock *sk)
 	} else {
 		ready = sk->sk_data_ready;
 	}
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 
 	ready(sk);
 }
@@ -619,10 +620,11 @@ static void o2net_data_ready(struct sock *sk)
 /* see o2net_register_callbacks() */
 static void o2net_state_change(struct sock *sk)
 {
+	unsigned int bh;
 	void (*state_change)(struct sock *sk);
 	struct o2net_sock_container *sc;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sc = sk->sk_user_data;
 	if (sc == NULL) {
 		state_change = sk->sk_state_change;
@@ -649,7 +651,7 @@ static void o2net_state_change(struct sock *sk)
 		break;
 	}
 out:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 	state_change(sk);
 }
 
@@ -661,7 +663,8 @@ out:
 static void o2net_register_callbacks(struct sock *sk,
 				     struct o2net_sock_container *sc)
 {
-	write_lock_bh(&sk->sk_callback_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 	/* accepted sockets inherit the old listen socket data ready */
 	if (sk->sk_data_ready == o2net_listen_data_ready) {
@@ -680,22 +683,23 @@ static void o2net_register_callbacks(struct sock *sk,
 
 	mutex_init(&sc->sc_send_lock);
 
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static int o2net_unregister_callbacks(struct sock *sk,
 			           struct o2net_sock_container *sc)
 {
+	unsigned int bh;
 	int ret = 0;
 
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	if (sk->sk_user_data == sc) {
 		ret = 1;
 		sk->sk_user_data = NULL;
 		sk->sk_data_ready = sc->sc_data_ready;
 		sk->sk_state_change = sc->sc_state_change;
 	}
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 
 	return ret;
 }
@@ -1986,9 +1990,10 @@ static void o2net_accept_many(struct work_struct *work)
 
 static void o2net_listen_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	void (*ready)(struct sock *sk);
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	ready = sk->sk_user_data;
 	if (ready == NULL) { /* check for teardown race */
 		ready = sk->sk_data_ready;
@@ -2015,13 +2020,14 @@ static void o2net_listen_data_ready(struct sock *sk)
 	}
 
 out:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 	if (ready != NULL)
 		ready(sk);
 }
 
 static int o2net_open_listening_sock(__be32 addr, __be16 port)
 {
+	unsigned int bh;
 	struct socket *sock = NULL;
 	int ret;
 	struct sockaddr_in sin = {
@@ -2038,10 +2044,10 @@ static int o2net_open_listening_sock(__be32 addr, __be16 port)
 
 	sock->sk->sk_allocation = GFP_ATOMIC;
 
-	write_lock_bh(&sock->sk->sk_callback_lock);
+	bh = write_lock_bh(&sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sock->sk->sk_user_data = sock->sk->sk_data_ready;
 	sock->sk->sk_data_ready = o2net_listen_data_ready;
-	write_unlock_bh(&sock->sk->sk_callback_lock);
+	write_unlock_bh(&sock->sk->sk_callback_lock, bh);
 
 	o2net_listen_sock = sock;
 	INIT_WORK(&o2net_listen_work, o2net_accept_many);
@@ -2104,6 +2110,7 @@ int o2net_start_listening(struct o2nm_node *node)
  * tearing it down */
 void o2net_stop_listening(struct o2nm_node *node)
 {
+	unsigned int bh;
 	struct socket *sock = o2net_listen_sock;
 	size_t i;
 
@@ -2111,10 +2118,10 @@ void o2net_stop_listening(struct o2nm_node *node)
 	BUG_ON(o2net_listen_sock == NULL);
 
 	/* stop the listening socket from generating work */
-	write_lock_bh(&sock->sk->sk_callback_lock);
+	bh = write_lock_bh(&sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sock->sk->sk_data_ready = sock->sk->sk_user_data;
 	sock->sk->sk_user_data = NULL;
-	write_unlock_bh(&sock->sk->sk_callback_lock);
+	write_unlock_bh(&sock->sk->sk_callback_lock, bh);
 
 	for (i = 0; i < ARRAY_SIZE(o2net_nodes); i++) {
 		struct o2nm_node *node = o2nm_get_node_by_num(i);

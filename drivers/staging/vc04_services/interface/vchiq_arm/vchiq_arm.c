@@ -2692,6 +2692,7 @@ need_resume(VCHIQ_STATE_T *state)
 static int
 block_resume(VCHIQ_ARM_STATE_T *arm_state)
 {
+	unsigned int bh;
 	int status = VCHIQ_SUCCESS;
 	const unsigned long timeout_val =
 				msecs_to_jiffies(FORCE_SUSPEND_TIMEOUT_MS);
@@ -2713,12 +2714,12 @@ block_resume(VCHIQ_ARM_STATE_T *arm_state)
 			vchiq_log_error(vchiq_susp_log_level, "%s wait for "
 				"previously blocked clients failed", __func__);
 			status = VCHIQ_ERROR;
-			write_lock_bh(&arm_state->susp_res_lock);
+			write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 			goto out;
 		}
 		vchiq_log_info(vchiq_susp_log_level, "%s previously blocked "
 			"clients resumed", __func__);
-		write_lock_bh(&arm_state->susp_res_lock);
+		bh = write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 	}
 
 	/* We need to wait for resume to complete if it's in process */
@@ -2730,7 +2731,7 @@ block_resume(VCHIQ_ARM_STATE_T *arm_state)
 				"many times for resume", __func__);
 			goto out;
 		}
-		write_unlock_bh(&arm_state->susp_res_lock);
+		write_unlock_bh(&arm_state->susp_res_lock, bh);
 		vchiq_log_info(vchiq_susp_log_level, "%s wait for resume",
 			__func__);
 		if (wait_for_completion_interruptible_timeout(
@@ -2741,11 +2742,11 @@ block_resume(VCHIQ_ARM_STATE_T *arm_state)
 				resume_state_names[arm_state->vc_resume_state +
 							VC_RESUME_NUM_OFFSET]);
 			status = VCHIQ_ERROR;
-			write_lock_bh(&arm_state->susp_res_lock);
+			write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 			goto out;
 		}
 		vchiq_log_info(vchiq_susp_log_level, "%s resumed", __func__);
-		write_lock_bh(&arm_state->susp_res_lock);
+		bh = write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 		resume_count++;
 	}
 	reinit_completion(&arm_state->resume_blocker);
@@ -2816,6 +2817,7 @@ out:
 void
 vchiq_platform_check_suspend(VCHIQ_STATE_T *state)
 {
+	unsigned int bh;
 	VCHIQ_ARM_STATE_T *arm_state = vchiq_platform_get_arm_state(state);
 	int susp = 0;
 
@@ -2824,13 +2826,13 @@ vchiq_platform_check_suspend(VCHIQ_STATE_T *state)
 
 	vchiq_log_trace(vchiq_susp_log_level, "%s", __func__);
 
-	write_lock_bh(&arm_state->susp_res_lock);
+	bh = write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 	if (arm_state->vc_suspend_state == VC_SUSPEND_REQUESTED &&
 			arm_state->vc_resume_state == VC_RESUME_RESUMED) {
 		set_suspend_state(arm_state, VC_SUSPEND_IN_PROGRESS);
 		susp = 1;
 	}
-	write_unlock_bh(&arm_state->susp_res_lock);
+	write_unlock_bh(&arm_state->susp_res_lock, bh);
 
 	if (susp)
 		vchiq_platform_suspend(state);
@@ -2888,6 +2890,7 @@ output_msg:
 VCHIQ_STATUS_T
 vchiq_arm_force_suspend(VCHIQ_STATE_T *state)
 {
+	unsigned int bh;
 	VCHIQ_ARM_STATE_T *arm_state = vchiq_platform_get_arm_state(state);
 	VCHIQ_STATUS_T status = VCHIQ_ERROR;
 	long rc = 0;
@@ -2898,7 +2901,7 @@ vchiq_arm_force_suspend(VCHIQ_STATE_T *state)
 
 	vchiq_log_trace(vchiq_susp_log_level, "%s", __func__);
 
-	write_lock_bh(&arm_state->susp_res_lock);
+	bh = write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 
 	status = block_resume(arm_state);
 	if (status != VCHIQ_SUCCESS)
@@ -2944,7 +2947,7 @@ vchiq_arm_force_suspend(VCHIQ_STATE_T *state)
 				&arm_state->vc_suspend_complete,
 				msecs_to_jiffies(FORCE_SUSPEND_TIMEOUT_MS));
 
-		write_lock_bh(&arm_state->susp_res_lock);
+		write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 		if (rc < 0) {
 			vchiq_log_warning(vchiq_susp_log_level, "%s "
 				"interrupted waiting for suspend", __func__);
@@ -2989,7 +2992,7 @@ unblock_resume:
 	unblock_resume(arm_state);
 
 unlock:
-	write_unlock_bh(&arm_state->susp_res_lock);
+	write_unlock_bh(&arm_state->susp_res_lock, bh);
 
 out:
 	vchiq_log_trace(vchiq_susp_log_level, "%s exit %d", __func__, status);
@@ -2999,6 +3002,7 @@ out:
 void
 vchiq_check_suspend(VCHIQ_STATE_T *state)
 {
+	unsigned int bh;
 	VCHIQ_ARM_STATE_T *arm_state = vchiq_platform_get_arm_state(state);
 
 	if (!arm_state)
@@ -3006,13 +3010,13 @@ vchiq_check_suspend(VCHIQ_STATE_T *state)
 
 	vchiq_log_trace(vchiq_susp_log_level, "%s", __func__);
 
-	write_lock_bh(&arm_state->susp_res_lock);
+	bh = write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 	if (arm_state->vc_suspend_state != VC_SUSPEND_SUSPENDED &&
 			arm_state->first_connect &&
 			!vchiq_videocore_wanted(state)) {
 		vchiq_arm_vcsuspend(state);
 	}
-	write_unlock_bh(&arm_state->susp_res_lock);
+	write_unlock_bh(&arm_state->susp_res_lock, bh);
 
 out:
 	vchiq_log_trace(vchiq_susp_log_level, "%s exit", __func__);
@@ -3021,6 +3025,8 @@ out:
 int
 vchiq_arm_allow_resume(VCHIQ_STATE_T *state)
 {
+	unsigned int bh;
+	unsigned int bh;
 	VCHIQ_ARM_STATE_T *arm_state = vchiq_platform_get_arm_state(state);
 	int resume = 0;
 	int ret = -1;
@@ -3030,10 +3036,10 @@ vchiq_arm_allow_resume(VCHIQ_STATE_T *state)
 
 	vchiq_log_trace(vchiq_susp_log_level, "%s", __func__);
 
-	write_lock_bh(&arm_state->susp_res_lock);
+	bh = write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 	unblock_resume(arm_state);
 	resume = vchiq_check_resume(state);
-	write_unlock_bh(&arm_state->susp_res_lock);
+	write_unlock_bh(&arm_state->susp_res_lock, bh);
 
 	if (resume) {
 		if (wait_for_completion_interruptible(
@@ -3046,7 +3052,7 @@ vchiq_arm_allow_resume(VCHIQ_STATE_T *state)
 		}
 	}
 
-	read_lock_bh(&arm_state->susp_res_lock);
+	bh = read_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 	if (arm_state->vc_suspend_state == VC_SUSPEND_SUSPENDED) {
 		vchiq_log_info(vchiq_susp_log_level,
 				"%s: Videocore remains suspended", __func__);
@@ -3055,7 +3061,7 @@ vchiq_arm_allow_resume(VCHIQ_STATE_T *state)
 				"%s: Videocore resumed", __func__);
 		ret = 0;
 	}
-	read_unlock_bh(&arm_state->susp_res_lock);
+	read_unlock_bh(&arm_state->susp_res_lock, bh);
 out:
 	vchiq_log_trace(vchiq_susp_log_level, "%s exit %d", __func__, ret);
 	return ret;
@@ -3088,6 +3094,7 @@ VCHIQ_STATUS_T
 vchiq_use_internal(VCHIQ_STATE_T *state, VCHIQ_SERVICE_T *service,
 		enum USE_TYPE_E use_type)
 {
+	unsigned int bh;
 	VCHIQ_ARM_STATE_T *arm_state = vchiq_platform_get_arm_state(state);
 	VCHIQ_STATUS_T ret = VCHIQ_SUCCESS;
 	char entity[16];
@@ -3114,7 +3121,7 @@ vchiq_use_internal(VCHIQ_STATE_T *state, VCHIQ_SERVICE_T *service,
 		goto out;
 	}
 
-	write_lock_bh(&arm_state->susp_res_lock);
+	bh = write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 	while (arm_state->resume_blocked) {
 		/* If we call 'use' while force suspend is waiting for suspend,
 		 * then we're about to block the thread which the force is
@@ -3143,14 +3150,14 @@ vchiq_use_internal(VCHIQ_STATE_T *state, VCHIQ_SERVICE_T *service,
 					"wait for resume blocker interrupted",
 					__func__, entity);
 				ret = VCHIQ_ERROR;
-				write_lock_bh(&arm_state->susp_res_lock);
+				write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 				arm_state->blocked_count--;
 				write_unlock_bh(&arm_state->susp_res_lock);
 				goto out;
 			}
 			vchiq_log_info(vchiq_susp_log_level, "%s %s resume "
 				"unblocked", __func__, entity);
-			write_lock_bh(&arm_state->susp_res_lock);
+			write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 			if (--arm_state->blocked_count == 0)
 				complete_all(&arm_state->blocked_blocker);
 		}
@@ -3179,7 +3186,7 @@ vchiq_use_internal(VCHIQ_STATE_T *state, VCHIQ_SERVICE_T *service,
 			"%s %s count %d, state count %d",
 			__func__, entity, *entity_uc, local_uc);
 
-	write_unlock_bh(&arm_state->susp_res_lock);
+	write_unlock_bh(&arm_state->susp_res_lock, bh);
 
 	/* Completion is in a done state when we're not suspended, so this won't
 	 * block for the non-suspended case. */
@@ -3220,6 +3227,7 @@ out:
 VCHIQ_STATUS_T
 vchiq_release_internal(VCHIQ_STATE_T *state, VCHIQ_SERVICE_T *service)
 {
+	unsigned int bh;
 	VCHIQ_ARM_STATE_T *arm_state = vchiq_platform_get_arm_state(state);
 	VCHIQ_STATUS_T ret = VCHIQ_SUCCESS;
 	char entity[16];
@@ -3241,7 +3249,7 @@ vchiq_release_internal(VCHIQ_STATE_T *state, VCHIQ_SERVICE_T *service)
 		entity_uc = &arm_state->peer_use_count;
 	}
 
-	write_lock_bh(&arm_state->susp_res_lock);
+	bh = write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 	if (!arm_state->videocore_use_count || !(*entity_uc)) {
 		/* Don't use BUG_ON - don't allow user thread to crash kernel */
 		WARN_ON(!arm_state->videocore_use_count);
@@ -3272,7 +3280,7 @@ vchiq_release_internal(VCHIQ_STATE_T *state, VCHIQ_SERVICE_T *service)
 			arm_state->videocore_use_count);
 
 unlock:
-	write_unlock_bh(&arm_state->susp_res_lock);
+	write_unlock_bh(&arm_state->susp_res_lock, bh);
 
 out:
 	vchiq_log_trace(vchiq_susp_log_level, "%s exit %d", __func__, ret);
@@ -3419,6 +3427,7 @@ struct service_data_struct {
 void
 vchiq_dump_service_use_state(VCHIQ_STATE_T *state)
 {
+	unsigned int bh;
 	VCHIQ_ARM_STATE_T *arm_state = vchiq_platform_get_arm_state(state);
 	struct service_data_struct *service_data;
 	int i, found = 0;
@@ -3441,7 +3450,7 @@ vchiq_dump_service_use_state(VCHIQ_STATE_T *state)
 	if (!service_data)
 		return;
 
-	read_lock_bh(&arm_state->susp_res_lock);
+	bh = read_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 	vc_suspend_state = arm_state->vc_suspend_state;
 	vc_resume_state  = arm_state->vc_resume_state;
 	peer_count = arm_state->peer_use_count;
@@ -3470,7 +3479,7 @@ vchiq_dump_service_use_state(VCHIQ_STATE_T *state)
 			break;
 	}
 
-	read_unlock_bh(&arm_state->susp_res_lock);
+	read_unlock_bh(&arm_state->susp_res_lock, bh);
 
 	vchiq_log_warning(vchiq_susp_log_level,
 		"-- Videcore suspend state: %s --",
@@ -3505,6 +3514,7 @@ vchiq_dump_service_use_state(VCHIQ_STATE_T *state)
 VCHIQ_STATUS_T
 vchiq_check_service(VCHIQ_SERVICE_T *service)
 {
+	unsigned int bh;
 	VCHIQ_ARM_STATE_T *arm_state;
 	VCHIQ_STATUS_T ret = VCHIQ_ERROR;
 
@@ -3515,10 +3525,10 @@ vchiq_check_service(VCHIQ_SERVICE_T *service)
 
 	arm_state = vchiq_platform_get_arm_state(service->state);
 
-	read_lock_bh(&arm_state->susp_res_lock);
+	bh = read_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 	if (service->service_use_count)
 		ret = VCHIQ_SUCCESS;
-	read_unlock_bh(&arm_state->susp_res_lock);
+	read_unlock_bh(&arm_state->susp_res_lock, bh);
 
 	if (ret == VCHIQ_ERROR) {
 		vchiq_log_error(vchiq_susp_log_level,
@@ -3544,17 +3554,18 @@ void vchiq_on_remote_use_active(VCHIQ_STATE_T *state)
 void vchiq_platform_conn_state_changed(VCHIQ_STATE_T *state,
 	VCHIQ_CONNSTATE_T oldstate, VCHIQ_CONNSTATE_T newstate)
 {
+	unsigned int bh;
 	VCHIQ_ARM_STATE_T *arm_state = vchiq_platform_get_arm_state(state);
 
 	vchiq_log_info(vchiq_susp_log_level, "%d: %s->%s", state->id,
 		get_conn_state_name(oldstate), get_conn_state_name(newstate));
 	if (state->conn_state == VCHIQ_CONNSTATE_CONNECTED) {
-		write_lock_bh(&arm_state->susp_res_lock);
+		bh = write_lock_bh(&arm_state->susp_res_lock, SOFTIRQ_ALL_MASK);
 		if (!arm_state->first_connect) {
 			char threadname[16];
 
 			arm_state->first_connect = 1;
-			write_unlock_bh(&arm_state->susp_res_lock);
+			write_unlock_bh(&arm_state->susp_res_lock, bh);
 			snprintf(threadname, sizeof(threadname), "vchiq-keep/%d",
 				state->id);
 			arm_state->ka_thread = kthread_create(
@@ -3569,7 +3580,7 @@ void vchiq_platform_conn_state_changed(VCHIQ_STATE_T *state,
 				wake_up_process(arm_state->ka_thread);
 			}
 		} else
-			write_unlock_bh(&arm_state->susp_res_lock);
+			write_unlock_bh(&arm_state->susp_res_lock, bh);
 	}
 }
 

@@ -231,16 +231,17 @@ static inline void rps_unlock(struct softnet_data *sd)
 /* Device list insertion */
 static void list_netdevice(struct net_device *dev)
 {
+	unsigned int bh;
 	struct net *net = dev_net(dev);
 
 	ASSERT_RTNL();
 
-	write_lock_bh(&dev_base_lock);
+	bh = write_lock_bh(&dev_base_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail_rcu(&dev->dev_list, &net->dev_base_head);
 	hlist_add_head_rcu(&dev->name_hlist, dev_name_hash(net, dev->name));
 	hlist_add_head_rcu(&dev->index_hlist,
 			   dev_index_hash(net, dev->ifindex));
-	write_unlock_bh(&dev_base_lock);
+	write_unlock_bh(&dev_base_lock, bh);
 
 	dev_base_seq_inc(net);
 }
@@ -250,14 +251,15 @@ static void list_netdevice(struct net_device *dev)
  */
 static void unlist_netdevice(struct net_device *dev)
 {
+	unsigned int bh;
 	ASSERT_RTNL();
 
 	/* Unlink dev from the device chain */
-	write_lock_bh(&dev_base_lock);
+	bh = write_lock_bh(&dev_base_lock, SOFTIRQ_ALL_MASK);
 	list_del_rcu(&dev->dev_list);
 	hlist_del_rcu(&dev->name_hlist);
 	hlist_del_rcu(&dev->index_hlist);
-	write_unlock_bh(&dev_base_lock);
+	write_unlock_bh(&dev_base_lock, bh);
 
 	dev_base_seq_inc(dev_net(dev));
 }
@@ -1175,6 +1177,7 @@ int dev_change_name(struct net_device *dev, const char *newname)
 	int err = 0;
 	int ret;
 	struct net *net;
+	unsigned int bh;
 
 	ASSERT_RTNL();
 	BUG_ON(!dev_net(dev));
@@ -1217,15 +1220,15 @@ rollback:
 
 	netdev_adjacent_rename_links(dev, oldname);
 
-	write_lock_bh(&dev_base_lock);
+	bh = write_lock_bh(&dev_base_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_rcu(&dev->name_hlist);
-	write_unlock_bh(&dev_base_lock);
+	write_unlock_bh(&dev_base_lock, bh);
 
 	synchronize_rcu();
 
-	write_lock_bh(&dev_base_lock);
+	bh = write_lock_bh(&dev_base_lock, SOFTIRQ_ALL_MASK);
 	hlist_add_head_rcu(&dev->name_hlist, dev_name_hash(net, dev->name));
-	write_unlock_bh(&dev_base_lock);
+	write_unlock_bh(&dev_base_lock, bh);
 
 	ret = call_netdevice_notifiers(NETDEV_CHANGENAME, dev);
 	ret = notifier_to_errno(ret);

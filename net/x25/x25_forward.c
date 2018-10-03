@@ -22,6 +22,8 @@ DEFINE_RWLOCK(x25_forward_list_lock);
 int x25_forward_call(struct x25_address *dest_addr, struct x25_neigh *from,
 			struct sk_buff *skb, int lci)
 {
+	unsigned int bh;
+	unsigned int bh;
 	struct x25_route *rt;
 	struct x25_neigh *neigh_new = NULL;
 	struct list_head *entry;
@@ -50,7 +52,7 @@ int x25_forward_call(struct x25_address *dest_addr, struct x25_neigh *from,
 	/* Remote end sending a call request on an already
 	 * established LCI? It shouldn't happen, just in case..
 	 */
-	read_lock_bh(&x25_forward_list_lock);
+	bh = read_lock_bh(&x25_forward_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each(entry, &x25_forward_list) {
 		x25_frwd = list_entry(entry, struct x25_forward, node);
 		if (x25_frwd->lci == lci) {
@@ -58,7 +60,7 @@ int x25_forward_call(struct x25_address *dest_addr, struct x25_neigh *from,
 			same_lci = 1;
 		}
 	}
-	read_unlock_bh(&x25_forward_list_lock);
+	read_unlock_bh(&x25_forward_list_lock, bh);
 
 	/* Save the forwarding details for future traffic */
 	if (!same_lci){
@@ -70,9 +72,9 @@ int x25_forward_call(struct x25_address *dest_addr, struct x25_neigh *from,
 		new_frwd->lci = lci;
 		new_frwd->dev1 = rt->dev;
 		new_frwd->dev2 = from->dev;
-		write_lock_bh(&x25_forward_list_lock);
+		bh = write_lock_bh(&x25_forward_list_lock, SOFTIRQ_ALL_MASK);
 		list_add(&new_frwd->node, &x25_forward_list);
-		write_unlock_bh(&x25_forward_list_lock);
+		write_unlock_bh(&x25_forward_list_lock, bh);
 	}
 
 	/* Forward the call request */
@@ -95,6 +97,7 @@ out_no_route:
 
 
 int x25_forward_data(int lci, struct x25_neigh *from, struct sk_buff *skb) {
+	unsigned int bh;
 
 	struct x25_forward *frwd;
 	struct list_head *entry;
@@ -103,7 +106,7 @@ int x25_forward_data(int lci, struct x25_neigh *from, struct sk_buff *skb) {
 	struct sk_buff *skbn;
 	int rc = 0;
 
-	read_lock_bh(&x25_forward_list_lock);
+	bh = read_lock_bh(&x25_forward_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each(entry, &x25_forward_list) {
 		frwd = list_entry(entry, struct x25_forward, node);
 		if (frwd->lci == lci) {
@@ -116,7 +119,7 @@ int x25_forward_data(int lci, struct x25_neigh *from, struct sk_buff *skb) {
 			break;
 		}
 	}
-	read_unlock_bh(&x25_forward_list_lock);
+	read_unlock_bh(&x25_forward_list_lock, bh);
 
 	if ( (nb = x25_get_neigh(peer)) == NULL)
 		goto out;
@@ -136,10 +139,11 @@ out:
 
 void x25_clear_forward_by_lci(unsigned int lci)
 {
+	unsigned int bh;
 	struct x25_forward *fwd;
 	struct list_head *entry, *tmp;
 
-	write_lock_bh(&x25_forward_list_lock);
+	bh = write_lock_bh(&x25_forward_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_safe(entry, tmp, &x25_forward_list) {
 		fwd = list_entry(entry, struct x25_forward, node);
@@ -148,16 +152,17 @@ void x25_clear_forward_by_lci(unsigned int lci)
 			kfree(fwd);
 		}
 	}
-	write_unlock_bh(&x25_forward_list_lock);
+	write_unlock_bh(&x25_forward_list_lock, bh);
 }
 
 
 void x25_clear_forward_by_dev(struct net_device *dev)
 {
+	unsigned int bh;
 	struct x25_forward *fwd;
 	struct list_head *entry, *tmp;
 
-	write_lock_bh(&x25_forward_list_lock);
+	bh = write_lock_bh(&x25_forward_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_safe(entry, tmp, &x25_forward_list) {
 		fwd = list_entry(entry, struct x25_forward, node);
@@ -166,5 +171,5 @@ void x25_clear_forward_by_dev(struct net_device *dev)
 			kfree(fwd);
 		}
 	}
-	write_unlock_bh(&x25_forward_list_lock);
+	write_unlock_bh(&x25_forward_list_lock, bh);
 }

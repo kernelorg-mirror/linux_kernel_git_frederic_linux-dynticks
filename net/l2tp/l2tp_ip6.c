@@ -129,6 +129,7 @@ found:
  */
 static int l2tp_ip6_recv(struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct net *net = dev_net(skb->dev);
 	struct sock *sk;
 	u32 session_id;
@@ -194,15 +195,15 @@ pass_up:
 	tunnel_id = ntohl(*(__be32 *) &skb->data[4]);
 	iph = ipv6_hdr(skb);
 
-	read_lock_bh(&l2tp_ip6_lock);
+	bh = read_lock_bh(&l2tp_ip6_lock, SOFTIRQ_ALL_MASK);
 	sk = __l2tp_ip6_bind_lookup(net, &iph->daddr, &iph->saddr,
 				    inet6_iif(skb), tunnel_id);
 	if (!sk) {
-		read_unlock_bh(&l2tp_ip6_lock);
+		read_unlock_bh(&l2tp_ip6_lock, bh);
 		goto discard;
 	}
 	sock_hold(sk);
-	read_unlock_bh(&l2tp_ip6_lock);
+	read_unlock_bh(&l2tp_ip6_lock, bh);
 
 	if (!xfrm6_policy_check(sk, XFRM_POLICY_IN, skb))
 		goto discard_put;
@@ -225,22 +226,24 @@ discard:
 
 static int l2tp_ip6_open(struct sock *sk)
 {
+	unsigned int bh;
 	/* Prevent autobind. We don't have ports. */
 	inet_sk(sk)->inet_num = IPPROTO_L2TP;
 
-	write_lock_bh(&l2tp_ip6_lock);
+	bh = write_lock_bh(&l2tp_ip6_lock, SOFTIRQ_ALL_MASK);
 	sk_add_node(sk, &l2tp_ip6_table);
-	write_unlock_bh(&l2tp_ip6_lock);
+	write_unlock_bh(&l2tp_ip6_lock, bh);
 
 	return 0;
 }
 
 static void l2tp_ip6_close(struct sock *sk, long timeout)
 {
-	write_lock_bh(&l2tp_ip6_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&l2tp_ip6_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_init(&sk->sk_bind_node);
 	sk_del_node_init(sk);
-	write_unlock_bh(&l2tp_ip6_lock);
+	write_unlock_bh(&l2tp_ip6_lock, bh);
 
 	sk_common_release(sk);
 }
@@ -261,6 +264,7 @@ static void l2tp_ip6_destroy_sock(struct sock *sk)
 
 static int l2tp_ip6_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 {
+	unsigned int bh;
 	struct inet_sock *inet = inet_sk(sk);
 	struct ipv6_pinfo *np = inet6_sk(sk);
 	struct sockaddr_l2tpip6 *addr = (struct sockaddr_l2tpip6 *) uaddr;
@@ -327,10 +331,10 @@ static int l2tp_ip6_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 	}
 	rcu_read_unlock();
 
-	write_lock_bh(&l2tp_ip6_lock);
+	bh = write_lock_bh(&l2tp_ip6_lock, SOFTIRQ_ALL_MASK);
 	if (__l2tp_ip6_bind_lookup(net, &addr->l2tp_addr, NULL, bound_dev_if,
 				   addr->l2tp_conn_id)) {
-		write_unlock_bh(&l2tp_ip6_lock);
+		write_unlock_bh(&l2tp_ip6_lock, bh);
 		err = -EADDRINUSE;
 		goto out_unlock;
 	}
@@ -345,7 +349,7 @@ static int l2tp_ip6_bind(struct sock *sk, struct sockaddr *uaddr, int addr_len)
 
 	sk_add_bind_node(sk, &l2tp_ip6_bind_table);
 	sk_del_node_init(sk);
-	write_unlock_bh(&l2tp_ip6_lock);
+	write_unlock_bh(&l2tp_ip6_lock, bh);
 
 	sock_reset_flag(sk, SOCK_ZAPPED);
 	release_sock(sk);
@@ -362,6 +366,7 @@ out_unlock:
 static int l2tp_ip6_connect(struct sock *sk, struct sockaddr *uaddr,
 			    int addr_len)
 {
+	unsigned int bh;
 	struct sockaddr_l2tpip6 *lsa = (struct sockaddr_l2tpip6 *) uaddr;
 	struct sockaddr_in6	*usin = (struct sockaddr_in6 *) uaddr;
 	struct in6_addr	*daddr;
@@ -398,10 +403,10 @@ static int l2tp_ip6_connect(struct sock *sk, struct sockaddr *uaddr,
 
 	l2tp_ip6_sk(sk)->peer_conn_id = lsa->l2tp_conn_id;
 
-	write_lock_bh(&l2tp_ip6_lock);
+	bh = write_lock_bh(&l2tp_ip6_lock, SOFTIRQ_ALL_MASK);
 	hlist_del_init(&sk->sk_bind_node);
 	sk_add_bind_node(sk, &l2tp_ip6_bind_table);
-	write_unlock_bh(&l2tp_ip6_lock);
+	write_unlock_bh(&l2tp_ip6_lock, bh);
 
 out_sk:
 	release_sock(sk);

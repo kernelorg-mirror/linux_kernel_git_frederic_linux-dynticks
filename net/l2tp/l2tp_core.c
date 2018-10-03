@@ -208,20 +208,21 @@ EXPORT_SYMBOL_GPL(l2tp_tunnel_get_nth);
 struct l2tp_session *l2tp_tunnel_get_session(struct l2tp_tunnel *tunnel,
 					     u32 session_id)
 {
+	unsigned int bh;
 	struct hlist_head *session_list;
 	struct l2tp_session *session;
 
 	session_list = l2tp_session_id_hash(tunnel, session_id);
 
-	read_lock_bh(&tunnel->hlist_lock);
+	bh = read_lock_bh(&tunnel->hlist_lock, SOFTIRQ_ALL_MASK);
 	hlist_for_each_entry(session, session_list, hlist)
 		if (session->session_id == session_id) {
 			l2tp_session_inc_refcount(session);
-			read_unlock_bh(&tunnel->hlist_lock);
+			read_unlock_bh(&tunnel->hlist_lock, bh);
 
 			return session;
 		}
-	read_unlock_bh(&tunnel->hlist_lock);
+	read_unlock_bh(&tunnel->hlist_lock, bh);
 
 	return NULL;
 }
@@ -251,22 +252,23 @@ EXPORT_SYMBOL_GPL(l2tp_session_get);
 
 struct l2tp_session *l2tp_session_get_nth(struct l2tp_tunnel *tunnel, int nth)
 {
+	unsigned int bh;
 	int hash;
 	struct l2tp_session *session;
 	int count = 0;
 
-	read_lock_bh(&tunnel->hlist_lock);
+	bh = read_lock_bh(&tunnel->hlist_lock, SOFTIRQ_ALL_MASK);
 	for (hash = 0; hash < L2TP_HASH_SIZE; hash++) {
 		hlist_for_each_entry(session, &tunnel->session_hlist[hash], hlist) {
 			if (++count > nth) {
 				l2tp_session_inc_refcount(session);
-				read_unlock_bh(&tunnel->hlist_lock);
+				read_unlock_bh(&tunnel->hlist_lock, bh);
 				return session;
 			}
 		}
 	}
 
-	read_unlock_bh(&tunnel->hlist_lock);
+	read_unlock_bh(&tunnel->hlist_lock, bh);
 
 	return NULL;
 }
@@ -305,6 +307,7 @@ int l2tp_session_register(struct l2tp_session *session,
 			  struct l2tp_tunnel *tunnel)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct l2tp_session *session_walk;
 	struct hlist_head *g_head;
 	struct hlist_head *head;
@@ -313,7 +316,7 @@ int l2tp_session_register(struct l2tp_session *session,
 
 	head = l2tp_session_id_hash(tunnel, session->session_id);
 
-	write_lock_bh(&tunnel->hlist_lock);
+	bh = write_lock_bh(&tunnel->hlist_lock, SOFTIRQ_ALL_MASK);
 	if (!tunnel->acpt_newsess) {
 		err = -ENODEV;
 		goto err_tlock;
@@ -346,14 +349,14 @@ int l2tp_session_register(struct l2tp_session *session,
 	}
 
 	hlist_add_head(&session->hlist, head);
-	write_unlock_bh(&tunnel->hlist_lock);
+	write_unlock_bh(&tunnel->hlist_lock, bh);
 
 	return 0;
 
 err_tlock_pnlock:
 	spin_unlock_bh(&pn->l2tp_session_hlist_lock, bh);
 err_tlock:
-	write_unlock_bh(&tunnel->hlist_lock);
+	write_unlock_bh(&tunnel->hlist_lock, bh);
 
 	return err;
 }
@@ -1190,6 +1193,7 @@ end:
  */
 static void l2tp_tunnel_closeall(struct l2tp_tunnel *tunnel)
 {
+	unsigned int bh;
 	int hash;
 	struct hlist_node *walk;
 	struct hlist_node *tmp;
@@ -1200,7 +1204,7 @@ static void l2tp_tunnel_closeall(struct l2tp_tunnel *tunnel)
 	l2tp_info(tunnel, L2TP_MSG_CONTROL, "%s: closing all sessions...\n",
 		  tunnel->name);
 
-	write_lock_bh(&tunnel->hlist_lock);
+	bh = write_lock_bh(&tunnel->hlist_lock, SOFTIRQ_ALL_MASK);
 	tunnel->acpt_newsess = false;
 	for (hash = 0; hash < L2TP_HASH_SIZE; hash++) {
 again:
@@ -1225,7 +1229,7 @@ again:
 
 			l2tp_session_dec_refcount(session);
 
-			write_lock_bh(&tunnel->hlist_lock);
+			write_lock_bh(&tunnel->hlist_lock, SOFTIRQ_ALL_MASK);
 
 			/* Now restart from the beginning of this hash
 			 * chain.  We always remove a session from the
@@ -1235,7 +1239,7 @@ again:
 			goto again;
 		}
 	}
-	write_unlock_bh(&tunnel->hlist_lock);
+	write_unlock_bh(&tunnel->hlist_lock, bh);
 }
 
 /* Tunnel socket destroy hook for UDP encapsulation */
@@ -1589,14 +1593,15 @@ EXPORT_SYMBOL_GPL(l2tp_session_free);
 void __l2tp_session_unhash(struct l2tp_session *session)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct l2tp_tunnel *tunnel = session->tunnel;
 
 	/* Remove the session from core hashes */
 	if (tunnel) {
 		/* Remove from the per-tunnel hash */
-		write_lock_bh(&tunnel->hlist_lock);
+		bh = write_lock_bh(&tunnel->hlist_lock, SOFTIRQ_ALL_MASK);
 		hlist_del_init(&session->hlist);
-		write_unlock_bh(&tunnel->hlist_lock);
+		write_unlock_bh(&tunnel->hlist_lock, bh);
 
 		/* For L2TPv3 we have a per-net hash: remove from there, too */
 		if (tunnel->version != L2TP_HDR_VER_2) {

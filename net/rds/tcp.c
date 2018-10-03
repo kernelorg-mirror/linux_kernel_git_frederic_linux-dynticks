@@ -113,8 +113,9 @@ u32 rds_tcp_snd_una(struct rds_tcp_connection *tc)
 void rds_tcp_restore_callbacks(struct socket *sock,
 			       struct rds_tcp_connection *tc)
 {
+	unsigned int bh;
 	rdsdebug("restoring sock %p callbacks from tc %p\n", sock, tc);
-	write_lock_bh(&sock->sk->sk_callback_lock);
+	bh = write_lock_bh(&sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 	/* done under the callback_lock to serialize with write_space */
 	spin_lock(&rds_tcp_tc_list_lock);
@@ -133,7 +134,7 @@ void rds_tcp_restore_callbacks(struct socket *sock,
 	sock->sk->sk_state_change = tc->t_orig_state_change;
 	sock->sk->sk_user_data = NULL;
 
-	write_unlock_bh(&sock->sk->sk_callback_lock);
+	write_unlock_bh(&sock->sk->sk_callback_lock, bh);
 }
 
 /*
@@ -202,10 +203,11 @@ newsock:
  */
 void rds_tcp_set_callbacks(struct socket *sock, struct rds_conn_path *cp)
 {
+	unsigned int bh;
 	struct rds_tcp_connection *tc = cp->cp_transport_data;
 
 	rdsdebug("setting sock %p callbacks to tc %p\n", sock, tc);
-	write_lock_bh(&sock->sk->sk_callback_lock);
+	bh = write_lock_bh(&sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 	/* done under the callback_lock to serialize with write_space */
 	spin_lock(&rds_tcp_tc_list_lock);
@@ -232,7 +234,7 @@ void rds_tcp_set_callbacks(struct socket *sock, struct rds_conn_path *cp)
 	sock->sk->sk_write_space = rds_tcp_write_space;
 	sock->sk->sk_state_change = rds_tcp_state_change;
 
-	write_unlock_bh(&sock->sk->sk_callback_lock);
+	write_unlock_bh(&sock->sk->sk_callback_lock, bh);
 }
 
 /* Handle RDS_INFO_TCP_SOCKETS socket option.  It only returns IPv4

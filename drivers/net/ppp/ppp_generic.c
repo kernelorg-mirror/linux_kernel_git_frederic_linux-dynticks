@@ -1935,7 +1935,8 @@ static void __ppp_channel_push(struct channel *pch)
 
 static void ppp_channel_push(struct channel *pch)
 {
-	read_lock_bh(&pch->upl);
+	unsigned int bh;
+	bh = read_lock_bh(&pch->upl, SOFTIRQ_ALL_MASK);
 	if (pch->ppp) {
 		(*this_cpu_ptr(pch->ppp->xmit_recursion))++;
 		__ppp_channel_push(pch);
@@ -1943,7 +1944,7 @@ static void ppp_channel_push(struct channel *pch)
 	} else {
 		__ppp_channel_push(pch);
 	}
-	read_unlock_bh(&pch->upl);
+	read_unlock_bh(&pch->upl, bh);
 }
 
 /*
@@ -1970,6 +1971,7 @@ ppp_do_recv(struct ppp *ppp, struct sk_buff *skb, struct channel *pch)
 void
 ppp_input(struct ppp_channel *chan, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct channel *pch = chan->ppp;
 	int proto;
 
@@ -1978,7 +1980,7 @@ ppp_input(struct ppp_channel *chan, struct sk_buff *skb)
 		return;
 	}
 
-	read_lock_bh(&pch->upl);
+	bh = read_lock_bh(&pch->upl, SOFTIRQ_ALL_MASK);
 	if (!pskb_may_pull(skb, 2)) {
 		kfree_skb(skb);
 		if (pch->ppp) {
@@ -2002,20 +2004,21 @@ ppp_input(struct ppp_channel *chan, struct sk_buff *skb)
 	}
 
 done:
-	read_unlock_bh(&pch->upl);
+	read_unlock_bh(&pch->upl, bh);
 }
 
 /* Put a 0-length skb in the receive queue as an error indication */
 void
 ppp_input_error(struct ppp_channel *chan, int code)
 {
+	unsigned int bh;
 	struct channel *pch = chan->ppp;
 	struct sk_buff *skb;
 
 	if (!pch)
 		return;
 
-	read_lock_bh(&pch->upl);
+	bh = read_lock_bh(&pch->upl, SOFTIRQ_ALL_MASK);
 	if (pch->ppp) {
 		skb = alloc_skb(0, GFP_ATOMIC);
 		if (skb) {
@@ -2024,7 +2027,7 @@ ppp_input_error(struct ppp_channel *chan, int code)
 			ppp_do_recv(pch->ppp, skb, pch);
 		}
 	}
-	read_unlock_bh(&pch->upl);
+	read_unlock_bh(&pch->upl, bh);
 }
 
 /*
@@ -2606,14 +2609,15 @@ int ppp_channel_index(struct ppp_channel *chan)
  */
 int ppp_unit_number(struct ppp_channel *chan)
 {
+	unsigned int bh;
 	struct channel *pch = chan->ppp;
 	int unit = -1;
 
 	if (pch) {
-		read_lock_bh(&pch->upl);
+		bh = read_lock_bh(&pch->upl, SOFTIRQ_ALL_MASK);
 		if (pch->ppp)
 			unit = pch->ppp->file.index;
-		read_unlock_bh(&pch->upl);
+		read_unlock_bh(&pch->upl, bh);
 	}
 	return unit;
 }
@@ -2623,14 +2627,15 @@ int ppp_unit_number(struct ppp_channel *chan)
  */
 char *ppp_dev_name(struct ppp_channel *chan)
 {
+	unsigned int bh;
 	struct channel *pch = chan->ppp;
 	char *name = NULL;
 
 	if (pch) {
-		read_lock_bh(&pch->upl);
+		bh = read_lock_bh(&pch->upl, SOFTIRQ_ALL_MASK);
 		if (pch->ppp && pch->ppp->dev)
 			name = pch->ppp->dev->name;
-		read_unlock_bh(&pch->upl);
+		read_unlock_bh(&pch->upl, bh);
 	}
 	return name;
 }
@@ -3134,6 +3139,7 @@ static int
 ppp_connect_channel(struct channel *pch, int unit)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct ppp *ppp;
 	struct ppp_net *pn;
 	int ret = -ENXIO;
@@ -3145,7 +3151,7 @@ ppp_connect_channel(struct channel *pch, int unit)
 	ppp = ppp_find_unit(pn, unit);
 	if (!ppp)
 		goto out;
-	write_lock_bh(&pch->upl);
+	bh = write_lock_bh(&pch->upl, SOFTIRQ_ALL_MASK);
 	ret = -EINVAL;
 	if (pch->ppp)
 		goto outl;
@@ -3173,7 +3179,7 @@ ppp_connect_channel(struct channel *pch, int unit)
 	ret = 0;
 
  outl:
-	write_unlock_bh(&pch->upl);
+	write_unlock_bh(&pch->upl, bh);
  out:
 	mutex_unlock(&pn->all_ppp_mutex);
 	return ret;
@@ -3185,13 +3191,14 @@ ppp_connect_channel(struct channel *pch, int unit)
 static int
 ppp_disconnect_channel(struct channel *pch)
 {
+	unsigned int bh;
 	struct ppp *ppp;
 	int err = -EINVAL;
 
-	write_lock_bh(&pch->upl);
+	bh = write_lock_bh(&pch->upl, SOFTIRQ_ALL_MASK);
 	ppp = pch->ppp;
 	pch->ppp = NULL;
-	write_unlock_bh(&pch->upl);
+	write_unlock_bh(&pch->upl, bh);
 	if (ppp) {
 		/* remove it from the ppp unit's list */
 		ppp_lock(ppp);

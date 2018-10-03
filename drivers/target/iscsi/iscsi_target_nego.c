@@ -409,28 +409,29 @@ err:
 
 static void iscsi_target_sk_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = sk->sk_user_data;
 	bool rc;
 
 	pr_debug("Entering iscsi_target_sk_data_ready: conn: %p\n", conn);
 
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	if (!sk->sk_user_data) {
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 		return;
 	}
 	if (!test_bit(LOGIN_FLAGS_READY, &conn->login_flags)) {
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 		pr_debug("Got LOGIN_FLAGS_READY=0, conn: %p >>>>\n", conn);
 		return;
 	}
 	if (test_bit(LOGIN_FLAGS_CLOSED, &conn->login_flags)) {
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 		pr_debug("Got LOGIN_FLAGS_CLOSED=1, conn: %p >>>>\n", conn);
 		return;
 	}
 	if (test_and_set_bit(LOGIN_FLAGS_READ_ACTIVE, &conn->login_flags)) {
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 		pr_debug("Got LOGIN_FLAGS_READ_ACTIVE=1, conn: %p >>>>\n", conn);
 		if (iscsi_target_sk_data_ready == conn->orig_data_ready)
 			return;
@@ -443,13 +444,14 @@ static void iscsi_target_sk_data_ready(struct sock *sk)
 		pr_debug("iscsi_target_sk_data_ready, schedule_delayed_work"
 			 " got false\n");
 	}
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static void iscsi_target_sk_state_change(struct sock *);
 
 static void iscsi_target_set_sock_callbacks(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct sock *sk;
 
 	if (!conn->sock)
@@ -458,13 +460,13 @@ static void iscsi_target_set_sock_callbacks(struct iscsi_conn *conn)
 	sk = conn->sock->sk;
 	pr_debug("Entering iscsi_target_set_sock_callbacks: conn: %p\n", conn);
 
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sk->sk_user_data = conn;
 	conn->orig_data_ready = sk->sk_data_ready;
 	conn->orig_state_change = sk->sk_state_change;
 	sk->sk_data_ready = iscsi_target_sk_data_ready;
 	sk->sk_state_change = iscsi_target_sk_state_change;
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 
 	sk->sk_sndtimeo = TA_LOGIN_TIMEOUT * HZ;
 	sk->sk_rcvtimeo = TA_LOGIN_TIMEOUT * HZ;
@@ -472,6 +474,7 @@ static void iscsi_target_set_sock_callbacks(struct iscsi_conn *conn)
 
 static void iscsi_target_restore_sock_callbacks(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct sock *sk;
 
 	if (!conn->sock)
@@ -480,15 +483,15 @@ static void iscsi_target_restore_sock_callbacks(struct iscsi_conn *conn)
 	sk = conn->sock->sk;
 	pr_debug("Entering iscsi_target_restore_sock_callbacks: conn: %p\n", conn);
 
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	if (!sk->sk_user_data) {
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 		return;
 	}
 	sk->sk_user_data = NULL;
 	sk->sk_data_ready = conn->orig_data_ready;
 	sk->sk_state_change = conn->orig_state_change;
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 
 	sk->sk_sndtimeo = MAX_SCHEDULE_TIMEOUT;
 	sk->sk_rcvtimeo = MAX_SCHEDULE_TIMEOUT;
@@ -508,46 +511,49 @@ static bool __iscsi_target_sk_check_close(struct sock *sk)
 
 static bool iscsi_target_sk_check_close(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	bool state = false;
 
 	if (conn->sock) {
 		struct sock *sk = conn->sock->sk;
 
-		read_lock_bh(&sk->sk_callback_lock);
+		bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		state = (__iscsi_target_sk_check_close(sk) ||
 			 test_bit(LOGIN_FLAGS_CLOSED, &conn->login_flags));
-		read_unlock_bh(&sk->sk_callback_lock);
+		read_unlock_bh(&sk->sk_callback_lock, bh);
 	}
 	return state;
 }
 
 static bool iscsi_target_sk_check_flag(struct iscsi_conn *conn, unsigned int flag)
 {
+	unsigned int bh;
 	bool state = false;
 
 	if (conn->sock) {
 		struct sock *sk = conn->sock->sk;
 
-		read_lock_bh(&sk->sk_callback_lock);
+		bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		state = test_bit(flag, &conn->login_flags);
-		read_unlock_bh(&sk->sk_callback_lock);
+		read_unlock_bh(&sk->sk_callback_lock, bh);
 	}
 	return state;
 }
 
 static bool iscsi_target_sk_check_and_clear(struct iscsi_conn *conn, unsigned int flag)
 {
+	unsigned int bh;
 	bool state = false;
 
 	if (conn->sock) {
 		struct sock *sk = conn->sock->sk;
 
-		write_lock_bh(&sk->sk_callback_lock);
+		bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		state = (__iscsi_target_sk_check_close(sk) ||
 			 test_bit(LOGIN_FLAGS_CLOSED, &conn->login_flags));
 		if (!state)
 			clear_bit(flag, &conn->login_flags);
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 	}
 	return state;
 }
@@ -665,16 +671,17 @@ err:
 
 static void iscsi_target_sk_state_change(struct sock *sk)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn;
 	void (*orig_state_change)(struct sock *);
 	bool state;
 
 	pr_debug("Entering iscsi_target_sk_state_change\n");
 
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	conn = sk->sk_user_data;
 	if (!conn) {
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 		return;
 	}
 	orig_state_change = conn->orig_state_change;
@@ -682,7 +689,7 @@ static void iscsi_target_sk_state_change(struct sock *sk)
 	if (!test_bit(LOGIN_FLAGS_READY, &conn->login_flags)) {
 		pr_debug("Got LOGIN_FLAGS_READY=0 sk_state_change conn: %p\n",
 			 conn);
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 		orig_state_change(sk);
 		return;
 	}
@@ -694,14 +701,14 @@ static void iscsi_target_sk_state_change(struct sock *sk)
 			 " conn: %p\n", conn);
 		if (state)
 			set_bit(LOGIN_FLAGS_CLOSED, &conn->login_flags);
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 		orig_state_change(sk);
 		return;
 	}
 	if (test_bit(LOGIN_FLAGS_CLOSED, &conn->login_flags)) {
 		pr_debug("Got LOGIN_FLAGS_CLOSED=1 sk_state_change conn: %p\n",
 			 conn);
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 		orig_state_change(sk);
 		return;
 	}
@@ -724,7 +731,7 @@ static void iscsi_target_sk_state_change(struct sock *sk)
 		pr_debug("iscsi_target_sk_state_change got failed state\n");
 		set_bit(LOGIN_FLAGS_CLOSED, &conn->login_flags);
 		state = test_bit(LOGIN_FLAGS_INITIAL_PDU, &conn->login_flags);
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 
 		orig_state_change(sk);
 
@@ -732,7 +739,7 @@ static void iscsi_target_sk_state_change(struct sock *sk)
 			schedule_delayed_work(&conn->login_work, 0);
 		return;
 	}
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 
 	orig_state_change(sk);
 }
@@ -1293,15 +1300,16 @@ int iscsi_target_start_negotiation(
 	struct iscsi_login *login,
 	struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	int ret;
 
 	if (conn->sock) {
 		struct sock *sk = conn->sock->sk;
 
-		write_lock_bh(&sk->sk_callback_lock);
+		bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		set_bit(LOGIN_FLAGS_READY, &conn->login_flags);
 		set_bit(LOGIN_FLAGS_INITIAL_PDU, &conn->login_flags);
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 	}
 	/*
 	 * If iscsi_target_do_login returns zero to signal more PDU

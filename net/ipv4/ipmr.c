@@ -671,6 +671,7 @@ static int call_ipmr_mfc_entry_notifiers(struct net *net,
 static int vif_delete(struct mr_table *mrt, int vifi, int notify,
 		      struct list_head *head)
 {
+	unsigned int bh;
 	struct net *net = read_pnet(&mrt->net);
 	struct vif_device *v;
 	struct net_device *dev;
@@ -685,12 +686,12 @@ static int vif_delete(struct mr_table *mrt, int vifi, int notify,
 		call_ipmr_vif_entry_notifiers(net, FIB_EVENT_VIF_DEL, v, vifi,
 					      mrt->id);
 
-	write_lock_bh(&mrt_lock);
+	bh = write_lock_bh(&mrt_lock, SOFTIRQ_ALL_MASK);
 	dev = v->dev;
 	v->dev = NULL;
 
 	if (!dev) {
-		write_unlock_bh(&mrt_lock);
+		write_unlock_bh(&mrt_lock, bh);
 		return -EADDRNOTAVAIL;
 	}
 
@@ -707,7 +708,7 @@ static int vif_delete(struct mr_table *mrt, int vifi, int notify,
 		mrt->maxvif = tmp+1;
 	}
 
-	write_unlock_bh(&mrt_lock);
+	write_unlock_bh(&mrt_lock, bh);
 
 	dev_set_allmulti(dev, -1);
 
@@ -835,6 +836,7 @@ static void ipmr_update_thresholds(struct mr_table *mrt, struct mr_mfc *cache,
 static int vif_add(struct net *net, struct mr_table *mrt,
 		   struct vifctl *vifc, int mrtsock)
 {
+	unsigned int bh;
 	int vifi = vifc->vifc_vifi;
 	struct switchdev_attr attr = {
 		.id = SWITCHDEV_ATTR_ID_PORT_PARENT_ID,
@@ -929,13 +931,13 @@ static int vif_add(struct net *net, struct mr_table *mrt,
 	v->remote = vifc->vifc_rmt_addr.s_addr;
 
 	/* And finish update writing critical data */
-	write_lock_bh(&mrt_lock);
+	bh = write_lock_bh(&mrt_lock, SOFTIRQ_ALL_MASK);
 	v->dev = dev;
 	if (v->flags & VIFF_REGISTER)
 		mrt->mroute_reg_vif_num = vifi;
 	if (vifi+1 > mrt->maxvif)
 		mrt->maxvif = vifi+1;
-	write_unlock_bh(&mrt_lock);
+	write_unlock_bh(&mrt_lock, bh);
 	call_ipmr_vif_entry_notifiers(net, FIB_EVENT_VIF_ADD, v, vifi, mrt->id);
 	return 0;
 }
@@ -1221,6 +1223,7 @@ static int ipmr_mfc_add(struct net *net, struct mr_table *mrt,
 			struct mfcctl *mfc, int mrtsock, int parent)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct mfc_cache *uc, *c;
 	struct mr_mfc *_uc;
 	bool found;
@@ -1235,12 +1238,12 @@ static int ipmr_mfc_add(struct net *net, struct mr_table *mrt,
 				   mfc->mfcc_mcastgrp.s_addr, parent);
 	rcu_read_unlock();
 	if (c) {
-		write_lock_bh(&mrt_lock);
+		bh = write_lock_bh(&mrt_lock, SOFTIRQ_ALL_MASK);
 		c->_c.mfc_parent = mfc->mfcc_parent;
 		ipmr_update_thresholds(mrt, &c->_c, mfc->mfcc_ttls);
 		if (!mrtsock)
 			c->_c.mfc_flags |= MFC_STATIC;
-		write_unlock_bh(&mrt_lock);
+		write_unlock_bh(&mrt_lock, bh);
 		call_ipmr_mfc_entry_notifiers(net, FIB_EVENT_ENTRY_REPLACE, c,
 					      mrt->id);
 		mroute_netlink_event(mrt, c, RTM_NEWROUTE);

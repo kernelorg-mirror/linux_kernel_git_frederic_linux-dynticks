@@ -52,12 +52,13 @@ static unsigned char default_operstate(const struct net_device *dev)
 
 static void rfc2863_policy(struct net_device *dev)
 {
+	unsigned int bh;
 	unsigned char operstate = default_operstate(dev);
 
 	if (operstate == dev->operstate)
 		return;
 
-	write_lock_bh(&dev_base_lock);
+	bh = write_lock_bh(&dev_base_lock, SOFTIRQ_ALL_MASK);
 
 	switch(dev->link_mode) {
 	case IF_LINK_MODE_DORMANT:
@@ -72,7 +73,7 @@ static void rfc2863_policy(struct net_device *dev)
 
 	dev->operstate = operstate;
 
-	write_unlock_bh(&dev_base_lock);
+	write_unlock_bh(&dev_base_lock, bh);
 }
 
 

@@ -808,11 +808,12 @@ static inline bool rxrpc_set_call_completion(struct rxrpc_call *call,
 					     u32 abort_code,
 					     int error)
 {
+	unsigned int bh;
 	bool ret;
 
-	write_lock_bh(&call->state_lock);
+	bh = write_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 	ret = __rxrpc_set_call_completion(call, compl, abort_code, error);
-	write_unlock_bh(&call->state_lock);
+	write_unlock_bh(&call->state_lock, bh);
 	return ret;
 }
 
@@ -826,11 +827,12 @@ static inline bool __rxrpc_call_completed(struct rxrpc_call *call)
 
 static inline bool rxrpc_call_completed(struct rxrpc_call *call)
 {
+	unsigned int bh;
 	bool ret;
 
-	write_lock_bh(&call->state_lock);
+	bh = write_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 	ret = __rxrpc_call_completed(call);
-	write_unlock_bh(&call->state_lock);
+	write_unlock_bh(&call->state_lock, bh);
 	return ret;
 }
 
@@ -850,11 +852,12 @@ static inline bool __rxrpc_abort_call(const char *why, struct rxrpc_call *call,
 static inline bool rxrpc_abort_call(const char *why, struct rxrpc_call *call,
 				    rxrpc_seq_t seq, u32 abort_code, int error)
 {
+	unsigned int bh;
 	bool ret;
 
-	write_lock_bh(&call->state_lock);
+	bh = write_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 	ret = __rxrpc_abort_call(why, call, seq, abort_code, error);
-	write_unlock_bh(&call->state_lock);
+	write_unlock_bh(&call->state_lock, bh);
 	return ret;
 }
 

@@ -32,7 +32,7 @@ static void *atalk_seq_interface_start(struct seq_file *seq, loff_t *pos)
 {
 	loff_t l = *pos;
 
-	read_lock_bh(&atalk_interfaces_lock);
+	read_lock_bh(&atalk_interfaces_lock, SOFTIRQ_ALL_MASK);
 	return l ? atalk_get_interface_idx(--l) : SEQ_START_TOKEN;
 }
 
@@ -93,7 +93,7 @@ static void *atalk_seq_route_start(struct seq_file *seq, loff_t *pos)
 {
 	loff_t l = *pos;
 
-	read_lock_bh(&atalk_routes_lock);
+	read_lock_bh(&atalk_routes_lock, SOFTIRQ_ALL_MASK);
 	return l ? atalk_get_route_idx(--l) : SEQ_START_TOKEN;
 }
 
@@ -148,7 +148,7 @@ out:
 static void *atalk_seq_socket_start(struct seq_file *seq, loff_t *pos)
 	__acquires(atalk_sockets_lock)
 {
-	read_lock_bh(&atalk_sockets_lock);
+	read_lock_bh(&atalk_sockets_lock, SOFTIRQ_ALL_MASK);
 	return seq_hlist_start_head(&atalk_sockets, *pos);
 }
 

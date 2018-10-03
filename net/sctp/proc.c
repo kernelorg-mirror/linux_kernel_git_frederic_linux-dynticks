@@ -175,6 +175,7 @@ static void *sctp_eps_seq_next(struct seq_file *seq, void *v, loff_t *pos)
 /* Display sctp endpoints (/proc/net/sctp/eps). */
 static int sctp_eps_seq_show(struct seq_file *seq, void *v)
 {
+	unsigned int bh;
 	struct sctp_hashbucket *head;
 	struct sctp_ep_common *epb;
 	struct sctp_endpoint *ep;
@@ -185,7 +186,7 @@ static int sctp_eps_seq_show(struct seq_file *seq, void *v)
 		return -ENOMEM;
 
 	head = &sctp_ep_hashtable[hash];
-	read_lock_bh(&head->lock);
+	bh = read_lock_bh(&head->lock, SOFTIRQ_ALL_MASK);
 	sctp_for_each_hentry(epb, &head->chain) {
 		ep = sctp_ep(epb);
 		sk = epb->sk;
@@ -200,7 +201,7 @@ static int sctp_eps_seq_show(struct seq_file *seq, void *v)
 		sctp_seq_dump_local_addrs(seq, epb);
 		seq_printf(seq, "\n");
 	}
-	read_unlock_bh(&head->lock);
+	read_unlock_bh(&head->lock, bh);
 
 	return 0;
 }

@@ -305,13 +305,14 @@ int rds_tcp_recv_path(struct rds_conn_path *cp)
 
 void rds_tcp_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	void (*ready)(struct sock *sk);
 	struct rds_conn_path *cp;
 	struct rds_tcp_connection *tc;
 
 	rdsdebug("data ready sk %p\n", sk);
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	cp = sk->sk_user_data;
 	if (!cp) { /* check for teardown race */
 		ready = sk->sk_data_ready;
@@ -329,7 +330,7 @@ void rds_tcp_data_ready(struct sock *sk)
 		rcu_read_unlock();
 	}
 out:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 	ready(sk);
 }
 

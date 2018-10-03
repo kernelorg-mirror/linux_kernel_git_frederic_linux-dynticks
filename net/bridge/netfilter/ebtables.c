@@ -188,6 +188,7 @@ unsigned int ebt_do_table(struct sk_buff *skb,
 			  const struct nf_hook_state *state,
 			  struct ebt_table *table)
 {
+	unsigned int bh;
 	unsigned int hook = state->hook;
 	int i, nentries;
 	struct ebt_entry *point;
@@ -203,7 +204,7 @@ unsigned int ebt_do_table(struct sk_buff *skb,
 	acpar.state   = state;
 	acpar.hotdrop = false;
 
-	read_lock_bh(&table->lock);
+	bh = read_lock_bh(&table->lock, SOFTIRQ_ALL_MASK);
 	private = table->private;
 	cb_base = COUNTER_BASE(private->counters, private->nentries,
 	   smp_processor_id());
@@ -225,7 +226,7 @@ unsigned int ebt_do_table(struct sk_buff *skb,
 		if (EBT_MATCH_ITERATE(point, ebt_do_match, skb, &acpar) != 0)
 			goto letscontinue;
 		if (acpar.hotdrop) {
-			read_unlock_bh(&table->lock);
+			read_unlock_bh(&table->lock, bh);
 			return NF_DROP;
 		}
 
@@ -246,11 +247,11 @@ unsigned int ebt_do_table(struct sk_buff *skb,
 			verdict = t->u.target->target(skb, &acpar);
 		}
 		if (verdict == EBT_ACCEPT) {
-			read_unlock_bh(&table->lock);
+			read_unlock_bh(&table->lock, bh);
 			return NF_ACCEPT;
 		}
 		if (verdict == EBT_DROP) {
-			read_unlock_bh(&table->lock);
+			read_unlock_bh(&table->lock, bh);
 			return NF_DROP;
 		}
 		if (verdict == EBT_RETURN) {
@@ -274,7 +275,7 @@ letsreturn:
 			goto letscontinue;
 
 		if (WARN(verdict < 0, "bogus standard verdict\n")) {
-			read_unlock_bh(&table->lock);
+			read_unlock_bh(&table->lock, bh);
 			return NF_DROP;
 		}
 
@@ -286,7 +287,7 @@ letsreturn:
 		chaininfo = (struct ebt_entries *) (base + verdict);
 
 		if (WARN(chaininfo->distinguisher, "jump to non-chain\n")) {
-			read_unlock_bh(&table->lock);
+			read_unlock_bh(&table->lock, bh);
 			return NF_DROP;
 		}
 
@@ -304,10 +305,10 @@ letscontinue:
 	if (chaininfo->policy == EBT_RETURN)
 		goto letsreturn;
 	if (chaininfo->policy == EBT_ACCEPT) {
-		read_unlock_bh(&table->lock);
+		read_unlock_bh(&table->lock, bh);
 		return NF_ACCEPT;
 	}
-	read_unlock_bh(&table->lock);
+	read_unlock_bh(&table->lock, bh);
 	return NF_DROP;
 }
 
@@ -1005,6 +1006,7 @@ static void get_counters(const struct ebt_counter *oldcounters,
 static int do_replace_finish(struct net *net, struct ebt_replace *repl,
 			      struct ebt_table_info *newinfo)
 {
+	unsigned int bh;
 	int ret;
 	struct ebt_counter *counterstmp = NULL;
 	/* used to be able to unlock earlier */
@@ -1056,13 +1058,13 @@ static int do_replace_finish(struct net *net, struct ebt_replace *repl,
 	} else if (table->nentries && !newinfo->nentries)
 		module_put(t->me);
 	/* we need an atomic snapshot of the counters */
-	write_lock_bh(&t->lock);
+	bh = write_lock_bh(&t->lock, SOFTIRQ_ALL_MASK);
 	if (repl->num_counters)
 		get_counters(t->private->counters, counterstmp,
 		   t->private->nentries);
 
 	t->private = newinfo;
-	write_unlock_bh(&t->lock);
+	write_unlock_bh(&t->lock, bh);
 	mutex_unlock(&ebt_mutex);
 	/* so, a user can change the chains while having messed up her counter
 	 * allocation. Only reason why this is done is because this way the lock
@@ -1302,6 +1304,7 @@ static int do_update_counters(struct net *net, const char *name,
 				unsigned int num_counters,
 				const void __user *user, unsigned int len)
 {
+	unsigned int bh;
 	int i, ret;
 	struct ebt_counter *tmp;
 	struct ebt_table *t;
@@ -1329,13 +1332,13 @@ static int do_update_counters(struct net *net, const char *name,
 	}
 
 	/* we want an atomic add of the counters */
-	write_lock_bh(&t->lock);
+	bh = write_lock_bh(&t->lock, SOFTIRQ_ALL_MASK);
 
 	/* we add to the counters of the first cpu */
 	for (i = 0; i < num_counters; i++)
 		ADD_COUNTER(t->private->counters[i], tmp[i].pcnt, tmp[i].bcnt);
 
-	write_unlock_bh(&t->lock);
+	write_unlock_bh(&t->lock, bh);
 	ret = 0;
 unlock_mutex:
 	mutex_unlock(&ebt_mutex);
@@ -1438,6 +1441,7 @@ static int copy_counters_to_user(struct ebt_table *t,
 				 void __user *user, unsigned int num_counters,
 				 unsigned int nentries)
 {
+	unsigned int bh;
 	struct ebt_counter *counterstmp;
 	int ret = 0;
 
@@ -1454,9 +1458,9 @@ static int copy_counters_to_user(struct ebt_table *t,
 	if (!counterstmp)
 		return -ENOMEM;
 
-	write_lock_bh(&t->lock);
+	bh = write_lock_bh(&t->lock, SOFTIRQ_ALL_MASK);
 	get_counters(oldcounters, counterstmp, nentries);
-	write_unlock_bh(&t->lock);
+	write_unlock_bh(&t->lock, bh);
 
 	if (copy_to_user(user, counterstmp,
 	   nentries * sizeof(struct ebt_counter)))

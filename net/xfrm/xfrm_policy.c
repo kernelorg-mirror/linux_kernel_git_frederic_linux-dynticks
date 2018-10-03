@@ -3129,13 +3129,14 @@ static int migrate_tmpl_match(const struct xfrm_migrate *m, const struct xfrm_tm
 static int xfrm_policy_migrate(struct xfrm_policy *pol,
 			       struct xfrm_migrate *m, int num_migrate)
 {
+	unsigned int bh;
 	struct xfrm_migrate *mp;
 	int i, j, n = 0;
 
-	write_lock_bh(&pol->lock);
+	bh = write_lock_bh(&pol->lock, SOFTIRQ_ALL_MASK);
 	if (unlikely(pol->walk.dead)) {
 		/* target policy has been deleted */
-		write_unlock_bh(&pol->lock);
+		write_unlock_bh(&pol->lock, bh);
 		return -ENOENT;
 	}
 
@@ -3158,7 +3159,7 @@ static int xfrm_policy_migrate(struct xfrm_policy *pol,
 		}
 	}
 
-	write_unlock_bh(&pol->lock);
+	write_unlock_bh(&pol->lock, bh);
 
 	if (!n)
 		return -ENODATA;

@@ -278,17 +278,18 @@ static struct tipc_node *tipc_node_find(struct net *net, u32 addr)
  */
 static struct tipc_node *tipc_node_find_by_id(struct net *net, u8 *id)
 {
+	unsigned int bh;
 	struct tipc_net *tn = tipc_net(net);
 	struct tipc_node *n;
 	bool found = false;
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(n, &tn->node_list, list) {
-		read_lock_bh(&n->lock);
+		bh = read_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 		if (!memcmp(id, n->peer_id, 16) &&
 		    kref_get_unless_zero(&n->kref))
 			found = true;
-		read_unlock_bh(&n->lock);
+		read_unlock_bh(&n->lock, bh);
 		if (found)
 			break;
 	}
@@ -298,7 +299,7 @@ static struct tipc_node *tipc_node_find_by_id(struct net *net, u8 *id)
 
 static void tipc_node_read_lock(struct tipc_node *n)
 {
-	read_lock_bh(&n->lock);
+	read_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 }
 
 static void tipc_node_read_unlock(struct tipc_node *n)
@@ -308,7 +309,7 @@ static void tipc_node_read_unlock(struct tipc_node *n)
 
 static void tipc_node_write_lock(struct tipc_node *n)
 {
-	write_lock_bh(&n->lock);
+	write_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 }
 
 static void tipc_node_write_unlock_fast(struct tipc_node *n)
@@ -362,6 +363,7 @@ static struct tipc_node *tipc_node_create(struct net *net, u32 addr,
 					  u8 *peer_id, u16 capabilities)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct tipc_net *tn = net_generic(net, tipc_net_id);
 	struct tipc_node *n, *temp_node;
 	struct tipc_link *l;
@@ -374,14 +376,14 @@ static struct tipc_node *tipc_node_create(struct net *net, u32 addr,
 		if (n->capabilities == capabilities)
 			goto exit;
 		/* Same node may come back with new capabilities */
-		write_lock_bh(&n->lock);
+		bh = write_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 		n->capabilities = capabilities;
 		for (bearer_id = 0; bearer_id < MAX_BEARERS; bearer_id++) {
 			l = n->links[bearer_id].link;
 			if (l)
 				tipc_link_update_caps(l, capabilities);
 		}
-		write_unlock_bh(&n->lock);
+		write_unlock_bh(&n->lock, bh);
 		goto exit;
 	}
 	n = kzalloc(sizeof(*n), GFP_ATOMIC);

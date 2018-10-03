@@ -1094,6 +1094,7 @@ static unsigned int arp_state_to_flags(struct neighbour *neigh)
 
 static int arp_req_get(struct arpreq *r, struct net_device *dev)
 {
+	unsigned int bh;
 	__be32 ip = ((struct sockaddr_in *) &r->arp_pa)->sin_addr.s_addr;
 	struct neighbour *neigh;
 	int err = -ENXIO;
@@ -1101,10 +1102,10 @@ static int arp_req_get(struct arpreq *r, struct net_device *dev)
 	neigh = neigh_lookup(&arp_tbl, &ip, dev);
 	if (neigh) {
 		if (!(neigh->nud_state & NUD_NOARP)) {
-			read_lock_bh(&neigh->lock);
+			bh = read_lock_bh(&neigh->lock, SOFTIRQ_ALL_MASK);
 			memcpy(r->arp_ha.sa_data, neigh->ha, dev->addr_len);
 			r->arp_flags = arp_state_to_flags(neigh);
-			read_unlock_bh(&neigh->lock);
+			read_unlock_bh(&neigh->lock, bh);
 			r->arp_ha.sa_family = dev->type;
 			strlcpy(r->arp_dev, dev->name, sizeof(r->arp_dev));
 			err = 0;
@@ -1116,6 +1117,7 @@ static int arp_req_get(struct arpreq *r, struct net_device *dev)
 
 static int arp_invalidate(struct net_device *dev, __be32 ip)
 {
+	unsigned int bh;
 	struct neighbour *neigh = neigh_lookup(&arp_tbl, &ip, dev);
 	int err = -ENXIO;
 	struct neigh_table *tbl = &arp_tbl;
@@ -1125,10 +1127,10 @@ static int arp_invalidate(struct net_device *dev, __be32 ip)
 			err = neigh_update(neigh, NULL, NUD_FAILED,
 					   NEIGH_UPDATE_F_OVERRIDE|
 					   NEIGH_UPDATE_F_ADMIN, 0);
-		write_lock_bh(&tbl->lock);
+		bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 		neigh_release(neigh);
 		neigh_remove_one(neigh, tbl);
-		write_unlock_bh(&tbl->lock);
+		write_unlock_bh(&tbl->lock, bh);
 	}
 
 	return err;

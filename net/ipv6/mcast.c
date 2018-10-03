@@ -264,6 +264,7 @@ static struct inet6_dev *ip6_mc_find_dev_rcu(struct net *net,
 					     const struct in6_addr *group,
 					     int ifindex)
 {
+	unsigned int bh;
 	struct net_device *dev = NULL;
 	struct inet6_dev *idev = NULL;
 
@@ -282,9 +283,9 @@ static struct inet6_dev *ip6_mc_find_dev_rcu(struct net *net,
 	idev = __in6_dev_get(dev);
 	if (!idev)
 		return NULL;
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	if (idev->dead) {
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 		return NULL;
 	}
 	return idev;
@@ -811,6 +812,7 @@ static void mld_del_delrec(struct inet6_dev *idev, struct ifmcaddr6 *im)
 static void mld_clear_delrec(struct inet6_dev *idev)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct ifmcaddr6 *pmc, *nextpmc;
 
 	bh = spin_lock_bh(&idev->mc_lock, SOFTIRQ_ALL_MASK);
@@ -826,7 +828,7 @@ static void mld_clear_delrec(struct inet6_dev *idev)
 	}
 
 	/* clear dead sources, too */
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	for (pmc = idev->mc_list; pmc; pmc = pmc->next) {
 		struct ip6_sf_list *psf, *psf_next;
 
@@ -839,7 +841,7 @@ static void mld_clear_delrec(struct inet6_dev *idev)
 			kfree(psf);
 		}
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 }
 
 static void mca_get(struct ifmcaddr6 *mc)
@@ -891,6 +893,7 @@ static struct ifmcaddr6 *mca_alloc(struct inet6_dev *idev,
 static int __ipv6_dev_mc_inc(struct net_device *dev,
 			     const struct in6_addr *addr, unsigned int mode)
 {
+	unsigned int bh;
 	struct ifmcaddr6 *mc;
 	struct inet6_dev *idev;
 
@@ -902,9 +905,9 @@ static int __ipv6_dev_mc_inc(struct net_device *dev,
 	if (!idev)
 		return -EINVAL;
 
-	write_lock_bh(&idev->lock);
+	bh = write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	if (idev->dead) {
-		write_unlock_bh(&idev->lock);
+		write_unlock_bh(&idev->lock, bh);
 		in6_dev_put(idev);
 		return -ENODEV;
 	}
@@ -912,7 +915,7 @@ static int __ipv6_dev_mc_inc(struct net_device *dev,
 	for (mc = idev->mc_list; mc; mc = mc->next) {
 		if (ipv6_addr_equal(&mc->mca_addr, addr)) {
 			mc->mca_users++;
-			write_unlock_bh(&idev->lock);
+			write_unlock_bh(&idev->lock, bh);
 			ip6_mc_add_src(idev, &mc->mca_addr, mode, 0, NULL, 0);
 			in6_dev_put(idev);
 			return 0;
@@ -921,7 +924,7 @@ static int __ipv6_dev_mc_inc(struct net_device *dev,
 
 	mc = mca_alloc(idev, addr, mode);
 	if (!mc) {
-		write_unlock_bh(&idev->lock);
+		write_unlock_bh(&idev->lock, bh);
 		in6_dev_put(idev);
 		return -ENOMEM;
 	}
@@ -933,7 +936,7 @@ static int __ipv6_dev_mc_inc(struct net_device *dev,
 	 * it is already exposed via idev->mc_list.
 	 */
 	mca_get(mc);
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 
 	mld_del_delrec(idev, mc);
 	igmp6_group_added(mc);
@@ -951,16 +954,17 @@ int ipv6_dev_mc_inc(struct net_device *dev, const struct in6_addr *addr)
  */
 int __ipv6_dev_mc_dec(struct inet6_dev *idev, const struct in6_addr *addr)
 {
+	unsigned int bh;
 	struct ifmcaddr6 *ma, **map;
 
 	ASSERT_RTNL();
 
-	write_lock_bh(&idev->lock);
+	bh = write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	for (map = &idev->mc_list; (ma = *map) != NULL; map = &ma->next) {
 		if (ipv6_addr_equal(&ma->mca_addr, addr)) {
 			if (--ma->mca_users == 0) {
 				*map = ma->next;
-				write_unlock_bh(&idev->lock);
+				write_unlock_bh(&idev->lock, bh);
 
 				igmp6_group_dropped(ma);
 				ip6_mc_clear_src(ma);
@@ -968,11 +972,11 @@ int __ipv6_dev_mc_dec(struct inet6_dev *idev, const struct in6_addr *addr)
 				ma_put(ma);
 				return 0;
 			}
-			write_unlock_bh(&idev->lock);
+			write_unlock_bh(&idev->lock, bh);
 			return 0;
 		}
 	}
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 
 	return -ENOENT;
 }
@@ -1000,6 +1004,7 @@ bool ipv6_chk_mcast_addr(struct net_device *dev, const struct in6_addr *group,
 			 const struct in6_addr *src_addr)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct inet6_dev *idev;
 	struct ifmcaddr6 *mc;
 	bool rv = false;
@@ -1007,7 +1012,7 @@ bool ipv6_chk_mcast_addr(struct net_device *dev, const struct in6_addr *group,
 	rcu_read_lock();
 	idev = __in6_dev_get(dev);
 	if (idev) {
-		read_lock_bh(&idev->lock);
+		bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 		for (mc = idev->mc_list; mc; mc = mc->next) {
 			if (ipv6_addr_equal(&mc->mca_addr, group))
 				break;
@@ -1031,7 +1036,7 @@ bool ipv6_chk_mcast_addr(struct net_device *dev, const struct in6_addr *group,
 			} else
 				rv = true; /* don't filter unspecified source */
 		}
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 	}
 	rcu_read_unlock();
 	return rv;
@@ -1343,6 +1348,7 @@ static int mld_process_v2(struct inet6_dev *idev, struct mld2_query *mld,
 int igmp6_event_query(struct sk_buff *skb)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct mld2_query *mlh2 = NULL;
 	struct ifmcaddr6 *ma;
 	const struct in6_addr *group;
@@ -1425,7 +1431,7 @@ int igmp6_event_query(struct sk_buff *skb)
 		return -EINVAL;
 	}
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	if (group_type == IPV6_ADDR_ANY) {
 		for (ma = idev->mc_list; ma; ma = ma->next) {
 			bh = spin_lock_bh(&ma->mca_lock, SOFTIRQ_ALL_MASK);
@@ -1455,7 +1461,7 @@ int igmp6_event_query(struct sk_buff *skb)
 			break;
 		}
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 
 	return 0;
 }
@@ -1463,6 +1469,7 @@ int igmp6_event_query(struct sk_buff *skb)
 /* called with rcu_read_lock() */
 int igmp6_event_report(struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ifmcaddr6 *ma;
 	struct inet6_dev *idev;
 	struct mld_msg *mld;
@@ -1496,7 +1503,7 @@ int igmp6_event_report(struct sk_buff *skb)
 	 *	Cancel the timer for this group
 	 */
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	for (ma = idev->mc_list; ma; ma = ma->next) {
 		if (ipv6_addr_equal(&ma->mca_addr, &mld->mld_mca)) {
 			spin_lock(&ma->mca_lock);
@@ -1507,7 +1514,7 @@ int igmp6_event_report(struct sk_buff *skb)
 			break;
 		}
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 	return 0;
 }
 
@@ -1863,10 +1870,11 @@ empty_source:
 static void mld_send_report(struct inet6_dev *idev, struct ifmcaddr6 *pmc)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct sk_buff *skb = NULL;
 	int type;
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	if (!pmc) {
 		for (pmc = idev->mc_list; pmc; pmc = pmc->next) {
 			if (pmc->mca_flags & MAF_NOREPORT)
@@ -1888,7 +1896,7 @@ static void mld_send_report(struct inet6_dev *idev, struct ifmcaddr6 *pmc)
 		skb = add_grec(skb, pmc, type, 0, 0, 0);
 		spin_unlock_bh(&pmc->mca_lock, bh);
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 	if (skb)
 		mld_sendpack(skb);
 }
@@ -1917,11 +1925,12 @@ static void mld_clear_zeros(struct ip6_sf_list **ppsf)
 static void mld_send_cr(struct inet6_dev *idev)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct ifmcaddr6 *pmc, *pmc_prev, *pmc_next;
 	struct sk_buff *skb = NULL;
 	int type, dtype;
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	spin_lock(&idev->mc_lock);
 
 	/* deleted MCA's */
@@ -1982,7 +1991,7 @@ static void mld_send_cr(struct inet6_dev *idev)
 		}
 		spin_unlock_bh(&pmc->mca_lock, bh);
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 	if (!skb)
 		return;
 	(void) mld_sendpack(skb);
@@ -2087,6 +2096,7 @@ err_out:
 static void mld_send_initial_cr(struct inet6_dev *idev)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct sk_buff *skb;
 	struct ifmcaddr6 *pmc;
 	int type;
@@ -2095,7 +2105,7 @@ static void mld_send_initial_cr(struct inet6_dev *idev)
 		return;
 
 	skb = NULL;
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	for (pmc = idev->mc_list; pmc; pmc = pmc->next) {
 		bh = spin_lock_bh(&pmc->mca_lock, SOFTIRQ_ALL_MASK);
 		if (pmc->mca_sfcount[MCAST_EXCLUDE])
@@ -2105,7 +2115,7 @@ static void mld_send_initial_cr(struct inet6_dev *idev)
 		skb = add_grec(skb, pmc, type, 0, 0, 1);
 		spin_unlock_bh(&pmc->mca_lock, bh);
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 	if (skb)
 		mld_sendpack(skb);
 }
@@ -2178,20 +2188,21 @@ static int ip6_mc_del_src(struct inet6_dev *idev, const struct in6_addr *pmca,
 			  int delta)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct ifmcaddr6 *pmc;
 	int	changerec = 0;
 	int	i, err;
 
 	if (!idev)
 		return -ENODEV;
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	for (pmc = idev->mc_list; pmc; pmc = pmc->next) {
 		if (ipv6_addr_equal(pmca, &pmc->mca_addr))
 			break;
 	}
 	if (!pmc) {
 		/* MCA not found?? bug */
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 		return -ESRCH;
 	}
 	bh = spin_lock_bh(&pmc->mca_lock, SOFTIRQ_ALL_MASK);
@@ -2199,7 +2210,7 @@ static int ip6_mc_del_src(struct inet6_dev *idev, const struct in6_addr *pmca,
 	if (!delta) {
 		if (!pmc->mca_sfcount[sfmode]) {
 			spin_unlock_bh(&pmc->mca_lock, bh);
-			read_unlock_bh(&idev->lock);
+			read_unlock_bh(&idev->lock, bh);
 			return -EINVAL;
 		}
 		pmc->mca_sfcount[sfmode]--;
@@ -2227,7 +2238,7 @@ static int ip6_mc_del_src(struct inet6_dev *idev, const struct in6_addr *pmca,
 	} else if (sf_setstate(pmc) || changerec)
 		mld_ifc_event(pmc->idev);
 	spin_unlock_bh(&pmc->mca_lock, bh);
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 	return err;
 }
 
@@ -2343,20 +2354,21 @@ static int ip6_mc_add_src(struct inet6_dev *idev, const struct in6_addr *pmca,
 			  int delta)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct ifmcaddr6 *pmc;
 	int	isexclude;
 	int	i, err;
 
 	if (!idev)
 		return -ENODEV;
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	for (pmc = idev->mc_list; pmc; pmc = pmc->next) {
 		if (ipv6_addr_equal(pmca, &pmc->mca_addr))
 			break;
 	}
 	if (!pmc) {
 		/* MCA not found?? bug */
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 		return -ESRCH;
 	}
 	bh = spin_lock_bh(&pmc->mca_lock, SOFTIRQ_ALL_MASK);
@@ -2396,7 +2408,7 @@ static int ip6_mc_add_src(struct inet6_dev *idev, const struct in6_addr *pmca,
 	} else if (sf_setstate(pmc))
 		mld_ifc_event(idev);
 	spin_unlock_bh(&pmc->mca_lock, bh);
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 	return err;
 }
 
@@ -2526,14 +2538,15 @@ static void igmp6_timer_handler(struct timer_list *t)
 
 void ipv6_mc_unmap(struct inet6_dev *idev)
 {
+	unsigned int bh;
 	struct ifmcaddr6 *i;
 
 	/* Install multicast list, except for all-nodes (already installed) */
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	for (i = idev->mc_list; i; i = i->next)
 		igmp6_group_dropped(i);
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 }
 
 void ipv6_mc_remap(struct inet6_dev *idev)
@@ -2545,11 +2558,12 @@ void ipv6_mc_remap(struct inet6_dev *idev)
 
 void ipv6_mc_down(struct inet6_dev *idev)
 {
+	unsigned int bh;
 	struct ifmcaddr6 *i;
 
 	/* Withdraw multicast list */
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 
 	for (i = idev->mc_list; i; i = i->next)
 		igmp6_group_dropped(i);
@@ -2560,7 +2574,7 @@ void ipv6_mc_down(struct inet6_dev *idev)
 	mld_ifc_stop_timer(idev);
 	mld_gq_stop_timer(idev);
 	mld_dad_stop_timer(idev);
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 }
 
 static void ipv6_mc_reset(struct inet6_dev *idev)
@@ -2576,24 +2590,26 @@ static void ipv6_mc_reset(struct inet6_dev *idev)
 
 void ipv6_mc_up(struct inet6_dev *idev)
 {
+	unsigned int bh;
 	struct ifmcaddr6 *i;
 
 	/* Install multicast list, except for all-nodes (already installed) */
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	ipv6_mc_reset(idev);
 	for (i = idev->mc_list; i; i = i->next) {
 		mld_del_delrec(idev, i);
 		igmp6_group_added(i);
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 }
 
 /* IPv6 device initialization. */
 
 void ipv6_mc_init_dev(struct inet6_dev *idev)
 {
-	write_lock_bh(&idev->lock);
+	unsigned int bh;
+	bh = write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	spin_lock_init(&idev->mc_lock);
 	idev->mc_gq_running = 0;
 	timer_setup(&idev->mc_gq_timer, mld_gq_timer_expire, 0);
@@ -2602,7 +2618,7 @@ void ipv6_mc_init_dev(struct inet6_dev *idev)
 	timer_setup(&idev->mc_ifc_timer, mld_ifc_timer_expire, 0);
 	timer_setup(&idev->mc_dad_timer, mld_dad_timer_expire, 0);
 	ipv6_mc_reset(idev);
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 }
 
 /*
@@ -2611,6 +2627,7 @@ void ipv6_mc_init_dev(struct inet6_dev *idev)
 
 void ipv6_mc_destroy_dev(struct inet6_dev *idev)
 {
+	unsigned int bh;
 	struct ifmcaddr6 *i;
 
 	/* Deactivate timers */
@@ -2627,28 +2644,29 @@ void ipv6_mc_destroy_dev(struct inet6_dev *idev)
 	if (idev->cnf.forwarding)
 		__ipv6_dev_mc_dec(idev, &in6addr_linklocal_allrouters);
 
-	write_lock_bh(&idev->lock);
+	bh = write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	while ((i = idev->mc_list) != NULL) {
 		idev->mc_list = i->next;
 
 		write_unlock_bh(&idev->lock);
 		ma_put(i);
-		write_lock_bh(&idev->lock);
+		write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	}
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 }
 
 static void ipv6_mc_rejoin_groups(struct inet6_dev *idev)
 {
+	unsigned int bh;
 	struct ifmcaddr6 *pmc;
 
 	ASSERT_RTNL();
 
 	if (mld_in_v1_mode(idev)) {
-		read_lock_bh(&idev->lock);
+		bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 		for (pmc = idev->mc_list; pmc; pmc = pmc->next)
 			igmp6_join_group(pmc);
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 	} else
 		mld_send_report(idev, NULL);
 }
@@ -2687,6 +2705,7 @@ struct igmp6_mc_iter_state {
 
 static inline struct ifmcaddr6 *igmp6_mc_get_first(struct seq_file *seq)
 {
+	unsigned int bh;
 	struct ifmcaddr6 *im = NULL;
 	struct igmp6_mc_iter_state *state = igmp6_mc_seq_private(seq);
 	struct net *net = seq_file_net(seq);
@@ -2697,25 +2716,26 @@ static inline struct ifmcaddr6 *igmp6_mc_get_first(struct seq_file *seq)
 		idev = __in6_dev_get(state->dev);
 		if (!idev)
 			continue;
-		read_lock_bh(&idev->lock);
+		bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 		im = idev->mc_list;
 		if (im) {
 			state->idev = idev;
 			break;
 		}
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 	}
 	return im;
 }
 
 static struct ifmcaddr6 *igmp6_mc_get_next(struct seq_file *seq, struct ifmcaddr6 *im)
 {
+	unsigned int bh;
 	struct igmp6_mc_iter_state *state = igmp6_mc_seq_private(seq);
 
 	im = im->next;
 	while (!im) {
 		if (likely(state->idev))
-			read_unlock_bh(&state->idev->lock);
+			read_unlock_bh(&state->idev->lock, bh);
 
 		state->dev = next_net_device_rcu(state->dev);
 		if (!state->dev) {
@@ -2725,7 +2745,7 @@ static struct ifmcaddr6 *igmp6_mc_get_next(struct seq_file *seq, struct ifmcaddr
 		state->idev = __in6_dev_get(state->dev);
 		if (!state->idev)
 			continue;
-		read_lock_bh(&state->idev->lock);
+		bh = read_lock_bh(&state->idev->lock, SOFTIRQ_ALL_MASK);
 		im = state->idev->mc_list;
 	}
 	return im;
@@ -2802,6 +2822,7 @@ struct igmp6_mcf_iter_state {
 static inline struct ip6_sf_list *igmp6_mcf_get_first(struct seq_file *seq)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct ip6_sf_list *psf = NULL;
 	struct ifmcaddr6 *im = NULL;
 	struct igmp6_mcf_iter_state *state = igmp6_mcf_seq_private(seq);
@@ -2814,7 +2835,7 @@ static inline struct ip6_sf_list *igmp6_mcf_get_first(struct seq_file *seq)
 		idev = __in6_dev_get(state->dev);
 		if (unlikely(idev == NULL))
 			continue;
-		read_lock_bh(&idev->lock);
+		bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 		im = idev->mc_list;
 		if (likely(im)) {
 			bh = spin_lock_bh(&im->mca_lock, SOFTIRQ_ALL_MASK);
@@ -2826,13 +2847,14 @@ static inline struct ip6_sf_list *igmp6_mcf_get_first(struct seq_file *seq)
 			}
 			spin_unlock_bh(&im->mca_lock, bh);
 		}
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 	}
 	return psf;
 }
 
 static struct ip6_sf_list *igmp6_mcf_get_next(struct seq_file *seq, struct ip6_sf_list *psf)
 {
+	unsigned int bh;
 	unsigned int bh;
 	struct igmp6_mcf_iter_state *state = igmp6_mcf_seq_private(seq);
 
@@ -2842,7 +2864,7 @@ static struct ip6_sf_list *igmp6_mcf_get_next(struct seq_file *seq, struct ip6_s
 		state->im = state->im->next;
 		while (!state->im) {
 			if (likely(state->idev))
-				read_unlock_bh(&state->idev->lock);
+				read_unlock_bh(&state->idev->lock, bh);
 
 			state->dev = next_net_device_rcu(state->dev);
 			if (!state->dev) {
@@ -2852,7 +2874,7 @@ static struct ip6_sf_list *igmp6_mcf_get_next(struct seq_file *seq, struct ip6_s
 			state->idev = __in6_dev_get(state->dev);
 			if (!state->idev)
 				continue;
-			read_lock_bh(&state->idev->lock);
+			bh = read_lock_bh(&state->idev->lock, SOFTIRQ_ALL_MASK);
 			state->im = state->idev->mc_list;
 		}
 		if (!state->im)

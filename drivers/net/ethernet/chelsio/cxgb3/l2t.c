@@ -305,6 +305,7 @@ static inline void reuse_entry(struct l2t_entry *e, struct neighbour *neigh)
 struct l2t_entry *t3_l2t_get(struct t3cdev *cdev, struct dst_entry *dst,
 			     struct net_device *dev, const void *daddr)
 {
+	unsigned int bh;
 	struct l2t_entry *e = NULL;
 	struct neighbour *neigh;
 	struct port_info *p;
@@ -333,7 +334,7 @@ struct l2t_entry *t3_l2t_get(struct t3cdev *cdev, struct dst_entry *dst,
 
 	hash = arp_hash(addr, ifidx, d);
 
-	write_lock_bh(&d->lock);
+	bh = write_lock_bh(&d->lock, SOFTIRQ_ALL_MASK);
 	for (e = d->l2tab[hash].first; e; e = e->next)
 		if (e->addr == addr && e->ifindex == ifidx &&
 		    e->smt_idx == smt_idx) {
@@ -362,7 +363,7 @@ struct l2t_entry *t3_l2t_get(struct t3cdev *cdev, struct dst_entry *dst,
 		spin_unlock(&e->lock);
 	}
 done_unlock:
-	write_unlock_bh(&d->lock);
+	write_unlock_bh(&d->lock, bh);
 done_rcu:
 	if (neigh)
 		neigh_release(neigh);
@@ -401,6 +402,7 @@ static void handle_failed_resolution(struct t3cdev *dev, struct sk_buff_head *ar
  */
 void t3_l2t_update(struct t3cdev *dev, struct neighbour *neigh)
 {
+	unsigned int bh;
 	struct sk_buff_head arpq;
 	struct l2t_entry *e;
 	struct l2t_data *d = L2DATA(dev);
@@ -408,13 +410,13 @@ void t3_l2t_update(struct t3cdev *dev, struct neighbour *neigh)
 	int ifidx = neigh->dev->ifindex;
 	int hash = arp_hash(addr, ifidx, d);
 
-	read_lock_bh(&d->lock);
+	bh = read_lock_bh(&d->lock, SOFTIRQ_ALL_MASK);
 	for (e = d->l2tab[hash].first; e; e = e->next)
 		if (e->addr == addr && e->ifindex == ifidx) {
 			spin_lock(&e->lock);
 			goto found;
 		}
-	read_unlock_bh(&d->lock);
+	read_unlock_bh(&d->lock, bh);
 	return;
 
 found:

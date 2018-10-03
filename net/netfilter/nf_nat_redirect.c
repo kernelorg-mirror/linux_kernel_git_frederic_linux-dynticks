@@ -84,6 +84,7 @@ unsigned int
 nf_nat_redirect_ipv6(struct sk_buff *skb, const struct nf_nat_range2 *range,
 		     unsigned int hooknum)
 {
+	unsigned int bh;
 	struct nf_nat_range2 newrange;
 	struct in6_addr newdst;
 	enum ip_conntrack_info ctinfo;
@@ -100,13 +101,13 @@ nf_nat_redirect_ipv6(struct sk_buff *skb, const struct nf_nat_range2 *range,
 		rcu_read_lock();
 		idev = __in6_dev_get(skb->dev);
 		if (idev != NULL) {
-			read_lock_bh(&idev->lock);
+			bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 			list_for_each_entry(ifa, &idev->addr_list, if_list) {
 				newdst = ifa->addr;
 				addr = true;
 				break;
 			}
-			read_unlock_bh(&idev->lock);
+			read_unlock_bh(&idev->lock, bh);
 		}
 		rcu_read_unlock();
 

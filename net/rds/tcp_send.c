@@ -182,11 +182,12 @@ static int rds_tcp_is_acked(struct rds_message *rm, uint64_t ack)
 
 void rds_tcp_write_space(struct sock *sk)
 {
+	unsigned int bh;
 	void (*write_space)(struct sock *sk);
 	struct rds_conn_path *cp;
 	struct rds_tcp_connection *tc;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	cp = sk->sk_user_data;
 	if (!cp) {
 		write_space = sk->sk_write_space;
@@ -209,7 +210,7 @@ void rds_tcp_write_space(struct sock *sk)
 	rcu_read_unlock();
 
 out:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 
 	/*
 	 * write_space is only called when data leaves tcp's send queue if

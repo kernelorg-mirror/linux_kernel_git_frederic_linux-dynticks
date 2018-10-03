@@ -1778,23 +1778,25 @@ static inline wait_queue_head_t *sk_sleep(struct sock *sk)
  */
 static inline void sock_orphan(struct sock *sk)
 {
-	write_lock_bh(&sk->sk_callback_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sock_set_flag(sk, SOCK_DEAD);
 	sk_set_socket(sk, NULL);
 	sk->sk_wq  = NULL;
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static inline void sock_graft(struct sock *sk, struct socket *parent)
 {
+	unsigned int bh;
 	WARN_ON(parent->sk);
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	rcu_assign_pointer(sk->sk_wq, parent->wq);
 	parent->sk = sk;
 	sk_set_socket(sk, parent);
 	sk->sk_uid = SOCK_INODE(parent)->i_uid;
 	security_sock_graft(sk, parent);
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 kuid_t sock_i_uid(struct sock *sk);

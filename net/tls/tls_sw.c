@@ -1115,6 +1115,7 @@ void tls_sw_free_resources_tx(struct sock *sk)
 
 void tls_sw_release_resources_rx(struct sock *sk)
 {
+	unsigned int bh;
 	struct tls_context *tls_ctx = tls_get_ctx(sk);
 	struct tls_sw_context_rx *ctx = tls_sw_ctx_rx(tls_ctx);
 
@@ -1123,9 +1124,9 @@ void tls_sw_release_resources_rx(struct sock *sk)
 		ctx->recv_pkt = NULL;
 		crypto_free_aead(ctx->aead_recv);
 		strp_stop(&ctx->strp);
-		write_lock_bh(&sk->sk_callback_lock);
+		bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		sk->sk_data_ready = ctx->saved_data_ready;
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 		release_sock(sk);
 		strp_done(&ctx->strp);
 		lock_sock(sk);
@@ -1144,6 +1145,7 @@ void tls_sw_free_resources_rx(struct sock *sk)
 
 int tls_set_sw_offload(struct sock *sk, struct tls_context *ctx, int tx)
 {
+	unsigned int bh;
 	struct tls_crypto_info *crypto_info;
 	struct tls12_crypto_info_aes_gcm_128 *gcm_128_info;
 	struct tls_sw_context_tx *sw_ctx_tx = NULL;
@@ -1289,10 +1291,10 @@ int tls_set_sw_offload(struct sock *sk, struct tls_context *ctx, int tx)
 
 		strp_init(&sw_ctx_rx->strp, sk, &cb);
 
-		write_lock_bh(&sk->sk_callback_lock);
+		bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		sw_ctx_rx->saved_data_ready = sk->sk_data_ready;
 		sk->sk_data_ready = tls_data_ready;
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 
 		sw_ctx_rx->sk_poll = sk->sk_socket->ops->poll;
 

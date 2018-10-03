@@ -683,6 +683,7 @@ static int call_ip6mr_mfc_entry_notifiers(struct net *net,
 static int mif6_delete(struct mr_table *mrt, int vifi, int notify,
 		       struct list_head *head)
 {
+	unsigned int bh;
 	struct vif_device *v;
 	struct net_device *dev;
 	struct inet6_dev *in6_dev;
@@ -697,12 +698,12 @@ static int mif6_delete(struct mr_table *mrt, int vifi, int notify,
 					       FIB_EVENT_VIF_DEL, v, vifi,
 					       mrt->id);
 
-	write_lock_bh(&mrt_lock);
+	bh = write_lock_bh(&mrt_lock, SOFTIRQ_ALL_MASK);
 	dev = v->dev;
 	v->dev = NULL;
 
 	if (!dev) {
-		write_unlock_bh(&mrt_lock);
+		write_unlock_bh(&mrt_lock, bh);
 		return -EADDRNOTAVAIL;
 	}
 
@@ -720,7 +721,7 @@ static int mif6_delete(struct mr_table *mrt, int vifi, int notify,
 		mrt->maxvif = tmp + 1;
 	}
 
-	write_unlock_bh(&mrt_lock);
+	write_unlock_bh(&mrt_lock, bh);
 
 	dev_set_allmulti(dev, -1);
 
@@ -848,6 +849,7 @@ static void ip6mr_update_thresholds(struct mr_table *mrt,
 static int mif6_add(struct net *net, struct mr_table *mrt,
 		    struct mif6ctl *vifc, int mrtsock)
 {
+	unsigned int bh;
 	int vifi = vifc->mif6c_mifi;
 	struct vif_device *v = &mrt->vif_table[vifi];
 	struct net_device *dev;
@@ -906,7 +908,7 @@ static int mif6_add(struct net *net, struct mr_table *mrt,
 			MIFF_REGISTER);
 
 	/* And finish update writing critical data */
-	write_lock_bh(&mrt_lock);
+	bh = write_lock_bh(&mrt_lock, SOFTIRQ_ALL_MASK);
 	v->dev = dev;
 #ifdef CONFIG_IPV6_PIMSM_V2
 	if (v->flags & MIFF_REGISTER)
@@ -914,7 +916,7 @@ static int mif6_add(struct net *net, struct mr_table *mrt,
 #endif
 	if (vifi + 1 > mrt->maxvif)
 		mrt->maxvif = vifi + 1;
-	write_unlock_bh(&mrt_lock);
+	write_unlock_bh(&mrt_lock, bh);
 	call_ip6mr_vif_entry_notifiers(net, FIB_EVENT_VIF_ADD,
 				       v, vifi, mrt->id);
 	return 0;
@@ -1391,6 +1393,7 @@ static int ip6mr_mfc_add(struct net *net, struct mr_table *mrt,
 			 struct mf6cctl *mfc, int mrtsock, int parent)
 {
 	unsigned int bh;
+	unsigned int bh;
 	unsigned char ttls[MAXMIFS];
 	struct mfc6_cache *uc, *c;
 	struct mr_mfc *_uc;
@@ -1412,12 +1415,12 @@ static int ip6mr_mfc_add(struct net *net, struct mr_table *mrt,
 				    &mfc->mf6cc_mcastgrp.sin6_addr, parent);
 	rcu_read_unlock();
 	if (c) {
-		write_lock_bh(&mrt_lock);
+		bh = write_lock_bh(&mrt_lock, SOFTIRQ_ALL_MASK);
 		c->_c.mfc_parent = mfc->mf6cc_parent;
 		ip6mr_update_thresholds(mrt, &c->_c, ttls);
 		if (!mrtsock)
 			c->_c.mfc_flags |= MFC_STATIC;
-		write_unlock_bh(&mrt_lock);
+		write_unlock_bh(&mrt_lock, bh);
 		call_ip6mr_mfc_entry_notifiers(net, FIB_EVENT_ENTRY_REPLACE,
 					       c, mrt->id);
 		mr6_netlink_event(mrt, c, RTM_NEWROUTE);
@@ -1524,11 +1527,12 @@ static void mroute_clean_tables(struct mr_table *mrt, bool all)
 
 static int ip6mr_sk_init(struct mr_table *mrt, struct sock *sk)
 {
+	unsigned int bh;
 	int err = 0;
 	struct net *net = sock_net(sk);
 
 	rtnl_lock();
-	write_lock_bh(&mrt_lock);
+	bh = write_lock_bh(&mrt_lock, SOFTIRQ_ALL_MASK);
 	if (rtnl_dereference(mrt->mroute_sk)) {
 		err = -EADDRINUSE;
 	} else {
@@ -1536,7 +1540,7 @@ static int ip6mr_sk_init(struct mr_table *mrt, struct sock *sk)
 		sock_set_flag(sk, SOCK_RCU_FREE);
 		net->ipv6.devconf_all->mc_forwarding++;
 	}
-	write_unlock_bh(&mrt_lock);
+	write_unlock_bh(&mrt_lock, bh);
 
 	if (!err)
 		inet6_netconf_notify_devconf(net, RTM_NEWNETCONF,
@@ -1550,6 +1554,7 @@ static int ip6mr_sk_init(struct mr_table *mrt, struct sock *sk)
 
 int ip6mr_sk_done(struct sock *sk)
 {
+	unsigned int bh;
 	int err = -EACCES;
 	struct net *net = sock_net(sk);
 	struct mr_table *mrt;
@@ -1561,14 +1566,14 @@ int ip6mr_sk_done(struct sock *sk)
 	rtnl_lock();
 	ip6mr_for_each_table(mrt, net) {
 		if (sk == rtnl_dereference(mrt->mroute_sk)) {
-			write_lock_bh(&mrt_lock);
+			bh = write_lock_bh(&mrt_lock, SOFTIRQ_ALL_MASK);
 			RCU_INIT_POINTER(mrt->mroute_sk, NULL);
 			/* Note that mroute_sk had SOCK_RCU_FREE set,
 			 * so the RCU grace period before sk freeing
 			 * is guaranteed by sk_destruct()
 			 */
 			net->ipv6.devconf_all->mc_forwarding--;
-			write_unlock_bh(&mrt_lock);
+			write_unlock_bh(&mrt_lock, bh);
 			inet6_netconf_notify_devconf(net, RTM_NEWNETCONF,
 						     NETCONFA_MC_FORWARDING,
 						     NETCONFA_IFINDEX_ALL,

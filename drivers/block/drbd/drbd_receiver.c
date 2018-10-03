@@ -704,6 +704,7 @@ static void drbd_incoming_connection(struct sock *sk)
 
 static int prepare_listen_socket(struct drbd_connection *connection, struct accept_wait_data *ad)
 {
+	unsigned int bh;
 	int err, sndbuf_size, rcvbuf_size, my_addr_len;
 	struct sockaddr_in6 my_addr;
 	struct socket *s_listen;
@@ -740,11 +741,11 @@ static int prepare_listen_socket(struct drbd_connection *connection, struct acce
 		goto out;
 
 	ad->s_listen = s_listen;
-	write_lock_bh(&s_listen->sk->sk_callback_lock);
+	bh = write_lock_bh(&s_listen->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	ad->original_sk_state_change = s_listen->sk->sk_state_change;
 	s_listen->sk->sk_state_change = drbd_incoming_connection;
 	s_listen->sk->sk_user_data = ad;
-	write_unlock_bh(&s_listen->sk->sk_callback_lock);
+	write_unlock_bh(&s_listen->sk->sk_callback_lock, bh);
 
 	what = "listen";
 	err = s_listen->ops->listen(s_listen, 5);
@@ -767,10 +768,11 @@ out:
 
 static void unregister_state_change(struct sock *sk, struct accept_wait_data *ad)
 {
-	write_lock_bh(&sk->sk_callback_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sk->sk_state_change = ad->original_sk_state_change;
 	sk->sk_user_data = NULL;
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static struct socket *drbd_wait_for_connect(struct drbd_connection *connection, struct accept_wait_data *ad)

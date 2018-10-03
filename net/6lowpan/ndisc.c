@@ -63,6 +63,7 @@ static void lowpan_ndisc_802154_update(struct neighbour *n, u32 flags,
 				       u8 icmp6_type,
 				       const struct ndisc_options *ndopts)
 {
+	unsigned int bh;
 	struct lowpan_802154_neigh *neigh = lowpan_802154_neigh(neighbour_priv(n));
 	u8 *lladdr_short = NULL;
 
@@ -96,13 +97,13 @@ static void lowpan_ndisc_802154_update(struct neighbour *n, u32 flags,
 		break;
 	}
 
-	write_lock_bh(&n->lock);
+	bh = write_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 	if (lladdr_short) {
 		ieee802154_be16_to_le16(&neigh->short_addr, lladdr_short);
 		if (!lowpan_802154_is_valid_src_short_addr(neigh->short_addr))
 			neigh->short_addr = cpu_to_le16(IEEE802154_ADDR_SHORT_UNSPEC);
 	}
-	write_unlock_bh(&n->lock);
+	write_unlock_bh(&n->lock, bh);
 }
 
 static void lowpan_ndisc_update(const struct net_device *dev,
@@ -121,6 +122,7 @@ static int lowpan_ndisc_opt_addr_space(const struct net_device *dev,
 				       u8 icmp6_type, struct neighbour *neigh,
 				       u8 *ha_buf, u8 **ha)
 {
+	unsigned int bh;
 	struct lowpan_802154_neigh *n;
 	struct wpan_dev *wpan_dev;
 	int addr_space = 0;
@@ -132,15 +134,15 @@ static int lowpan_ndisc_opt_addr_space(const struct net_device *dev,
 	case NDISC_REDIRECT:
 		n = lowpan_802154_neigh(neighbour_priv(neigh));
 
-		read_lock_bh(&neigh->lock);
+		bh = read_lock_bh(&neigh->lock, SOFTIRQ_ALL_MASK);
 		if (lowpan_802154_is_valid_src_short_addr(n->short_addr)) {
 			memcpy(ha_buf, &n->short_addr,
 			       IEEE802154_SHORT_ADDR_LEN);
-			read_unlock_bh(&neigh->lock);
+			read_unlock_bh(&neigh->lock, bh);
 			addr_space += __ndisc_opt_addr_space(IEEE802154_SHORT_ADDR_LEN, 0);
 			*ha = ha_buf;
 		} else {
-			read_unlock_bh(&neigh->lock);
+			read_unlock_bh(&neigh->lock, bh);
 		}
 		break;
 	case NDISC_NEIGHBOUR_ADVERTISEMENT:

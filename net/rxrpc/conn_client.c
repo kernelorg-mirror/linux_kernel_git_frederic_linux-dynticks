@@ -548,6 +548,7 @@ static void rxrpc_deactivate_one_channel(struct rxrpc_connection *conn,
 static void rxrpc_activate_one_channel(struct rxrpc_connection *conn,
 				       unsigned int channel)
 {
+	unsigned int bh;
 	struct rxrpc_channel *chan = &conn->channels[channel];
 	struct rxrpc_call *call = list_entry(conn->waiting_calls.next,
 					     struct rxrpc_call, chan_wait_link);
@@ -560,12 +561,12 @@ static void rxrpc_activate_one_channel(struct rxrpc_connection *conn,
 	 */
 	clear_bit(RXRPC_CONN_FINAL_ACK_0 + channel, &conn->flags);
 
-	write_lock_bh(&call->state_lock);
+	bh = write_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 	if (!test_bit(RXRPC_CALL_TX_LASTQ, &call->flags))
 		call->state = RXRPC_CALL_CLIENT_SEND_REQUEST;
 	else
 		call->state = RXRPC_CALL_CLIENT_AWAIT_REPLY;
-	write_unlock_bh(&call->state_lock);
+	write_unlock_bh(&call->state_lock, bh);
 
 	rxrpc_see_call(call);
 	list_del_init(&call->chan_wait_link);

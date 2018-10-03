@@ -321,11 +321,12 @@ static void mon_assign_roles(struct tipc_monitor *mon, struct tipc_peer *head)
 
 void tipc_mon_remove_peer(struct net *net, u32 addr, int bearer_id)
 {
+	unsigned int bh;
 	struct tipc_monitor *mon = tipc_monitor(net, bearer_id);
 	struct tipc_peer *self = get_self(net, bearer_id);
 	struct tipc_peer *peer, *prev, *head;
 
-	write_lock_bh(&mon->lock);
+	bh = write_lock_bh(&mon->lock, SOFTIRQ_ALL_MASK);
 	peer = get_peer(mon, addr);
 	if (!peer)
 		goto exit;
@@ -350,7 +351,7 @@ void tipc_mon_remove_peer(struct net *net, u32 addr, int bearer_id)
 	}
 	mon_assign_roles(mon, head);
 exit:
-	write_unlock_bh(&mon->lock);
+	write_unlock_bh(&mon->lock, bh);
 }
 
 static bool tipc_mon_add_peer(struct tipc_monitor *mon, u32 addr,
@@ -387,11 +388,12 @@ static bool tipc_mon_add_peer(struct tipc_monitor *mon, u32 addr,
 
 void tipc_mon_peer_up(struct net *net, u32 addr, int bearer_id)
 {
+	unsigned int bh;
 	struct tipc_monitor *mon = tipc_monitor(net, bearer_id);
 	struct tipc_peer *self = get_self(net, bearer_id);
 	struct tipc_peer *peer, *head;
 
-	write_lock_bh(&mon->lock);
+	bh = write_lock_bh(&mon->lock, SOFTIRQ_ALL_MASK);
 	peer = get_peer(mon, addr);
 	if (!peer && !tipc_mon_add_peer(mon, addr, &peer))
 		goto exit;
@@ -401,18 +403,19 @@ void tipc_mon_peer_up(struct net *net, u32 addr, int bearer_id)
 		mon_update_local_domain(mon);
 	mon_assign_roles(mon, head);
 exit:
-	write_unlock_bh(&mon->lock);
+	write_unlock_bh(&mon->lock, bh);
 }
 
 void tipc_mon_peer_down(struct net *net, u32 addr, int bearer_id)
 {
+	unsigned int bh;
 	struct tipc_monitor *mon = tipc_monitor(net, bearer_id);
 	struct tipc_peer *self = get_self(net, bearer_id);
 	struct tipc_peer *peer, *head;
 	struct tipc_mon_domain *dom;
 	int applied;
 
-	write_lock_bh(&mon->lock);
+	bh = write_lock_bh(&mon->lock, SOFTIRQ_ALL_MASK);
 	peer = get_peer(mon, addr);
 	if (!peer) {
 		pr_warn("Mon: unknown link %x/%u DOWN\n", addr, bearer_id);
@@ -434,7 +437,7 @@ void tipc_mon_peer_down(struct net *net, u32 addr, int bearer_id)
 		mon_update_local_domain(mon);
 	mon_assign_roles(mon, head);
 exit:
-	write_unlock_bh(&mon->lock);
+	write_unlock_bh(&mon->lock, bh);
 }
 
 /* tipc_mon_rcv - process monitor domain event message
@@ -442,6 +445,7 @@ exit:
 void tipc_mon_rcv(struct net *net, void *data, u16 dlen, u32 addr,
 		  struct tipc_mon_state *state, int bearer_id)
 {
+	unsigned int bh;
 	struct tipc_monitor *mon = tipc_monitor(net, bearer_id);
 	struct tipc_mon_domain *arrv_dom = data;
 	struct tipc_mon_domain dom_bef;
@@ -478,7 +482,7 @@ void tipc_mon_rcv(struct net *net, void *data, u16 dlen, u32 addr,
 	if (!more(new_gen, state->peer_gen) && !probing)
 		return;
 
-	write_lock_bh(&mon->lock);
+	bh = write_lock_bh(&mon->lock, SOFTIRQ_ALL_MASK);
 	peer = get_peer(mon, addr);
 	if (!peer || !peer->is_up)
 		goto exit;
@@ -519,12 +523,13 @@ void tipc_mon_rcv(struct net *net, void *data, u16 dlen, u32 addr,
 	mon_identify_lost_members(peer, &dom_bef, applied_bef);
 	mon_assign_roles(mon, peer_head(peer));
 exit:
-	write_unlock_bh(&mon->lock);
+	write_unlock_bh(&mon->lock, bh);
 }
 
 void tipc_mon_prep(struct net *net, void *data, int *dlen,
 		   struct tipc_mon_state *state, int bearer_id)
 {
+	unsigned int bh;
 	struct tipc_monitor *mon = tipc_monitor(net, bearer_id);
 	struct tipc_mon_domain *dom = data;
 	u16 gen = mon->dom_gen;
@@ -547,11 +552,11 @@ void tipc_mon_prep(struct net *net, void *data, int *dlen,
 		return;
 	}
 	/* Send the full record */
-	read_lock_bh(&mon->lock);
+	bh = read_lock_bh(&mon->lock, SOFTIRQ_ALL_MASK);
 	len = ntohs(mon->cache.len);
 	*dlen = len;
 	memcpy(data, &mon->cache, len);
-	read_unlock_bh(&mon->lock);
+	read_unlock_bh(&mon->lock, bh);
 	dom->ack_gen = htons(state->peer_gen);
 }
 
@@ -559,6 +564,7 @@ void tipc_mon_get_state(struct net *net, u32 addr,
 			struct tipc_mon_state *state,
 			int bearer_id)
 {
+	unsigned int bh;
 	struct tipc_monitor *mon = tipc_monitor(net, bearer_id);
 	struct tipc_peer *peer;
 
@@ -574,7 +580,7 @@ void tipc_mon_get_state(struct net *net, u32 addr,
 	    (state->acked_gen == mon->dom_gen))
 		return;
 
-	read_lock_bh(&mon->lock);
+	bh = read_lock_bh(&mon->lock, SOFTIRQ_ALL_MASK);
 	peer = get_peer(mon, addr);
 	if (peer) {
 		state->probing = state->acked_gen != mon->dom_gen;
@@ -584,22 +590,23 @@ void tipc_mon_get_state(struct net *net, u32 addr,
 		state->monitoring |= peer->is_head;
 		state->list_gen = mon->list_gen;
 	}
-	read_unlock_bh(&mon->lock);
+	read_unlock_bh(&mon->lock, bh);
 }
 
 static void mon_timeout(struct timer_list *t)
 {
+	unsigned int bh;
 	struct tipc_monitor *mon = from_timer(mon, t, timer);
 	struct tipc_peer *self;
 	int best_member_cnt = dom_size(mon->peer_cnt) - 1;
 
-	write_lock_bh(&mon->lock);
+	bh = write_lock_bh(&mon->lock, SOFTIRQ_ALL_MASK);
 	self = mon->self;
 	if (self && (best_member_cnt != self->applied)) {
 		mon_update_local_domain(mon);
 		mon_assign_roles(mon, self);
 	}
-	write_unlock_bh(&mon->lock);
+	write_unlock_bh(&mon->lock, bh);
 	mod_timer(&mon->timer, jiffies + mon->timer_intv);
 }
 
@@ -640,6 +647,7 @@ int tipc_mon_create(struct net *net, int bearer_id)
 
 void tipc_mon_delete(struct net *net, int bearer_id)
 {
+	unsigned int bh;
 	struct tipc_net *tn = tipc_net(net);
 	struct tipc_monitor *mon = tipc_monitor(net, bearer_id);
 	struct tipc_peer *self;
@@ -649,7 +657,7 @@ void tipc_mon_delete(struct net *net, int bearer_id)
 		return;
 
 	self = get_self(net, bearer_id);
-	write_lock_bh(&mon->lock);
+	bh = write_lock_bh(&mon->lock, SOFTIRQ_ALL_MASK);
 	tn->monitors[bearer_id] = NULL;
 	list_for_each_entry_safe(peer, tmp, &self->list, list) {
 		list_del(&peer->list);
@@ -658,7 +666,7 @@ void tipc_mon_delete(struct net *net, int bearer_id)
 		kfree(peer);
 	}
 	mon->self = NULL;
-	write_unlock_bh(&mon->lock);
+	write_unlock_bh(&mon->lock, bh);
 	del_timer_sync(&mon->timer);
 	kfree(self->domain);
 	kfree(self);
@@ -741,13 +749,14 @@ msg_full:
 int tipc_nl_add_monitor_peer(struct net *net, struct tipc_nl_msg *msg,
 			     u32 bearer_id, u32 *prev_node)
 {
+	unsigned int bh;
 	struct tipc_monitor *mon = tipc_monitor(net, bearer_id);
 	struct tipc_peer *peer;
 
 	if (!mon)
 		return -EINVAL;
 
-	read_lock_bh(&mon->lock);
+	bh = read_lock_bh(&mon->lock, SOFTIRQ_ALL_MASK);
 	peer = mon->self;
 	do {
 		if (*prev_node) {
@@ -758,11 +767,11 @@ int tipc_nl_add_monitor_peer(struct net *net, struct tipc_nl_msg *msg,
 		}
 		if (__tipc_nl_add_monitor_peer(peer, msg)) {
 			*prev_node = peer->addr;
-			read_unlock_bh(&mon->lock);
+			read_unlock_bh(&mon->lock, bh);
 			return -EMSGSIZE;
 		}
 	} while ((peer = peer_nxt(peer)) != mon->self);
-	read_unlock_bh(&mon->lock);
+	read_unlock_bh(&mon->lock, bh);
 
 	return 0;
 }
@@ -770,6 +779,7 @@ int tipc_nl_add_monitor_peer(struct net *net, struct tipc_nl_msg *msg,
 int __tipc_nl_add_monitor(struct net *net, struct tipc_nl_msg *msg,
 			  u32 bearer_id)
 {
+	unsigned int bh;
 	struct tipc_monitor *mon = tipc_monitor(net, bearer_id);
 	char bearer_name[TIPC_MAX_BEARER_NAME];
 	struct nlattr *attrs;
@@ -789,7 +799,7 @@ int __tipc_nl_add_monitor(struct net *net, struct tipc_nl_msg *msg,
 	if (!attrs)
 		goto msg_full;
 
-	read_lock_bh(&mon->lock);
+	bh = read_lock_bh(&mon->lock, SOFTIRQ_ALL_MASK);
 	if (nla_put_u32(msg->skb, TIPC_NLA_MON_REF, bearer_id))
 		goto attr_msg_full;
 	if (tipc_mon_is_active(net, mon))
@@ -802,14 +812,14 @@ int __tipc_nl_add_monitor(struct net *net, struct tipc_nl_msg *msg,
 	if (nla_put_u32(msg->skb, TIPC_NLA_MON_LISTGEN, mon->list_gen))
 		goto attr_msg_full;
 
-	read_unlock_bh(&mon->lock);
+	read_unlock_bh(&mon->lock, bh);
 	nla_nest_end(msg->skb, attrs);
 	genlmsg_end(msg->skb, hdr);
 
 	return 0;
 
 attr_msg_full:
-	read_unlock_bh(&mon->lock);
+	read_unlock_bh(&mon->lock, bh);
 	nla_nest_cancel(msg->skb, attrs);
 msg_full:
 	genlmsg_cancel(msg->skb, hdr);

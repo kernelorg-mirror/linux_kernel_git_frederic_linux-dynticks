@@ -246,6 +246,7 @@ void x25_link_terminated(struct x25_neigh *nb)
  */
 void x25_link_device_up(struct net_device *dev)
 {
+	unsigned int bh;
 	struct x25_neigh *nb = kmalloc(sizeof(*nb), GFP_ATOMIC);
 
 	if (!nb)
@@ -268,9 +269,9 @@ void x25_link_device_up(struct net_device *dev)
 	nb->t20      = sysctl_x25_restart_request_timeout;
 	refcount_set(&nb->refcnt, 1);
 
-	write_lock_bh(&x25_neigh_list_lock);
+	bh = write_lock_bh(&x25_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	list_add(&nb->node, &x25_neigh_list);
-	write_unlock_bh(&x25_neigh_list_lock);
+	write_unlock_bh(&x25_neigh_list_lock, bh);
 }
 
 /**
@@ -296,10 +297,11 @@ static void __x25_remove_neigh(struct x25_neigh *nb)
  */
 void x25_link_device_down(struct net_device *dev)
 {
+	unsigned int bh;
 	struct x25_neigh *nb;
 	struct list_head *entry, *tmp;
 
-	write_lock_bh(&x25_neigh_list_lock);
+	bh = write_lock_bh(&x25_neigh_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_safe(entry, tmp, &x25_neigh_list) {
 		nb = list_entry(entry, struct x25_neigh, node);
@@ -310,7 +312,7 @@ void x25_link_device_down(struct net_device *dev)
 		}
 	}
 
-	write_unlock_bh(&x25_neigh_list_lock);
+	write_unlock_bh(&x25_neigh_list_lock, bh);
 }
 
 /*
@@ -318,10 +320,11 @@ void x25_link_device_down(struct net_device *dev)
  */
 struct x25_neigh *x25_get_neigh(struct net_device *dev)
 {
+	unsigned int bh;
 	struct x25_neigh *nb, *use = NULL;
 	struct list_head *entry;
 
-	read_lock_bh(&x25_neigh_list_lock);
+	bh = read_lock_bh(&x25_neigh_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each(entry, &x25_neigh_list) {
 		nb = list_entry(entry, struct x25_neigh, node);
 
@@ -333,7 +336,7 @@ struct x25_neigh *x25_get_neigh(struct net_device *dev)
 
 	if (use)
 		x25_neigh_hold(use);
-	read_unlock_bh(&x25_neigh_list_lock);
+	read_unlock_bh(&x25_neigh_list_lock, bh);
 	return use;
 }
 
@@ -342,6 +345,8 @@ struct x25_neigh *x25_get_neigh(struct net_device *dev)
  */
 int x25_subscr_ioctl(unsigned int cmd, void __user *arg)
 {
+	unsigned int bh;
+	unsigned int bh;
 	struct x25_subscrip_struct x25_subscr;
 	struct x25_neigh *nb;
 	struct net_device *dev;
@@ -364,20 +369,20 @@ int x25_subscr_ioctl(unsigned int cmd, void __user *arg)
 	dev_put(dev);
 
 	if (cmd == SIOCX25GSUBSCRIP) {
-		read_lock_bh(&x25_neigh_list_lock);
+		bh = read_lock_bh(&x25_neigh_list_lock, SOFTIRQ_ALL_MASK);
 		x25_subscr.extended	     = nb->extended;
 		x25_subscr.global_facil_mask = nb->global_facil_mask;
-		read_unlock_bh(&x25_neigh_list_lock);
+		read_unlock_bh(&x25_neigh_list_lock, bh);
 		rc = copy_to_user(arg, &x25_subscr,
 				  sizeof(x25_subscr)) ? -EFAULT : 0;
 	} else {
 		rc = -EINVAL;
 		if (!(x25_subscr.extended && x25_subscr.extended != 1)) {
 			rc = 0;
-			write_lock_bh(&x25_neigh_list_lock);
+			bh = write_lock_bh(&x25_neigh_list_lock, SOFTIRQ_ALL_MASK);
 			nb->extended	     = x25_subscr.extended;
 			nb->global_facil_mask = x25_subscr.global_facil_mask;
-			write_unlock_bh(&x25_neigh_list_lock);
+			write_unlock_bh(&x25_neigh_list_lock, bh);
 		}
 	}
 	x25_neigh_put(nb);
@@ -394,10 +399,11 @@ out_dev_put:
  */
 void __exit x25_link_free(void)
 {
+	unsigned int bh;
 	struct x25_neigh *nb;
 	struct list_head *entry, *tmp;
 
-	write_lock_bh(&x25_neigh_list_lock);
+	bh = write_lock_bh(&x25_neigh_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_safe(entry, tmp, &x25_neigh_list) {
 		struct net_device *dev;
@@ -407,5 +413,5 @@ void __exit x25_link_free(void)
 		__x25_remove_neigh(nb);
 		dev_put(dev);
 	}
-	write_unlock_bh(&x25_neigh_list_lock);
+	write_unlock_bh(&x25_neigh_list_lock, bh);
 }

@@ -50,6 +50,7 @@ struct ping_iter_state {
 	struct seq_net_private  p;
 	int			bucket;
 	sa_family_t		family;
+	unsigned int bh;
 };
 
 extern struct proto ping_prot;

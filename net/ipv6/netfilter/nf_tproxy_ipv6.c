@@ -9,6 +9,7 @@ const struct in6_addr *
 nf_tproxy_laddr6(struct sk_buff *skb, const struct in6_addr *user_laddr,
 	      const struct in6_addr *daddr)
 {
+	unsigned int bh;
 	struct inet6_dev *indev;
 	struct inet6_ifaddr *ifa;
 	struct in6_addr *laddr;
@@ -19,7 +20,7 @@ nf_tproxy_laddr6(struct sk_buff *skb, const struct in6_addr *user_laddr,
 
 	indev = __in6_dev_get(skb->dev);
 	if (indev) {
-		read_lock_bh(&indev->lock);
+		bh = read_lock_bh(&indev->lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(ifa, &indev->addr_list, if_list) {
 			if (ifa->flags & (IFA_F_TENTATIVE | IFA_F_DEPRECATED))
 				continue;
@@ -27,7 +28,7 @@ nf_tproxy_laddr6(struct sk_buff *skb, const struct in6_addr *user_laddr,
 			laddr = &ifa->addr;
 			break;
 		}
-		read_unlock_bh(&indev->lock);
+		read_unlock_bh(&indev->lock, bh);
 	}
 
 	return laddr ? laddr : daddr;

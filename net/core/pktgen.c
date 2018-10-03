@@ -2029,6 +2029,7 @@ static int pktgen_setup_dev(const struct pktgen_net *pn,
  */
 static void pktgen_setup_inject(struct pktgen_dev *pkt_dev)
 {
+	unsigned int bh;
 	int ntxq;
 
 	if (!pkt_dev->odev) {
@@ -2092,7 +2093,7 @@ static void pktgen_setup_inject(struct pktgen_dev *pkt_dev)
 			if (idev) {
 				struct inet6_ifaddr *ifp;
 
-				read_lock_bh(&idev->lock);
+				bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 				list_for_each_entry(ifp, &idev->addr_list, if_list) {
 					if ((ifp->scope & IFA_LINK) &&
 					    !(ifp->flags & IFA_F_TENTATIVE)) {
@@ -2101,7 +2102,7 @@ static void pktgen_setup_inject(struct pktgen_dev *pkt_dev)
 						break;
 					}
 				}
-				read_unlock_bh(&idev->lock);
+				read_unlock_bh(&idev->lock, bh);
 			}
 			rcu_read_unlock();
 			if (err)

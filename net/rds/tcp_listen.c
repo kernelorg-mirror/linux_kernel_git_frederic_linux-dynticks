@@ -254,11 +254,12 @@ out:
 
 void rds_tcp_listen_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	void (*ready)(struct sock *sk);
 
 	rdsdebug("listen data ready sk %p\n", sk);
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	ready = sk->sk_user_data;
 	if (!ready) { /* check for teardown race */
 		ready = sk->sk_data_ready;
@@ -280,13 +281,14 @@ void rds_tcp_listen_data_ready(struct sock *sk)
 		ready = rds_tcp_listen_sock_def_readable(sock_net(sk));
 
 out:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 	if (ready)
 		ready(sk);
 }
 
 struct socket *rds_tcp_listen_init(struct net *net, bool isv6)
 {
+	unsigned int bh;
 	struct socket *sock = NULL;
 	struct sockaddr_storage ss;
 	struct sockaddr_in6 *sin6;
@@ -305,10 +307,10 @@ struct socket *rds_tcp_listen_init(struct net *net, bool isv6)
 	sock->sk->sk_reuse = SK_CAN_REUSE;
 	rds_tcp_nonagle(sock);
 
-	write_lock_bh(&sock->sk->sk_callback_lock);
+	bh = write_lock_bh(&sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sock->sk->sk_user_data = sock->sk->sk_data_ready;
 	sock->sk->sk_data_ready = rds_tcp_listen_data_ready;
-	write_unlock_bh(&sock->sk->sk_callback_lock);
+	write_unlock_bh(&sock->sk->sk_callback_lock, bh);
 
 	if (isv6) {
 		sin6 = (struct sockaddr_in6 *)&ss;
@@ -346,6 +348,7 @@ out:
 
 void rds_tcp_listen_stop(struct socket *sock, struct work_struct *acceptor)
 {
+	unsigned int bh;
 	struct sock *sk;
 
 	if (!sock)
@@ -355,12 +358,12 @@ void rds_tcp_listen_stop(struct socket *sock, struct work_struct *acceptor)
 
 	/* serialize with and prevent further callbacks */
 	lock_sock(sk);
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	if (sk->sk_user_data) {
 		sk->sk_data_ready = sk->sk_user_data;
 		sk->sk_user_data = NULL;
 	}
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 	release_sock(sk);
 
 	/* wait for accepts to stop and close the socket */

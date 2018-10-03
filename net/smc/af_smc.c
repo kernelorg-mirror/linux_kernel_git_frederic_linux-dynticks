@@ -66,15 +66,16 @@ static struct smc_hashinfo smc_v6_hashinfo = {
 
 int smc_hash_sk(struct sock *sk)
 {
+	unsigned int bh;
 	struct smc_hashinfo *h = sk->sk_prot->h.smc_hash;
 	struct hlist_head *head;
 
 	head = &h->ht;
 
-	write_lock_bh(&h->lock);
+	bh = write_lock_bh(&h->lock, SOFTIRQ_ALL_MASK);
 	sk_add_node(sk, head);
 	sock_prot_inuse_add(sock_net(sk), sk->sk_prot, 1);
-	write_unlock_bh(&h->lock);
+	write_unlock_bh(&h->lock, bh);
 
 	return 0;
 }
@@ -82,12 +83,13 @@ EXPORT_SYMBOL_GPL(smc_hash_sk);
 
 void smc_unhash_sk(struct sock *sk)
 {
+	unsigned int bh;
 	struct smc_hashinfo *h = sk->sk_prot->h.smc_hash;
 
-	write_lock_bh(&h->lock);
+	bh = write_lock_bh(&h->lock, SOFTIRQ_ALL_MASK);
 	if (sk_del_node_init(sk))
 		sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
-	write_unlock_bh(&h->lock);
+	write_unlock_bh(&h->lock, bh);
 }
 EXPORT_SYMBOL_GPL(smc_unhash_sk);
 

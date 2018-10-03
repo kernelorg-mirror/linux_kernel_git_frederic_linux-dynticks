@@ -27,6 +27,7 @@
 void rxrpc_notify_socket(struct rxrpc_call *call)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct rxrpc_sock *rx;
 	struct sock *sk;
 
@@ -45,12 +46,12 @@ void rxrpc_notify_socket(struct rxrpc_call *call)
 			call->notify_rx(sk, call, call->user_call_ID);
 			spin_unlock_bh(&call->notify_lock, bh);
 		} else {
-			write_lock_bh(&rx->recvmsg_lock);
+			bh = write_lock_bh(&rx->recvmsg_lock, SOFTIRQ_ALL_MASK);
 			if (list_empty(&call->recvmsg_link)) {
 				rxrpc_get_call(call, rxrpc_call_got);
 				list_add_tail(&call->recvmsg_link, &rx->recvmsg_q);
 			}
-			write_unlock_bh(&rx->recvmsg_lock);
+			write_unlock_bh(&rx->recvmsg_lock, bh);
 
 			if (!sock_flag(sk, SOCK_DEAD)) {
 				_debug("call %ps", sk->sk_data_ready);
@@ -115,15 +116,16 @@ static int rxrpc_recvmsg_new_call(struct rxrpc_sock *rx,
 				  struct rxrpc_call *call,
 				  struct msghdr *msg, int flags)
 {
+	unsigned int bh;
 	int tmp = 0, ret;
 
 	ret = put_cmsg(msg, SOL_RXRPC, RXRPC_NEW_CALL, 0, &tmp);
 
 	if (ret == 0 && !(flags & MSG_PEEK)) {
 		_debug("to be accepted");
-		write_lock_bh(&rx->recvmsg_lock);
+		bh = write_lock_bh(&rx->recvmsg_lock, SOFTIRQ_ALL_MASK);
 		list_del_init(&call->recvmsg_link);
-		write_unlock_bh(&rx->recvmsg_lock);
+		write_unlock_bh(&rx->recvmsg_lock, bh);
 
 		rxrpc_get_call(call, rxrpc_call_got);
 		write_lock(&rx->call_lock);
@@ -140,6 +142,7 @@ static int rxrpc_recvmsg_new_call(struct rxrpc_sock *rx,
  */
 static void rxrpc_end_rx_phase(struct rxrpc_call *call, rxrpc_serial_t serial)
 {
+	unsigned int bh;
 	_enter("%d,%s", call->debug_id, rxrpc_call_states[call->state]);
 
 	trace_rxrpc_receive(call, rxrpc_receive_end, 0, call->rx_top);
@@ -151,24 +154,24 @@ static void rxrpc_end_rx_phase(struct rxrpc_call *call, rxrpc_serial_t serial)
 		//rxrpc_send_ack_packet(call, false, NULL);
 	}
 
-	write_lock_bh(&call->state_lock);
+	bh = write_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 
 	switch (call->state) {
 	case RXRPC_CALL_CLIENT_RECV_REPLY:
 		__rxrpc_call_completed(call);
-		write_unlock_bh(&call->state_lock);
+		write_unlock_bh(&call->state_lock, bh);
 		break;
 
 	case RXRPC_CALL_SERVER_RECV_REQUEST:
 		call->tx_phase = true;
 		call->state = RXRPC_CALL_SERVER_ACK_REQUEST;
 		call->expect_req_by = jiffies + MAX_JIFFY_OFFSET;
-		write_unlock_bh(&call->state_lock);
+		write_unlock_bh(&call->state_lock, bh);
 		rxrpc_propose_ACK(call, RXRPC_ACK_DELAY, 0, serial, false, true,
 				  rxrpc_propose_ack_processing_op);
 		break;
 	default:
-		write_unlock_bh(&call->state_lock);
+		write_unlock_bh(&call->state_lock, bh);
 		break;
 	}
 }
@@ -430,6 +433,7 @@ done:
 int rxrpc_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 		  int flags)
 {
+	unsigned int bh;
 	struct rxrpc_call *call;
 	struct rxrpc_sock *rx = rxrpc_sk(sock->sk);
 	struct list_head *l;
@@ -487,14 +491,14 @@ try_again:
 	/* Find the next call and dequeue it if we're not just peeking.  If we
 	 * do dequeue it, that comes with a ref that we will need to release.
 	 */
-	write_lock_bh(&rx->recvmsg_lock);
+	bh = write_lock_bh(&rx->recvmsg_lock, SOFTIRQ_ALL_MASK);
 	l = rx->recvmsg_q.next;
 	call = list_entry(l, struct rxrpc_call, recvmsg_link);
 	if (!(flags & MSG_PEEK))
 		list_del_init(&call->recvmsg_link);
 	else
 		rxrpc_get_call(call, rxrpc_call_got);
-	write_unlock_bh(&rx->recvmsg_lock);
+	write_unlock_bh(&rx->recvmsg_lock, bh);
 
 	trace_rxrpc_recvmsg(call, rxrpc_recvmsg_dequeue, 0, 0, 0, 0);
 
@@ -588,7 +592,7 @@ error_unlock_call:
 
 error_requeue_call:
 	if (!(flags & MSG_PEEK)) {
-		write_lock_bh(&rx->recvmsg_lock);
+		write_lock_bh(&rx->recvmsg_lock, SOFTIRQ_ALL_MASK);
 		list_add(&call->recvmsg_link, &rx->recvmsg_q);
 		write_unlock_bh(&rx->recvmsg_lock);
 		trace_rxrpc_recvmsg(call, rxrpc_recvmsg_requeue, 0, 0, 0, 0);

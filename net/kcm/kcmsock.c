@@ -348,15 +348,16 @@ static void unreserve_rx_kcm(struct kcm_psock *psock,
 /* Lower sock lock held */
 static void psock_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	struct kcm_psock *psock;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 	psock = (struct kcm_psock *)sk->sk_user_data;
 	if (likely(psock))
 		strp_data_ready(&psock->strp);
 
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 /* Called with lower sock held */
@@ -411,11 +412,12 @@ static void psock_state_change(struct sock *sk)
 static void psock_write_space(struct sock *sk)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct kcm_psock *psock;
 	struct kcm_mux *mux;
 	struct kcm_sock *kcm;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 	psock = (struct kcm_psock *)sk->sk_user_data;
 	if (unlikely(!psock))
@@ -431,7 +433,7 @@ static void psock_write_space(struct sock *sk)
 
 	spin_unlock_bh(&mux->lock, bh);
 out:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static void unreserve_psock(struct kcm_sock *kcm);
@@ -1382,6 +1384,7 @@ static int kcm_attach(struct socket *sock, struct socket *csock,
 		      struct bpf_prog *prog)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct kcm_sock *kcm = kcm_sk(sock->sk);
 	struct kcm_mux *mux = kcm->mux;
 	struct sock *csk;
@@ -1430,13 +1433,13 @@ static int kcm_attach(struct socket *sock, struct socket *csock,
 		goto out;
 	}
 
-	write_lock_bh(&csk->sk_callback_lock);
+	bh = write_lock_bh(&csk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 	/* Check if sk_user_data is aready by KCM or someone else.
 	 * Must be done under lock to prevent race conditions.
 	 */
 	if (csk->sk_user_data) {
-		write_unlock_bh(&csk->sk_callback_lock);
+		write_unlock_bh(&csk->sk_callback_lock, bh);
 		strp_stop(&psock->strp);
 		strp_done(&psock->strp);
 		kmem_cache_free(kcm_psockp, psock);
@@ -1452,7 +1455,7 @@ static int kcm_attach(struct socket *sock, struct socket *csock,
 	csk->sk_write_space = psock_write_space;
 	csk->sk_state_change = psock_state_change;
 
-	write_unlock_bh(&csk->sk_callback_lock);
+	write_unlock_bh(&csk->sk_callback_lock, bh);
 
 	sock_hold(csk);
 
@@ -1516,6 +1519,7 @@ out:
 static void kcm_unattach(struct kcm_psock *psock)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct sock *csk = psock->sk;
 	struct kcm_mux *mux = psock->mux;
 
@@ -1524,7 +1528,7 @@ static void kcm_unattach(struct kcm_psock *psock)
 	/* Stop getting callbacks from TCP socket. After this there should
 	 * be no way to reserve a kcm for this psock.
 	 */
-	write_lock_bh(&csk->sk_callback_lock);
+	bh = write_lock_bh(&csk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	csk->sk_user_data = NULL;
 	csk->sk_data_ready = psock->save_data_ready;
 	csk->sk_write_space = psock->save_write_space;
@@ -1532,7 +1536,7 @@ static void kcm_unattach(struct kcm_psock *psock)
 	strp_stop(&psock->strp);
 
 	if (WARN_ON(psock->rx_kcm)) {
-		write_unlock_bh(&csk->sk_callback_lock);
+		write_unlock_bh(&csk->sk_callback_lock, bh);
 		release_sock(csk);
 		return;
 	}
@@ -1551,7 +1555,7 @@ static void kcm_unattach(struct kcm_psock *psock)
 
 	spin_unlock_bh(&mux->rx_lock, bh);
 
-	write_unlock_bh(&csk->sk_callback_lock);
+	write_unlock_bh(&csk->sk_callback_lock, bh);
 
 	/* Call strp_done without sock lock */
 	release_sock(csk);

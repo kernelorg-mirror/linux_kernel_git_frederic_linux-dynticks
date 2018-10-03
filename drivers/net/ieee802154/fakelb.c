@@ -57,20 +57,22 @@ static int fakelb_hw_ed(struct ieee802154_hw *hw, u8 *level)
 
 static int fakelb_hw_channel(struct ieee802154_hw *hw, u8 page, u8 channel)
 {
+	unsigned int bh;
 	struct fakelb_phy *phy = hw->priv;
 
-	write_lock_bh(&fakelb_ifup_phys_lock);
+	bh = write_lock_bh(&fakelb_ifup_phys_lock, SOFTIRQ_ALL_MASK);
 	phy->page = page;
 	phy->channel = channel;
-	write_unlock_bh(&fakelb_ifup_phys_lock);
+	write_unlock_bh(&fakelb_ifup_phys_lock, bh);
 	return 0;
 }
 
 static int fakelb_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct fakelb_phy *current_phy = hw->priv, *phy;
 
-	read_lock_bh(&fakelb_ifup_phys_lock);
+	bh = read_lock_bh(&fakelb_ifup_phys_lock, SOFTIRQ_ALL_MASK);
 	WARN_ON(current_phy->suspended);
 	list_for_each_entry(phy, &fakelb_ifup_phys, list_ifup) {
 		if (current_phy == phy)
@@ -84,7 +86,7 @@ static int fakelb_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 				ieee802154_rx_irqsafe(phy->hw, newskb, 0xcc);
 		}
 	}
-	read_unlock_bh(&fakelb_ifup_phys_lock);
+	read_unlock_bh(&fakelb_ifup_phys_lock, bh);
 
 	ieee802154_xmit_complete(hw, skb, false);
 	return 0;
@@ -92,24 +94,26 @@ static int fakelb_hw_xmit(struct ieee802154_hw *hw, struct sk_buff *skb)
 
 static int fakelb_hw_start(struct ieee802154_hw *hw)
 {
+	unsigned int bh;
 	struct fakelb_phy *phy = hw->priv;
 
-	write_lock_bh(&fakelb_ifup_phys_lock);
+	bh = write_lock_bh(&fakelb_ifup_phys_lock, SOFTIRQ_ALL_MASK);
 	phy->suspended = false;
 	list_add(&phy->list_ifup, &fakelb_ifup_phys);
-	write_unlock_bh(&fakelb_ifup_phys_lock);
+	write_unlock_bh(&fakelb_ifup_phys_lock, bh);
 
 	return 0;
 }
 
 static void fakelb_hw_stop(struct ieee802154_hw *hw)
 {
+	unsigned int bh;
 	struct fakelb_phy *phy = hw->priv;
 
-	write_lock_bh(&fakelb_ifup_phys_lock);
+	bh = write_lock_bh(&fakelb_ifup_phys_lock, SOFTIRQ_ALL_MASK);
 	phy->suspended = true;
 	list_del(&phy->list_ifup);
-	write_unlock_bh(&fakelb_ifup_phys_lock);
+	write_unlock_bh(&fakelb_ifup_phys_lock, bh);
 }
 
 static int

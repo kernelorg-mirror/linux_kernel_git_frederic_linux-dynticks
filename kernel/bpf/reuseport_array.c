@@ -20,9 +20,10 @@ static struct reuseport_array *reuseport_array(struct bpf_map *map)
 /* The caller must hold the reuseport_lock */
 void bpf_sk_reuseport_detach(struct sock *sk)
 {
+	unsigned int bh;
 	struct sock __rcu **socks;
 
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	socks = sk->sk_user_data;
 	if (socks) {
 		WRITE_ONCE(sk->sk_user_data, NULL);
@@ -34,7 +35,7 @@ void bpf_sk_reuseport_detach(struct sock *sk)
 		 */
 		RCU_INIT_POINTER(*socks, NULL);
 	}
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static int reuseport_array_alloc_check(union bpf_attr *attr)
@@ -61,6 +62,7 @@ static void *reuseport_array_lookup_elem(struct bpf_map *map, void *key)
 static int reuseport_array_delete_elem(struct bpf_map *map, void *key)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct reuseport_array *array = reuseport_array(map);
 	u32 index = *(u32 *)key;
 	struct sock *sk;
@@ -77,10 +79,10 @@ static int reuseport_array_delete_elem(struct bpf_map *map, void *key)
 	sk = rcu_dereference_protected(array->ptrs[index],
 				       lockdep_is_held(&reuseport_lock));
 	if (sk) {
-		write_lock_bh(&sk->sk_callback_lock);
+		bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		WRITE_ONCE(sk->sk_user_data, NULL);
 		RCU_INIT_POINTER(array->ptrs[index], NULL);
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 		err = 0;
 	} else {
 		err = -ENOENT;
@@ -93,6 +95,7 @@ static int reuseport_array_delete_elem(struct bpf_map *map, void *key)
 
 static void reuseport_array_free(struct bpf_map *map)
 {
+	unsigned int bh;
 	struct reuseport_array *array = reuseport_array(map);
 	struct sock *sk;
 	u32 i;
@@ -128,14 +131,14 @@ static void reuseport_array_free(struct bpf_map *map)
 	for (i = 0; i < map->max_entries; i++) {
 		sk = rcu_dereference(array->ptrs[i]);
 		if (sk) {
-			write_lock_bh(&sk->sk_callback_lock);
+			bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 			/*
 			 * No need for WRITE_ONCE(). At this point,
 			 * no one is reading it without taking the
 			 * sk->sk_callback_lock.
 			 */
 			sk->sk_user_data = NULL;
-			write_unlock_bh(&sk->sk_callback_lock);
+			write_unlock_bh(&sk->sk_callback_lock, bh);
 			RCU_INIT_POINTER(array->ptrs[i], NULL);
 		}
 	}
@@ -253,6 +256,7 @@ int bpf_fd_reuseport_array_update_elem(struct bpf_map *map, void *key,
 				       void *value, u64 map_flags)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct reuseport_array *array = reuseport_array(map);
 	struct sock *free_osk = NULL, *osk, *nsk;
 	struct sock_reuseport *reuse;
@@ -300,7 +304,7 @@ int bpf_fd_reuseport_array_update_elem(struct bpf_map *map, void *key,
 	 * but it is done under sk_callback_lock also
 	 * for simplicity reason.
 	 */
-	write_lock_bh(&nsk->sk_callback_lock);
+	bh = write_lock_bh(&nsk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 	osk = rcu_dereference_protected(array->ptrs[index],
 					lockdep_is_held(&reuseport_lock));
@@ -321,10 +325,10 @@ int bpf_fd_reuseport_array_update_elem(struct bpf_map *map, void *key,
 	err = 0;
 
 put_file_unlock:
-	write_unlock_bh(&nsk->sk_callback_lock);
+	write_unlock_bh(&nsk->sk_callback_lock, bh);
 
 	if (free_osk) {
-		write_lock_bh(&free_osk->sk_callback_lock);
+		write_lock_bh(&free_osk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		WRITE_ONCE(free_osk->sk_user_data, NULL);
 		write_unlock_bh(&free_osk->sk_callback_lock);
 	}

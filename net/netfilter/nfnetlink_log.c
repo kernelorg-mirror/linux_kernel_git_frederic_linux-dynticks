@@ -412,6 +412,7 @@ __build_packet_message(struct nfnl_log_net *log,
 			const struct nfnl_ct_hook *nfnl_ct,
 			struct nf_conn *ct, enum ip_conntrack_info ctinfo)
 {
+	unsigned int bh;
 	struct nfulnl_msg_packet_hdr pmsg;
 	struct nlmsghdr *nlh;
 	struct nfgenmsg *nfmsg;
@@ -562,19 +563,19 @@ __build_packet_message(struct nfnl_log_net *log,
 	/* UID */
 	sk = skb->sk;
 	if (sk && sk_fullsock(sk)) {
-		read_lock_bh(&sk->sk_callback_lock);
+		bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		if (sk->sk_socket && sk->sk_socket->file) {
 			struct file *file = sk->sk_socket->file;
 			const struct cred *cred = file->f_cred;
 			struct user_namespace *user_ns = inst->peer_user_ns;
 			__be32 uid = htonl(from_kuid_munged(user_ns, cred->fsuid));
 			__be32 gid = htonl(from_kgid_munged(user_ns, cred->fsgid));
-			read_unlock_bh(&sk->sk_callback_lock);
+			read_unlock_bh(&sk->sk_callback_lock, bh);
 			if (nla_put_be32(inst->skb, NFULA_UID, uid) ||
 			    nla_put_be32(inst->skb, NFULA_GID, gid))
 				goto nla_put_failure;
 		} else
-			read_unlock_bh(&sk->sk_callback_lock);
+			read_unlock_bh(&sk->sk_callback_lock, bh);
 	}
 
 	/* local sequence number */

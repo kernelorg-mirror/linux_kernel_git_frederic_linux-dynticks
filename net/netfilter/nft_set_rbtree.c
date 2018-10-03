@@ -98,6 +98,7 @@ out:
 static bool nft_rbtree_lookup(const struct net *net, const struct nft_set *set,
 			      const u32 *key, const struct nft_set_ext **ext)
 {
+	unsigned int bh;
 	struct nft_rbtree *priv = nft_set_priv(set);
 	unsigned int seq = read_seqcount_begin(&priv->count);
 	bool ret;
@@ -106,10 +107,10 @@ static bool nft_rbtree_lookup(const struct net *net, const struct nft_set *set,
 	if (ret || !read_seqcount_retry(&priv->count, seq))
 		return ret;
 
-	read_lock_bh(&priv->lock);
+	bh = read_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	seq = read_seqcount_begin(&priv->count);
 	ret = __nft_rbtree_lookup(net, set, key, ext, seq);
-	read_unlock_bh(&priv->lock);
+	read_unlock_bh(&priv->lock, bh);
 
 	return ret;
 }
@@ -165,6 +166,7 @@ static bool __nft_rbtree_get(const struct net *net, const struct nft_set *set,
 static void *nft_rbtree_get(const struct net *net, const struct nft_set *set,
 			    const struct nft_set_elem *elem, unsigned int flags)
 {
+	unsigned int bh;
 	struct nft_rbtree *priv = nft_set_priv(set);
 	unsigned int seq = read_seqcount_begin(&priv->count);
 	struct nft_rbtree_elem *rbe = ERR_PTR(-ENOENT);
@@ -176,12 +178,12 @@ static void *nft_rbtree_get(const struct net *net, const struct nft_set *set,
 	if (ret || !read_seqcount_retry(&priv->count, seq))
 		return rbe;
 
-	read_lock_bh(&priv->lock);
+	bh = read_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	seq = read_seqcount_begin(&priv->count);
 	ret = __nft_rbtree_get(net, set, key, &rbe, seq, flags, genmask);
 	if (!ret)
 		rbe = ERR_PTR(-ENOENT);
-	read_unlock_bh(&priv->lock);
+	read_unlock_bh(&priv->lock, bh);
 
 	return rbe;
 }
@@ -232,15 +234,16 @@ static int nft_rbtree_insert(const struct net *net, const struct nft_set *set,
 			     const struct nft_set_elem *elem,
 			     struct nft_set_ext **ext)
 {
+	unsigned int bh;
 	struct nft_rbtree *priv = nft_set_priv(set);
 	struct nft_rbtree_elem *rbe = elem->priv;
 	int err;
 
-	write_lock_bh(&priv->lock);
+	bh = write_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	write_seqcount_begin(&priv->count);
 	err = __nft_rbtree_insert(net, set, rbe, ext);
 	write_seqcount_end(&priv->count);
-	write_unlock_bh(&priv->lock);
+	write_unlock_bh(&priv->lock, bh);
 
 	return err;
 }
@@ -249,14 +252,15 @@ static void nft_rbtree_remove(const struct net *net,
 			      const struct nft_set *set,
 			      const struct nft_set_elem *elem)
 {
+	unsigned int bh;
 	struct nft_rbtree *priv = nft_set_priv(set);
 	struct nft_rbtree_elem *rbe = elem->priv;
 
-	write_lock_bh(&priv->lock);
+	bh = write_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	write_seqcount_begin(&priv->count);
 	rb_erase(&rbe->node, &priv->root);
 	write_seqcount_end(&priv->count);
-	write_unlock_bh(&priv->lock);
+	write_unlock_bh(&priv->lock, bh);
 }
 
 static void nft_rbtree_activate(const struct net *net,
@@ -326,12 +330,13 @@ static void nft_rbtree_walk(const struct nft_ctx *ctx,
 			    struct nft_set *set,
 			    struct nft_set_iter *iter)
 {
+	unsigned int bh;
 	struct nft_rbtree *priv = nft_set_priv(set);
 	struct nft_rbtree_elem *rbe;
 	struct nft_set_elem elem;
 	struct rb_node *node;
 
-	read_lock_bh(&priv->lock);
+	bh = read_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	for (node = rb_first(&priv->root); node != NULL; node = rb_next(node)) {
 		rbe = rb_entry(node, struct nft_rbtree_elem, node);
 
@@ -344,17 +349,18 @@ static void nft_rbtree_walk(const struct nft_ctx *ctx,
 
 		iter->err = iter->fn(ctx, set, iter, &elem);
 		if (iter->err < 0) {
-			read_unlock_bh(&priv->lock);
+			read_unlock_bh(&priv->lock, bh);
 			return;
 		}
 cont:
 		iter->count++;
 	}
-	read_unlock_bh(&priv->lock);
+	read_unlock_bh(&priv->lock, bh);
 }
 
 static void nft_rbtree_gc(struct work_struct *work)
 {
+	unsigned int bh;
 	struct nft_set_gc_batch *gcb = NULL;
 	struct rb_node *node, *prev = NULL;
 	struct nft_rbtree_elem *rbe;
@@ -365,7 +371,7 @@ static void nft_rbtree_gc(struct work_struct *work)
 	priv = container_of(work, struct nft_rbtree, gc_work.work);
 	set  = nft_set_container_of(priv);
 
-	write_lock_bh(&priv->lock);
+	bh = write_lock_bh(&priv->lock, SOFTIRQ_ALL_MASK);
 	write_seqcount_begin(&priv->count);
 	for (node = rb_first(&priv->root); node != NULL; node = rb_next(node)) {
 		rbe = rb_entry(node, struct nft_rbtree_elem, node);
@@ -403,7 +409,7 @@ static void nft_rbtree_gc(struct work_struct *work)
 		}
 	}
 	write_seqcount_end(&priv->count);
-	write_unlock_bh(&priv->lock);
+	write_unlock_bh(&priv->lock, bh);
 
 	nft_set_gc_batch_complete(gcb);
 

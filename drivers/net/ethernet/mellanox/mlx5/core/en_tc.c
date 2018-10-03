@@ -2307,6 +2307,7 @@ static int mlx5e_create_encap_header_ipv4(struct mlx5e_priv *priv,
 					  struct net_device *mirred_dev,
 					  struct mlx5e_encap_entry *e)
 {
+	unsigned int bh;
 	int max_encap_size = MLX5_CAP_ESW(priv->mdev, max_encap_header_size);
 	int ipv4_encap_size = ETH_HLEN + sizeof(struct iphdr) + VXLAN_HLEN;
 	struct ip_tunnel_key *tun_key = &e->tun_info.key;
@@ -2366,10 +2367,10 @@ static int mlx5e_create_encap_header_ipv4(struct mlx5e_priv *priv,
 	if (err)
 		goto free_encap;
 
-	read_lock_bh(&n->lock);
+	bh = read_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 	nud_state = n->nud_state;
 	ether_addr_copy(e->h_dest, n->ha);
-	read_unlock_bh(&n->lock);
+	read_unlock_bh(&n->lock, bh);
 
 	switch (e->tunnel_type) {
 	case MLX5_HEADER_TYPE_VXLAN:
@@ -2416,6 +2417,7 @@ static int mlx5e_create_encap_header_ipv6(struct mlx5e_priv *priv,
 					  struct net_device *mirred_dev,
 					  struct mlx5e_encap_entry *e)
 {
+	unsigned int bh;
 	int max_encap_size = MLX5_CAP_ESW(priv->mdev, max_encap_header_size);
 	int ipv6_encap_size = ETH_HLEN + sizeof(struct ipv6hdr) + VXLAN_HLEN;
 	struct ip_tunnel_key *tun_key = &e->tun_info.key;
@@ -2475,10 +2477,10 @@ static int mlx5e_create_encap_header_ipv6(struct mlx5e_priv *priv,
 	if (err)
 		goto free_encap;
 
-	read_lock_bh(&n->lock);
+	bh = read_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 	nud_state = n->nud_state;
 	ether_addr_copy(e->h_dest, n->ha);
-	read_unlock_bh(&n->lock);
+	read_unlock_bh(&n->lock, bh);
 
 	switch (e->tunnel_type) {
 	case MLX5_HEADER_TYPE_VXLAN:

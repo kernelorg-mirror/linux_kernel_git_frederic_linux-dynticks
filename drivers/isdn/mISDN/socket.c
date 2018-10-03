@@ -54,16 +54,18 @@ _l2_alloc_skb(unsigned int len, gfp_t gfp_mask)
 static void
 mISDN_sock_link(struct mISDN_sock_list *l, struct sock *sk)
 {
-	write_lock_bh(&l->lock);
+	unsigned int bh;
+	bh = write_lock_bh(&l->lock, SOFTIRQ_ALL_MASK);
 	sk_add_node(sk, &l->head);
-	write_unlock_bh(&l->lock);
+	write_unlock_bh(&l->lock, bh);
 }
 
 static void mISDN_sock_unlink(struct mISDN_sock_list *l, struct sock *sk)
 {
-	write_lock_bh(&l->lock);
+	unsigned int bh;
+	bh = write_lock_bh(&l->lock, SOFTIRQ_ALL_MASK);
 	sk_del_node_init(sk);
-	write_unlock_bh(&l->lock);
+	write_unlock_bh(&l->lock, bh);
 }
 
 static int
@@ -474,6 +476,7 @@ static int data_sock_getsockopt(struct socket *sock, int level, int optname,
 static int
 data_sock_bind(struct socket *sock, struct sockaddr *addr, int addr_len)
 {
+	unsigned int bh;
 	struct sockaddr_mISDN *maddr = (struct sockaddr_mISDN *) addr;
 	struct sock *sk = sock->sk;
 	struct sock *csk;
@@ -499,7 +502,7 @@ data_sock_bind(struct socket *sock, struct sockaddr *addr, int addr_len)
 	}
 
 	if (sk->sk_protocol < ISDN_P_B_START) {
-		read_lock_bh(&data_sockets.lock);
+		bh = read_lock_bh(&data_sockets.lock, SOFTIRQ_ALL_MASK);
 		sk_for_each(csk, &data_sockets.head) {
 			if (sk == csk)
 				continue;
@@ -510,11 +513,11 @@ data_sock_bind(struct socket *sock, struct sockaddr *addr, int addr_len)
 			if (IS_ISDN_P_TE(csk->sk_protocol)
 			    == IS_ISDN_P_TE(sk->sk_protocol))
 				continue;
-			read_unlock_bh(&data_sockets.lock);
+			read_unlock_bh(&data_sockets.lock, bh);
 			err = -EBUSY;
 			goto done;
 		}
-		read_unlock_bh(&data_sockets.lock);
+		read_unlock_bh(&data_sockets.lock, bh);
 	}
 
 	_pms(sk)->ch.send = mISDN_send;

@@ -461,6 +461,7 @@ struct rxrpc_call *rxrpc_accept_call(struct rxrpc_sock *rx,
 	__releases(&rx->sk.sk_lock.slock)
 	__acquires(call->user_mutex)
 {
+	unsigned int bh;
 	struct rxrpc_call *call;
 	struct rb_node *parent, **pp;
 	int ret;
@@ -531,7 +532,7 @@ struct rxrpc_call *rxrpc_accept_call(struct rxrpc_sock *rx,
 			BUG();
 	}
 
-	write_lock_bh(&call->state_lock);
+	bh = write_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 	switch (call->state) {
 	case RXRPC_CALL_SERVER_ACCEPTING:
 		call->state = RXRPC_CALL_SERVER_RECV_REQUEST;
@@ -552,7 +553,7 @@ struct rxrpc_call *rxrpc_accept_call(struct rxrpc_sock *rx,
 	if (test_and_set_bit(RXRPC_CALL_HAS_USERID, &call->flags))
 		BUG();
 
-	write_unlock_bh(&call->state_lock);
+	write_unlock_bh(&call->state_lock, bh);
 	write_unlock(&rx->call_lock);
 	rxrpc_notify_socket(call);
 	rxrpc_service_prealloc(rx, GFP_KERNEL);
@@ -562,7 +563,7 @@ struct rxrpc_call *rxrpc_accept_call(struct rxrpc_sock *rx,
 
 out_release:
 	_debug("release %p", call);
-	write_unlock_bh(&call->state_lock);
+	write_unlock_bh(&call->state_lock, bh);
 	write_unlock(&rx->call_lock);
 	rxrpc_release_call(rx, call);
 	rxrpc_put_call(call, rxrpc_call_put);
@@ -584,6 +585,7 @@ out:
  */
 int rxrpc_reject_call(struct rxrpc_sock *rx)
 {
+	unsigned int bh;
 	struct rxrpc_call *call;
 	bool abort = false;
 	int ret;
@@ -608,7 +610,7 @@ int rxrpc_reject_call(struct rxrpc_sock *rx)
 	sk_acceptq_removed(&rx->sk);
 	rxrpc_see_call(call);
 
-	write_lock_bh(&call->state_lock);
+	bh = write_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 	switch (call->state) {
 	case RXRPC_CALL_SERVER_ACCEPTING:
 		__rxrpc_abort_call("REJ", call, 1, RX_USER_ABORT, -ECONNABORTED);
@@ -622,7 +624,7 @@ int rxrpc_reject_call(struct rxrpc_sock *rx)
 	}
 
 out_discard:
-	write_unlock_bh(&call->state_lock);
+	write_unlock_bh(&call->state_lock, bh);
 	write_unlock(&rx->call_lock);
 	if (abort) {
 		rxrpc_send_abort_packet(call);

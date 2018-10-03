@@ -81,13 +81,14 @@ static inline struct hlist_nulls_head *ping_hashslot(struct ping_table *table,
 
 int ping_get_port(struct sock *sk, unsigned short ident)
 {
+	unsigned int bh;
 	struct hlist_nulls_node *node;
 	struct hlist_nulls_head *hlist;
 	struct inet_sock *isk, *isk2;
 	struct sock *sk2 = NULL;
 
 	isk = inet_sk(sk);
-	write_lock_bh(&ping_table.lock);
+	bh = write_lock_bh(&ping_table.lock, SOFTIRQ_ALL_MASK);
 	if (ident == 0) {
 		u32 i;
 		u16 result = ping_port_rover + 1;
@@ -136,11 +137,11 @@ next_port:
 		hlist_nulls_add_head(&sk->sk_nulls_node, hlist);
 		sock_prot_inuse_add(sock_net(sk), sk->sk_prot, 1);
 	}
-	write_unlock_bh(&ping_table.lock);
+	write_unlock_bh(&ping_table.lock, bh);
 	return 0;
 
 fail:
-	write_unlock_bh(&ping_table.lock);
+	write_unlock_bh(&ping_table.lock, bh);
 	return 1;
 }
 EXPORT_SYMBOL_GPL(ping_get_port);
@@ -155,10 +156,11 @@ int ping_hash(struct sock *sk)
 
 void ping_unhash(struct sock *sk)
 {
+	unsigned int bh;
 	struct inet_sock *isk = inet_sk(sk);
 
 	pr_debug("ping_unhash(isk=%p,isk->num=%u)\n", isk, isk->inet_num);
-	write_lock_bh(&ping_table.lock);
+	bh = write_lock_bh(&ping_table.lock, SOFTIRQ_ALL_MASK);
 	if (sk_hashed(sk)) {
 		hlist_nulls_del(&sk->sk_nulls_node);
 		sk_nulls_node_init(&sk->sk_nulls_node);
@@ -167,12 +169,13 @@ void ping_unhash(struct sock *sk)
 		isk->inet_sport = 0;
 		sock_prot_inuse_add(sock_net(sk), sk->sk_prot, -1);
 	}
-	write_unlock_bh(&ping_table.lock);
+	write_unlock_bh(&ping_table.lock, bh);
 }
 EXPORT_SYMBOL_GPL(ping_unhash);
 
 static struct sock *ping_lookup(struct net *net, struct sk_buff *skb, u16 ident)
 {
+	unsigned int bh;
 	struct hlist_nulls_head *hslot = ping_hashslot(&ping_table, net, ident);
 	struct sock *sk = NULL;
 	struct inet_sock *isk;
@@ -189,7 +192,7 @@ static struct sock *ping_lookup(struct net *net, struct sk_buff *skb, u16 ident)
 #endif
 	}
 
-	read_lock_bh(&ping_table.lock);
+	bh = read_lock_bh(&ping_table.lock, SOFTIRQ_ALL_MASK);
 
 	ping_portaddr_for_each_entry(sk, hnode, hslot) {
 		isk = inet_sk(sk);
@@ -234,7 +237,7 @@ static struct sock *ping_lookup(struct net *net, struct sk_buff *skb, u16 ident)
 
 	sk = NULL;
 exit:
-	read_unlock_bh(&ping_table.lock);
+	read_unlock_bh(&ping_table.lock, bh);
 
 	return sk;
 }
@@ -1071,7 +1074,7 @@ void *ping_seq_start(struct seq_file *seq, loff_t *pos, sa_family_t family)
 	state->bucket = 0;
 	state->family = family;
 
-	read_lock_bh(&ping_table.lock);
+	state->bh = read_lock_bh(&ping_table.lock, SOFTIRQ_ALL_MASK);
 
 	return *pos ? ping_get_idx(seq, *pos-1) : SEQ_START_TOKEN;
 }
@@ -1099,7 +1102,8 @@ EXPORT_SYMBOL_GPL(ping_seq_next);
 void ping_seq_stop(struct seq_file *seq, void *v)
 	__releases(ping_table.lock)
 {
-	read_unlock_bh(&ping_table.lock);
+	struct ping_iter_state *state = seq->private;
+	read_unlock_bh(&ping_table.lock, state->bh);
 }
 EXPORT_SYMBOL_GPL(ping_seq_stop);
 

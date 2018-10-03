@@ -1061,19 +1061,20 @@ EXPORT_SYMBOL(cxgb3_ofld_send);
 
 static int is_offloading(struct net_device *dev)
 {
+	unsigned int bh;
 	struct adapter *adapter;
 	int i;
 
-	read_lock_bh(&adapter_list_lock);
+	bh = read_lock_bh(&adapter_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(adapter, &adapter_list, adapter_list) {
 		for_each_port(adapter, i) {
 			if (dev == adapter->port[i]) {
-				read_unlock_bh(&adapter_list_lock);
+				read_unlock_bh(&adapter_list_lock, bh);
 				return 1;
 			}
 		}
 	}
-	read_unlock_bh(&adapter_list_lock);
+	read_unlock_bh(&adapter_list_lock, bh);
 	return 0;
 }
 
@@ -1209,16 +1210,18 @@ static void free_tid_maps(struct tid_info *t)
 
 static inline void add_adapter(struct adapter *adap)
 {
-	write_lock_bh(&adapter_list_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&adapter_list_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&adap->adapter_list, &adapter_list);
-	write_unlock_bh(&adapter_list_lock);
+	write_unlock_bh(&adapter_list_lock, bh);
 }
 
 static inline void remove_adapter(struct adapter *adap)
 {
-	write_lock_bh(&adapter_list_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&adapter_list_lock, SOFTIRQ_ALL_MASK);
 	list_del(&adap->adapter_list);
-	write_unlock_bh(&adapter_list_lock);
+	write_unlock_bh(&adapter_list_lock, bh);
 }
 
 int cxgb3_offload_activate(struct adapter *adapter)

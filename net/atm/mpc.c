@@ -1204,6 +1204,7 @@ static void MPOA_res_reply_rcvd(struct k_message *msg, struct mpoa_client *mpc)
 
 static void ingress_purge_rcvd(struct k_message *msg, struct mpoa_client *mpc)
 {
+	unsigned int bh;
 	__be32 dst_ip = msg->content.in_info.in_dst_ip;
 	__be32 mask = msg->ip_mask;
 	in_cache_entry *entry = mpc->in_ops->get_with_mask(dst_ip, mpc, mask);
@@ -1217,9 +1218,9 @@ static void ingress_purge_rcvd(struct k_message *msg, struct mpoa_client *mpc)
 	do {
 		dprintk("(%s) removing an ingress entry, ip = %pI4\n",
 			mpc->dev->name, &dst_ip);
-		write_lock_bh(&mpc->ingress_lock);
+		bh = write_lock_bh(&mpc->ingress_lock, SOFTIRQ_ALL_MASK);
 		mpc->in_ops->remove_entry(entry, mpc);
-		write_unlock_bh(&mpc->ingress_lock);
+		write_unlock_bh(&mpc->ingress_lock, bh);
 		mpc->in_ops->put(entry);
 		entry = mpc->in_ops->get_with_mask(dst_ip, mpc, mask);
 	} while (entry != NULL);

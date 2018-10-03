@@ -661,12 +661,13 @@ out:
  */
 static void sixpack_close(struct tty_struct *tty)
 {
+	unsigned int bh;
 	struct sixpack *sp;
 
-	write_lock_bh(&disc_data_lock);
+	bh = write_lock_bh(&disc_data_lock, SOFTIRQ_ALL_MASK);
 	sp = tty->disc_data;
 	tty->disc_data = NULL;
-	write_unlock_bh(&disc_data_lock);
+	write_unlock_bh(&disc_data_lock, bh);
 	if (!sp)
 		return;
 

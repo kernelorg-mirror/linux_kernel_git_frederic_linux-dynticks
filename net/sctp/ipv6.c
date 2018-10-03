@@ -415,6 +415,7 @@ static void sctp_v6_get_saddr(struct sctp_sock *sk,
 static void sctp_v6_copy_addrlist(struct list_head *addrlist,
 				  struct net_device *dev)
 {
+	unsigned int bh;
 	struct inet6_dev *in6_dev;
 	struct inet6_ifaddr *ifp;
 	struct sctp_sockaddr_entry *addr;
@@ -425,7 +426,7 @@ static void sctp_v6_copy_addrlist(struct list_head *addrlist,
 		return;
 	}
 
-	read_lock_bh(&in6_dev->lock);
+	bh = read_lock_bh(&in6_dev->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ifp, &in6_dev->addr_list, if_list) {
 		/* Add the address to the local list.  */
 		addr = kzalloc(sizeof(*addr), GFP_ATOMIC);
@@ -440,7 +441,7 @@ static void sctp_v6_copy_addrlist(struct list_head *addrlist,
 		}
 	}
 
-	read_unlock_bh(&in6_dev->lock);
+	read_unlock_bh(&in6_dev->lock, bh);
 	rcu_read_unlock();
 }
 

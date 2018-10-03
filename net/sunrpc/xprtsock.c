@@ -820,10 +820,11 @@ static void xs_sock_reset_connection_flags(struct rpc_xprt *xprt)
  */
 static void xs_error_report(struct sock *sk)
 {
+	unsigned int bh;
 	struct rpc_xprt *xprt;
 	int err;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	if (!(xprt = xprt_from_sock(sk)))
 		goto out;
 
@@ -835,11 +836,12 @@ static void xs_error_report(struct sock *sk)
 	trace_rpc_socket_error(xprt, sk->sk_socket, err);
 	xprt_wake_pending_tasks(xprt, err);
  out:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static void xs_reset_transport(struct sock_xprt *transport)
 {
+	unsigned int bh;
 	struct socket *sock = transport->sock;
 	struct sock *sk = transport->inet;
 	struct rpc_xprt *xprt = &transport->xprt;
@@ -853,7 +855,7 @@ static void xs_reset_transport(struct sock_xprt *transport)
 	kernel_sock_shutdown(sock, SHUT_RDWR);
 
 	mutex_lock(&transport->recv_mutex);
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	transport->inet = NULL;
 	transport->sock = NULL;
 
@@ -861,7 +863,7 @@ static void xs_reset_transport(struct sock_xprt *transport)
 
 	xs_restore_old_callbacks(transport, sk);
 	xprt_clear_connected(xprt);
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 	xs_sock_reset_connection_flags(xprt);
 	mutex_unlock(&transport->recv_mutex);
 
@@ -1136,9 +1138,10 @@ static void xs_udp_data_receive_workfn(struct work_struct *work)
  */
 static void xs_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	struct rpc_xprt *xprt;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	dprintk("RPC:       xs_data_ready...\n");
 	xprt = xprt_from_sock(sk);
 	if (xprt != NULL) {
@@ -1153,7 +1156,7 @@ static void xs_data_ready(struct sock *sk)
 		if (!test_and_set_bit(XPRT_SOCK_DATA_READY, &transport->sock_state))
 			queue_work(xprtiod_workqueue, &transport->recv_worker);
 	}
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 /*
@@ -1583,10 +1586,11 @@ static void xs_tcp_data_receive_workfn(struct work_struct *work)
  */
 static void xs_tcp_state_change(struct sock *sk)
 {
+	unsigned int bh;
 	struct rpc_xprt *xprt;
 	struct sock_xprt *transport;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	if (!(xprt = xprt_from_sock(sk)))
 		goto out;
 	dprintk("RPC:       xs_tcp_state_change client %p...\n", xprt);
@@ -1658,7 +1662,7 @@ static void xs_tcp_state_change(struct sock *sk)
 		xs_tcp_force_close(xprt);
 	}
  out:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static void xs_write_space(struct sock *sk)
@@ -1694,13 +1698,14 @@ out:
  */
 static void xs_udp_write_space(struct sock *sk)
 {
-	read_lock_bh(&sk->sk_callback_lock);
+	unsigned int bh;
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 	/* from net/core/sock.c:sock_def_write_space */
 	if (sock_writeable(sk))
 		xs_write_space(sk);
 
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 /**
@@ -1715,13 +1720,14 @@ static void xs_udp_write_space(struct sock *sk)
  */
 static void xs_tcp_write_space(struct sock *sk)
 {
-	read_lock_bh(&sk->sk_callback_lock);
+	unsigned int bh;
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 	/* from net/core/stream.c:sk_stream_write_space */
 	if (sk_stream_is_writeable(sk))
 		xs_write_space(sk);
 
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static void xs_udp_do_set_buffer_size(struct rpc_xprt *xprt)
@@ -2005,13 +2011,14 @@ out:
 static int xs_local_finish_connecting(struct rpc_xprt *xprt,
 				      struct socket *sock)
 {
+	unsigned int bh;
 	struct sock_xprt *transport = container_of(xprt, struct sock_xprt,
 									xprt);
 
 	if (!transport->inet) {
 		struct sock *sk = sock->sk;
 
-		write_lock_bh(&sk->sk_callback_lock);
+		bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 		xs_save_old_callbacks(transport, sk);
 
@@ -2028,7 +2035,7 @@ static int xs_local_finish_connecting(struct rpc_xprt *xprt,
 		transport->sock = sock;
 		transport->inet = sk;
 
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 	}
 
 	/* Tell the socket layer to start connecting... */
@@ -2193,12 +2200,13 @@ xs_disable_swap(struct rpc_xprt *xprt)
 
 static void xs_udp_finish_connecting(struct rpc_xprt *xprt, struct socket *sock)
 {
+	unsigned int bh;
 	struct sock_xprt *transport = container_of(xprt, struct sock_xprt, xprt);
 
 	if (!transport->inet) {
 		struct sock *sk = sock->sk;
 
-		write_lock_bh(&sk->sk_callback_lock);
+		bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 		xs_save_old_callbacks(transport, sk);
 
@@ -2216,7 +2224,7 @@ static void xs_udp_finish_connecting(struct rpc_xprt *xprt, struct socket *sock)
 
 		xs_set_memalloc(xprt);
 
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 	}
 	xs_udp_do_set_buffer_size(xprt);
 
@@ -2342,6 +2350,7 @@ static void xs_tcp_set_connect_timeout(struct rpc_xprt *xprt,
 
 static int xs_tcp_finish_connecting(struct rpc_xprt *xprt, struct socket *sock)
 {
+	unsigned int bh;
 	struct sock_xprt *transport = container_of(xprt, struct sock_xprt, xprt);
 	int ret = -ENOTCONN;
 
@@ -2361,7 +2370,7 @@ static int xs_tcp_finish_connecting(struct rpc_xprt *xprt, struct socket *sock)
 
 		xs_tcp_set_socket_timeouts(xprt, sock);
 
-		write_lock_bh(&sk->sk_callback_lock);
+		bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 		xs_save_old_callbacks(transport, sk);
 
@@ -2383,7 +2392,7 @@ static int xs_tcp_finish_connecting(struct rpc_xprt *xprt, struct socket *sock)
 		transport->sock = sock;
 		transport->inet = sk;
 
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 	}
 
 	if (!xprt_bound(xprt))

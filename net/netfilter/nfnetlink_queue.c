@@ -284,12 +284,13 @@ nfqnl_put_packet_info(struct sk_buff *nlskb, struct sk_buff *packet,
 
 static int nfqnl_put_sk_uidgid(struct sk_buff *skb, struct sock *sk)
 {
+	unsigned int bh;
 	const struct cred *cred;
 
 	if (!sk_fullsock(sk))
 		return 0;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	if (sk->sk_socket && sk->sk_socket->file) {
 		cred = sk->sk_socket->file->f_cred;
 		if (nla_put_be32(skb, NFQA_UID,
@@ -299,27 +300,28 @@ static int nfqnl_put_sk_uidgid(struct sk_buff *skb, struct sock *sk)
 		    htonl(from_kgid_munged(&init_user_ns, cred->fsgid))))
 			goto nla_put_failure;
 	}
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 	return 0;
 
 nla_put_failure:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 	return -1;
 }
 
 static u32 nfqnl_get_sk_secctx(struct sk_buff *skb, char **secdata)
 {
+	unsigned int bh;
 	u32 seclen = 0;
 #if IS_ENABLED(CONFIG_NETWORK_SECMARK)
 	if (!skb || !sk_fullsock(skb->sk))
 		return 0;
 
-	read_lock_bh(&skb->sk->sk_callback_lock);
+	bh = read_lock_bh(&skb->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 
 	if (skb->secmark)
 		security_secid_to_secctx(skb->secmark, secdata, &seclen);
 
-	read_unlock_bh(&skb->sk->sk_callback_lock);
+	read_unlock_bh(&skb->sk->sk_callback_lock, bh);
 #endif
 	return seclen;
 }

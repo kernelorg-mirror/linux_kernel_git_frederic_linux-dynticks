@@ -242,6 +242,7 @@ static struct ifacaddr6 *aca_alloc(struct fib6_info *f6i,
  */
 int __ipv6_dev_ac_inc(struct inet6_dev *idev, const struct in6_addr *addr)
 {
+	unsigned int bh;
 	struct ifacaddr6 *aca;
 	struct fib6_info *f6i;
 	struct net *net;
@@ -249,7 +250,7 @@ int __ipv6_dev_ac_inc(struct inet6_dev *idev, const struct in6_addr *addr)
 
 	ASSERT_RTNL();
 
-	write_lock_bh(&idev->lock);
+	bh = write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	if (idev->dead) {
 		err = -ENODEV;
 		goto out;
@@ -283,7 +284,7 @@ int __ipv6_dev_ac_inc(struct inet6_dev *idev, const struct in6_addr *addr)
 	 * it is already exposed via idev->ac_list.
 	 */
 	aca_get(aca);
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 
 	ip6_ins_rt(net, f6i);
 
@@ -292,7 +293,7 @@ int __ipv6_dev_ac_inc(struct inet6_dev *idev, const struct in6_addr *addr)
 	aca_put(aca);
 	return 0;
 out:
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 	return err;
 }
 
@@ -301,11 +302,12 @@ out:
  */
 int __ipv6_dev_ac_dec(struct inet6_dev *idev, const struct in6_addr *addr)
 {
+	unsigned int bh;
 	struct ifacaddr6 *aca, *prev_aca;
 
 	ASSERT_RTNL();
 
-	write_lock_bh(&idev->lock);
+	bh = write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	prev_aca = NULL;
 	for (aca = idev->ac_list; aca; aca = aca->aca_next) {
 		if (ipv6_addr_equal(&aca->aca_addr, addr))
@@ -313,18 +315,18 @@ int __ipv6_dev_ac_dec(struct inet6_dev *idev, const struct in6_addr *addr)
 		prev_aca = aca;
 	}
 	if (!aca) {
-		write_unlock_bh(&idev->lock);
+		write_unlock_bh(&idev->lock, bh);
 		return -ENOENT;
 	}
 	if (--aca->aca_users > 0) {
-		write_unlock_bh(&idev->lock);
+		write_unlock_bh(&idev->lock, bh);
 		return 0;
 	}
 	if (prev_aca)
 		prev_aca->aca_next = aca->aca_next;
 	else
 		idev->ac_list = aca->aca_next;
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 	addrconf_leave_solict(idev, &aca->aca_addr);
 
 	ip6_del_rt(dev_net(idev->dev), aca->aca_rt);
@@ -345,9 +347,10 @@ static int ipv6_dev_ac_dec(struct net_device *dev, const struct in6_addr *addr)
 
 void ipv6_ac_destroy_dev(struct inet6_dev *idev)
 {
+	unsigned int bh;
 	struct ifacaddr6 *aca;
 
-	write_lock_bh(&idev->lock);
+	bh = write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	while ((aca = idev->ac_list) != NULL) {
 		idev->ac_list = aca->aca_next;
 		write_unlock_bh(&idev->lock);
@@ -358,9 +361,9 @@ void ipv6_ac_destroy_dev(struct inet6_dev *idev)
 
 		aca_put(aca);
 
-		write_lock_bh(&idev->lock);
+		write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	}
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 }
 
 /*
@@ -369,16 +372,17 @@ void ipv6_ac_destroy_dev(struct inet6_dev *idev)
  */
 static bool ipv6_chk_acast_dev(struct net_device *dev, const struct in6_addr *addr)
 {
+	unsigned int bh;
 	struct inet6_dev *idev;
 	struct ifacaddr6 *aca;
 
 	idev = __in6_dev_get(dev);
 	if (idev) {
-		read_lock_bh(&idev->lock);
+		bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 		for (aca = idev->ac_list; aca; aca = aca->aca_next)
 			if (ipv6_addr_equal(&aca->aca_addr, addr))
 				break;
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 		return aca != NULL;
 	}
 	return false;
@@ -428,6 +432,7 @@ struct ac6_iter_state {
 
 static inline struct ifacaddr6 *ac6_get_first(struct seq_file *seq)
 {
+	unsigned int bh;
 	struct ifacaddr6 *im = NULL;
 	struct ac6_iter_state *state = ac6_seq_private(seq);
 	struct net *net = seq_file_net(seq);
@@ -438,25 +443,26 @@ static inline struct ifacaddr6 *ac6_get_first(struct seq_file *seq)
 		idev = __in6_dev_get(state->dev);
 		if (!idev)
 			continue;
-		read_lock_bh(&idev->lock);
+		bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 		im = idev->ac_list;
 		if (im) {
 			state->idev = idev;
 			break;
 		}
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 	}
 	return im;
 }
 
 static struct ifacaddr6 *ac6_get_next(struct seq_file *seq, struct ifacaddr6 *im)
 {
+	unsigned int bh;
 	struct ac6_iter_state *state = ac6_seq_private(seq);
 
 	im = im->aca_next;
 	while (!im) {
 		if (likely(state->idev != NULL))
-			read_unlock_bh(&state->idev->lock);
+			read_unlock_bh(&state->idev->lock, bh);
 
 		state->dev = next_net_device_rcu(state->dev);
 		if (!state->dev) {
@@ -466,7 +472,7 @@ static struct ifacaddr6 *ac6_get_next(struct seq_file *seq, struct ifacaddr6 *im
 		state->idev = __in6_dev_get(state->dev);
 		if (!state->idev)
 			continue;
-		read_lock_bh(&state->idev->lock);
+		bh = read_lock_bh(&state->idev->lock, SOFTIRQ_ALL_MASK);
 		im = state->idev->ac_list;
 	}
 	return im;

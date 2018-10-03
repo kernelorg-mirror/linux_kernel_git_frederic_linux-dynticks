@@ -110,6 +110,7 @@ static int mlxsw_sp_span_dmac(struct neigh_table *tbl,
 			      struct net_device *dev,
 			      unsigned char dmac[ETH_ALEN])
 {
+	unsigned int bh;
 	struct neighbour *neigh = neigh_lookup(tbl, pkey, dev);
 	int err = 0;
 
@@ -121,12 +122,12 @@ static int mlxsw_sp_span_dmac(struct neigh_table *tbl,
 
 	neigh_event_send(neigh, NULL);
 
-	read_lock_bh(&neigh->lock);
+	bh = read_lock_bh(&neigh->lock, SOFTIRQ_ALL_MASK);
 	if ((neigh->nud_state & NUD_VALID) && !neigh->dead)
 		memcpy(dmac, neigh->ha, ETH_ALEN);
 	else
 		err = -ENOENT;
-	read_unlock_bh(&neigh->lock);
+	read_unlock_bh(&neigh->lock, bh);
 
 	neigh_release(neigh);
 	return err;

@@ -355,6 +355,7 @@ void smcd_cdc_rx_init(struct smc_connection *conn)
 
 static void smc_cdc_rx_handler(struct ib_wc *wc, void *buf)
 {
+	unsigned int bh;
 	struct smc_link *link = (struct smc_link *)wc->qp->qp_context;
 	struct smc_cdc_msg *cdc = buf;
 	struct smc_connection *conn;
@@ -368,9 +369,9 @@ static void smc_cdc_rx_handler(struct ib_wc *wc, void *buf)
 
 	/* lookup connection */
 	lgr = smc_get_lgr(link);
-	read_lock_bh(&lgr->conns_lock);
+	bh = read_lock_bh(&lgr->conns_lock, SOFTIRQ_ALL_MASK);
 	conn = smc_lgr_find_conn(ntohl(cdc->token), lgr);
-	read_unlock_bh(&lgr->conns_lock);
+	read_unlock_bh(&lgr->conns_lock, bh);
 	if (!conn)
 		return;
 	smc = container_of(conn, struct smc_sock, conn);

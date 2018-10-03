@@ -61,7 +61,7 @@
 #define _raw_write_lock(lock)			__LOCK(lock)
 #define _raw_spin_lock_bh(lock)			({ __LOCK_BH(lock); 0; }, SOFTIRQ_ALL_MASK)
 #define _raw_read_lock_bh(lock)			({ __LOCK_BH(lock); 0; })
-#define _raw_write_lock_bh(lock)		({ __LOCK_BH(lock); 0; })
+#define _raw_write_lock_bh(lock)		({ __LOCK_BH(lock); 0; }, SOFTIRQ_ALL_MASK)
 #define _raw_spin_lock_irq(lock)		__LOCK_IRQ(lock)
 #define _raw_read_lock_irq(lock)		__LOCK_IRQ(lock)
 #define _raw_write_lock_irq(lock)		__LOCK_IRQ(lock)

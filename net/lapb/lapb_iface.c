@@ -105,11 +105,12 @@ static struct lapb_cb *__lapb_devtostruct(struct net_device *dev)
 
 static struct lapb_cb *lapb_devtostruct(struct net_device *dev)
 {
+	unsigned int bh;
 	struct lapb_cb *rc;
 
-	read_lock_bh(&lapb_list_lock);
+	bh = read_lock_bh(&lapb_list_lock, SOFTIRQ_ALL_MASK);
 	rc = __lapb_devtostruct(dev);
-	read_unlock_bh(&lapb_list_lock);
+	read_unlock_bh(&lapb_list_lock, bh);
 
 	return rc;
 }
@@ -144,10 +145,11 @@ out:
 int lapb_register(struct net_device *dev,
 		  const struct lapb_register_struct *callbacks)
 {
+	unsigned int bh;
 	struct lapb_cb *lapb;
 	int rc = LAPB_BADTOKEN;
 
-	write_lock_bh(&lapb_list_lock);
+	bh = write_lock_bh(&lapb_list_lock, SOFTIRQ_ALL_MASK);
 
 	lapb = __lapb_devtostruct(dev);
 	if (lapb) {
@@ -169,16 +171,17 @@ int lapb_register(struct net_device *dev,
 
 	rc = LAPB_OK;
 out:
-	write_unlock_bh(&lapb_list_lock);
+	write_unlock_bh(&lapb_list_lock, bh);
 	return rc;
 }
 
 int lapb_unregister(struct net_device *dev)
 {
+	unsigned int bh;
 	struct lapb_cb *lapb;
 	int rc = LAPB_BADTOKEN;
 
-	write_lock_bh(&lapb_list_lock);
+	bh = write_lock_bh(&lapb_list_lock, SOFTIRQ_ALL_MASK);
 	lapb = __lapb_devtostruct(dev);
 	if (!lapb)
 		goto out;
@@ -193,7 +196,7 @@ int lapb_unregister(struct net_device *dev)
 	lapb_put(lapb);
 	rc = LAPB_OK;
 out:
-	write_unlock_bh(&lapb_list_lock);
+	write_unlock_bh(&lapb_list_lock, bh);
 	return rc;
 }
 EXPORT_SYMBOL(lapb_unregister);

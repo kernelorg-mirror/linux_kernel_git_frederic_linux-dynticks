@@ -557,6 +557,7 @@ void ndisc_send_na(struct net_device *dev, const struct in6_addr *daddr,
 
 static void ndisc_send_unsol_na(struct net_device *dev)
 {
+	unsigned int bh;
 	struct inet6_dev *idev;
 	struct inet6_ifaddr *ifa;
 
@@ -564,7 +565,7 @@ static void ndisc_send_unsol_na(struct net_device *dev)
 	if (!idev)
 		return;
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ifa, &idev->addr_list, if_list) {
 		/* skip tentative addresses until dad completes */
 		if (ifa->flags & IFA_F_TENTATIVE &&
@@ -576,7 +577,7 @@ static void ndisc_send_unsol_na(struct net_device *dev)
 			      /*solicited=*/ false, /*override=*/ true,
 			      /*inc_opt=*/ true);
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 
 	in6_dev_put(idev);
 }
@@ -729,14 +730,15 @@ static void ndisc_solicit(struct neighbour *neigh, struct sk_buff *skb)
 static int pndisc_is_router(const void *pkey,
 			    struct net_device *dev)
 {
+	unsigned int bh;
 	struct pneigh_entry *n;
 	int ret = -1;
 
-	read_lock_bh(&nd_tbl.lock);
+	bh = read_lock_bh(&nd_tbl.lock, SOFTIRQ_ALL_MASK);
 	n = __pneigh_lookup(&nd_tbl, dev_net(dev), pkey, dev);
 	if (n)
 		ret = !!(n->flags & NTF_ROUTER);
-	read_unlock_bh(&nd_tbl.lock);
+	read_unlock_bh(&nd_tbl.lock, bh);
 
 	return ret;
 }
@@ -1562,6 +1564,7 @@ static void ndisc_fill_redirect_hdr_option(struct sk_buff *skb,
 
 void ndisc_send_redirect(struct sk_buff *skb, const struct in6_addr *target)
 {
+	unsigned int bh;
 	struct net_device *dev = skb->dev;
 	struct net *net = dev_net(dev);
 	struct sock *sk = net->ipv6.ndisc_sk;
@@ -1631,16 +1634,16 @@ void ndisc_send_redirect(struct sk_buff *skb, const struct in6_addr *target)
 			goto release;
 		}
 
-		read_lock_bh(&neigh->lock);
+		bh = read_lock_bh(&neigh->lock, SOFTIRQ_ALL_MASK);
 		if (neigh->nud_state & NUD_VALID) {
 			memcpy(ha_buf, neigh->ha, dev->addr_len);
-			read_unlock_bh(&neigh->lock);
+			read_unlock_bh(&neigh->lock, bh);
 			ha = ha_buf;
 			optlen += ndisc_redirect_opt_addr_space(dev, neigh,
 								ops_data_buf,
 								&ops_data);
 		} else
-			read_unlock_bh(&neigh->lock);
+			read_unlock_bh(&neigh->lock, bh);
 
 		neigh_release(neigh);
 	}

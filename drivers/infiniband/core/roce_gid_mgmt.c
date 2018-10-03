@@ -370,6 +370,7 @@ static void enum_netdev_ipv4_ips(struct ib_device *ib_dev,
 static void enum_netdev_ipv6_ips(struct ib_device *ib_dev,
 				 u8 port, struct net_device *ndev)
 {
+	unsigned int bh;
 	struct inet6_ifaddr *ifp;
 	struct inet6_dev *in6_dev;
 	struct sin6_list {
@@ -388,7 +389,7 @@ static void enum_netdev_ipv6_ips(struct ib_device *ib_dev,
 	if (!in6_dev)
 		return;
 
-	read_lock_bh(&in6_dev->lock);
+	bh = read_lock_bh(&in6_dev->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ifp, &in6_dev->addr_list, if_list) {
 		struct sin6_list *entry = kzalloc(sizeof(*entry), GFP_ATOMIC);
 
@@ -399,7 +400,7 @@ static void enum_netdev_ipv6_ips(struct ib_device *ib_dev,
 		entry->sin6.sin6_addr = ifp->addr;
 		list_add_tail(&entry->list, &sin6_list);
 	}
-	read_unlock_bh(&in6_dev->lock);
+	read_unlock_bh(&in6_dev->lock, bh);
 
 	in6_dev_put(in6_dev);
 

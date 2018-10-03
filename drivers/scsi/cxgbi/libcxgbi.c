@@ -836,16 +836,17 @@ EXPORT_SYMBOL_GPL(cxgbi_sock_established);
 
 static void cxgbi_inform_iscsi_conn_closing(struct cxgbi_sock *csk)
 {
+	unsigned int bh;
 	log_debug(1 << CXGBI_DBG_SOCK,
 		"csk 0x%p, state %u, flags 0x%lx, conn 0x%p.\n",
 		csk, csk->state, csk->flags, csk->user_data);
 
 	if (csk->state != CTP_ESTABLISHED) {
-		read_lock_bh(&csk->callback_lock);
+		bh = read_lock_bh(&csk->callback_lock, SOFTIRQ_ALL_MASK);
 		if (csk->user_data)
 			iscsi_conn_failure(csk->user_data,
 					ISCSI_ERR_TCP_CONN_CLOSE);
-		read_unlock_bh(&csk->callback_lock);
+		read_unlock_bh(&csk->callback_lock, bh);
 	}
 }
 
@@ -2377,6 +2378,7 @@ int cxgbi_bind_conn(struct iscsi_cls_session *cls_session,
 				struct iscsi_cls_conn *cls_conn,
 				u64 transport_eph, int is_leading)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn = cls_conn->dd_data;
 	struct iscsi_tcp_conn *tcp_conn = conn->dd_data;
 	struct cxgbi_conn *cconn = tcp_conn->dd_data;
@@ -2407,12 +2409,12 @@ int cxgbi_bind_conn(struct iscsi_cls_session *cls_session,
 	/*  calculate the tag idx bits needed for this conn based on cmds_max */
 	cconn->task_idx_bits = (__ilog2_u32(conn->session->cmds_max - 1)) + 1;
 
-	write_lock_bh(&csk->callback_lock);
+	bh = write_lock_bh(&csk->callback_lock, SOFTIRQ_ALL_MASK);
 	csk->user_data = conn;
 	cconn->chba = cep->chba;
 	cconn->cep = cep;
 	cep->cconn = cconn;
-	write_unlock_bh(&csk->callback_lock);
+	write_unlock_bh(&csk->callback_lock, bh);
 
 	cxgbi_conn_max_xmit_dlength(conn);
 	cxgbi_conn_max_recv_dlength(conn);
@@ -2664,6 +2666,7 @@ EXPORT_SYMBOL_GPL(cxgbi_ep_poll);
 
 void cxgbi_ep_disconnect(struct iscsi_endpoint *ep)
 {
+	unsigned int bh;
 	struct cxgbi_endpoint *cep = ep->dd_data;
 	struct cxgbi_conn *cconn = cep->cconn;
 	struct cxgbi_sock *csk = cep->csk;
@@ -2674,10 +2677,10 @@ void cxgbi_ep_disconnect(struct iscsi_endpoint *ep)
 
 	if (cconn && cconn->iconn) {
 		iscsi_suspend_tx(cconn->iconn);
-		write_lock_bh(&csk->callback_lock);
+		bh = write_lock_bh(&csk->callback_lock, SOFTIRQ_ALL_MASK);
 		cep->csk->user_data = NULL;
 		cconn->cep = NULL;
-		write_unlock_bh(&csk->callback_lock);
+		write_unlock_bh(&csk->callback_lock, bh);
 	}
 	iscsi_destroy_endpoint(ep);
 

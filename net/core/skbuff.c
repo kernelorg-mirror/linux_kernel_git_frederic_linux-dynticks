@@ -4320,15 +4320,16 @@ static void __skb_complete_tx_timestamp(struct sk_buff *skb,
 
 static bool skb_may_tx_timestamp(struct sock *sk, bool tsonly)
 {
+	unsigned int bh;
 	bool ret;
 
 	if (likely(sysctl_tstamp_allow_data || tsonly))
 		return true;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	ret = sk->sk_socket && sk->sk_socket->file &&
 	      file_ns_capable(sk->sk_socket->file, &init_user_ns, CAP_NET_RAW);
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 	return ret;
 }
 

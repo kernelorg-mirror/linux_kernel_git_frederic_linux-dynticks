@@ -35,19 +35,20 @@
 static in_cache_entry *in_cache_get(__be32 dst_ip,
 				    struct mpoa_client *client)
 {
+	unsigned int bh;
 	in_cache_entry *entry;
 
-	read_lock_bh(&client->ingress_lock);
+	bh = read_lock_bh(&client->ingress_lock, SOFTIRQ_ALL_MASK);
 	entry = client->in_cache;
 	while (entry != NULL) {
 		if (entry->ctrl_info.in_dst_ip == dst_ip) {
 			refcount_inc(&entry->use);
-			read_unlock_bh(&client->ingress_lock);
+			read_unlock_bh(&client->ingress_lock, bh);
 			return entry;
 		}
 		entry = entry->next;
 	}
-	read_unlock_bh(&client->ingress_lock);
+	read_unlock_bh(&client->ingress_lock, bh);
 
 	return NULL;
 }
@@ -56,19 +57,20 @@ static in_cache_entry *in_cache_get_with_mask(__be32 dst_ip,
 					      struct mpoa_client *client,
 					      __be32 mask)
 {
+	unsigned int bh;
 	in_cache_entry *entry;
 
-	read_lock_bh(&client->ingress_lock);
+	bh = read_lock_bh(&client->ingress_lock, SOFTIRQ_ALL_MASK);
 	entry = client->in_cache;
 	while (entry != NULL) {
 		if ((entry->ctrl_info.in_dst_ip & mask) == (dst_ip & mask)) {
 			refcount_inc(&entry->use);
-			read_unlock_bh(&client->ingress_lock);
+			read_unlock_bh(&client->ingress_lock, bh);
 			return entry;
 		}
 		entry = entry->next;
 	}
-	read_unlock_bh(&client->ingress_lock);
+	read_unlock_bh(&client->ingress_lock, bh);
 
 	return NULL;
 
@@ -77,19 +79,20 @@ static in_cache_entry *in_cache_get_with_mask(__be32 dst_ip,
 static in_cache_entry *in_cache_get_by_vcc(struct atm_vcc *vcc,
 					   struct mpoa_client *client)
 {
+	unsigned int bh;
 	in_cache_entry *entry;
 
-	read_lock_bh(&client->ingress_lock);
+	bh = read_lock_bh(&client->ingress_lock, SOFTIRQ_ALL_MASK);
 	entry = client->in_cache;
 	while (entry != NULL) {
 		if (entry->shortcut == vcc) {
 			refcount_inc(&entry->use);
-			read_unlock_bh(&client->ingress_lock);
+			read_unlock_bh(&client->ingress_lock, bh);
 			return entry;
 		}
 		entry = entry->next;
 	}
-	read_unlock_bh(&client->ingress_lock);
+	read_unlock_bh(&client->ingress_lock, bh);
 
 	return NULL;
 }
@@ -97,6 +100,7 @@ static in_cache_entry *in_cache_get_by_vcc(struct atm_vcc *vcc,
 static in_cache_entry *in_cache_add_entry(__be32 dst_ip,
 					  struct mpoa_client *client)
 {
+	unsigned int bh;
 	in_cache_entry *entry = kzalloc(sizeof(in_cache_entry), GFP_KERNEL);
 
 	if (entry == NULL) {
@@ -108,7 +112,7 @@ static in_cache_entry *in_cache_add_entry(__be32 dst_ip,
 
 	refcount_set(&entry->use, 1);
 	dprintk("new_in_cache_entry: about to lock\n");
-	write_lock_bh(&client->ingress_lock);
+	bh = write_lock_bh(&client->ingress_lock, SOFTIRQ_ALL_MASK);
 	entry->next = client->in_cache;
 	entry->prev = NULL;
 	if (client->in_cache != NULL)
@@ -124,7 +128,7 @@ static in_cache_entry *in_cache_add_entry(__be32 dst_ip,
 	entry->ctrl_info.holding_time = HOLDING_TIME_DEFAULT;
 	refcount_inc(&entry->use);
 
-	write_unlock_bh(&client->ingress_lock);
+	write_unlock_bh(&client->ingress_lock, bh);
 	dprintk("new_in_cache_entry: unlocked\n");
 
 	return entry;
@@ -226,12 +230,13 @@ static void in_cache_remove_entry(in_cache_entry *entry,
    but an easy one... */
 static void clear_count_and_expired(struct mpoa_client *client)
 {
+	unsigned int bh;
 	in_cache_entry *entry, *next_entry;
 	time64_t now;
 
 	now = ktime_get_seconds();
 
-	write_lock_bh(&client->ingress_lock);
+	bh = write_lock_bh(&client->ingress_lock, SOFTIRQ_ALL_MASK);
 	entry = client->in_cache;
 	while (entry != NULL) {
 		entry->count = 0;
@@ -243,12 +248,13 @@ static void clear_count_and_expired(struct mpoa_client *client)
 		}
 		entry = next_entry;
 	}
-	write_unlock_bh(&client->ingress_lock);
+	write_unlock_bh(&client->ingress_lock, bh);
 }
 
 /* Call this every MPC-p4 seconds. */
 static void check_resolving_entries(struct mpoa_client *client)
 {
+	unsigned int bh;
 
 	struct atm_mpoa_qos *qos;
 	in_cache_entry *entry;
@@ -257,7 +263,7 @@ static void check_resolving_entries(struct mpoa_client *client)
 
 	now = ktime_get_seconds();
 
-	read_lock_bh(&client->ingress_lock);
+	bh = read_lock_bh(&client->ingress_lock, SOFTIRQ_ALL_MASK);
 	entry = client->in_cache;
 	while (entry != NULL) {
 		if (entry->entry_state == INGRESS_RESOLVING) {
@@ -293,19 +299,20 @@ static void check_resolving_entries(struct mpoa_client *client)
 		}
 		entry = entry->next;
 	}
-	read_unlock_bh(&client->ingress_lock);
+	read_unlock_bh(&client->ingress_lock, bh);
 }
 
 /* Call this every MPC-p5 seconds. */
 static void refresh_entries(struct mpoa_client *client)
 {
+	unsigned int bh;
 	time64_t now;
 	struct in_cache_entry *entry = client->in_cache;
 
 	ddprintk("refresh_entries\n");
 	now = ktime_get_seconds();
 
-	read_lock_bh(&client->ingress_lock);
+	bh = read_lock_bh(&client->ingress_lock, SOFTIRQ_ALL_MASK);
 	while (entry != NULL) {
 		if (entry->entry_state == INGRESS_RESOLVED) {
 			if (!(entry->refresh_time))
@@ -319,7 +326,7 @@ static void refresh_entries(struct mpoa_client *client)
 		}
 		entry = entry->next;
 	}
-	read_unlock_bh(&client->ingress_lock);
+	read_unlock_bh(&client->ingress_lock, bh);
 }
 
 static void in_destroy_cache(struct mpoa_client *mpc)

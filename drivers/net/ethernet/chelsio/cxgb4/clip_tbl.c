@@ -73,6 +73,8 @@ static int clip6_release_mbox(const struct net_device *dev,
 
 int cxgb4_clip_get(const struct net_device *dev, const u32 *lip, u8 v6)
 {
+	unsigned int bh;
+	unsigned int bh;
 	struct adapter *adap = netdev2adap(dev);
 	struct clip_tbl *ctbl = adap->clipt;
 	struct clip_entry *ce, *cte;
@@ -85,7 +87,7 @@ int cxgb4_clip_get(const struct net_device *dev, const u32 *lip, u8 v6)
 
 	hash = clip_addr_hash(ctbl, addr, v6);
 
-	read_lock_bh(&ctbl->lock);
+	bh = read_lock_bh(&ctbl->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(cte, &ctbl->hash_list[hash], list) {
 		if (cte->addr6.sin6_family == AF_INET6 && v6)
 			ret = memcmp(lip, cte->addr6.sin6_addr.s6_addr,
@@ -95,14 +97,14 @@ int cxgb4_clip_get(const struct net_device *dev, const u32 *lip, u8 v6)
 				     sizeof(struct in_addr));
 		if (!ret) {
 			ce = cte;
-			read_unlock_bh(&ctbl->lock);
+			read_unlock_bh(&ctbl->lock, bh);
 			refcount_inc(&ce->refcnt);
 			return 0;
 		}
 	}
-	read_unlock_bh(&ctbl->lock);
+	read_unlock_bh(&ctbl->lock, bh);
 
-	write_lock_bh(&ctbl->lock);
+	bh = write_lock_bh(&ctbl->lock, SOFTIRQ_ALL_MASK);
 	if (!list_empty(&ctbl->ce_free_head)) {
 		ce = list_first_entry(&ctbl->ce_free_head,
 				      struct clip_entry, list);
@@ -118,7 +120,7 @@ int cxgb4_clip_get(const struct net_device *dev, const u32 *lip, u8 v6)
 			       lip, sizeof(struct in6_addr));
 			ret = clip6_get_mbox(dev, (const struct in6_addr *)lip);
 			if (ret) {
-				write_unlock_bh(&ctbl->lock);
+				write_unlock_bh(&ctbl->lock, bh);
 				dev_err(adap->pdev_dev,
 					"CLIP FW cmd failed with error %d, "
 					"Connections using %pI6c wont be "
@@ -132,13 +134,13 @@ int cxgb4_clip_get(const struct net_device *dev, const u32 *lip, u8 v6)
 			       sizeof(struct in_addr));
 		}
 	} else {
-		write_unlock_bh(&ctbl->lock);
+		write_unlock_bh(&ctbl->lock, bh);
 		dev_info(adap->pdev_dev, "CLIP table overflow, "
 			 "Connections using %pI6c wont be offloaded",
 			 (void *)lip);
 		return -ENOMEM;
 	}
-	write_unlock_bh(&ctbl->lock);
+	write_unlock_bh(&ctbl->lock, bh);
 	refcount_set(&ce->refcnt, 1);
 	return 0;
 }
@@ -147,6 +149,7 @@ EXPORT_SYMBOL(cxgb4_clip_get);
 void cxgb4_clip_release(const struct net_device *dev, const u32 *lip, u8 v6)
 {
 	unsigned int bh;
+	unsigned int bh2;
 	struct adapter *adap = netdev2adap(dev);
 	struct clip_tbl *ctbl = adap->clipt;
 	struct clip_entry *ce, *cte;
@@ -159,7 +162,7 @@ void cxgb4_clip_release(const struct net_device *dev, const u32 *lip, u8 v6)
 
 	hash = clip_addr_hash(ctbl, addr, v6);
 
-	read_lock_bh(&ctbl->lock);
+	bh = read_lock_bh(&ctbl->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(cte, &ctbl->hash_list[hash], list) {
 		if (cte->addr6.sin6_family == AF_INET6 && v6)
 			ret = memcmp(lip, cte->addr6.sin6_addr.s6_addr,
@@ -169,16 +172,16 @@ void cxgb4_clip_release(const struct net_device *dev, const u32 *lip, u8 v6)
 				     sizeof(struct in_addr));
 		if (!ret) {
 			ce = cte;
-			read_unlock_bh(&ctbl->lock);
+			read_unlock_bh(&ctbl->lock, bh);
 			goto found;
 		}
 	}
-	read_unlock_bh(&ctbl->lock);
+	read_unlock_bh(&ctbl->lock, bh);
 
 	return;
 found:
-	write_lock_bh(&ctbl->lock);
-	bh = spin_lock_bh(&ce->lock, SOFTIRQ_ALL_MASK);
+	bh = write_lock_bh(&ctbl->lock, SOFTIRQ_ALL_MASK);
+	bh2 = spin_lock_bh(&ce->lock, SOFTIRQ_ALL_MASK);
 	if (refcount_dec_and_test(&ce->refcnt)) {
 		list_del(&ce->list);
 		INIT_LIST_HEAD(&ce->list);
@@ -187,8 +190,8 @@ found:
 		if (v6)
 			clip6_release_mbox(dev, (const struct in6_addr *)lip);
 	}
-	spin_unlock_bh(&ce->lock, bh);
-	write_unlock_bh(&ctbl->lock);
+	spin_unlock_bh(&ce->lock, bh2);
+	write_unlock_bh(&ctbl->lock, bh);
 }
 EXPORT_SYMBOL(cxgb4_clip_release);
 
@@ -199,6 +202,7 @@ EXPORT_SYMBOL(cxgb4_clip_release);
 static int cxgb4_update_dev_clip(struct net_device *root_dev,
 				 struct net_device *dev)
 {
+	unsigned int bh;
 	struct inet6_dev *idev = NULL;
 	struct inet6_ifaddr *ifa;
 	int ret = 0;
@@ -207,13 +211,13 @@ static int cxgb4_update_dev_clip(struct net_device *root_dev,
 	if (!idev)
 		return ret;
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ifa, &idev->addr_list, if_list) {
 		ret = cxgb4_clip_get(dev, (const u32 *)ifa->addr.s6_addr, 1);
 		if (ret < 0)
 			break;
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 
 	return ret;
 }
@@ -252,13 +256,14 @@ EXPORT_SYMBOL(cxgb4_update_root_dev_clip);
 
 int clip_tbl_show(struct seq_file *seq, void *v)
 {
+	unsigned int bh;
 	struct adapter *adapter = seq->private;
 	struct clip_tbl *ctbl = adapter->clipt;
 	struct clip_entry *ce;
 	char ip[60];
 	int i;
 
-	read_lock_bh(&ctbl->lock);
+	bh = read_lock_bh(&ctbl->lock, SOFTIRQ_ALL_MASK);
 
 	seq_puts(seq, "IP Address                  Users\n");
 	for (i = 0 ; i < ctbl->clipt_size;  ++i) {
@@ -271,7 +276,7 @@ int clip_tbl_show(struct seq_file *seq, void *v)
 	}
 	seq_printf(seq, "Free clip entries : %d\n", atomic_read(&ctbl->nfree));
 
-	read_unlock_bh(&ctbl->lock);
+	read_unlock_bh(&ctbl->lock, bh);
 
 	return 0;
 }

@@ -30,7 +30,7 @@
 static void *x25_seq_route_start(struct seq_file *seq, loff_t *pos)
 	__acquires(x25_route_list_lock)
 {
-	read_lock_bh(&x25_route_list_lock);
+	read_lock_bh(&x25_route_list_lock, SOFTIRQ_ALL_MASK);
 	return seq_list_start_head(&x25_route_list, *pos);
 }
 
@@ -65,7 +65,7 @@ out:
 static void *x25_seq_socket_start(struct seq_file *seq, loff_t *pos)
 	__acquires(x25_list_lock)
 {
-	read_lock_bh(&x25_list_lock);
+	read_lock_bh(&x25_list_lock, SOFTIRQ_ALL_MASK);
 	return seq_hlist_start_head(&x25_list, *pos);
 }
 
@@ -118,7 +118,7 @@ out:
 static void *x25_seq_forward_start(struct seq_file *seq, loff_t *pos)
 	__acquires(x25_forward_list_lock)
 {
-	read_lock_bh(&x25_forward_list_lock);
+	read_lock_bh(&x25_forward_list_lock, SOFTIRQ_ALL_MASK);
 	return seq_list_start_head(&x25_forward_list, *pos);
 }
 

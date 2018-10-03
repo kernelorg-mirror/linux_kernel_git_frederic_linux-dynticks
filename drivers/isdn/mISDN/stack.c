@@ -428,6 +428,7 @@ int
 connect_layer1(struct mISDNdevice *dev, struct mISDNchannel *ch,
 	       u_int protocol, struct sockaddr_mISDN *adr)
 {
+	unsigned int bh;
 	struct mISDN_sock	*msk = container_of(ch, struct mISDN_sock, ch);
 	struct channel_req	rq;
 	int			err;
@@ -452,9 +453,9 @@ connect_layer1(struct mISDNdevice *dev, struct mISDNchannel *ch,
 		       dev->id);
 		if (err)
 			return err;
-		write_lock_bh(&dev->D.st->l1sock.lock);
+		bh = write_lock_bh(&dev->D.st->l1sock.lock, SOFTIRQ_ALL_MASK);
 		sk_add_node(&msk->sk, &dev->D.st->l1sock.head);
-		write_unlock_bh(&dev->D.st->l1sock.lock);
+		write_unlock_bh(&dev->D.st->l1sock.lock, bh);
 		break;
 	default:
 		return -ENOPROTOOPT;
@@ -572,6 +573,7 @@ create_l2entity(struct mISDNdevice *dev, struct mISDNchannel *ch,
 void
 delete_channel(struct mISDNchannel *ch)
 {
+	unsigned int bh;
 	struct mISDN_sock	*msk = container_of(ch, struct mISDN_sock, ch);
 	struct mISDNchannel	*pch;
 
@@ -594,9 +596,9 @@ delete_channel(struct mISDNchannel *ch)
 	case ISDN_P_TE_S0:
 	case ISDN_P_NT_E1:
 	case ISDN_P_TE_E1:
-		write_lock_bh(&ch->st->l1sock.lock);
+		bh = write_lock_bh(&ch->st->l1sock.lock, SOFTIRQ_ALL_MASK);
 		sk_del_node_init(&msk->sk);
-		write_unlock_bh(&ch->st->l1sock.lock);
+		write_unlock_bh(&ch->st->l1sock.lock, bh);
 		ch->st->dev->D.ctrl(&ch->st->dev->D, CLOSE_CHANNEL, NULL);
 		break;
 	case ISDN_P_LAPD_TE:

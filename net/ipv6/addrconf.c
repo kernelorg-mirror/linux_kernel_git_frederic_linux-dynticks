@@ -1199,6 +1199,7 @@ cleanup_prefix_route(struct inet6_ifaddr *ifp, unsigned long expires, bool del_r
 static void ipv6_del_addr(struct inet6_ifaddr *ifp)
 {
 	unsigned int bh;
+	unsigned int bh;
 	int state;
 	enum cleanup_prefix_rt_t action = CLEANUP_PREFIX_RT_NOP;
 	unsigned long expires;
@@ -1217,7 +1218,7 @@ static void ipv6_del_addr(struct inet6_ifaddr *ifp)
 	hlist_del_init_rcu(&ifp->addr_lst);
 	spin_unlock_bh(&addrconf_hash_lock);
 
-	write_lock_bh(&ifp->idev->lock);
+	bh = write_lock_bh(&ifp->idev->lock, SOFTIRQ_ALL_MASK);
 
 	if (ifp->flags&IFA_F_TEMPORARY) {
 		list_del(&ifp->tmp_list);
@@ -1234,7 +1235,7 @@ static void ipv6_del_addr(struct inet6_ifaddr *ifp)
 	list_del_rcu(&ifp->if_list);
 	__in6_ifa_put(ifp);
 
-	write_unlock_bh(&ifp->idev->lock);
+	write_unlock_bh(&ifp->idev->lock, bh);
 
 	addrconf_del_dad_work(ifp);
 
@@ -1258,6 +1259,7 @@ static int ipv6_create_tempaddr(struct inet6_ifaddr *ifp,
 				bool block)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct inet6_dev *idev = ifp->idev;
 	struct in6_addr addr, *tmpaddr;
 	unsigned long tmp_tstamp, age;
@@ -1268,7 +1270,7 @@ static int ipv6_create_tempaddr(struct inet6_ifaddr *ifp,
 	long max_desync_factor;
 	s32 cnf_temp_preferred_lft;
 
-	write_lock_bh(&idev->lock);
+	bh = write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	if (ift) {
 		bh = spin_lock_bh(&ift->lock, SOFTIRQ_ALL_MASK);
 		memcpy(&addr.s6_addr[8], &ift->addr.s6_addr[8], 8);
@@ -1280,7 +1282,7 @@ static int ipv6_create_tempaddr(struct inet6_ifaddr *ifp,
 retry:
 	in6_dev_hold(idev);
 	if (idev->cnf.use_tempaddr <= 0) {
-		write_unlock_bh(&idev->lock);
+		write_unlock_bh(&idev->lock, bh);
 		pr_info("%s: use_tempaddr is disabled\n", __func__);
 		in6_dev_put(idev);
 		ret = -1;
@@ -1290,7 +1292,7 @@ retry:
 	if (ifp->regen_count++ >= idev->cnf.regen_max_retry) {
 		idev->cnf.use_tempaddr = -1;	/*XXX*/
 		spin_unlock_bh(&ifp->lock, bh);
-		write_unlock_bh(&idev->lock);
+		write_unlock_bh(&idev->lock, bh);
 		pr_warn("%s: regeneration time exceeded - disabled temporary address support\n",
 			__func__);
 		in6_dev_put(idev);
@@ -1335,7 +1337,7 @@ retry:
 	tmp_tstamp = ifp->tstamp;
 	spin_unlock_bh(&ifp->lock, bh);
 
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 
 	/* A temporary address is created only if this calculated Preferred
 	 * Lifetime is greater than REGEN_ADVANCE time units.  In particular,
@@ -1366,7 +1368,7 @@ retry:
 		in6_dev_put(idev);
 		pr_info("%s: retry temporary address regeneration\n", __func__);
 		tmpaddr = &addr;
-		write_lock_bh(&idev->lock);
+		write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 		goto retry;
 	}
 
@@ -1809,15 +1811,16 @@ int __ipv6_get_lladdr(struct inet6_dev *idev, struct in6_addr *addr,
 int ipv6_get_lladdr(struct net_device *dev, struct in6_addr *addr,
 		    u32 banned_flags)
 {
+	unsigned int bh;
 	struct inet6_dev *idev;
 	int err = -EADDRNOTAVAIL;
 
 	rcu_read_lock();
 	idev = __in6_dev_get(dev);
 	if (idev) {
-		read_lock_bh(&idev->lock);
+		bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 		err = __ipv6_get_lladdr(idev, addr, banned_flags);
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 	}
 	rcu_read_unlock();
 	return err;
@@ -2263,10 +2266,11 @@ static int ipv6_generate_eui64(u8 *eui, struct net_device *dev)
 
 static int ipv6_inherit_eui64(u8 *eui, struct inet6_dev *idev)
 {
+	unsigned int bh;
 	int err = -1;
 	struct inet6_ifaddr *ifp;
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_reverse(ifp, &idev->addr_list, if_list) {
 		if (ifp->scope > IFA_LINK)
 			break;
@@ -2276,7 +2280,7 @@ static int ipv6_inherit_eui64(u8 *eui, struct inet6_dev *idev)
 			break;
 		}
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 	return err;
 }
 
@@ -2432,10 +2436,11 @@ static void manage_tempaddrs(struct inet6_dev *idev,
 			     __u32 valid_lft, __u32 prefered_lft,
 			     bool create, unsigned long now)
 {
+	unsigned int bh;
 	u32 flags;
 	struct inet6_ifaddr *ift;
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	/* update all temporary addresses in the list */
 	list_for_each_entry(ift, &idev->tempaddr_list, tmp_list) {
 		int age, max_valid, max_prefered;
@@ -2487,10 +2492,10 @@ static void manage_tempaddrs(struct inet6_dev *idev,
 		 * Also create a temporary address if it's enabled but
 		 * no temporary address currently exists.
 		 */
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 		ipv6_create_tempaddr(ifp, NULL, false);
 	} else {
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 	}
 }
 
@@ -2604,6 +2609,7 @@ EXPORT_SYMBOL_GPL(addrconf_prefix_rcv_add_addr);
 
 void addrconf_prefix_rcv(struct net_device *dev, u8 *opt, int len, bool sllao)
 {
+	unsigned int bh;
 	struct prefix_info *pinfo;
 	__u32 valid_lft;
 	__u32 prefered_lft;
@@ -2709,10 +2715,10 @@ void addrconf_prefix_rcv(struct net_device *dev, u8 *opt, int len, bool sllao)
 			memcpy(&addr, &pinfo->prefix, 8);
 
 			if (!ipv6_addr_any(&in6_dev->token)) {
-				read_lock_bh(&in6_dev->lock);
+				bh = read_lock_bh(&in6_dev->lock, SOFTIRQ_ALL_MASK);
 				memcpy(addr.s6_addr + 8,
 				       in6_dev->token.s6_addr + 8, 8);
-				read_unlock_bh(&in6_dev->lock);
+				read_unlock_bh(&in6_dev->lock, bh);
 				tokenized = true;
 			} else if (is_addr_mode_generate_stable(in6_dev) &&
 				   !ipv6_generate_stable_address(&addr, 0,
@@ -2935,6 +2941,7 @@ static int inet6_addr_add(struct net *net, int ifindex,
 static int inet6_addr_del(struct net *net, int ifindex, u32 ifa_flags,
 			  const struct in6_addr *pfx, unsigned int plen)
 {
+	unsigned int bh;
 	struct inet6_ifaddr *ifp;
 	struct inet6_dev *idev;
 	struct net_device *dev;
@@ -2950,12 +2957,12 @@ static int inet6_addr_del(struct net *net, int ifindex, u32 ifa_flags,
 	if (!idev)
 		return -ENXIO;
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ifp, &idev->addr_list, if_list) {
 		if (ifp->prefix_len == plen &&
 		    ipv6_addr_equal(pfx, &ifp->addr)) {
 			in6_ifa_hold(ifp);
-			read_unlock_bh(&idev->lock);
+			read_unlock_bh(&idev->lock, bh);
 
 			if (!(ifp->flags & IFA_F_TEMPORARY) &&
 			    (ifa_flags & IFA_F_MANAGETEMPADDR))
@@ -2970,7 +2977,7 @@ static int inet6_addr_del(struct net *net, int ifindex, u32 ifa_flags,
 			return 0;
 		}
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 	return -EADDRNOTAVAIL;
 }
 
@@ -3402,6 +3409,7 @@ static int fixup_permanent_addr(struct net *net,
 
 static void addrconf_permanent_addr(struct net *net, struct net_device *dev)
 {
+	unsigned int bh;
 	struct inet6_ifaddr *ifp, *tmp;
 	struct inet6_dev *idev;
 
@@ -3409,7 +3417,7 @@ static void addrconf_permanent_addr(struct net *net, struct net_device *dev)
 	if (!idev)
 		return;
 
-	write_lock_bh(&idev->lock);
+	bh = write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_entry_safe(ifp, tmp, &idev->addr_list, if_list) {
 		if ((ifp->flags & IFA_F_PERMANENT) &&
@@ -3417,14 +3425,14 @@ static void addrconf_permanent_addr(struct net *net, struct net_device *dev)
 			write_unlock_bh(&idev->lock);
 			in6_ifa_hold(ifp);
 			ipv6_del_addr(ifp);
-			write_lock_bh(&idev->lock);
+			write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 
 			net_info_ratelimited("%s: Failed to add prefix route for address %pI6c; dropping\n",
 					     idev->dev->name, &ifp->addr);
 		}
 	}
 
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 }
 
 static int addrconf_notify(struct notifier_block *this, unsigned long event,
@@ -3646,6 +3654,7 @@ static bool addr_is_local(const struct in6_addr *addr)
 static int addrconf_ifdown(struct net_device *dev, int how)
 {
 	unsigned int bh;
+	unsigned int bh;
 	unsigned long event = how ? NETDEV_UNREGISTER : NETDEV_DOWN;
 	struct net *net = dev_net(dev);
 	struct inet6_dev *idev;
@@ -3712,7 +3721,7 @@ restart:
 		spin_unlock_bh(&addrconf_hash_lock, bh);
 	}
 
-	write_lock_bh(&idev->lock);
+	bh = write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 
 	addrconf_del_rs_timer(idev);
 
@@ -3734,7 +3743,7 @@ restart:
 		}
 		spin_unlock_bh(&ifa->lock, bh);
 		in6_ifa_put(ifa);
-		write_lock_bh(&idev->lock);
+		write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	}
 
 	list_for_each_entry_safe(ifa, tmp, &idev->addr_list, if_list) {
@@ -3777,14 +3786,14 @@ restart:
 			addrconf_leave_solict(ifa->idev, &ifa->addr);
 		}
 
-		write_lock_bh(&idev->lock);
+		write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 		if (!keep) {
 			list_del_rcu(&ifa->if_list);
 			in6_ifa_put(ifa);
 		}
 	}
 
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 
 	/* Step 5: Discard anycast and multicast list */
 	if (how) {
@@ -3881,6 +3890,7 @@ static void addrconf_dad_kick(struct inet6_ifaddr *ifp)
 
 static void addrconf_dad_begin(struct inet6_ifaddr *ifp)
 {
+	unsigned int bh;
 	struct inet6_dev *idev = ifp->idev;
 	struct net_device *dev = idev->dev;
 	bool bump_id, notify = false;
@@ -3890,7 +3900,7 @@ static void addrconf_dad_begin(struct inet6_ifaddr *ifp)
 
 	prandom_seed((__force u32) ifp->addr.s6_addr32[3]);
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	spin_lock(&ifp->lock);
 	if (ifp->state == INET6_IFADDR_STATE_DEAD)
 		goto out;
@@ -3909,7 +3919,7 @@ static void addrconf_dad_begin(struct inet6_ifaddr *ifp)
 		bump_id = ifp->flags & IFA_F_TENTATIVE;
 		ifp->flags &= ~(IFA_F_TENTATIVE|IFA_F_OPTIMISTIC|IFA_F_DADFAILED);
 		spin_unlock(&ifp->lock);
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 
 		addrconf_dad_completed(ifp, bump_id, send_na);
 		return;
@@ -3917,7 +3927,7 @@ static void addrconf_dad_begin(struct inet6_ifaddr *ifp)
 
 	if (!(idev->if_flags & IF_READY)) {
 		spin_unlock(&ifp->lock);
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 		/*
 		 * If the device is not ready:
 		 * - keep it tentative if it is a permanent address.
@@ -3945,7 +3955,7 @@ static void addrconf_dad_begin(struct inet6_ifaddr *ifp)
 	addrconf_dad_kick(ifp);
 out:
 	spin_unlock(&ifp->lock);
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 	if (notify)
 		ipv6_ifa_notify(RTM_NEWADDR, ifp);
 }
@@ -3968,6 +3978,7 @@ static void addrconf_dad_start(struct inet6_ifaddr *ifp)
 
 static void addrconf_dad_work(struct work_struct *w)
 {
+	unsigned int bh;
 	unsigned int bh;
 	struct inet6_ifaddr *ifp = container_of(to_delayed_work(w),
 						struct inet6_ifaddr,
@@ -4028,16 +4039,16 @@ static void addrconf_dad_work(struct work_struct *w)
 	if (!ifp->dad_probes && addrconf_dad_end(ifp))
 		goto out;
 
-	write_lock_bh(&idev->lock);
+	bh = write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	if (idev->dead || !(idev->if_flags & IF_READY)) {
-		write_unlock_bh(&idev->lock);
+		write_unlock_bh(&idev->lock, bh);
 		goto out;
 	}
 
 	spin_lock(&ifp->lock);
 	if (ifp->state == INET6_IFADDR_STATE_DEAD) {
 		spin_unlock(&ifp->lock);
-		write_unlock_bh(&idev->lock);
+		write_unlock_bh(&idev->lock, bh);
 		goto out;
 	}
 
@@ -4054,7 +4065,7 @@ static void addrconf_dad_work(struct work_struct *w)
 		bump_id = ifp->flags & IFA_F_TENTATIVE;
 		ifp->flags &= ~(IFA_F_TENTATIVE|IFA_F_OPTIMISTIC|IFA_F_DADFAILED);
 		spin_unlock(&ifp->lock);
-		write_unlock_bh(&idev->lock);
+		write_unlock_bh(&idev->lock, bh);
 
 		addrconf_dad_completed(ifp, bump_id, send_na);
 
@@ -4065,7 +4076,7 @@ static void addrconf_dad_work(struct work_struct *w)
 	addrconf_mod_dad_work(ifp,
 			      NEIGH_VAR(ifp->idev->nd_parms, RETRANS_TIME));
 	spin_unlock(&ifp->lock);
-	write_unlock_bh(&idev->lock);
+	write_unlock_bh(&idev->lock, bh);
 
 	/* send a neighbour solicitation for our addr */
 	addrconf_addr_solict_mult(&ifp->addr, &mcaddr);
@@ -4097,6 +4108,8 @@ static bool ipv6_lonely_lladdr(struct inet6_ifaddr *ifp)
 static void addrconf_dad_completed(struct inet6_ifaddr *ifp, bool bump_id,
 				   bool send_na)
 {
+	unsigned int bh;
+	unsigned int bh;
 	struct net_device *dev = ifp->idev->dev;
 	struct in6_addr lladdr;
 	bool send_rs, send_mld;
@@ -4113,13 +4126,13 @@ static void addrconf_dad_completed(struct inet6_ifaddr *ifp, bool bump_id,
 	   router advertisements, start sending router solicitations.
 	 */
 
-	read_lock_bh(&ifp->idev->lock);
+	bh = read_lock_bh(&ifp->idev->lock, SOFTIRQ_ALL_MASK);
 	send_mld = ifp->scope == IFA_LINK && ipv6_lonely_lladdr(ifp);
 	send_rs = send_mld &&
 		  ipv6_accept_ra(ifp->idev) &&
 		  ifp->idev->cnf.rtr_solicits != 0 &&
 		  (dev->flags&IFF_LOOPBACK) == 0;
-	read_unlock_bh(&ifp->idev->lock);
+	read_unlock_bh(&ifp->idev->lock, bh);
 
 	/* While dad is in progress mld report's source address is in6_addrany.
 	 * Resend with proper ll now.
@@ -4147,7 +4160,7 @@ static void addrconf_dad_completed(struct inet6_ifaddr *ifp, bool bump_id,
 			return;
 		ndisc_send_rs(dev, &lladdr, &in6addr_linklocal_allrouters);
 
-		write_lock_bh(&ifp->idev->lock);
+		bh = write_lock_bh(&ifp->idev->lock, SOFTIRQ_ALL_MASK);
 		spin_lock(&ifp->lock);
 		ifp->idev->rs_interval = rfc3315_s14_backoff_init(
 			ifp->idev->cnf.rtr_solicit_interval);
@@ -4155,7 +4168,7 @@ static void addrconf_dad_completed(struct inet6_ifaddr *ifp, bool bump_id,
 		ifp->idev->if_flags |= IF_RS_SENT;
 		addrconf_mod_rs_timer(ifp->idev, ifp->idev->rs_interval);
 		spin_unlock(&ifp->lock);
-		write_unlock_bh(&ifp->idev->lock);
+		write_unlock_bh(&ifp->idev->lock, bh);
 	}
 
 	if (bump_id)
@@ -4170,9 +4183,10 @@ static void addrconf_dad_completed(struct inet6_ifaddr *ifp, bool bump_id,
 
 static void addrconf_dad_run(struct inet6_dev *idev)
 {
+	unsigned int bh;
 	struct inet6_ifaddr *ifp;
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ifp, &idev->addr_list, if_list) {
 		spin_lock(&ifp->lock);
 		if (ifp->flags & IFA_F_TENTATIVE &&
@@ -4180,7 +4194,7 @@ static void addrconf_dad_run(struct inet6_dev *idev)
 			addrconf_dad_kick(ifp);
 		spin_unlock(&ifp->lock);
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 }
 
 #ifdef CONFIG_PROC_FS
@@ -4573,6 +4587,7 @@ static int modify_prefix_route(struct inet6_ifaddr *ifp,
 static int inet6_addr_modify(struct inet6_ifaddr *ifp, struct ifa6_config *cfg)
 {
 	unsigned int bh;
+	unsigned int bh;
 	u32 flags;
 	clock_t expires;
 	unsigned long timeout;
@@ -4644,9 +4659,9 @@ static int inet6_addr_modify(struct inet6_ifaddr *ifp, struct ifa6_config *cfg)
 		enum cleanup_prefix_rt_t action;
 		unsigned long rt_expires;
 
-		write_lock_bh(&ifp->idev->lock);
+		bh = write_lock_bh(&ifp->idev->lock, SOFTIRQ_ALL_MASK);
 		action = check_cleanup_prefix_route(ifp, &rt_expires);
-		write_unlock_bh(&ifp->idev->lock);
+		write_unlock_bh(&ifp->idev->lock, bh);
 
 		if (action != CLEANUP_PREFIX_RT_NOP) {
 			cleanup_prefix_route(ifp, rt_expires,
@@ -4932,12 +4947,13 @@ static int in6_dump_addrs(struct inet6_dev *idev, struct sk_buff *skb,
 			  struct netlink_callback *cb, enum addr_type_t type,
 			  int s_ip_idx, int *p_ip_idx)
 {
+	unsigned int bh;
 	struct ifmcaddr6 *ifmca;
 	struct ifacaddr6 *ifaca;
 	int err = 1;
 	int ip_idx = *p_ip_idx;
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	switch (type) {
 	case UNICAST_ADDR: {
 		struct inet6_ifaddr *ifa;
@@ -4990,7 +5006,7 @@ static int in6_dump_addrs(struct inet6_dev *idev, struct sk_buff *skb,
 	default:
 		break;
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 	*p_ip_idx = ip_idx;
 	return err;
 }
@@ -5292,6 +5308,7 @@ static void snmp6_fill_stats(u64 *stats, struct inet6_dev *idev, int attrtype,
 static int inet6_fill_ifla6_attrs(struct sk_buff *skb, struct inet6_dev *idev,
 				  u32 ext_filter_mask)
 {
+	unsigned int bh;
 	struct nlattr *nla;
 	struct ifla_cacheinfo ci;
 
@@ -5330,9 +5347,9 @@ static int inet6_fill_ifla6_attrs(struct sk_buff *skb, struct inet6_dev *idev,
 	if (nla_put_u8(skb, IFLA_INET6_ADDR_GEN_MODE, idev->cnf.addr_gen_mode))
 		goto nla_put_failure;
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	memcpy(nla_data(nla), idev->token.s6_addr, nla_len(nla));
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 
 	return 0;
 
@@ -5381,7 +5398,7 @@ static int inet6_set_iftoken(struct inet6_dev *idev, struct in6_addr *token)
 	if (idev->cnf.rtr_solicits == 0)
 		return -EINVAL;
 
-	write_lock_bh(&idev->lock);
+	write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 
 	BUILD_BUG_ON(sizeof(token->s6_addr) != 16);
 	memcpy(idev->token.s6_addr + 8, token->s6_addr + 8, 8);
@@ -5403,7 +5420,7 @@ static int inet6_set_iftoken(struct inet6_dev *idev, struct in6_addr *token)
 	}
 
 update_lft:
-	write_lock_bh(&idev->lock);
+	write_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 
 	if (update_rs) {
 		idev->if_flags |= IF_RS_SENT;
@@ -6073,9 +6090,10 @@ void addrconf_set_nopolicy(struct rt6_info *rt, int action)
 static
 void addrconf_disable_policy_idev(struct inet6_dev *idev, int val)
 {
+	unsigned int bh;
 	struct inet6_ifaddr *ifa;
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ifa, &idev->addr_list, if_list) {
 		spin_lock(&ifa->lock);
 		if (ifa->rt) {
@@ -6096,7 +6114,7 @@ void addrconf_disable_policy_idev(struct inet6_dev *idev, int val)
 		}
 		spin_unlock(&ifa->lock);
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 }
 
 static

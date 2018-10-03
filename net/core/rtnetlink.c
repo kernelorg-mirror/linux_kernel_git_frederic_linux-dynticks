@@ -819,6 +819,7 @@ EXPORT_SYMBOL_GPL(rtnl_put_cacheinfo);
 
 static void set_operstate(struct net_device *dev, unsigned char transition)
 {
+	unsigned int bh;
 	unsigned char operstate = dev->operstate;
 
 	switch (transition) {
@@ -837,9 +838,9 @@ static void set_operstate(struct net_device *dev, unsigned char transition)
 	}
 
 	if (dev->operstate != operstate) {
-		write_lock_bh(&dev_base_lock);
+		bh = write_lock_bh(&dev_base_lock, SOFTIRQ_ALL_MASK);
 		dev->operstate = operstate;
-		write_unlock_bh(&dev_base_lock);
+		write_unlock_bh(&dev_base_lock, bh);
 		netdev_state_change(dev);
 	}
 }
@@ -2313,6 +2314,7 @@ static int do_setlink(const struct sk_buff *skb,
 		      struct netlink_ext_ack *extack,
 		      struct nlattr **tb, char *ifname, int status)
 {
+	unsigned int bh;
 	const struct net_device_ops *ops = dev->netdev_ops;
 	int err;
 
@@ -2485,11 +2487,11 @@ static int do_setlink(const struct sk_buff *skb,
 	if (tb[IFLA_LINKMODE]) {
 		unsigned char value = nla_get_u8(tb[IFLA_LINKMODE]);
 
-		write_lock_bh(&dev_base_lock);
+		bh = write_lock_bh(&dev_base_lock, SOFTIRQ_ALL_MASK);
 		if (dev->link_mode ^ value)
 			status |= DO_SETLINK_NOTIFY;
 		dev->link_mode = value;
-		write_unlock_bh(&dev_base_lock);
+		write_unlock_bh(&dev_base_lock, bh);
 	}
 
 	if (tb[IFLA_VFINFO_LIST]) {

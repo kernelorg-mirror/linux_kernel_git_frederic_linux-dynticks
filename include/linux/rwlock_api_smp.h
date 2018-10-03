@@ -17,8 +17,8 @@
 
 void __lockfunc _raw_read_lock(rwlock_t *lock)		__acquires(lock);
 void __lockfunc _raw_write_lock(rwlock_t *lock)		__acquires(lock);
-void __lockfunc _raw_read_lock_bh(rwlock_t *lock)	__acquires(lock);
-void __lockfunc _raw_write_lock_bh(rwlock_t *lock)	__acquires(lock);
+unsigned int __lockfunc _raw_read_lock_bh(rwlock_t *lock, unsigned int mask)	__acquires(lock);
+unsigned int __lockfunc _raw_write_lock_bh(rwlock_t *lock, unsigned int mask)	__acquires(lock);
 void __lockfunc _raw_read_lock_irq(rwlock_t *lock)	__acquires(lock);
 void __lockfunc _raw_write_lock_irq(rwlock_t *lock)	__acquires(lock);
 unsigned long __lockfunc _raw_read_lock_irqsave(rwlock_t *lock)
@@ -29,8 +29,8 @@ int __lockfunc _raw_read_trylock(rwlock_t *lock);
 int __lockfunc _raw_write_trylock(rwlock_t *lock);
 void __lockfunc _raw_read_unlock(rwlock_t *lock)	__releases(lock);
 void __lockfunc _raw_write_unlock(rwlock_t *lock)	__releases(lock);
-void __lockfunc _raw_read_unlock_bh(rwlock_t *lock)	__releases(lock);
-void __lockfunc _raw_write_unlock_bh(rwlock_t *lock)	__releases(lock);
+void __lockfunc _raw_read_unlock_bh(rwlock_t *lock, unsigned int bh)	__releases(lock);
+void __lockfunc _raw_write_unlock_bh(rwlock_t *lock, unsigned int bh)	__releases(lock);
 void __lockfunc _raw_read_unlock_irq(rwlock_t *lock)	__releases(lock);
 void __lockfunc _raw_write_unlock_irq(rwlock_t *lock)	__releases(lock);
 void __lockfunc
@@ -49,11 +49,11 @@ _raw_write_unlock_irqrestore(rwlock_t *lock, unsigned long flags)
 #endif
 
 #ifdef CONFIG_INLINE_READ_LOCK_BH
-#define _raw_read_lock_bh(lock) __raw_read_lock_bh(lock)
+#define _raw_read_lock_bh(lock, mask) __raw_read_lock_bh(lock, mask)
 #endif
 
 #ifdef CONFIG_INLINE_WRITE_LOCK_BH
-#define _raw_write_lock_bh(lock) __raw_write_lock_bh(lock)
+#define _raw_write_lock_bh(lock, mask) __raw_write_lock_bh(lock, mask)
 #endif
 
 #ifdef CONFIG_INLINE_READ_LOCK_IRQ
@@ -89,11 +89,11 @@ _raw_write_unlock_irqrestore(rwlock_t *lock, unsigned long flags)
 #endif
 
 #ifdef CONFIG_INLINE_READ_UNLOCK_BH
-#define _raw_read_unlock_bh(lock) __raw_read_unlock_bh(lock)
+#define _raw_read_unlock_bh(lock, bh) __raw_read_unlock_bh(lock, bh)
 #endif
 
 #ifdef CONFIG_INLINE_WRITE_UNLOCK_BH
-#define _raw_write_unlock_bh(lock) __raw_write_unlock_bh(lock)
+#define _raw_write_unlock_bh(lock, bh) __raw_write_unlock_bh(lock, bh)
 #endif
 
 #ifdef CONFIG_INLINE_READ_UNLOCK_IRQ
@@ -170,11 +170,13 @@ static inline void __raw_read_lock_irq(rwlock_t *lock)
 	LOCK_CONTENDED(lock, do_raw_read_trylock, do_raw_read_lock);
 }
 
-static inline void __raw_read_lock_bh(rwlock_t *lock)
+static inline unsigned int __raw_read_lock_bh(rwlock_t *lock,
+					      unsigned int mask)
 {
 	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET);
 	rwlock_acquire_read(&lock->dep_map, 0, 0, _RET_IP_);
 	LOCK_CONTENDED(lock, do_raw_read_trylock, do_raw_read_lock);
+	return 0;
 }
 
 static inline unsigned long __raw_write_lock_irqsave(rwlock_t *lock)
@@ -197,11 +199,13 @@ static inline void __raw_write_lock_irq(rwlock_t *lock)
 	LOCK_CONTENDED(lock, do_raw_write_trylock, do_raw_write_lock);
 }
 
-static inline void __raw_write_lock_bh(rwlock_t *lock)
+static inline unsigned int  __raw_write_lock_bh(rwlock_t *lock,
+						unsigned int mask)
 {
 	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET);
 	rwlock_acquire(&lock->dep_map, 0, 0, _RET_IP_);
 	LOCK_CONTENDED(lock, do_raw_write_trylock, do_raw_write_lock);
+	return 0;
 }
 
 static inline void __raw_write_lock(rwlock_t *lock)
@@ -244,7 +248,8 @@ static inline void __raw_read_unlock_irq(rwlock_t *lock)
 	preempt_enable();
 }
 
-static inline void __raw_read_unlock_bh(rwlock_t *lock)
+static inline void __raw_read_unlock_bh(rwlock_t *lock,
+					unsigned int bh)
 {
 	rwlock_release(&lock->dep_map, 1, _RET_IP_);
 	do_raw_read_unlock(lock);
@@ -268,7 +273,8 @@ static inline void __raw_write_unlock_irq(rwlock_t *lock)
 	preempt_enable();
 }
 
-static inline void __raw_write_unlock_bh(rwlock_t *lock)
+static inline void __raw_write_unlock_bh(rwlock_t *lock,
+					 unsigned int bh)
 {
 	rwlock_release(&lock->dep_map, 1, _RET_IP_);
 	do_raw_write_unlock(lock);

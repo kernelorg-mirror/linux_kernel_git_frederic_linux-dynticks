@@ -84,17 +84,19 @@ static inline void __atalk_insert_socket(struct sock *sk)
 
 static inline void atalk_remove_socket(struct sock *sk)
 {
-	write_lock_bh(&atalk_sockets_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&atalk_sockets_lock, SOFTIRQ_ALL_MASK);
 	sk_del_node_init(sk);
-	write_unlock_bh(&atalk_sockets_lock);
+	write_unlock_bh(&atalk_sockets_lock, bh);
 }
 
 static struct sock *atalk_search_socket(struct sockaddr_at *to,
 					struct atalk_iface *atif)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	read_lock_bh(&atalk_sockets_lock);
+	bh = read_lock_bh(&atalk_sockets_lock, SOFTIRQ_ALL_MASK);
 	sk_for_each(s, &atalk_sockets) {
 		struct atalk_sock *at = at_sk(s);
 
@@ -122,7 +124,7 @@ static struct sock *atalk_search_socket(struct sockaddr_at *to,
 	}
 	s = NULL;
 found:
-	read_unlock_bh(&atalk_sockets_lock);
+	read_unlock_bh(&atalk_sockets_lock, bh);
 	return s;
 }
 
@@ -139,10 +141,11 @@ found:
 static struct sock *atalk_find_or_insert_socket(struct sock *sk,
 						struct sockaddr_at *sat)
 {
+	unsigned int bh;
 	struct sock *s;
 	struct atalk_sock *at;
 
-	write_lock_bh(&atalk_sockets_lock);
+	bh = write_lock_bh(&atalk_sockets_lock, SOFTIRQ_ALL_MASK);
 	sk_for_each(s, &atalk_sockets) {
 		at = at_sk(s);
 
@@ -154,7 +157,7 @@ static struct sock *atalk_find_or_insert_socket(struct sock *sk,
 	s = NULL;
 	__atalk_insert_socket(sk); /* Wheee, it's free, assign and insert. */
 found:
-	write_unlock_bh(&atalk_sockets_lock);
+	write_unlock_bh(&atalk_sockets_lock, bh);
 	return s;
 }
 
@@ -205,10 +208,11 @@ struct atalk_route atrtr_default;
  */
 static void atif_drop_device(struct net_device *dev)
 {
+	unsigned int bh;
 	struct atalk_iface **iface = &atalk_interfaces;
 	struct atalk_iface *tmp;
 
-	write_lock_bh(&atalk_interfaces_lock);
+	bh = write_lock_bh(&atalk_interfaces_lock, SOFTIRQ_ALL_MASK);
 	while ((tmp = *iface) != NULL) {
 		if (tmp->dev == dev) {
 			*iface = tmp->next;
@@ -218,12 +222,13 @@ static void atif_drop_device(struct net_device *dev)
 		} else
 			iface = &tmp->next;
 	}
-	write_unlock_bh(&atalk_interfaces_lock);
+	write_unlock_bh(&atalk_interfaces_lock, bh);
 }
 
 static struct atalk_iface *atif_add_device(struct net_device *dev,
 					   struct atalk_addr *sa)
 {
+	unsigned int bh;
 	struct atalk_iface *iface = kzalloc(sizeof(*iface), GFP_KERNEL);
 
 	if (!iface)
@@ -235,10 +240,10 @@ static struct atalk_iface *atif_add_device(struct net_device *dev,
 	iface->address = *sa;
 	iface->status = 0;
 
-	write_lock_bh(&atalk_interfaces_lock);
+	bh = write_lock_bh(&atalk_interfaces_lock, SOFTIRQ_ALL_MASK);
 	iface->next = atalk_interfaces;
 	atalk_interfaces = iface;
-	write_unlock_bh(&atalk_interfaces_lock);
+	write_unlock_bh(&atalk_interfaces_lock, bh);
 out:
 	return iface;
 }
@@ -344,6 +349,7 @@ struct atalk_addr *atalk_find_dev_addr(struct net_device *dev)
 
 static struct atalk_addr *atalk_find_primary(void)
 {
+	unsigned int bh;
 	struct atalk_iface *fiface = NULL;
 	struct atalk_addr *retval;
 	struct atalk_iface *iface;
@@ -352,7 +358,7 @@ static struct atalk_addr *atalk_find_primary(void)
 	 * Return a point-to-point interface only if
 	 * there is no non-ptp interface available.
 	 */
-	read_lock_bh(&atalk_interfaces_lock);
+	bh = read_lock_bh(&atalk_interfaces_lock, SOFTIRQ_ALL_MASK);
 	for (iface = atalk_interfaces; iface; iface = iface->next) {
 		if (!fiface && !(iface->dev->flags & IFF_LOOPBACK))
 			fiface = iface;
@@ -369,7 +375,7 @@ static struct atalk_addr *atalk_find_primary(void)
 	else
 		retval = NULL;
 out:
-	read_unlock_bh(&atalk_interfaces_lock);
+	read_unlock_bh(&atalk_interfaces_lock, bh);
 	return retval;
 }
 
@@ -398,9 +404,10 @@ out_err:
 /* Find a match for a specific network:node pair */
 static struct atalk_iface *atalk_find_interface(__be16 net, int node)
 {
+	unsigned int bh;
 	struct atalk_iface *iface;
 
-	read_lock_bh(&atalk_interfaces_lock);
+	bh = read_lock_bh(&atalk_interfaces_lock, SOFTIRQ_ALL_MASK);
 	for (iface = atalk_interfaces; iface; iface = iface->next) {
 		if ((node == ATADDR_BCAST ||
 		     node == ATADDR_ANYNODE ||
@@ -415,7 +422,7 @@ static struct atalk_iface *atalk_find_interface(__be16 net, int node)
 		    ntohs(net) <= ntohs(iface->nets.nr_lastnet))
 			break;
 	}
-	read_unlock_bh(&atalk_interfaces_lock);
+	read_unlock_bh(&atalk_interfaces_lock, bh);
 	return iface;
 }
 
@@ -427,6 +434,7 @@ static struct atalk_iface *atalk_find_interface(__be16 net, int node)
  */
 static struct atalk_route *atrtr_find(struct atalk_addr *target)
 {
+	unsigned int bh;
 	/*
 	 * we must search through all routes unless we find a
 	 * host route, because some host routes might overlap
@@ -435,7 +443,7 @@ static struct atalk_route *atrtr_find(struct atalk_addr *target)
 	struct atalk_route *net_route = NULL;
 	struct atalk_route *r;
 
-	read_lock_bh(&atalk_routes_lock);
+	bh = read_lock_bh(&atalk_routes_lock, SOFTIRQ_ALL_MASK);
 	for (r = atalk_routes; r; r = r->next) {
 		if (!(r->flags & RTF_UP))
 			continue;
@@ -468,7 +476,7 @@ static struct atalk_route *atrtr_find(struct atalk_addr *target)
 	else /* No route can be found */
 		r = NULL;
 out:
-	read_unlock_bh(&atalk_routes_lock);
+	read_unlock_bh(&atalk_routes_lock, bh);
 	return r;
 }
 
@@ -499,6 +507,8 @@ static void atrtr_set_default(struct net_device *dev)
  */
 static int atrtr_create(struct rtentry *r, struct net_device *devhint)
 {
+	unsigned int bh;
+	unsigned int bh;
 	struct sockaddr_at *ta = (struct sockaddr_at *)&r->rt_dst;
 	struct sockaddr_at *ga = (struct sockaddr_at *)&r->rt_gateway;
 	struct atalk_route *rt;
@@ -516,7 +526,7 @@ static int atrtr_create(struct rtentry *r, struct net_device *devhint)
 		goto out;
 
 	/* Now walk the routing table and make our decisions */
-	write_lock_bh(&atalk_routes_lock);
+	bh = write_lock_bh(&atalk_routes_lock, SOFTIRQ_ALL_MASK);
 	for (rt = atalk_routes; rt; rt = rt->next) {
 		if (r->rt_flags != rt->flags)
 			continue;
@@ -532,7 +542,7 @@ static int atrtr_create(struct rtentry *r, struct net_device *devhint)
 	if (!devhint) {
 		riface = NULL;
 
-		read_lock_bh(&atalk_interfaces_lock);
+		bh = read_lock_bh(&atalk_interfaces_lock, SOFTIRQ_ALL_MASK);
 		for (iface = atalk_interfaces; iface; iface = iface->next) {
 			if (!riface &&
 			    ntohs(ga->sat_addr.s_net) >=
@@ -545,7 +555,7 @@ static int atrtr_create(struct rtentry *r, struct net_device *devhint)
 			    ga->sat_addr.s_node == iface->address.s_node)
 				riface = iface;
 		}
-		read_unlock_bh(&atalk_interfaces_lock);
+		read_unlock_bh(&atalk_interfaces_lock, bh);
 
 		retval = -ENETUNREACH;
 		if (!riface)
@@ -574,7 +584,7 @@ static int atrtr_create(struct rtentry *r, struct net_device *devhint)
 
 	retval = 0;
 out_unlock:
-	write_unlock_bh(&atalk_routes_lock);
+	write_unlock_bh(&atalk_routes_lock, bh);
 out:
 	return retval;
 }
@@ -582,11 +592,12 @@ out:
 /* Delete a route. Find it and discard it */
 static int atrtr_delete(struct atalk_addr *addr)
 {
+	unsigned int bh;
 	struct atalk_route **r = &atalk_routes;
 	int retval = 0;
 	struct atalk_route *tmp;
 
-	write_lock_bh(&atalk_routes_lock);
+	bh = write_lock_bh(&atalk_routes_lock, SOFTIRQ_ALL_MASK);
 	while ((tmp = *r) != NULL) {
 		if (tmp->target.s_net == addr->s_net &&
 		    (!(tmp->flags&RTF_GATEWAY) ||
@@ -600,7 +611,7 @@ static int atrtr_delete(struct atalk_addr *addr)
 	}
 	retval = -ENOENT;
 out:
-	write_unlock_bh(&atalk_routes_lock);
+	write_unlock_bh(&atalk_routes_lock, bh);
 	return retval;
 }
 
@@ -610,10 +621,11 @@ out:
  */
 static void atrtr_device_down(struct net_device *dev)
 {
+	unsigned int bh;
 	struct atalk_route **r = &atalk_routes;
 	struct atalk_route *tmp;
 
-	write_lock_bh(&atalk_routes_lock);
+	bh = write_lock_bh(&atalk_routes_lock, SOFTIRQ_ALL_MASK);
 	while ((tmp = *r) != NULL) {
 		if (tmp->dev == dev) {
 			*r = tmp->next;
@@ -622,7 +634,7 @@ static void atrtr_device_down(struct net_device *dev)
 		} else
 			r = &tmp->next;
 	}
-	write_unlock_bh(&atalk_routes_lock);
+	write_unlock_bh(&atalk_routes_lock, bh);
 
 	if (atrtr_default.dev == dev)
 		atrtr_set_default(NULL);
@@ -1073,9 +1085,10 @@ static int atalk_release(struct socket *sock)
  */
 static int atalk_pick_and_bind_port(struct sock *sk, struct sockaddr_at *sat)
 {
+	unsigned int bh;
 	int retval;
 
-	write_lock_bh(&atalk_sockets_lock);
+	bh = write_lock_bh(&atalk_sockets_lock, SOFTIRQ_ALL_MASK);
 
 	for (sat->sat_port = ATPORT_RESERVED;
 	     sat->sat_port < ATPORT_LAST;
@@ -1102,7 +1115,7 @@ try_next_port:;
 
 	retval = -EBUSY;
 out:
-	write_unlock_bh(&atalk_sockets_lock);
+	write_unlock_bh(&atalk_sockets_lock, bh);
 	return retval;
 }
 

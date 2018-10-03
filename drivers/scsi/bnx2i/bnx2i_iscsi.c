@@ -606,9 +606,10 @@ void bnx2i_drop_session(struct iscsi_cls_session *cls_session)
 static int bnx2i_ep_destroy_list_add(struct bnx2i_hba *hba,
 				     struct bnx2i_endpoint *ep)
 {
-	write_lock_bh(&hba->ep_rdwr_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&hba->ep_rdwr_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&ep->link, &hba->ep_destroy_list);
-	write_unlock_bh(&hba->ep_rdwr_lock);
+	write_unlock_bh(&hba->ep_rdwr_lock, bh);
 	return 0;
 }
 
@@ -623,9 +624,10 @@ static int bnx2i_ep_destroy_list_add(struct bnx2i_hba *hba,
 static int bnx2i_ep_destroy_list_del(struct bnx2i_hba *hba,
 				     struct bnx2i_endpoint *ep)
 {
-	write_lock_bh(&hba->ep_rdwr_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&hba->ep_rdwr_lock, SOFTIRQ_ALL_MASK);
 	list_del_init(&ep->link);
-	write_unlock_bh(&hba->ep_rdwr_lock);
+	write_unlock_bh(&hba->ep_rdwr_lock, bh);
 
 	return 0;
 }
@@ -640,9 +642,10 @@ static int bnx2i_ep_destroy_list_del(struct bnx2i_hba *hba,
 static int bnx2i_ep_ofld_list_add(struct bnx2i_hba *hba,
 				  struct bnx2i_endpoint *ep)
 {
-	write_lock_bh(&hba->ep_rdwr_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&hba->ep_rdwr_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&ep->link, &hba->ep_ofld_list);
-	write_unlock_bh(&hba->ep_rdwr_lock);
+	write_unlock_bh(&hba->ep_rdwr_lock, bh);
 	return 0;
 }
 
@@ -656,9 +659,10 @@ static int bnx2i_ep_ofld_list_add(struct bnx2i_hba *hba,
 static int bnx2i_ep_ofld_list_del(struct bnx2i_hba *hba,
 				  struct bnx2i_endpoint *ep)
 {
-	write_lock_bh(&hba->ep_rdwr_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&hba->ep_rdwr_lock, SOFTIRQ_ALL_MASK);
 	list_del_init(&ep->link);
-	write_unlock_bh(&hba->ep_rdwr_lock);
+	write_unlock_bh(&hba->ep_rdwr_lock, bh);
 	return 0;
 }
 
@@ -673,11 +677,12 @@ static int bnx2i_ep_ofld_list_del(struct bnx2i_hba *hba,
 struct bnx2i_endpoint *
 bnx2i_find_ep_in_ofld_list(struct bnx2i_hba *hba, u32 iscsi_cid)
 {
+	unsigned int bh;
 	struct list_head *list;
 	struct list_head *tmp;
 	struct bnx2i_endpoint *ep = NULL;
 
-	read_lock_bh(&hba->ep_rdwr_lock);
+	bh = read_lock_bh(&hba->ep_rdwr_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_safe(list, tmp, &hba->ep_ofld_list) {
 		ep = (struct bnx2i_endpoint *)list;
 
@@ -685,7 +690,7 @@ bnx2i_find_ep_in_ofld_list(struct bnx2i_hba *hba, u32 iscsi_cid)
 			break;
 		ep = NULL;
 	}
-	read_unlock_bh(&hba->ep_rdwr_lock);
+	read_unlock_bh(&hba->ep_rdwr_lock, bh);
 
 	if (!ep)
 		printk(KERN_ERR "l5 cid %d not found\n", iscsi_cid);
@@ -701,11 +706,12 @@ bnx2i_find_ep_in_ofld_list(struct bnx2i_hba *hba, u32 iscsi_cid)
 struct bnx2i_endpoint *
 bnx2i_find_ep_in_destroy_list(struct bnx2i_hba *hba, u32 iscsi_cid)
 {
+	unsigned int bh;
 	struct list_head *list;
 	struct list_head *tmp;
 	struct bnx2i_endpoint *ep = NULL;
 
-	read_lock_bh(&hba->ep_rdwr_lock);
+	bh = read_lock_bh(&hba->ep_rdwr_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_safe(list, tmp, &hba->ep_destroy_list) {
 		ep = (struct bnx2i_endpoint *)list;
 
@@ -713,7 +719,7 @@ bnx2i_find_ep_in_destroy_list(struct bnx2i_hba *hba, u32 iscsi_cid)
 			break;
 		ep = NULL;
 	}
-	read_unlock_bh(&hba->ep_rdwr_lock);
+	read_unlock_bh(&hba->ep_rdwr_lock, bh);
 
 	if (!ep)
 		printk(KERN_ERR "l5 cid %d not found\n", iscsi_cid);
@@ -731,9 +737,10 @@ bnx2i_find_ep_in_destroy_list(struct bnx2i_hba *hba, u32 iscsi_cid)
 static void bnx2i_ep_active_list_add(struct bnx2i_hba *hba,
 				     struct bnx2i_endpoint *ep)
 {
-	write_lock_bh(&hba->ep_rdwr_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&hba->ep_rdwr_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&ep->link, &hba->ep_active_list);
-	write_unlock_bh(&hba->ep_rdwr_lock);
+	write_unlock_bh(&hba->ep_rdwr_lock, bh);
 }
 
 
@@ -747,9 +754,10 @@ static void bnx2i_ep_active_list_add(struct bnx2i_hba *hba,
 static void bnx2i_ep_active_list_del(struct bnx2i_hba *hba,
 				     struct bnx2i_endpoint *ep)
 {
-	write_lock_bh(&hba->ep_rdwr_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&hba->ep_rdwr_lock, SOFTIRQ_ALL_MASK);
 	list_del_init(&ep->link);
-	write_unlock_bh(&hba->ep_rdwr_lock);
+	write_unlock_bh(&hba->ep_rdwr_lock, bh);
 }
 
 
@@ -1558,6 +1566,7 @@ static int bnx2i_ep_get_param(struct iscsi_endpoint *ep,
 static int bnx2i_host_get_param(struct Scsi_Host *shost,
 				enum iscsi_host_param param, char *buf)
 {
+	unsigned int bh;
 	struct bnx2i_hba *hba = iscsi_host_priv(shost);
 	int len = 0;
 
@@ -1571,7 +1580,7 @@ static int bnx2i_host_get_param(struct Scsi_Host *shost,
 	case ISCSI_HOST_PARAM_IPADDRESS: {
 		struct list_head *active_list = &hba->ep_active_list;
 
-		read_lock_bh(&hba->ep_rdwr_lock);
+		bh = read_lock_bh(&hba->ep_rdwr_lock, SOFTIRQ_ALL_MASK);
 		if (!list_empty(&hba->ep_active_list)) {
 			struct bnx2i_endpoint *bnx2i_ep;
 			struct cnic_sock *csk;
@@ -1585,7 +1594,7 @@ static int bnx2i_host_get_param(struct Scsi_Host *shost,
 			else
 				len = sprintf(buf, "%pI4\n", csk->src_ip);
 		}
-		read_unlock_bh(&hba->ep_rdwr_lock);
+		read_unlock_bh(&hba->ep_rdwr_lock, bh);
 		break;
 	}
 	default:

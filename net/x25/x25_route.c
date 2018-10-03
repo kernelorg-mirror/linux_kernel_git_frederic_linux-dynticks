@@ -31,11 +31,12 @@ DEFINE_RWLOCK(x25_route_list_lock);
 static int x25_add_route(struct x25_address *address, unsigned int sigdigits,
 			 struct net_device *dev)
 {
+	unsigned int bh;
 	struct x25_route *rt;
 	struct list_head *entry;
 	int rc = -EINVAL;
 
-	write_lock_bh(&x25_route_list_lock);
+	bh = write_lock_bh(&x25_route_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each(entry, &x25_route_list) {
 		rt = list_entry(entry, struct x25_route, node);
@@ -60,7 +61,7 @@ static int x25_add_route(struct x25_address *address, unsigned int sigdigits,
 	list_add(&rt->node, &x25_route_list);
 	rc = 0;
 out:
-	write_unlock_bh(&x25_route_list_lock);
+	write_unlock_bh(&x25_route_list_lock, bh);
 	return rc;
 }
 
@@ -82,11 +83,12 @@ static void __x25_remove_route(struct x25_route *rt)
 static int x25_del_route(struct x25_address *address, unsigned int sigdigits,
 			 struct net_device *dev)
 {
+	unsigned int bh;
 	struct x25_route *rt;
 	struct list_head *entry;
 	int rc = -EINVAL;
 
-	write_lock_bh(&x25_route_list_lock);
+	bh = write_lock_bh(&x25_route_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each(entry, &x25_route_list) {
 		rt = list_entry(entry, struct x25_route, node);
@@ -99,7 +101,7 @@ static int x25_del_route(struct x25_address *address, unsigned int sigdigits,
 		}
 	}
 
-	write_unlock_bh(&x25_route_list_lock);
+	write_unlock_bh(&x25_route_list_lock, bh);
 	return rc;
 }
 
@@ -108,10 +110,11 @@ static int x25_del_route(struct x25_address *address, unsigned int sigdigits,
  */
 void x25_route_device_down(struct net_device *dev)
 {
+	unsigned int bh;
 	struct x25_route *rt;
 	struct list_head *entry, *tmp;
 
-	write_lock_bh(&x25_route_list_lock);
+	bh = write_lock_bh(&x25_route_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each_safe(entry, tmp, &x25_route_list) {
 		rt = list_entry(entry, struct x25_route, node);
@@ -119,7 +122,7 @@ void x25_route_device_down(struct net_device *dev)
 		if (rt->dev == dev)
 			__x25_remove_route(rt);
 	}
-	write_unlock_bh(&x25_route_list_lock);
+	write_unlock_bh(&x25_route_list_lock, bh);
 
 	/* Remove any related forwarding */
 	x25_clear_forward_by_dev(dev);
@@ -153,10 +156,11 @@ struct net_device *x25_dev_get(char *devname)
  */
 struct x25_route *x25_get_route(struct x25_address *addr)
 {
+	unsigned int bh;
 	struct x25_route *rt, *use = NULL;
 	struct list_head *entry;
 
-	read_lock_bh(&x25_route_list_lock);
+	bh = read_lock_bh(&x25_route_list_lock, SOFTIRQ_ALL_MASK);
 
 	list_for_each(entry, &x25_route_list) {
 		rt = list_entry(entry, struct x25_route, node);
@@ -172,7 +176,7 @@ struct x25_route *x25_get_route(struct x25_address *addr)
 	if (use)
 		x25_route_hold(use);
 
-	read_unlock_bh(&x25_route_list_lock);
+	read_unlock_bh(&x25_route_list_lock, bh);
 	return use;
 }
 
@@ -214,13 +218,14 @@ out:
  */
 void __exit x25_route_free(void)
 {
+	unsigned int bh;
 	struct x25_route *rt;
 	struct list_head *entry, *tmp;
 
-	write_lock_bh(&x25_route_list_lock);
+	bh = write_lock_bh(&x25_route_list_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_safe(entry, tmp, &x25_route_list) {
 		rt = list_entry(entry, struct x25_route, node);
 		__x25_remove_route(rt);
 	}
-	write_unlock_bh(&x25_route_list_lock);
+	write_unlock_bh(&x25_route_list_lock, bh);
 }

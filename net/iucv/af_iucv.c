@@ -633,16 +633,18 @@ static int iucv_sock_create(struct net *net, struct socket *sock, int protocol,
 
 void iucv_sock_link(struct iucv_sock_list *l, struct sock *sk)
 {
-	write_lock_bh(&l->lock);
+	unsigned int bh;
+	bh = write_lock_bh(&l->lock, SOFTIRQ_ALL_MASK);
 	sk_add_node(sk, &l->head);
-	write_unlock_bh(&l->lock);
+	write_unlock_bh(&l->lock, bh);
 }
 
 void iucv_sock_unlink(struct iucv_sock_list *l, struct sock *sk)
 {
-	write_lock_bh(&l->lock);
+	unsigned int bh;
+	bh = write_lock_bh(&l->lock, SOFTIRQ_ALL_MASK);
 	sk_del_node_init(sk);
-	write_unlock_bh(&l->lock);
+	write_unlock_bh(&l->lock, bh);
 }
 
 void iucv_accept_enqueue(struct sock *parent, struct sock *sk)
@@ -718,6 +720,7 @@ static void __iucv_auto_name(struct iucv_sock *iucv)
 static int iucv_sock_bind(struct socket *sock, struct sockaddr *addr,
 			  int addr_len)
 {
+	unsigned int bh;
 	struct sockaddr_iucv *sa = (struct sockaddr_iucv *) addr;
 	struct sock *sk = sock->sk;
 	struct iucv_sock *iucv;
@@ -736,7 +739,7 @@ static int iucv_sock_bind(struct socket *sock, struct sockaddr *addr,
 		goto done;
 	}
 
-	write_lock_bh(&iucv_sk_list.lock);
+	bh = write_lock_bh(&iucv_sk_list.lock, SOFTIRQ_ALL_MASK);
 
 	iucv = iucv_sk(sk);
 	if (__iucv_get_sock_by_name(sa->siucv_name)) {
@@ -790,7 +793,7 @@ vm_bind:
 	err = -ENODEV;
 done_unlock:
 	/* Release the socket list lock */
-	write_unlock_bh(&iucv_sk_list.lock);
+	write_unlock_bh(&iucv_sk_list.lock, bh);
 done:
 	release_sock(sk);
 	return err;
@@ -799,6 +802,7 @@ done:
 /* Automatically bind an unbound socket */
 static int iucv_sock_autobind(struct sock *sk)
 {
+	unsigned int bh;
 	struct iucv_sock *iucv = iucv_sk(sk);
 	int err = 0;
 
@@ -807,9 +811,9 @@ static int iucv_sock_autobind(struct sock *sk)
 
 	memcpy(iucv->src_user_id, iucv_userid, 8);
 
-	write_lock_bh(&iucv_sk_list.lock);
+	bh = write_lock_bh(&iucv_sk_list.lock, SOFTIRQ_ALL_MASK);
 	__iucv_auto_name(iucv);
-	write_unlock_bh(&iucv_sk_list.lock);
+	write_unlock_bh(&iucv_sk_list.lock, bh);
 
 	if (!iucv->msglimit)
 		iucv->msglimit = IUCV_QUEUELEN_DEFAULT;

@@ -543,6 +543,7 @@ static void netiucv_callback_connack(struct iucv_path *path, u8 ipuser[16])
 static int netiucv_callback_connreq(struct iucv_path *path, u8 *ipvmid,
 				    u8 *ipuser)
 {
+	unsigned int bh;
 	struct iucv_connection *conn = path->private;
 	struct iucv_event ev;
 	static char tmp_user[9];
@@ -553,7 +554,7 @@ static int netiucv_callback_connreq(struct iucv_path *path, u8 *ipvmid,
 	memcpy(tmp_user, netiucv_printname(ipvmid, 8), 8);
 	memcpy(tmp_udat, ipuser, 16);
 	EBCASC(tmp_udat, 16);
-	read_lock_bh(&iucv_connection_rwlock);
+	bh = read_lock_bh(&iucv_connection_rwlock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(conn, &iucv_connection_list, list) {
 		if (strncmp(ipvmid, conn->userid, 8) ||
 		    strncmp(ipuser, conn->userdata, 16))
@@ -567,7 +568,7 @@ static int netiucv_callback_connreq(struct iucv_path *path, u8 *ipvmid,
 	}
 	IUCV_DBF_TEXT_(setup, 2, "Connection requested for %s.%s\n",
 		       tmp_user, netiucv_printname(tmp_udat, 16));
-	read_unlock_bh(&iucv_connection_rwlock);
+	read_unlock_bh(&iucv_connection_rwlock, bh);
 	return rc;
 }
 
@@ -1476,6 +1477,7 @@ static int netiucv_check_user(const char *buf, size_t count, char *username,
 static ssize_t user_write(struct device *dev, struct device_attribute *attr,
 			  const char *buf, size_t count)
 {
+	unsigned int bh;
 	struct netiucv_priv *priv = dev_get_drvdata(dev);
 	struct net_device *ndev = priv->conn->netdev;
 	char	username[9];
@@ -1494,17 +1496,17 @@ static ssize_t user_write(struct device *dev, struct device_attribute *attr,
 		IUCV_DBF_TEXT(setup, 2, "user_write: device active\n");
 		return -EPERM;
 	}
-	read_lock_bh(&iucv_connection_rwlock);
+	bh = read_lock_bh(&iucv_connection_rwlock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(cp, &iucv_connection_list, list) {
 		if (!strncmp(username, cp->userid, 9) &&
 		   !strncmp(userdata, cp->userdata, 17) && cp->netdev != ndev) {
-			read_unlock_bh(&iucv_connection_rwlock);
+			read_unlock_bh(&iucv_connection_rwlock, bh);
 			IUCV_DBF_TEXT_(setup, 2, "user_write: Connection to %s "
 				"already exists\n", netiucv_printuser(cp));
 			return -EEXIST;
 		}
 	}
-	read_unlock_bh(&iucv_connection_rwlock);
+	read_unlock_bh(&iucv_connection_rwlock, bh);
 	memcpy(priv->conn->userid, username, 9);
 	memcpy(priv->conn->userdata, userdata, 17);
 	return count;
@@ -1845,6 +1847,7 @@ static struct iucv_connection *netiucv_new_connection(struct net_device *dev,
 						      char *username,
 						      char *userdata)
 {
+	unsigned int bh;
 	struct iucv_connection *conn;
 
 	conn = kzalloc(sizeof(*conn), GFP_KERNEL);
@@ -1879,9 +1882,9 @@ static struct iucv_connection *netiucv_new_connection(struct net_device *dev,
 		fsm_newstate(conn->fsm, CONN_STATE_STOPPED);
 	}
 
-	write_lock_bh(&iucv_connection_rwlock);
+	bh = write_lock_bh(&iucv_connection_rwlock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&conn->list, &iucv_connection_list);
-	write_unlock_bh(&iucv_connection_rwlock);
+	write_unlock_bh(&iucv_connection_rwlock, bh);
 	return conn;
 
 out_tx:
@@ -1900,11 +1903,12 @@ out:
  */
 static void netiucv_remove_connection(struct iucv_connection *conn)
 {
+	unsigned int bh;
 
 	IUCV_DBF_TEXT(trace, 3, __func__);
-	write_lock_bh(&iucv_connection_rwlock);
+	bh = write_lock_bh(&iucv_connection_rwlock, SOFTIRQ_ALL_MASK);
 	list_del_init(&conn->list);
-	write_unlock_bh(&iucv_connection_rwlock);
+	write_unlock_bh(&iucv_connection_rwlock, bh);
 	fsm_deltimer(&conn->timer);
 	netiucv_purge_skb_queue(&conn->collect_queue);
 	if (conn->path) {
@@ -2007,6 +2011,7 @@ out_netdev:
 static ssize_t connection_store(struct device_driver *drv, const char *buf,
 				size_t count)
 {
+	unsigned int bh;
 	char username[9];
 	char userdata[17];
 	int rc;
@@ -2019,17 +2024,17 @@ static ssize_t connection_store(struct device_driver *drv, const char *buf,
 	if (rc)
 		return rc;
 
-	read_lock_bh(&iucv_connection_rwlock);
+	bh = read_lock_bh(&iucv_connection_rwlock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(cp, &iucv_connection_list, list) {
 		if (!strncmp(username, cp->userid, 9) &&
 		    !strncmp(userdata, cp->userdata, 17)) {
-			read_unlock_bh(&iucv_connection_rwlock);
+			read_unlock_bh(&iucv_connection_rwlock, bh);
 			IUCV_DBF_TEXT_(setup, 2, "conn_write: Connection to %s "
 				"already exists\n", netiucv_printuser(cp));
 			return -EEXIST;
 		}
 	}
-	read_unlock_bh(&iucv_connection_rwlock);
+	read_unlock_bh(&iucv_connection_rwlock, bh);
 
 	dev = netiucv_init_netdevice(username, userdata);
 	if (!dev) {
@@ -2071,6 +2076,7 @@ static DRIVER_ATTR_WO(connection);
 static ssize_t remove_store(struct device_driver *drv, const char *buf,
 			    size_t count)
 {
+	unsigned int bh;
 	struct iucv_connection *cp;
         struct net_device *ndev;
         struct netiucv_priv *priv;
@@ -2092,14 +2098,14 @@ static ssize_t remove_store(struct device_driver *drv, const char *buf,
         }
         name[i] = '\0';
 
-	read_lock_bh(&iucv_connection_rwlock);
+	bh = read_lock_bh(&iucv_connection_rwlock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(cp, &iucv_connection_list, list) {
 		ndev = cp->netdev;
 		priv = netdev_priv(ndev);
                 dev = priv->dev;
 		if (strncmp(name, ndev->name, count))
 			continue;
-		read_unlock_bh(&iucv_connection_rwlock);
+		read_unlock_bh(&iucv_connection_rwlock, bh);
                 if (ndev->flags & (IFF_UP | IFF_RUNNING)) {
 			dev_warn(dev, "The IUCV device is connected"
 				" to %s and cannot be removed\n",
@@ -2111,7 +2117,7 @@ static ssize_t remove_store(struct device_driver *drv, const char *buf,
                 netiucv_unregister_device(dev);
                 return count;
         }
-	read_unlock_bh(&iucv_connection_rwlock);
+	read_unlock_bh(&iucv_connection_rwlock, bh);
 	IUCV_DBF_TEXT(data, 2, "remove_write: unknown device\n");
         return -EINVAL;
 }

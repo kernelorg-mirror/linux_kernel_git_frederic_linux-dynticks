@@ -39,11 +39,12 @@
 
 void rds_tcp_state_change(struct sock *sk)
 {
+	unsigned int bh;
 	void (*state_change)(struct sock *sk);
 	struct rds_conn_path *cp;
 	struct rds_tcp_connection *tc;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	cp = sk->sk_user_data;
 	if (!cp) {
 		state_change = sk->sk_state_change;
@@ -82,7 +83,7 @@ void rds_tcp_state_change(struct sock *sk)
 		break;
 	}
 out:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 	state_change(sk);
 }
 

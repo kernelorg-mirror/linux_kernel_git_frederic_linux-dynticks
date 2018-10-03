@@ -56,7 +56,8 @@ static void __neigh_notify(struct neighbour *n, int type, int flags,
 			   u32 pid);
 static void neigh_update_notify(struct neighbour *neigh, u32 nlmsg_pid);
 static int pneigh_ifdown_and_unlock(struct neigh_table *tbl,
-				    struct net_device *dev);
+				    struct net_device *dev,
+				    unsigned int bh);
 
 #ifdef CONFIG_PROC_FS
 static const struct seq_operations neigh_stat_seq_ops;
@@ -166,13 +167,14 @@ bool neigh_remove_one(struct neighbour *ndel, struct neigh_table *tbl)
 
 static int neigh_forced_gc(struct neigh_table *tbl)
 {
+	unsigned int bh;
 	int shrunk = 0;
 	int i;
 	struct neigh_hash_table *nht;
 
 	NEIGH_CACHE_STAT_INC(tbl, forced_gc_runs);
 
-	write_lock_bh(&tbl->lock);
+	bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	nht = rcu_dereference_protected(tbl->nht,
 					lockdep_is_held(&tbl->lock));
 	for (i = 0; i < (1 << nht->hash_shift); i++) {
@@ -197,7 +199,7 @@ static int neigh_forced_gc(struct neigh_table *tbl)
 
 	tbl->last_flush = jiffies;
 
-	write_unlock_bh(&tbl->lock);
+	write_unlock_bh(&tbl->lock, bh);
 
 	return shrunk;
 }
@@ -284,17 +286,20 @@ static void neigh_flush_dev(struct neigh_table *tbl, struct net_device *dev)
 
 void neigh_changeaddr(struct neigh_table *tbl, struct net_device *dev)
 {
-	write_lock_bh(&tbl->lock);
+	unsigned int bh;
+	bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	neigh_flush_dev(tbl, dev);
-	write_unlock_bh(&tbl->lock);
+	write_unlock_bh(&tbl->lock, bh);
 }
 EXPORT_SYMBOL(neigh_changeaddr);
 
 int neigh_ifdown(struct neigh_table *tbl, struct net_device *dev)
 {
-	write_lock_bh(&tbl->lock);
+	unsigned int bh;
+
+	bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	neigh_flush_dev(tbl, dev);
-	pneigh_ifdown_and_unlock(tbl, dev);
+	pneigh_ifdown_and_unlock(tbl, dev, bh);
 
 	del_timer_sync(&tbl->proxy_timer);
 	pneigh_queue_purge(&tbl->proxy_queue);
@@ -491,6 +496,7 @@ EXPORT_SYMBOL(neigh_lookup_nodev);
 struct neighbour *__neigh_create(struct neigh_table *tbl, const void *pkey,
 				 struct net_device *dev, bool want_ref)
 {
+	unsigned int bh;
 	u32 hash_val;
 	unsigned int key_len = tbl->key_len;
 	int error;
@@ -529,7 +535,7 @@ struct neighbour *__neigh_create(struct neigh_table *tbl, const void *pkey,
 
 	n->confirmed = jiffies - (NEIGH_VAR(n->parms, BASE_REACHABLE_TIME) << 1);
 
-	write_lock_bh(&tbl->lock);
+	bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	nht = rcu_dereference_protected(tbl->nht,
 					lockdep_is_held(&tbl->lock));
 
@@ -563,13 +569,13 @@ struct neighbour *__neigh_create(struct neigh_table *tbl, const void *pkey,
 			   rcu_dereference_protected(nht->hash_buckets[hash_val],
 						     lockdep_is_held(&tbl->lock)));
 	rcu_assign_pointer(nht->hash_buckets[hash_val], n);
-	write_unlock_bh(&tbl->lock);
+	write_unlock_bh(&tbl->lock, bh);
 	neigh_dbg(2, "neigh %p is created\n", n);
 	rc = n;
 out:
 	return rc;
 out_tbl_unlock:
-	write_unlock_bh(&tbl->lock);
+	write_unlock_bh(&tbl->lock, bh);
 out_neigh_release:
 	neigh_release(n);
 	goto out;
@@ -617,14 +623,15 @@ struct pneigh_entry * pneigh_lookup(struct neigh_table *tbl,
 				    struct net *net, const void *pkey,
 				    struct net_device *dev, int creat)
 {
+	unsigned int bh;
 	struct pneigh_entry *n;
 	unsigned int key_len = tbl->key_len;
 	u32 hash_val = pneigh_hash(pkey, key_len);
 
-	read_lock_bh(&tbl->lock);
+	bh = read_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	n = __pneigh_lookup_1(tbl->phash_buckets[hash_val],
 			      net, pkey, key_len, dev);
-	read_unlock_bh(&tbl->lock);
+	read_unlock_bh(&tbl->lock, bh);
 
 	if (n || !creat)
 		goto out;
@@ -649,10 +656,10 @@ struct pneigh_entry * pneigh_lookup(struct neigh_table *tbl,
 		goto out;
 	}
 
-	write_lock_bh(&tbl->lock);
+	bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	n->next = tbl->phash_buckets[hash_val];
 	tbl->phash_buckets[hash_val] = n;
-	write_unlock_bh(&tbl->lock);
+	write_unlock_bh(&tbl->lock, bh);
 out:
 	return n;
 }
@@ -662,17 +669,18 @@ EXPORT_SYMBOL(pneigh_lookup);
 int pneigh_delete(struct neigh_table *tbl, struct net *net, const void *pkey,
 		  struct net_device *dev)
 {
+	unsigned int bh;
 	struct pneigh_entry *n, **np;
 	unsigned int key_len = tbl->key_len;
 	u32 hash_val = pneigh_hash(pkey, key_len);
 
-	write_lock_bh(&tbl->lock);
+	bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	for (np = &tbl->phash_buckets[hash_val]; (n = *np) != NULL;
 	     np = &n->next) {
 		if (!memcmp(n->key, pkey, key_len) && n->dev == dev &&
 		    net_eq(pneigh_net(n), net)) {
 			*np = n->next;
-			write_unlock_bh(&tbl->lock);
+			write_unlock_bh(&tbl->lock, bh);
 			if (tbl->pdestructor)
 				tbl->pdestructor(n);
 			if (n->dev)
@@ -681,12 +689,13 @@ int pneigh_delete(struct neigh_table *tbl, struct net *net, const void *pkey,
 			return 0;
 		}
 	}
-	write_unlock_bh(&tbl->lock);
+	write_unlock_bh(&tbl->lock, bh);
 	return -ENOENT;
 }
 
 static int pneigh_ifdown_and_unlock(struct neigh_table *tbl,
-				    struct net_device *dev)
+				    struct net_device *dev,
+				    unsigned int bh)
 {
 	struct pneigh_entry *n, **np, *freelist = NULL;
 	u32 h;
@@ -703,7 +712,7 @@ static int pneigh_ifdown_and_unlock(struct neigh_table *tbl,
 			np = &n->next;
 		}
 	}
-	write_unlock_bh(&tbl->lock);
+	write_unlock_bh(&tbl->lock, bh);
 	while ((n = freelist)) {
 		freelist = n->next;
 		n->next = NULL;
@@ -730,6 +739,7 @@ static inline void neigh_parms_put(struct neigh_parms *parms)
  */
 void neigh_destroy(struct neighbour *neigh)
 {
+	unsigned int bh;
 	struct net_device *dev = neigh->dev;
 
 	NEIGH_CACHE_STAT_INC(neigh->tbl, destroys);
@@ -743,9 +753,9 @@ void neigh_destroy(struct neighbour *neigh)
 	if (neigh_del_timer(neigh))
 		pr_warn("Impossible event\n");
 
-	write_lock_bh(&neigh->lock);
+	bh = write_lock_bh(&neigh->lock, SOFTIRQ_ALL_MASK);
 	__skb_queue_purge(&neigh->arp_queue);
-	write_unlock_bh(&neigh->lock);
+	write_unlock_bh(&neigh->lock, bh);
 	neigh->arp_queue_len_bytes = 0;
 
 	if (dev->netdev_ops->ndo_neigh_destroy)
@@ -787,6 +797,7 @@ static void neigh_connect(struct neighbour *neigh)
 
 static void neigh_periodic_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct neigh_table *tbl = container_of(work, struct neigh_table, gc_work.work);
 	struct neighbour *n;
 	struct neighbour __rcu **np;
@@ -795,7 +806,7 @@ static void neigh_periodic_work(struct work_struct *work)
 
 	NEIGH_CACHE_STAT_INC(tbl, periodic_gc_runs);
 
-	write_lock_bh(&tbl->lock);
+	bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	nht = rcu_dereference_protected(tbl->nht,
 					lockdep_is_held(&tbl->lock));
 
@@ -851,9 +862,9 @@ next_elt:
 		 * It's fine to release lock here, even if hash table
 		 * grows while we are preempted.
 		 */
-		write_unlock_bh(&tbl->lock);
+		write_unlock_bh(&tbl->lock, bh);
 		cond_resched();
-		write_lock_bh(&tbl->lock);
+		bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 		nht = rcu_dereference_protected(tbl->nht,
 						lockdep_is_held(&tbl->lock));
 	}
@@ -864,7 +875,7 @@ out:
 	 */
 	queue_delayed_work(system_power_efficient_wq, &tbl->gc_work,
 			      NEIGH_VAR(&tbl->parms, BASE_REACHABLE_TIME) >> 1);
-	write_unlock_bh(&tbl->lock);
+	write_unlock_bh(&tbl->lock, bh);
 }
 
 static __inline__ int neigh_max_probes(struct neighbour *n)
@@ -1004,10 +1015,11 @@ out:
 
 int __neigh_event_send(struct neighbour *neigh, struct sk_buff *skb)
 {
+	unsigned int bh;
 	int rc;
 	bool immediate_probe = false;
 
-	write_lock_bh(&neigh->lock);
+	bh = write_lock_bh(&neigh->lock, SOFTIRQ_ALL_MASK);
 
 	rc = 0;
 	if (neigh->nud_state & (NUD_CONNECTED | NUD_DELAY | NUD_PROBE))
@@ -1031,7 +1043,7 @@ int __neigh_event_send(struct neighbour *neigh, struct sk_buff *skb)
 		} else {
 			neigh->nud_state = NUD_FAILED;
 			neigh->updated = jiffies;
-			write_unlock_bh(&neigh->lock);
+			write_unlock_bh(&neigh->lock, bh);
 
 			kfree_skb(skb);
 			return 1;
@@ -1068,13 +1080,13 @@ out_unlock_bh:
 		neigh_probe(neigh);
 	else
 		write_unlock(&neigh->lock);
-	local_bh_enable(0);
+	local_bh_enable(bh);
 	return rc;
 
 out_dead:
 	if (neigh->nud_state & NUD_STALE)
 		goto out_unlock_bh;
-	write_unlock_bh(&neigh->lock);
+	write_unlock_bh(&neigh->lock, bh);
 	kfree_skb(skb);
 	return 1;
 }
@@ -1124,13 +1136,14 @@ static void neigh_update_hhs(struct neighbour *neigh)
 int neigh_update(struct neighbour *neigh, const u8 *lladdr, u8 new,
 		 u32 flags, u32 nlmsg_pid)
 {
+	unsigned int bh;
 	u8 old;
 	int err;
 	int notify = 0;
 	struct net_device *dev;
 	int update_isrouter = 0;
 
-	write_lock_bh(&neigh->lock);
+	bh = write_lock_bh(&neigh->lock, SOFTIRQ_ALL_MASK);
 
 	dev    = neigh->dev;
 	old    = neigh->nud_state;
@@ -1255,7 +1268,7 @@ int neigh_update(struct neighbour *neigh, const u8 *lladdr, u8 new,
 		       (skb = __skb_dequeue(&neigh->arp_queue)) != NULL) {
 			struct dst_entry *dst = skb_dst(skb);
 			struct neighbour *n2, *n1 = neigh;
-			write_unlock_bh(&neigh->lock);
+			write_unlock_bh(&neigh->lock, bh);
 
 			rcu_read_lock();
 
@@ -1277,7 +1290,7 @@ int neigh_update(struct neighbour *neigh, const u8 *lladdr, u8 new,
 				neigh_release(n2);
 			rcu_read_unlock();
 
-			write_lock_bh(&neigh->lock);
+			bh = write_lock_bh(&neigh->lock, SOFTIRQ_ALL_MASK);
 		}
 		__skb_queue_purge(&neigh->arp_queue);
 		neigh->arp_queue_len_bytes = 0;
@@ -1288,7 +1301,7 @@ out:
 			(neigh->flags | NTF_ROUTER) :
 			(neigh->flags & ~NTF_ROUTER);
 	}
-	write_unlock_bh(&neigh->lock);
+	write_unlock_bh(&neigh->lock, bh);
 
 	if (notify)
 		neigh_update_notify(neigh, nlmsg_pid);
@@ -1327,14 +1340,15 @@ struct neighbour *neigh_event_ns(struct neigh_table *tbl,
 }
 EXPORT_SYMBOL(neigh_event_ns);
 
-/* called with read_lock_bh(&n->lock); */
+/* called with read_lock_bh(&n->lock, SOFTIRQ_ALL_MASK); */
 static void neigh_hh_init(struct neighbour *n)
 {
+	unsigned int bh;
 	struct net_device *dev = n->dev;
 	__be16 prot = n->tbl->protocol;
 	struct hh_cache	*hh = &n->hh;
 
-	write_lock_bh(&n->lock);
+	bh = write_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 
 	/* Only one thread can come in here and initialize the
 	 * hh_cache entry.
@@ -1342,7 +1356,7 @@ static void neigh_hh_init(struct neighbour *n)
 	if (!hh->hh_len)
 		dev->header_ops->cache(n, hh, prot);
 
-	write_unlock_bh(&n->lock);
+	write_unlock_bh(&n->lock, bh);
 }
 
 /* Slow and careful. */
@@ -1491,6 +1505,7 @@ static inline struct neigh_parms *lookup_neigh_parms(struct neigh_table *tbl,
 struct neigh_parms *neigh_parms_alloc(struct net_device *dev,
 				      struct neigh_table *tbl)
 {
+	unsigned int bh;
 	struct neigh_parms *p;
 	struct net *net = dev_net(dev);
 	const struct net_device_ops *ops = dev->netdev_ops;
@@ -1512,9 +1527,9 @@ struct neigh_parms *neigh_parms_alloc(struct net_device *dev,
 			return NULL;
 		}
 
-		write_lock_bh(&tbl->lock);
+		bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 		list_add(&p->list, &tbl->parms.list);
-		write_unlock_bh(&tbl->lock);
+		write_unlock_bh(&tbl->lock, bh);
 
 		neigh_parms_data_state_cleanall(p);
 	}
@@ -1532,12 +1547,13 @@ static void neigh_rcu_free_parms(struct rcu_head *head)
 
 void neigh_parms_release(struct neigh_table *tbl, struct neigh_parms *parms)
 {
+	unsigned int bh;
 	if (!parms || parms == &tbl->parms)
 		return;
-	write_lock_bh(&tbl->lock);
+	bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	list_del(&parms->list);
 	parms->dead = 1;
-	write_unlock_bh(&tbl->lock);
+	write_unlock_bh(&tbl->lock, bh);
 	if (parms->dev)
 		dev_put(parms->dev);
 	call_rcu(&parms->rcu_head, neigh_rcu_free_parms);
@@ -1653,6 +1669,7 @@ static struct neigh_table *neigh_find_table(int family)
 static int neigh_delete(struct sk_buff *skb, struct nlmsghdr *nlh,
 			struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct ndmsg *ndm;
 	struct nlattr *dst_attr;
@@ -1703,10 +1720,10 @@ static int neigh_delete(struct sk_buff *skb, struct nlmsghdr *nlh,
 			   NEIGH_UPDATE_F_OVERRIDE |
 			   NEIGH_UPDATE_F_ADMIN,
 			   NETLINK_CB(skb).portid);
-	write_lock_bh(&tbl->lock);
+	bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	neigh_release(neigh);
 	neigh_remove_one(neigh, tbl);
-	write_unlock_bh(&tbl->lock);
+	write_unlock_bh(&tbl->lock, bh);
 
 out:
 	return err;
@@ -1859,7 +1876,7 @@ nla_put_failure:
 static int neightbl_fill_info(struct sk_buff *skb, struct neigh_table *tbl,
 			      u32 pid, u32 seq, int type, int flags)
 {
-	unsigned int bh;
+	unsigned int bh, bh2;
 	struct nlmsghdr *nlh;
 	struct ndtmsg *ndtmsg;
 
@@ -1869,7 +1886,7 @@ static int neightbl_fill_info(struct sk_buff *skb, struct neigh_table *tbl,
 
 	ndtmsg = nlmsg_data(nlh);
 
-	read_lock_bh(&tbl->lock);
+	bh = read_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	ndtmsg->ndtm_family = tbl->family;
 	ndtmsg->ndtm_pad1   = 0;
 	ndtmsg->ndtm_pad2   = 0;
@@ -1894,11 +1911,11 @@ static int neightbl_fill_info(struct sk_buff *skb, struct neigh_table *tbl,
 			.ndtc_proxy_qlen	= tbl->proxy_queue.qlen,
 		};
 
-		bh = rcu_read_lock_bh();
+		bh2 = rcu_read_lock_bh();
 		nht = rcu_dereference_bh(tbl->nht);
 		ndc.ndtc_hash_rnd = nht->hash_rnd[0];
 		ndc.ndtc_hash_mask = ((1 << nht->hash_shift) - 1);
-		rcu_read_unlock_bh(bh);
+		rcu_read_unlock_bh(bh2);
 
 		if (nla_put(skb, NDTA_CONFIG, sizeof(ndc), &ndc))
 			goto nla_put_failure;
@@ -1936,12 +1953,12 @@ static int neightbl_fill_info(struct sk_buff *skb, struct neigh_table *tbl,
 	if (neightbl_fill_parms(skb, &tbl->parms) < 0)
 		goto nla_put_failure;
 
-	read_unlock_bh(&tbl->lock);
+	read_unlock_bh(&tbl->lock, bh);
 	nlmsg_end(skb, nlh);
 	return 0;
 
 nla_put_failure:
-	read_unlock_bh(&tbl->lock);
+	read_unlock_bh(&tbl->lock, bh);
 	nlmsg_cancel(skb, nlh);
 	return -EMSGSIZE;
 }
@@ -1952,6 +1969,7 @@ static int neightbl_fill_param_info(struct sk_buff *skb,
 				    u32 pid, u32 seq, int type,
 				    unsigned int flags)
 {
+	unsigned int bh;
 	struct ndtmsg *ndtmsg;
 	struct nlmsghdr *nlh;
 
@@ -1961,7 +1979,7 @@ static int neightbl_fill_param_info(struct sk_buff *skb,
 
 	ndtmsg = nlmsg_data(nlh);
 
-	read_lock_bh(&tbl->lock);
+	bh = read_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 	ndtmsg->ndtm_family = tbl->family;
 	ndtmsg->ndtm_pad1   = 0;
 	ndtmsg->ndtm_pad2   = 0;
@@ -1970,11 +1988,11 @@ static int neightbl_fill_param_info(struct sk_buff *skb,
 	    neightbl_fill_parms(skb, parms) < 0)
 		goto errout;
 
-	read_unlock_bh(&tbl->lock);
+	read_unlock_bh(&tbl->lock, bh);
 	nlmsg_end(skb, nlh);
 	return 0;
 errout:
-	read_unlock_bh(&tbl->lock);
+	read_unlock_bh(&tbl->lock, bh);
 	nlmsg_cancel(skb, nlh);
 	return -EMSGSIZE;
 }
@@ -2008,6 +2026,7 @@ static const struct nla_policy nl_ntbl_parm_policy[NDTPA_MAX+1] = {
 static int neightbl_set(struct sk_buff *skb, struct nlmsghdr *nlh,
 			struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct net *net = sock_net(skb->sk);
 	struct neigh_table *tbl;
 	struct ndtmsg *ndtmsg;
@@ -2046,7 +2065,7 @@ static int neightbl_set(struct sk_buff *skb, struct nlmsghdr *nlh,
 	 * We acquire tbl->lock to be nice to the periodic timers and
 	 * make sure they always see a consistent set of values.
 	 */
-	write_lock_bh(&tbl->lock);
+	bh = write_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 
 	if (tb[NDTA_PARMS]) {
 		struct nlattr *tbp[NDTPA_MAX+1];
@@ -2161,7 +2180,7 @@ static int neightbl_set(struct sk_buff *skb, struct nlmsghdr *nlh,
 	err = 0;
 
 errout_tbl_lock:
-	write_unlock_bh(&tbl->lock);
+	write_unlock_bh(&tbl->lock, bh);
 errout:
 	return err;
 }
@@ -2222,6 +2241,7 @@ out:
 static int neigh_fill_info(struct sk_buff *skb, struct neighbour *neigh,
 			   u32 pid, u32 seq, int type, unsigned int flags)
 {
+	unsigned int bh;
 	unsigned long now = jiffies;
 	struct nda_cacheinfo ci;
 	struct nlmsghdr *nlh;
@@ -2242,14 +2262,14 @@ static int neigh_fill_info(struct sk_buff *skb, struct neighbour *neigh,
 	if (nla_put(skb, NDA_DST, neigh->tbl->key_len, neigh->primary_key))
 		goto nla_put_failure;
 
-	read_lock_bh(&neigh->lock);
+	bh = read_lock_bh(&neigh->lock, SOFTIRQ_ALL_MASK);
 	ndm->ndm_state	 = neigh->nud_state;
 	if (neigh->nud_state & NUD_VALID) {
 		char haddr[MAX_ADDR_LEN];
 
 		neigh_ha_snapshot(haddr, neigh, neigh->dev);
 		if (nla_put(skb, NDA_LLADDR, neigh->dev->addr_len, haddr) < 0) {
-			read_unlock_bh(&neigh->lock);
+			read_unlock_bh(&neigh->lock, bh);
 			goto nla_put_failure;
 		}
 	}
@@ -2258,7 +2278,7 @@ static int neigh_fill_info(struct sk_buff *skb, struct neighbour *neigh,
 	ci.ndm_confirmed = jiffies_to_clock_t(now - neigh->confirmed);
 	ci.ndm_updated	 = jiffies_to_clock_t(now - neigh->updated);
 	ci.ndm_refcnt	 = refcount_read(&neigh->refcnt) - 1;
-	read_unlock_bh(&neigh->lock);
+	read_unlock_bh(&neigh->lock, bh);
 
 	if (nla_put_u32(skb, NDA_PROBES, atomic_read(&neigh->probes)) ||
 	    nla_put(skb, NDA_CACHEINFO, sizeof(ci), &ci))
@@ -2398,12 +2418,13 @@ out:
 static int pneigh_dump_table(struct neigh_table *tbl, struct sk_buff *skb,
 			     struct netlink_callback *cb)
 {
+	unsigned int bh;
 	struct pneigh_entry *n;
 	struct net *net = sock_net(skb->sk);
 	int rc, h, s_h = cb->args[3];
 	int idx, s_idx = idx = cb->args[4];
 
-	read_lock_bh(&tbl->lock);
+	bh = read_lock_bh(&tbl->lock, SOFTIRQ_ALL_MASK);
 
 	for (h = s_h; h <= PNEIGH_HASHMASK; h++) {
 		if (h > s_h)
@@ -2415,7 +2436,7 @@ static int pneigh_dump_table(struct neigh_table *tbl, struct sk_buff *skb,
 					    cb->nlh->nlmsg_seq,
 					    RTM_NEWNEIGH,
 					    NLM_F_MULTI, tbl) < 0) {
-				read_unlock_bh(&tbl->lock);
+				read_unlock_bh(&tbl->lock, bh);
 				rc = -1;
 				goto out;
 			}
@@ -2424,7 +2445,7 @@ static int pneigh_dump_table(struct neigh_table *tbl, struct sk_buff *skb,
 		}
 	}
 
-	read_unlock_bh(&tbl->lock);
+	read_unlock_bh(&tbl->lock, bh);
 	rc = skb->len;
 out:
 	cb->args[3] = h;

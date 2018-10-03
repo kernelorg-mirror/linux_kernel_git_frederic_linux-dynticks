@@ -129,14 +129,15 @@ static inline int iscsi_sw_sk_state_check(struct sock *sk)
 
 static void iscsi_sw_tcp_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn;
 	struct iscsi_tcp_conn *tcp_conn;
 	read_descriptor_t rd_desc;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	conn = sk->sk_user_data;
 	if (!conn) {
-		read_unlock_bh(&sk->sk_callback_lock);
+		read_unlock_bh(&sk->sk_callback_lock, bh);
 		return;
 	}
 	tcp_conn = conn->dd_data;
@@ -156,20 +157,21 @@ static void iscsi_sw_tcp_data_ready(struct sock *sk)
 	/* If we had to (atomically) map a highmem page,
 	 * unmap it now. */
 	iscsi_tcp_segment_unmap(&tcp_conn->in.segment);
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static void iscsi_sw_tcp_state_change(struct sock *sk)
 {
+	unsigned int bh;
 	struct iscsi_tcp_conn *tcp_conn;
 	struct iscsi_sw_tcp_conn *tcp_sw_conn;
 	struct iscsi_conn *conn;
 	void (*old_state_change)(struct sock *);
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	conn = sk->sk_user_data;
 	if (!conn) {
-		read_unlock_bh(&sk->sk_callback_lock);
+		read_unlock_bh(&sk->sk_callback_lock, bh);
 		return;
 	}
 
@@ -179,7 +181,7 @@ static void iscsi_sw_tcp_state_change(struct sock *sk)
 	tcp_sw_conn = tcp_conn->dd_data;
 	old_state_change = tcp_sw_conn->old_state_change;
 
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 
 	old_state_change(sk);
 }
@@ -190,22 +192,23 @@ static void iscsi_sw_tcp_state_change(struct sock *sk)
  **/
 static void iscsi_sw_tcp_write_space(struct sock *sk)
 {
+	unsigned int bh;
 	struct iscsi_conn *conn;
 	struct iscsi_tcp_conn *tcp_conn;
 	struct iscsi_sw_tcp_conn *tcp_sw_conn;
 	void (*old_write_space)(struct sock *);
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	conn = sk->sk_user_data;
 	if (!conn) {
-		read_unlock_bh(&sk->sk_callback_lock);
+		read_unlock_bh(&sk->sk_callback_lock, bh);
 		return;
 	}
 
 	tcp_conn = conn->dd_data;
 	tcp_sw_conn = tcp_conn->dd_data;
 	old_write_space = tcp_sw_conn->old_write_space;
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 
 	old_write_space(sk);
 
@@ -215,12 +218,13 @@ static void iscsi_sw_tcp_write_space(struct sock *sk)
 
 static void iscsi_sw_tcp_conn_set_callbacks(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct iscsi_tcp_conn *tcp_conn = conn->dd_data;
 	struct iscsi_sw_tcp_conn *tcp_sw_conn = tcp_conn->dd_data;
 	struct sock *sk = tcp_sw_conn->sock->sk;
 
 	/* assign new callbacks */
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sk->sk_user_data = conn;
 	tcp_sw_conn->old_data_ready = sk->sk_data_ready;
 	tcp_sw_conn->old_state_change = sk->sk_state_change;
@@ -228,24 +232,25 @@ static void iscsi_sw_tcp_conn_set_callbacks(struct iscsi_conn *conn)
 	sk->sk_data_ready = iscsi_sw_tcp_data_ready;
 	sk->sk_state_change = iscsi_sw_tcp_state_change;
 	sk->sk_write_space = iscsi_sw_tcp_write_space;
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static void
 iscsi_sw_tcp_conn_restore_callbacks(struct iscsi_conn *conn)
 {
+	unsigned int bh;
 	struct iscsi_tcp_conn *tcp_conn = conn->dd_data;
 	struct iscsi_sw_tcp_conn *tcp_sw_conn = tcp_conn->dd_data;
 	struct sock *sk = tcp_sw_conn->sock->sk;
 
 	/* restore socket callbacks, see also: iscsi_conn_set_callbacks() */
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sk->sk_user_data    = NULL;
 	sk->sk_data_ready   = tcp_sw_conn->old_data_ready;
 	sk->sk_state_change = tcp_sw_conn->old_state_change;
 	sk->sk_write_space  = tcp_sw_conn->old_write_space;
 	sk->sk_no_check_tx = 0;
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 /**

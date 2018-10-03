@@ -1904,22 +1904,24 @@ EXPORT_SYMBOL(sock_efree);
 
 kuid_t sock_i_uid(struct sock *sk)
 {
+	unsigned int bh;
 	kuid_t uid;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	uid = sk->sk_socket ? SOCK_INODE(sk->sk_socket)->i_uid : GLOBAL_ROOT_UID;
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 	return uid;
 }
 EXPORT_SYMBOL(sock_i_uid);
 
 unsigned long sock_i_ino(struct sock *sk)
 {
+	unsigned int bh;
 	unsigned long ino;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	ino = sk->sk_socket ? SOCK_INODE(sk->sk_socket)->i_ino : 0;
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 	return ino;
 }
 EXPORT_SYMBOL(sock_i_ino);

@@ -210,10 +210,11 @@ static int write_smt_entry(struct adapter *adapter, struct smt_entry *e)
 static struct smt_entry *t4_smt_alloc_switching(struct adapter *adap, u16 pfvf,
 						u8 *smac)
 {
+	unsigned int bh;
 	struct smt_data *s = adap->smt;
 	struct smt_entry *e;
 
-	write_lock_bh(&s->lock);
+	bh = write_lock_bh(&s->lock, SOFTIRQ_ALL_MASK);
 	e = find_or_alloc_smte(s, smac);
 	if (e) {
 		spin_lock(&e->lock);
@@ -228,7 +229,7 @@ static struct smt_entry *t4_smt_alloc_switching(struct adapter *adap, u16 pfvf,
 		}
 		spin_unlock(&e->lock);
 	}
-	write_unlock_bh(&s->lock);
+	write_unlock_bh(&s->lock, bh);
 	return e;
 }
 

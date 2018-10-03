@@ -532,10 +532,11 @@ hostap_rx_frame_mgmt(local_info_t *local, struct sk_buff *skb,
 static struct net_device *prism2_rx_get_wds(local_info_t *local,
 						   u8 *addr)
 {
+	unsigned int bh;
 	struct hostap_interface *iface = NULL;
 	struct list_head *ptr;
 
-	read_lock_bh(&local->iface_lock);
+	bh = read_lock_bh(&local->iface_lock, SOFTIRQ_ALL_MASK);
 	list_for_each(ptr, &local->hostap_interfaces) {
 		iface = list_entry(ptr, struct hostap_interface, list);
 		if (iface->type == HOSTAP_INTERFACE_WDS &&
@@ -543,7 +544,7 @@ static struct net_device *prism2_rx_get_wds(local_info_t *local,
 			break;
 		iface = NULL;
 	}
-	read_unlock_bh(&local->iface_lock);
+	read_unlock_bh(&local->iface_lock, bh);
 
 	return iface ? iface->dev : NULL;
 }

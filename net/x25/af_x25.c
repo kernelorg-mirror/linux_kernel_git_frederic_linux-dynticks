@@ -199,9 +199,10 @@ int x25_addr_aton(unsigned char *p, struct x25_address *called_addr,
  */
 static void x25_remove_socket(struct sock *sk)
 {
-	write_lock_bh(&x25_list_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&x25_list_lock, SOFTIRQ_ALL_MASK);
 	sk_del_node_init(sk);
-	write_unlock_bh(&x25_list_lock);
+	write_unlock_bh(&x25_list_lock, bh);
 }
 
 /*
@@ -209,15 +210,16 @@ static void x25_remove_socket(struct sock *sk)
  */
 static void x25_kill_by_device(struct net_device *dev)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	write_lock_bh(&x25_list_lock);
+	bh = write_lock_bh(&x25_list_lock, SOFTIRQ_ALL_MASK);
 
 	sk_for_each(s, &x25_list)
 		if (x25_sk(s)->neighbour && x25_sk(s)->neighbour->dev == dev)
 			x25_disconnect(s, ENETUNREACH, 0, 0);
 
-	write_unlock_bh(&x25_list_lock);
+	write_unlock_bh(&x25_list_lock, bh);
 }
 
 /*
@@ -264,9 +266,10 @@ static int x25_device_event(struct notifier_block *this, unsigned long event,
  */
 static void x25_insert_socket(struct sock *sk)
 {
-	write_lock_bh(&x25_list_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&x25_list_lock, SOFTIRQ_ALL_MASK);
 	sk_add_node(sk, &x25_list);
-	write_unlock_bh(&x25_list_lock);
+	write_unlock_bh(&x25_list_lock, bh);
 }
 
 /*
@@ -279,10 +282,11 @@ static void x25_insert_socket(struct sock *sk)
 static struct sock *x25_find_listener(struct x25_address *addr,
 					struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct sock *s;
 	struct sock *next_best;
 
-	read_lock_bh(&x25_list_lock);
+	bh = read_lock_bh(&x25_list_lock, SOFTIRQ_ALL_MASK);
 	next_best = NULL;
 
 	sk_for_each(s, &x25_list)
@@ -313,7 +317,7 @@ static struct sock *x25_find_listener(struct x25_address *addr,
 	}
 	s = NULL;
 found:
-	read_unlock_bh(&x25_list_lock);
+	read_unlock_bh(&x25_list_lock, bh);
 	return s;
 }
 
@@ -336,11 +340,12 @@ found:
 
 struct sock *x25_find_socket(unsigned int lci, struct x25_neigh *nb)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	read_lock_bh(&x25_list_lock);
+	bh = read_lock_bh(&x25_list_lock, SOFTIRQ_ALL_MASK);
 	s = __x25_find_socket(lci, nb);
-	read_unlock_bh(&x25_list_lock);
+	read_unlock_bh(&x25_list_lock, bh);
 	return s;
 }
 
@@ -349,10 +354,11 @@ struct sock *x25_find_socket(unsigned int lci, struct x25_neigh *nb)
  */
 static unsigned int x25_new_lci(struct x25_neigh *nb)
 {
+	unsigned int bh;
 	unsigned int lci = 1;
 	struct sock *sk;
 
-	read_lock_bh(&x25_list_lock);
+	bh = read_lock_bh(&x25_list_lock, SOFTIRQ_ALL_MASK);
 
 	while ((sk = __x25_find_socket(lci, nb)) != NULL) {
 		sock_put(sk);
@@ -362,7 +368,7 @@ static unsigned int x25_new_lci(struct x25_neigh *nb)
 		}
 	}
 
-	read_unlock_bh(&x25_list_lock);
+	read_unlock_bh(&x25_list_lock, bh);
 	return lci;
 }
 
@@ -1622,6 +1628,8 @@ static const struct net_proto_family x25_family_ops = {
 static int compat_x25_subscr_ioctl(unsigned int cmd,
 		struct compat_x25_subscrip_struct __user *x25_subscr32)
 {
+	unsigned int bh;
+	unsigned int bh;
 	struct compat_x25_subscrip_struct x25_subscr;
 	struct x25_neigh *nb;
 	struct net_device *dev;
@@ -1643,20 +1651,20 @@ static int compat_x25_subscr_ioctl(unsigned int cmd,
 	dev_put(dev);
 
 	if (cmd == SIOCX25GSUBSCRIP) {
-		read_lock_bh(&x25_neigh_list_lock);
+		bh = read_lock_bh(&x25_neigh_list_lock, SOFTIRQ_ALL_MASK);
 		x25_subscr.extended = nb->extended;
 		x25_subscr.global_facil_mask = nb->global_facil_mask;
-		read_unlock_bh(&x25_neigh_list_lock);
+		read_unlock_bh(&x25_neigh_list_lock, bh);
 		rc = copy_to_user(x25_subscr32, &x25_subscr,
 				sizeof(*x25_subscr32)) ? -EFAULT : 0;
 	} else {
 		rc = -EINVAL;
 		if (x25_subscr.extended == 0 || x25_subscr.extended == 1) {
 			rc = 0;
-			write_lock_bh(&x25_neigh_list_lock);
+			bh = write_lock_bh(&x25_neigh_list_lock, SOFTIRQ_ALL_MASK);
 			nb->extended = x25_subscr.extended;
 			nb->global_facil_mask = x25_subscr.global_facil_mask;
-			write_unlock_bh(&x25_neigh_list_lock);
+			write_unlock_bh(&x25_neigh_list_lock, bh);
 		}
 	}
 	x25_neigh_put(nb);
@@ -1776,15 +1784,16 @@ static struct notifier_block x25_dev_notifier = {
 
 void x25_kill_by_neigh(struct x25_neigh *nb)
 {
+	unsigned int bh;
 	struct sock *s;
 
-	write_lock_bh(&x25_list_lock);
+	bh = write_lock_bh(&x25_list_lock, SOFTIRQ_ALL_MASK);
 
 	sk_for_each(s, &x25_list)
 		if (x25_sk(s)->neighbour == nb)
 			x25_disconnect(s, ENETUNREACH, 0, 0);
 
-	write_unlock_bh(&x25_list_lock);
+	write_unlock_bh(&x25_list_lock, bh);
 
 	/* Remove any related forwards */
 	x25_clear_forward_by_dev(nb->dev);

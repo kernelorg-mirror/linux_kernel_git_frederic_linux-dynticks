@@ -135,17 +135,18 @@ EXPORT_SYMBOL_GPL(nf_log_dump_tcp_header);
 void nf_log_dump_sk_uid_gid(struct net *net, struct nf_log_buf *m,
 			    struct sock *sk)
 {
+	unsigned int bh;
 	if (!sk || !sk_fullsock(sk) || !net_eq(net, sock_net(sk)))
 		return;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	if (sk->sk_socket && sk->sk_socket->file) {
 		const struct cred *cred = sk->sk_socket->file->f_cred;
 		nf_log_buf_add(m, "UID=%u GID=%u ",
 			from_kuid_munged(&init_user_ns, cred->fsuid),
 			from_kgid_munged(&init_user_ns, cred->fsgid));
 	}
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 EXPORT_SYMBOL_GPL(nf_log_dump_sk_uid_gid);
 

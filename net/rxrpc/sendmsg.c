@@ -160,6 +160,7 @@ static void rxrpc_queue_packet(struct rxrpc_sock *rx, struct rxrpc_call *call,
 			       struct sk_buff *skb, bool last,
 			       rxrpc_notify_end_tx_t notify_end_tx)
 {
+	unsigned int bh;
 	struct rxrpc_skb_priv *sp = rxrpc_skb(skb);
 	unsigned long now;
 	rxrpc_seq_t seq = sp->hdr.seq;
@@ -193,7 +194,7 @@ static void rxrpc_queue_packet(struct rxrpc_sock *rx, struct rxrpc_call *call,
 
 	if (last || call->state == RXRPC_CALL_SERVER_ACK_REQUEST) {
 		_debug("________awaiting reply/ACK__________");
-		write_lock_bh(&call->state_lock);
+		bh = write_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 		switch (call->state) {
 		case RXRPC_CALL_CLIENT_SEND_REQUEST:
 			call->state = RXRPC_CALL_CLIENT_AWAIT_REPLY;
@@ -216,7 +217,7 @@ static void rxrpc_queue_packet(struct rxrpc_sock *rx, struct rxrpc_call *call,
 		default:
 			break;
 		}
-		write_unlock_bh(&call->state_lock);
+		write_unlock_bh(&call->state_lock, bh);
 	}
 
 	if (seq == 1 && rxrpc_is_client_call(call))
@@ -764,6 +765,7 @@ int rxrpc_kernel_send_data(struct socket *sock, struct rxrpc_call *call,
 			   struct msghdr *msg, size_t len,
 			   rxrpc_notify_end_tx_t notify_end_tx)
 {
+	unsigned int bh;
 	int ret;
 
 	_enter("{%d,%s},", call->debug_id, rxrpc_call_states[call->state]);
@@ -784,9 +786,9 @@ int rxrpc_kernel_send_data(struct socket *sock, struct rxrpc_call *call,
 				      notify_end_tx);
 		break;
 	case RXRPC_CALL_COMPLETE:
-		read_lock_bh(&call->state_lock);
+		bh = read_lock_bh(&call->state_lock, SOFTIRQ_ALL_MASK);
 		ret = call->error;
-		read_unlock_bh(&call->state_lock);
+		read_unlock_bh(&call->state_lock, bh);
 		break;
 	default:
 		/* Request phase complete for this client call */

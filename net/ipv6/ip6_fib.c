@@ -77,16 +77,18 @@ static void fib6_gc_timer_cb(struct timer_list *t);
 
 static void fib6_walker_link(struct net *net, struct fib6_walker *w)
 {
-	write_lock_bh(&net->ipv6.fib6_walker_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&net->ipv6.fib6_walker_lock, SOFTIRQ_ALL_MASK);
 	list_add(&w->lh, &net->ipv6.fib6_walkers);
-	write_unlock_bh(&net->ipv6.fib6_walker_lock);
+	write_unlock_bh(&net->ipv6.fib6_walker_lock, bh);
 }
 
 static void fib6_walker_unlink(struct net *net, struct fib6_walker *w)
 {
-	write_lock_bh(&net->ipv6.fib6_walker_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&net->ipv6.fib6_walker_lock, SOFTIRQ_ALL_MASK);
 	list_del(&w->lh);
-	write_unlock_bh(&net->ipv6.fib6_walker_lock);
+	write_unlock_bh(&net->ipv6.fib6_walker_lock, bh);
 }
 
 static int fib6_new_sernum(struct net *net)

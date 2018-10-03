@@ -3163,6 +3163,7 @@ static int pick_local_ipaddrs(struct c4iw_dev *dev, struct iw_cm_id *cm_id)
 static int get_lladdr(struct net_device *dev, struct in6_addr *addr,
 		      unsigned char banned_flags)
 {
+	unsigned int bh;
 	struct inet6_dev *idev;
 	int err = -EADDRNOTAVAIL;
 
@@ -3171,7 +3172,7 @@ static int get_lladdr(struct net_device *dev, struct in6_addr *addr,
 	if (idev != NULL) {
 		struct inet6_ifaddr *ifp;
 
-		read_lock_bh(&idev->lock);
+		bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(ifp, &idev->addr_list, if_list) {
 			if (ifp->scope == IFA_LINK &&
 			    !(ifp->flags & banned_flags)) {
@@ -3180,7 +3181,7 @@ static int get_lladdr(struct net_device *dev, struct in6_addr *addr,
 				break;
 			}
 		}
-		read_unlock_bh(&idev->lock);
+		read_unlock_bh(&idev->lock, bh);
 	}
 	rcu_read_unlock();
 	return err;

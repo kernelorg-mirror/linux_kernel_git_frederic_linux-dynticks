@@ -411,20 +411,22 @@ int dlm_lowcomms_addr(int nodeid, struct sockaddr_storage *addr, int len)
 /* Data available on socket or listen socket received a connect */
 static void lowcomms_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	struct connection *con;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	con = sock2con(sk);
 	if (con && !test_and_set_bit(CF_READ_PENDING, &con->flags))
 		queue_work(recv_workqueue, &con->rwork);
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static void lowcomms_write_space(struct sock *sk)
 {
+	unsigned int bh;
 	struct connection *con;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	con = sock2con(sk);
 	if (!con)
 		goto out;
@@ -438,7 +440,7 @@ static void lowcomms_write_space(struct sock *sk)
 
 	queue_work(send_workqueue, &con->swork);
 out:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static inline void lowcomms_connect_sock(struct connection *con)
@@ -480,11 +482,12 @@ int dlm_lowcomms_connect_node(int nodeid)
 
 static void lowcomms_error_report(struct sock *sk)
 {
+	unsigned int bh;
 	struct connection *con;
 	struct sockaddr_storage saddr;
 	void (*orig_report)(struct sock *) = NULL;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	con = sock2con(sk);
 	if (con == NULL)
 		goto out;
@@ -520,7 +523,7 @@ static void lowcomms_error_report(struct sock *sk)
 				   sk->sk_err_soft);
 	}
 out:
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 	if (orig_report)
 		orig_report(sk);
 }
@@ -538,23 +541,25 @@ static void save_listen_callbacks(struct socket *sock)
 
 static void restore_callbacks(struct socket *sock)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sk->sk_user_data = NULL;
 	sk->sk_data_ready = listen_sock.sk_data_ready;
 	sk->sk_state_change = listen_sock.sk_state_change;
 	sk->sk_write_space = listen_sock.sk_write_space;
 	sk->sk_error_report = listen_sock.sk_error_report;
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 /* Make a socket active */
 static void add_sock(struct socket *sock, struct connection *con)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	con->sock = sock;
 
 	sk->sk_user_data = con;
@@ -564,7 +569,7 @@ static void add_sock(struct socket *sock, struct connection *con)
 	sk->sk_state_change = lowcomms_state_change;
 	sk->sk_allocation = GFP_NOFS;
 	sk->sk_error_report = lowcomms_error_report;
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 /* Add the port number to an IPv6 or 4 sockaddr and return the address
@@ -1224,6 +1229,7 @@ out:
 static struct socket *tcp_create_listen_sock(struct connection *con,
 					     struct sockaddr_storage *saddr)
 {
+	unsigned int bh;
 	struct socket *sock = NULL;
 	int result = 0;
 	int one = 1;
@@ -1252,12 +1258,12 @@ static struct socket *tcp_create_listen_sock(struct connection *con,
 	if (result < 0) {
 		log_print("Failed to set SO_REUSEADDR on socket: %d", result);
 	}
-	write_lock_bh(&sock->sk->sk_callback_lock);
+	bh = write_lock_bh(&sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sock->sk->sk_user_data = con;
 	save_listen_callbacks(sock);
 	con->rx_action = tcp_accept_from_sock;
 	con->connect_action = tcp_connect_to_sock;
-	write_unlock_bh(&sock->sk->sk_callback_lock);
+	write_unlock_bh(&sock->sk->sk_callback_lock, bh);
 
 	/* Bind to our port */
 	make_sockaddr(saddr, dlm_config.ci_tcp_port, &addr_len);
@@ -1308,6 +1314,7 @@ static void init_local(void)
 /* Initialise SCTP socket and bind to all interfaces */
 static int sctp_listen_for_all(void)
 {
+	unsigned int bh;
 	struct socket *sock = NULL;
 	int result = -EINVAL;
 	struct connection *con = nodeid2con(0, GFP_NOFS);
@@ -1336,7 +1343,7 @@ static int sctp_listen_for_all(void)
 	if (result < 0)
 		log_print("Could not set SCTP NODELAY error %d\n", result);
 
-	write_lock_bh(&sock->sk->sk_callback_lock);
+	bh = write_lock_bh(&sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	/* Init con struct */
 	sock->sk->sk_user_data = con;
 	save_listen_callbacks(sock);
@@ -1345,7 +1352,7 @@ static int sctp_listen_for_all(void)
 	con->rx_action = sctp_accept_from_sock;
 	con->connect_action = sctp_connect_to_sock;
 
-	write_unlock_bh(&sock->sk->sk_callback_lock);
+	write_unlock_bh(&sock->sk->sk_callback_lock, bh);
 
 	/* Bind to all addresses. */
 	if (sctp_bind_addrs(con, dlm_config.ci_tcp_port))
@@ -1656,14 +1663,15 @@ static int work_start(void)
 
 static void _stop_conn(struct connection *con, bool and_other)
 {
+	unsigned int bh;
 	mutex_lock(&con->sock_mutex);
 	set_bit(CF_CLOSE, &con->flags);
 	set_bit(CF_READ_PENDING, &con->flags);
 	set_bit(CF_WRITE_PENDING, &con->flags);
 	if (con->sock && con->sock->sk) {
-		write_lock_bh(&con->sock->sk->sk_callback_lock);
+		bh = write_lock_bh(&con->sock->sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		con->sock->sk->sk_user_data = NULL;
-		write_unlock_bh(&con->sock->sk->sk_callback_lock);
+		write_unlock_bh(&con->sock->sk->sk_callback_lock, bh);
 	}
 	if (con->othercon && and_other)
 		_stop_conn(con->othercon, false);

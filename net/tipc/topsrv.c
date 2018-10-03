@@ -163,17 +163,18 @@ static void conn_get(struct tipc_conn *con)
 
 static void tipc_conn_close(struct tipc_conn *con)
 {
+	unsigned int bh;
 	struct sock *sk = con->sock->sk;
 	bool disconnect = false;
 
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	disconnect = test_and_clear_bit(CF_CONNECTED, &con->flags);
 
 	if (disconnect) {
 		sk->sk_user_data = NULL;
 		tipc_conn_delete_sub(con, NULL);
 	}
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 
 	/* Handle concurrent calls from sending and receiving threads */
 	if (!disconnect)
@@ -357,16 +358,17 @@ err:
  */
 static void tipc_conn_write_space(struct sock *sk)
 {
+	unsigned int bh;
 	struct tipc_conn *con;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	con = sk->sk_user_data;
 	if (connected(con)) {
 		conn_get(con);
 		if (!queue_work(con->server->send_wq, &con->swork))
 			conn_put(con);
 	}
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static int tipc_conn_rcv_sub(struct tipc_topsrv *srv,
@@ -397,6 +399,7 @@ static int tipc_conn_rcv_sub(struct tipc_topsrv *srv,
 
 static int tipc_conn_rcv_from_sock(struct tipc_conn *con)
 {
+	unsigned int bh;
 	struct tipc_topsrv *srv = con->server;
 	struct sock *sk = con->sock->sk;
 	struct msghdr msg = {};
@@ -412,9 +415,9 @@ static int tipc_conn_rcv_from_sock(struct tipc_conn *con)
 	if (ret == -EWOULDBLOCK)
 		return -EWOULDBLOCK;
 	if (ret > 0) {
-		read_lock_bh(&sk->sk_callback_lock);
+		bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		ret = tipc_conn_rcv_sub(srv, con, &s);
-		read_unlock_bh(&sk->sk_callback_lock);
+		read_unlock_bh(&sk->sk_callback_lock, bh);
 	}
 	if (ret < 0)
 		tipc_conn_close(con);
@@ -445,20 +448,22 @@ static void tipc_conn_recv_work(struct work_struct *work)
  */
 static void tipc_conn_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	struct tipc_conn *con;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	con = sk->sk_user_data;
 	if (connected(con)) {
 		conn_get(con);
 		if (!queue_work(con->server->rcv_wq, &con->rwork))
 			conn_put(con);
 	}
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static void tipc_topsrv_accept(struct work_struct *work)
 {
+	unsigned int bh;
 	struct tipc_topsrv *srv = container_of(work, struct tipc_topsrv, awork);
 	struct socket *lsock = srv->listener;
 	struct socket *newsock;
@@ -478,12 +483,12 @@ static void tipc_topsrv_accept(struct work_struct *work)
 		}
 		/* Register callbacks */
 		newsk = newsock->sk;
-		write_lock_bh(&newsk->sk_callback_lock);
+		bh = write_lock_bh(&newsk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		newsk->sk_data_ready = tipc_conn_data_ready;
 		newsk->sk_write_space = tipc_conn_write_space;
 		newsk->sk_user_data = con;
 		con->sock = newsock;
-		write_unlock_bh(&newsk->sk_callback_lock);
+		write_unlock_bh(&newsk->sk_callback_lock, bh);
 
 		/* Wake up receive process in case of 'SYN+' message */
 		newsk->sk_data_ready(newsk);
@@ -495,17 +500,19 @@ static void tipc_topsrv_accept(struct work_struct *work)
  */
 static void tipc_topsrv_listener_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	struct tipc_topsrv *srv;
 
-	read_lock_bh(&sk->sk_callback_lock);
+	bh = read_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	srv = sk->sk_user_data;
 	if (srv->listener)
 		queue_work(srv->rcv_wq, &srv->awork);
-	read_unlock_bh(&sk->sk_callback_lock);
+	read_unlock_bh(&sk->sk_callback_lock, bh);
 }
 
 static int tipc_topsrv_create_listener(struct tipc_topsrv *srv)
 {
+	unsigned int bh;
 	int imp = TIPC_CRITICAL_IMPORTANCE;
 	struct socket *lsock = NULL;
 	struct sockaddr_tipc saddr;
@@ -518,10 +525,10 @@ static int tipc_topsrv_create_listener(struct tipc_topsrv *srv)
 
 	srv->listener = lsock;
 	sk = lsock->sk;
-	write_lock_bh(&sk->sk_callback_lock);
+	bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 	sk->sk_data_ready = tipc_topsrv_listener_data_ready;
 	sk->sk_user_data = srv;
-	write_unlock_bh(&sk->sk_callback_lock);
+	write_unlock_bh(&sk->sk_callback_lock, bh);
 
 	rc = kernel_setsockopt(lsock, SOL_TIPC, TIPC_IMPORTANCE,
 			       (char *)&imp, sizeof(imp));

@@ -312,9 +312,10 @@ static void __aarp_expire_device(struct aarp_entry **n, struct net_device *dev)
 /* Handle the timer event */
 static void aarp_expire_timeout(struct timer_list *unused)
 {
+	unsigned int bh;
 	int ct;
 
-	write_lock_bh(&aarp_lock);
+	bh = write_lock_bh(&aarp_lock, SOFTIRQ_ALL_MASK);
 
 	for (ct = 0; ct < AARP_HASH_SIZE; ct++) {
 		__aarp_expire_timer(&resolved[ct]);
@@ -323,7 +324,7 @@ static void aarp_expire_timeout(struct timer_list *unused)
 		__aarp_expire_timer(&proxies[ct]);
 	}
 
-	write_unlock_bh(&aarp_lock);
+	write_unlock_bh(&aarp_lock, bh);
 	mod_timer(&aarp_timer, jiffies +
 			       (unresolved_count ? sysctl_aarp_tick_time :
 				sysctl_aarp_expiry_time));
@@ -333,6 +334,7 @@ static void aarp_expire_timeout(struct timer_list *unused)
 static int aarp_device_event(struct notifier_block *this, unsigned long event,
 			     void *ptr)
 {
+	unsigned int bh;
 	struct net_device *dev = netdev_notifier_info_to_dev(ptr);
 	int ct;
 
@@ -340,7 +342,7 @@ static int aarp_device_event(struct notifier_block *this, unsigned long event,
 		return NOTIFY_DONE;
 
 	if (event == NETDEV_DOWN) {
-		write_lock_bh(&aarp_lock);
+		bh = write_lock_bh(&aarp_lock, SOFTIRQ_ALL_MASK);
 
 		for (ct = 0; ct < AARP_HASH_SIZE; ct++) {
 			__aarp_expire_device(&resolved[ct], dev);
@@ -348,7 +350,7 @@ static int aarp_device_event(struct notifier_block *this, unsigned long event,
 			__aarp_expire_device(&proxies[ct], dev);
 		}
 
-		write_unlock_bh(&aarp_lock);
+		write_unlock_bh(&aarp_lock, bh);
 	}
 	return NOTIFY_DONE;
 }
@@ -368,15 +370,16 @@ static void __aarp_expire_all(struct aarp_entry **n)
 /* Cleanup all hash chains -- module unloading */
 static void aarp_purge(void)
 {
+	unsigned int bh;
 	int ct;
 
-	write_lock_bh(&aarp_lock);
+	bh = write_lock_bh(&aarp_lock, SOFTIRQ_ALL_MASK);
 	for (ct = 0; ct < AARP_HASH_SIZE; ct++) {
 		__aarp_expire_all(&resolved[ct]);
 		__aarp_expire_all(&unresolved[ct]);
 		__aarp_expire_all(&proxies[ct]);
 	}
-	write_unlock_bh(&aarp_lock);
+	write_unlock_bh(&aarp_lock, bh);
 }
 
 /*
@@ -416,16 +419,17 @@ static struct aarp_entry *__aarp_find_entry(struct aarp_entry *list,
 /* Called from the DDP code, and thus must be exported. */
 void aarp_proxy_remove(struct net_device *dev, struct atalk_addr *sa)
 {
+	unsigned int bh;
 	int hash = sa->s_node % (AARP_HASH_SIZE - 1);
 	struct aarp_entry *a;
 
-	write_lock_bh(&aarp_lock);
+	bh = write_lock_bh(&aarp_lock, SOFTIRQ_ALL_MASK);
 
 	a = __aarp_find_entry(proxies[hash], dev, sa);
 	if (a)
 		a->expires_at = jiffies - 1;
 
-	write_unlock_bh(&aarp_lock);
+	write_unlock_bh(&aarp_lock, bh);
 }
 
 /* This must run under aarp_lock. */
@@ -486,6 +490,7 @@ void aarp_probe_network(struct atalk_iface *atif)
 
 int aarp_proxy_probe_network(struct atalk_iface *atif, struct atalk_addr *sa)
 {
+	unsigned int bh;
 	int hash, retval = -EPROTONOSUPPORT;
 	struct aarp_entry *entry;
 	unsigned int count;
@@ -513,7 +518,7 @@ int aarp_proxy_probe_network(struct atalk_iface *atif, struct atalk_addr *sa)
 	entry->target_addr.s_net = sa->s_net;
 	entry->dev = atif->dev;
 
-	write_lock_bh(&aarp_lock);
+	bh = write_lock_bh(&aarp_lock, SOFTIRQ_ALL_MASK);
 
 	hash = sa->s_node % (AARP_HASH_SIZE - 1);
 	entry->next = proxies[hash];
@@ -525,7 +530,7 @@ int aarp_proxy_probe_network(struct atalk_iface *atif, struct atalk_addr *sa)
 		/* Defer 1/10th */
 		write_unlock_bh(&aarp_lock);
 		msleep(100);
-		write_lock_bh(&aarp_lock);
+		write_lock_bh(&aarp_lock, SOFTIRQ_ALL_MASK);
 
 		if (entry->status & ATIF_PROBE_FAIL)
 			break;
@@ -539,7 +544,7 @@ int aarp_proxy_probe_network(struct atalk_iface *atif, struct atalk_addr *sa)
 		retval = 1;
 	}
 
-	write_unlock_bh(&aarp_lock);
+	write_unlock_bh(&aarp_lock, bh);
 out:
 	return retval;
 }
@@ -548,6 +553,7 @@ out:
 int aarp_send_ddp(struct net_device *dev, struct sk_buff *skb,
 		  struct atalk_addr *sa, void *hwaddr)
 {
+	unsigned int bh;
 	static char ddp_eth_multicast[ETH_ALEN] =
 		{ 0x09, 0x00, 0x07, 0xFF, 0xFF, 0xFF };
 	int hash;
@@ -615,13 +621,13 @@ int aarp_send_ddp(struct net_device *dev, struct sk_buff *skb,
 		goto sent;
 	}
 
-	write_lock_bh(&aarp_lock);
+	bh = write_lock_bh(&aarp_lock, SOFTIRQ_ALL_MASK);
 	a = __aarp_find_entry(resolved[hash], dev, sa);
 
 	if (a) { /* Return 1 and fill in the address */
 		a->expires_at = jiffies + (sysctl_aarp_expiry_time * 10);
 		ddp_dl->request(ddp_dl, skb, a->hwaddr);
-		write_unlock_bh(&aarp_lock);
+		write_unlock_bh(&aarp_lock, bh);
 		goto sent;
 	}
 
@@ -636,7 +642,7 @@ int aarp_send_ddp(struct net_device *dev, struct sk_buff *skb,
 	a = aarp_alloc();
 	if (!a) {
 		/* Whoops slipped... good job it's an unreliable protocol 8) */
-		write_unlock_bh(&aarp_lock);
+		write_unlock_bh(&aarp_lock, bh);
 		goto free_it;
 	}
 
@@ -663,7 +669,7 @@ int aarp_send_ddp(struct net_device *dev, struct sk_buff *skb,
 
 	/* Now finally, it is safe to drop the lock. */
 out_unlock:
-	write_unlock_bh(&aarp_lock);
+	write_unlock_bh(&aarp_lock, bh);
 
 	/* Tell the ddp layer we have taken over for this frame. */
 	goto sent;
@@ -719,6 +725,7 @@ static void __aarp_resolved(struct aarp_entry **list, struct aarp_entry *a,
 static int aarp_rcv(struct sk_buff *skb, struct net_device *dev,
 		    struct packet_type *pt, struct net_device *orig_dev)
 {
+	unsigned int bh;
 	struct elapaarp *ea = aarp_hdr(skb);
 	int hash, ret = 0;
 	__u16 function;
@@ -768,7 +775,7 @@ static int aarp_rcv(struct sk_buff *skb, struct net_device *dev,
 	da.s_node = ea->pa_dst_node;
 	da.s_net  = ea->pa_dst_net;
 
-	write_lock_bh(&aarp_lock);
+	bh = write_lock_bh(&aarp_lock, SOFTIRQ_ALL_MASK);
 	a = __aarp_find_entry(proxies[hash], dev, &da);
 
 	if (a && a->status & ATIF_PROBE) {
@@ -865,7 +872,7 @@ static int aarp_rcv(struct sk_buff *skb, struct net_device *dev,
 	}
 
 unlock:
-	write_unlock_bh(&aarp_lock);
+	write_unlock_bh(&aarp_lock, bh);
 out1:
 	ret = 1;
 out0:
@@ -893,9 +900,10 @@ void __init aarp_proto_init(void)
 /* Remove the AARP entries associated with a device. */
 void aarp_device_down(struct net_device *dev)
 {
+	unsigned int bh;
 	int ct;
 
-	write_lock_bh(&aarp_lock);
+	bh = write_lock_bh(&aarp_lock, SOFTIRQ_ALL_MASK);
 
 	for (ct = 0; ct < AARP_HASH_SIZE; ct++) {
 		__aarp_expire_device(&resolved[ct], dev);
@@ -903,7 +911,7 @@ void aarp_device_down(struct net_device *dev)
 		__aarp_expire_device(&proxies[ct], dev);
 	}
 
-	write_unlock_bh(&aarp_lock);
+	write_unlock_bh(&aarp_lock, bh);
 }
 
 #ifdef CONFIG_PROC_FS
@@ -950,7 +958,7 @@ static void *aarp_seq_start(struct seq_file *seq, loff_t *pos)
 {
 	struct aarp_iter_state *iter = seq->private;
 
-	read_lock_bh(&aarp_lock);
+	read_lock_bh(&aarp_lock, SOFTIRQ_ALL_MASK);
 	iter->table     = resolved;
 	iter->bucket    = 0;
 

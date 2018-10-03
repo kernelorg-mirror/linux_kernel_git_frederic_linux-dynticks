@@ -510,18 +510,20 @@ EXPORT_SYMBOL_GPL(ip_set_match_extensions);
 static inline void
 __ip_set_get(struct ip_set *set)
 {
-	write_lock_bh(&ip_set_ref_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&ip_set_ref_lock, SOFTIRQ_ALL_MASK);
 	set->ref++;
-	write_unlock_bh(&ip_set_ref_lock);
+	write_unlock_bh(&ip_set_ref_lock, bh);
 }
 
 static inline void
 __ip_set_put(struct ip_set *set)
 {
-	write_lock_bh(&ip_set_ref_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&ip_set_ref_lock, SOFTIRQ_ALL_MASK);
 	BUG_ON(set->ref == 0);
 	set->ref--;
-	write_unlock_bh(&ip_set_ref_lock);
+	write_unlock_bh(&ip_set_ref_lock, bh);
 }
 
 /* set->ref can be swapped out by ip_set_swap, netlink events (like dump) need
@@ -530,10 +532,11 @@ __ip_set_put(struct ip_set *set)
 static inline void
 __ip_set_put_netlink(struct ip_set *set)
 {
-	write_lock_bh(&ip_set_ref_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&ip_set_ref_lock, SOFTIRQ_ALL_MASK);
 	BUG_ON(set->ref_netlink == 0);
 	set->ref_netlink--;
-	write_unlock_bh(&ip_set_ref_lock);
+	write_unlock_bh(&ip_set_ref_lock, bh);
 }
 
 /* Add, del and test set entries from kernel.
@@ -1022,6 +1025,7 @@ static int ip_set_destroy(struct net *net, struct sock *ctnl,
 			  const struct nlattr * const attr[],
 			  struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct ip_set_net *inst = ip_set_pernet(net);
 	struct ip_set *s;
 	ip_set_id_t i;
@@ -1043,7 +1047,7 @@ static int ip_set_destroy(struct net *net, struct sock *ctnl,
 	 * counter, so if it's already zero, we can proceed
 	 * without holding the lock.
 	 */
-	read_lock_bh(&ip_set_ref_lock);
+	bh = read_lock_bh(&ip_set_ref_lock, SOFTIRQ_ALL_MASK);
 	if (!attr[IPSET_ATTR_SETNAME]) {
 		for (i = 0; i < inst->ip_set_max; i++) {
 			s = ip_set(inst, i);
@@ -1053,7 +1057,7 @@ static int ip_set_destroy(struct net *net, struct sock *ctnl,
 			}
 		}
 		inst->is_destroyed = true;
-		read_unlock_bh(&ip_set_ref_lock);
+		read_unlock_bh(&ip_set_ref_lock, bh);
 		for (i = 0; i < inst->ip_set_max; i++) {
 			s = ip_set(inst, i);
 			if (s) {
@@ -1074,13 +1078,13 @@ static int ip_set_destroy(struct net *net, struct sock *ctnl,
 			goto out;
 		}
 		ip_set(inst, i) = NULL;
-		read_unlock_bh(&ip_set_ref_lock);
+		read_unlock_bh(&ip_set_ref_lock, bh);
 
 		ip_set_destroy_set(s);
 	}
 	return 0;
 out:
-	read_unlock_bh(&ip_set_ref_lock);
+	read_unlock_bh(&ip_set_ref_lock, bh);
 	return ret;
 }
 
@@ -1142,6 +1146,7 @@ static int ip_set_rename(struct net *net, struct sock *ctnl,
 			 const struct nlattr * const attr[],
 			 struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct ip_set_net *inst = ip_set_pernet(net);
 	struct ip_set *set, *s;
 	const char *name2;
@@ -1157,7 +1162,7 @@ static int ip_set_rename(struct net *net, struct sock *ctnl,
 	if (!set)
 		return -ENOENT;
 
-	read_lock_bh(&ip_set_ref_lock);
+	bh = read_lock_bh(&ip_set_ref_lock, SOFTIRQ_ALL_MASK);
 	if (set->ref != 0) {
 		ret = -IPSET_ERR_REFERENCED;
 		goto out;
@@ -1174,7 +1179,7 @@ static int ip_set_rename(struct net *net, struct sock *ctnl,
 	strncpy(set->name, name2, IPSET_MAXNAMELEN);
 
 out:
-	read_unlock_bh(&ip_set_ref_lock);
+	read_unlock_bh(&ip_set_ref_lock, bh);
 	return ret;
 }
 
@@ -1192,6 +1197,7 @@ static int ip_set_swap(struct net *net, struct sock *ctnl, struct sk_buff *skb,
 		       const struct nlattr * const attr[],
 		       struct netlink_ext_ack *extack)
 {
+	unsigned int bh;
 	struct ip_set_net *inst = ip_set_pernet(net);
 	struct ip_set *from, *to;
 	ip_set_id_t from_id, to_id;
@@ -1220,10 +1226,10 @@ static int ip_set_swap(struct net *net, struct sock *ctnl, struct sk_buff *skb,
 	      from->family == to->family))
 		return -IPSET_ERR_TYPE_MISMATCH;
 
-	write_lock_bh(&ip_set_ref_lock);
+	bh = write_lock_bh(&ip_set_ref_lock, SOFTIRQ_ALL_MASK);
 
 	if (from->ref_netlink || to->ref_netlink) {
-		write_unlock_bh(&ip_set_ref_lock);
+		write_unlock_bh(&ip_set_ref_lock, bh);
 		return -EBUSY;
 	}
 
@@ -1234,7 +1240,7 @@ static int ip_set_swap(struct net *net, struct sock *ctnl, struct sk_buff *skb,
 	swap(from->ref, to->ref);
 	ip_set(inst, from_id) = to;
 	ip_set(inst, to_id) = from;
-	write_unlock_bh(&ip_set_ref_lock);
+	write_unlock_bh(&ip_set_ref_lock, bh);
 
 	return 0;
 }
@@ -1320,6 +1326,7 @@ dump_init(struct netlink_callback *cb, struct ip_set_net *inst)
 static int
 ip_set_dump_start(struct sk_buff *skb, struct netlink_callback *cb)
 {
+	unsigned int bh;
 	ip_set_id_t index = IPSET_INVALID_ID, max;
 	struct ip_set *set = NULL;
 	struct nlmsghdr *nlh = NULL;
@@ -1354,11 +1361,11 @@ dump_last:
 		 dump_type, dump_flags, cb->args[IPSET_CB_INDEX]);
 	for (; cb->args[IPSET_CB_INDEX] < max; cb->args[IPSET_CB_INDEX]++) {
 		index = (ip_set_id_t)cb->args[IPSET_CB_INDEX];
-		write_lock_bh(&ip_set_ref_lock);
+		bh = write_lock_bh(&ip_set_ref_lock, SOFTIRQ_ALL_MASK);
 		set = ip_set(inst, index);
 		is_destroyed = inst->is_destroyed;
 		if (!set || is_destroyed) {
-			write_unlock_bh(&ip_set_ref_lock);
+			write_unlock_bh(&ip_set_ref_lock, bh);
 			if (dump_type == DUMP_ONE) {
 				ret = -ENOENT;
 				goto out;
@@ -1376,7 +1383,7 @@ dump_last:
 		if (dump_type != DUMP_ONE &&
 		    ((dump_type == DUMP_ALL) ==
 		     !!(set->type->features & IPSET_DUMP_LAST))) {
-			write_unlock_bh(&ip_set_ref_lock);
+			write_unlock_bh(&ip_set_ref_lock, bh);
 			continue;
 		}
 		pr_debug("List set: %s\n", set->name);
@@ -1385,7 +1392,7 @@ dump_last:
 			pr_debug("reference set\n");
 			set->ref_netlink++;
 		}
-		write_unlock_bh(&ip_set_ref_lock);
+		write_unlock_bh(&ip_set_ref_lock, bh);
 		nlh = start_msg(skb, NETLINK_CB(cb->skb).portid,
 				cb->nlh->nlmsg_seq, flags,
 				IPSET_CMD_LIST);

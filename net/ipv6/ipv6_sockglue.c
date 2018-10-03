@@ -61,6 +61,7 @@ DEFINE_RWLOCK(ip6_ra_lock);
 
 int ip6_ra_control(struct sock *sk, int sel)
 {
+	unsigned int bh;
 	struct ip6_ra_chain *ra, *new_ra, **rap;
 
 	/* RA packet may be delivered ONLY to IPPROTO_RAW socket */
@@ -69,17 +70,17 @@ int ip6_ra_control(struct sock *sk, int sel)
 
 	new_ra = (sel >= 0) ? kmalloc(sizeof(*new_ra), GFP_KERNEL) : NULL;
 
-	write_lock_bh(&ip6_ra_lock);
+	bh = write_lock_bh(&ip6_ra_lock, SOFTIRQ_ALL_MASK);
 	for (rap = &ip6_ra_chain; (ra = *rap) != NULL; rap = &ra->next) {
 		if (ra->sk == sk) {
 			if (sel >= 0) {
-				write_unlock_bh(&ip6_ra_lock);
+				write_unlock_bh(&ip6_ra_lock, bh);
 				kfree(new_ra);
 				return -EADDRINUSE;
 			}
 
 			*rap = ra->next;
-			write_unlock_bh(&ip6_ra_lock);
+			write_unlock_bh(&ip6_ra_lock, bh);
 
 			sock_put(sk);
 			kfree(ra);
@@ -87,7 +88,7 @@ int ip6_ra_control(struct sock *sk, int sel)
 		}
 	}
 	if (!new_ra) {
-		write_unlock_bh(&ip6_ra_lock);
+		write_unlock_bh(&ip6_ra_lock, bh);
 		return -ENOBUFS;
 	}
 	new_ra->sk = sk;
@@ -95,7 +96,7 @@ int ip6_ra_control(struct sock *sk, int sel)
 	new_ra->next = ra;
 	*rap = new_ra;
 	sock_hold(sk);
-	write_unlock_bh(&ip6_ra_lock);
+	write_unlock_bh(&ip6_ra_lock, bh);
 	return 0;
 }
 

@@ -2345,6 +2345,7 @@ struct mlxsw_sp_netevent_work {
 
 static void mlxsw_sp_router_neigh_event_work(struct work_struct *work)
 {
+	unsigned int bh;
 	struct mlxsw_sp_netevent_work *net_work =
 		container_of(work, struct mlxsw_sp_netevent_work, work);
 	struct mlxsw_sp *mlxsw_sp = net_work->mlxsw_sp;
@@ -2358,11 +2359,11 @@ static void mlxsw_sp_router_neigh_event_work(struct work_struct *work)
 	 * then we are guaranteed to receive another event letting us
 	 * know about it.
 	 */
-	read_lock_bh(&n->lock);
+	bh = read_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 	memcpy(ha, n->ha, ETH_ALEN);
 	nud_state = n->nud_state;
 	dead = n->dead;
-	read_unlock_bh(&n->lock);
+	read_unlock_bh(&n->lock, bh);
 
 	rtnl_lock();
 	mlxsw_sp_span_respin(mlxsw_sp);
@@ -3379,6 +3380,7 @@ static void mlxsw_sp_nexthop_rif_fini(struct mlxsw_sp_nexthop *nh)
 static int mlxsw_sp_nexthop_neigh_init(struct mlxsw_sp *mlxsw_sp,
 				       struct mlxsw_sp_nexthop *nh)
 {
+	unsigned int bh;
 	struct mlxsw_sp_neigh_entry *neigh_entry;
 	struct neighbour *n;
 	u8 nud_state, dead;
@@ -3418,10 +3420,10 @@ static int mlxsw_sp_nexthop_neigh_init(struct mlxsw_sp *mlxsw_sp,
 
 	nh->neigh_entry = neigh_entry;
 	list_add_tail(&nh->neigh_list_node, &neigh_entry->nexthop_list);
-	read_lock_bh(&n->lock);
+	bh = read_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 	nud_state = n->nud_state;
 	dead = n->dead;
-	read_unlock_bh(&n->lock);
+	read_unlock_bh(&n->lock, bh);
 	__mlxsw_sp_nexthop_neigh_update(nh, !(nud_state & NUD_VALID && !dead));
 
 	return 0;

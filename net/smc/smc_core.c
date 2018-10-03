@@ -126,15 +126,16 @@ static void __smc_lgr_unregister_conn(struct smc_connection *conn)
  */
 static void smc_lgr_unregister_conn(struct smc_connection *conn)
 {
+	unsigned int bh;
 	struct smc_link_group *lgr = conn->lgr;
 	int reduced = 0;
 
-	write_lock_bh(&lgr->conns_lock);
+	bh = write_lock_bh(&lgr->conns_lock, SOFTIRQ_ALL_MASK);
 	if (conn->alert_token_local) {
 		reduced = 1;
 		__smc_lgr_unregister_conn(conn);
 	}
-	write_unlock_bh(&lgr->conns_lock);
+	write_unlock_bh(&lgr->conns_lock, bh);
 	if (!reduced || lgr->conns_num)
 		return;
 	smc_lgr_schedule_free_work(lgr);
@@ -157,6 +158,7 @@ static int smc_link_send_delete(struct smc_link *lnk)
 static void smc_lgr_free_work(struct work_struct *work)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct smc_link_group *lgr = container_of(to_delayed_work(work),
 						  struct smc_link_group,
 						  free_work);
@@ -165,9 +167,9 @@ static void smc_lgr_free_work(struct work_struct *work)
 	bh = spin_lock_bh(&smc_lgr_list.lock, SOFTIRQ_ALL_MASK);
 	if (list_empty(&lgr->list))
 		goto free;
-	read_lock_bh(&lgr->conns_lock);
+	bh = read_lock_bh(&lgr->conns_lock, SOFTIRQ_ALL_MASK);
 	conns = RB_EMPTY_ROOT(&lgr->conns_all);
-	read_unlock_bh(&lgr->conns_lock);
+	read_unlock_bh(&lgr->conns_lock, bh);
 	if (!conns) { /* number of lgr connections is no longer zero */
 		spin_unlock_bh(&smc_lgr_list.lock, bh);
 		return;
@@ -295,6 +297,7 @@ out:
 
 static void smc_buf_unuse(struct smc_connection *conn)
 {
+	unsigned int bh;
 	if (conn->sndbuf_desc)
 		conn->sndbuf_desc->used = 0;
 	if (conn->rmb_desc) {
@@ -305,9 +308,9 @@ static void smc_buf_unuse(struct smc_connection *conn)
 			/* buf registration failed, reuse not possible */
 			struct smc_link_group *lgr = conn->lgr;
 
-			write_lock_bh(&lgr->rmbs_lock);
+			bh = write_lock_bh(&lgr->rmbs_lock, SOFTIRQ_ALL_MASK);
 			list_del(&conn->rmb_desc->list);
-			write_unlock_bh(&lgr->rmbs_lock);
+			write_unlock_bh(&lgr->rmbs_lock, bh);
 
 			smc_buf_free(lgr, true, conn->rmb_desc);
 		}
@@ -434,6 +437,7 @@ void smc_lgr_forget(struct smc_link_group *lgr)
 /* terminate linkgroup abnormally */
 static void __smc_lgr_terminate(struct smc_link_group *lgr)
 {
+	unsigned int bh;
 	struct smc_connection *conn;
 	struct smc_sock *smc;
 	struct rb_node *node;
@@ -446,7 +450,7 @@ static void __smc_lgr_terminate(struct smc_link_group *lgr)
 	if (!lgr->is_smcd)
 		smc_llc_link_inactive(&lgr->lnk[SMC_SINGLE_LINK]);
 
-	write_lock_bh(&lgr->conns_lock);
+	bh = write_lock_bh(&lgr->conns_lock, SOFTIRQ_ALL_MASK);
 	node = rb_first(&lgr->conns_all);
 	while (node) {
 		conn = rb_entry(node, struct smc_connection, alert_node);
@@ -457,10 +461,10 @@ static void __smc_lgr_terminate(struct smc_link_group *lgr)
 		write_unlock_bh(&lgr->conns_lock);
 		if (!schedule_work(&conn->close_work))
 			sock_put(&smc->sk);
-		write_lock_bh(&lgr->conns_lock);
+		write_lock_bh(&lgr->conns_lock, SOFTIRQ_ALL_MASK);
 		node = rb_first(&lgr->conns_all);
 	}
-	write_unlock_bh(&lgr->conns_lock);
+	write_unlock_bh(&lgr->conns_lock, bh);
 	if (!lgr->is_smcd)
 		wake_up(&lgr->lnk[SMC_SINGLE_LINK].wr_reg_wait);
 	smc_lgr_schedule_free_work(lgr);
@@ -590,6 +594,7 @@ int smc_conn_create(struct smc_sock *smc, bool is_smcd, int srv_first_contact,
 		    u64 peer_gid)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct smc_connection *conn = &smc->conn;
 	int local_contact = SMC_FIRST_CONTACT;
 	struct smc_link_group *lgr;
@@ -609,7 +614,7 @@ int smc_conn_create(struct smc_sock *smc, bool is_smcd, int srv_first_contact,
 	/* determine if an existing link group can be reused */
 	bh = spin_lock_bh(&smc_lgr_list.lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(lgr, &smc_lgr_list.list, list) {
-		write_lock_bh(&lgr->conns_lock);
+		bh = write_lock_bh(&lgr->conns_lock, SOFTIRQ_ALL_MASK);
 		if ((is_smcd ? smcd_lgr_match(lgr, smcd, peer_gid) :
 		     smcr_lgr_match(lgr, lcl, role)) &&
 		    !lgr->sync_err &&
@@ -620,10 +625,10 @@ int smc_conn_create(struct smc_sock *smc, bool is_smcd, int srv_first_contact,
 			local_contact = SMC_REUSE_CONTACT;
 			conn->lgr = lgr;
 			smc_lgr_register_conn(conn); /* add smc conn to lgr */
-			write_unlock_bh(&lgr->conns_lock);
+			write_unlock_bh(&lgr->conns_lock, bh);
 			break;
 		}
-		write_unlock_bh(&lgr->conns_lock);
+		write_unlock_bh(&lgr->conns_lock, bh);
 	}
 	spin_unlock_bh(&smc_lgr_list.lock, bh);
 
@@ -693,16 +698,17 @@ static struct smc_buf_desc *smc_buf_get_slot(int compressed_bufsize,
 					     rwlock_t *lock,
 					     struct list_head *buf_list)
 {
+	unsigned int bh;
 	struct smc_buf_desc *buf_slot;
 
-	read_lock_bh(lock);
+	bh = read_lock_bh(lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(buf_slot, buf_list, list) {
 		if (cmpxchg(&buf_slot->used, 0, 1) == 0) {
-			read_unlock_bh(lock);
+			read_unlock_bh(lock, bh);
 			return buf_slot;
 		}
 	}
-	read_unlock_bh(lock);
+	read_unlock_bh(lock, bh);
 	return NULL;
 }
 
@@ -813,6 +819,7 @@ static struct smc_buf_desc *smcd_new_buf_create(struct smc_link_group *lgr,
 
 static int __smc_buf_create(struct smc_sock *smc, bool is_smcd, bool is_rmb)
 {
+	unsigned int bh;
 	struct smc_buf_desc *buf_desc = ERR_PTR(-ENOMEM);
 	struct smc_connection *conn = &smc->conn;
 	struct smc_link_group *lgr = conn->lgr;
@@ -860,9 +867,9 @@ static int __smc_buf_create(struct smc_sock *smc, bool is_smcd, bool is_rmb)
 			continue;
 
 		buf_desc->used = 1;
-		write_lock_bh(lock);
+		bh = write_lock_bh(lock, SOFTIRQ_ALL_MASK);
 		list_add(&buf_desc->list, buf_list);
-		write_unlock_bh(lock);
+		write_unlock_bh(lock, bh);
 		break; /* found */
 	}
 

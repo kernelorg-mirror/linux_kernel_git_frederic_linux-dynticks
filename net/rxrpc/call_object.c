@@ -470,6 +470,7 @@ void rxrpc_get_call(struct rxrpc_call *call, enum rxrpc_call_trace op)
 void rxrpc_release_call(struct rxrpc_sock *rx, struct rxrpc_call *call)
 {
 	unsigned int bh;
+	unsigned int bh;
 	const void *here = __builtin_return_address(0);
 	struct rxrpc_connection *conn = call->conn;
 	bool put = false;
@@ -490,7 +491,7 @@ void rxrpc_release_call(struct rxrpc_sock *rx, struct rxrpc_call *call)
 	del_timer_sync(&call->timer);
 
 	/* Make sure we don't get any more notifications */
-	write_lock_bh(&rx->recvmsg_lock);
+	bh = write_lock_bh(&rx->recvmsg_lock, SOFTIRQ_ALL_MASK);
 
 	if (!list_empty(&call->recvmsg_link)) {
 		_debug("unlinking once-pending call %p { e=%lx f=%lx }",
@@ -503,7 +504,7 @@ void rxrpc_release_call(struct rxrpc_sock *rx, struct rxrpc_call *call)
 	call->recvmsg_link.next = NULL;
 	call->recvmsg_link.prev = NULL;
 
-	write_unlock_bh(&rx->recvmsg_lock);
+	write_unlock_bh(&rx->recvmsg_lock, bh);
 	if (put)
 		rxrpc_put_call(call, rxrpc_call_put);
 

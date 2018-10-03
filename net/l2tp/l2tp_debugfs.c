@@ -124,13 +124,14 @@ static void l2tp_dfs_seq_stop(struct seq_file *p, void *v)
 
 static void l2tp_dfs_seq_tunnel_show(struct seq_file *m, void *v)
 {
+	unsigned int bh;
 	struct l2tp_tunnel *tunnel = v;
 	int session_count = 0;
 	int hash;
 	struct hlist_node *walk;
 	struct hlist_node *tmp;
 
-	read_lock_bh(&tunnel->hlist_lock);
+	bh = read_lock_bh(&tunnel->hlist_lock, SOFTIRQ_ALL_MASK);
 	for (hash = 0; hash < L2TP_HASH_SIZE; hash++) {
 		hlist_for_each_safe(walk, tmp, &tunnel->session_hlist[hash]) {
 			struct l2tp_session *session;
@@ -142,7 +143,7 @@ static void l2tp_dfs_seq_tunnel_show(struct seq_file *m, void *v)
 			session_count++;
 		}
 	}
-	read_unlock_bh(&tunnel->hlist_lock);
+	read_unlock_bh(&tunnel->hlist_lock, bh);
 
 	seq_printf(m, "\nTUNNEL %u peer %u", tunnel->tunnel_id, tunnel->peer_tunnel_id);
 	if (tunnel->sock) {

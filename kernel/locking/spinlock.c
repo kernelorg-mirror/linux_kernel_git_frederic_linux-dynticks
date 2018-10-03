@@ -93,9 +93,11 @@ void __lockfunc __raw_##op##_lock_irq(locktype##_t *lock)		\
 	_raw_##op##_lock_irqsave(lock);					\
 }									\
 									\
-void __lockfunc __raw_##op##_lock_bh(locktype##_t *lock)	\
+unsigned int __lockfunc __raw_##op##_lock_bh(locktype##_t *lock,	\
+						unsigned int mask)	\
 {									\
 	unsigned long flags;						\
+	unsigned int bh;						\
 									\
 	/*							*/	\
 	/* Careful: we must exclude softirqs too, hence the	*/	\
@@ -103,8 +105,9 @@ void __lockfunc __raw_##op##_lock_bh(locktype##_t *lock)	\
 	/* function:						*/	\
 	/**/								\
 	flags = _raw_##op##_lock_irqsave(lock);				\
-	local_bh_disable(SOFTIRQ_ALL_MASK);						\
+	bh = local_bh_disable(mask);					\
 	local_irq_restore(flags);					\
+	return bh;							\
 }									\
 
 /*
@@ -238,9 +241,9 @@ EXPORT_SYMBOL(_raw_read_lock_irq);
 #endif
 
 #ifndef CONFIG_INLINE_READ_LOCK_BH
-void __lockfunc _raw_read_lock_bh(rwlock_t *lock)
+unsigned int __lockfunc _raw_read_lock_bh(rwlock_t *lock, unsigned int mask)
 {
-	__raw_read_lock_bh(lock);
+	return __raw_read_lock_bh(lock, mask);
 }
 EXPORT_SYMBOL(_raw_read_lock_bh);
 #endif
@@ -270,9 +273,10 @@ EXPORT_SYMBOL(_raw_read_unlock_irq);
 #endif
 
 #ifndef CONFIG_INLINE_READ_UNLOCK_BH
-void __lockfunc _raw_read_unlock_bh(rwlock_t *lock)
+void __lockfunc _raw_read_unlock_bh(rwlock_t *lock,
+				    unsigned int bh)
 {
-	__raw_read_unlock_bh(lock);
+	__raw_read_unlock_bh(lock, bh);
 }
 EXPORT_SYMBOL(_raw_read_unlock_bh);
 #endif
@@ -310,9 +314,10 @@ EXPORT_SYMBOL(_raw_write_lock_irq);
 #endif
 
 #ifndef CONFIG_INLINE_WRITE_LOCK_BH
-void __lockfunc _raw_write_lock_bh(rwlock_t *lock)
+unsigned int __lockfunc _raw_write_lock_bh(rwlock_t *lock,
+					   unsigned int mask)
 {
-	__raw_write_lock_bh(lock);
+	return __raw_write_lock_bh(lock, mask);
 }
 EXPORT_SYMBOL(_raw_write_lock_bh);
 #endif
@@ -342,9 +347,10 @@ EXPORT_SYMBOL(_raw_write_unlock_irq);
 #endif
 
 #ifndef CONFIG_INLINE_WRITE_UNLOCK_BH
-void __lockfunc _raw_write_unlock_bh(rwlock_t *lock)
+void __lockfunc _raw_write_unlock_bh(rwlock_t *lock,
+				     unsigned int bh)
 {
-	__raw_write_unlock_bh(lock);
+	return __raw_write_unlock_bh(lock, bh);
 }
 EXPORT_SYMBOL(_raw_write_unlock_bh);
 #endif

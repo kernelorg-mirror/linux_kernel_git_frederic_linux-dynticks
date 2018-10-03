@@ -94,7 +94,7 @@ struct ip_vs_aligned_lock
 static struct ip_vs_aligned_lock
 __ip_vs_conntbl_lock_array[CT_LOCKARRAY_SIZE] __cacheline_aligned;
 
-static inline void ct_write_lock_bh(unsigned int key)
+static inline void ct_write_lock_bh(unsigned int key, SOFTIRQ_ALL_MASK)
 {
 	spin_lock_bh(&__ip_vs_conntbl_lock_array[key&CT_LOCKARRAY_MASK].l, SOFTIRQ_ALL_MASK);
 }
@@ -176,7 +176,7 @@ static inline int ip_vs_conn_hash(struct ip_vs_conn *cp)
 	/* Hash by protocol, client address and port */
 	hash = ip_vs_conn_hashkey_conn(cp);
 
-	ct_write_lock_bh(hash);
+	ct_write_lock_bh(hash, SOFTIRQ_ALL_MASK);
 	spin_lock(&cp->lock);
 
 	if (!(cp->flags & IP_VS_CONN_F_HASHED)) {
@@ -209,7 +209,7 @@ static inline int ip_vs_conn_unhash(struct ip_vs_conn *cp)
 	/* unhash it and decrease its reference counter */
 	hash = ip_vs_conn_hashkey_conn(cp);
 
-	ct_write_lock_bh(hash);
+	ct_write_lock_bh(hash, SOFTIRQ_ALL_MASK);
 	spin_lock(&cp->lock);
 
 	if (cp->flags & IP_VS_CONN_F_HASHED) {
@@ -239,7 +239,7 @@ static inline bool ip_vs_conn_unlink(struct ip_vs_conn *cp)
 
 	hash = ip_vs_conn_hashkey_conn(cp);
 
-	ct_write_lock_bh(hash);
+	ct_write_lock_bh(hash, SOFTIRQ_ALL_MASK);
 	spin_lock(&cp->lock);
 
 	if (cp->flags & IP_VS_CONN_F_HASHED) {

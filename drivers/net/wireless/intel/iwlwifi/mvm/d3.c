@@ -99,13 +99,14 @@ void iwl_mvm_ipv6_addr_change(struct ieee80211_hw *hw,
 			      struct ieee80211_vif *vif,
 			      struct inet6_dev *idev)
 {
+	unsigned int bh;
 	struct iwl_mvm_vif *mvmvif = iwl_mvm_vif_from_mac80211(vif);
 	struct inet6_ifaddr *ifa;
 	int idx = 0;
 
 	memset(mvmvif->tentative_addrs, 0, sizeof(mvmvif->tentative_addrs));
 
-	read_lock_bh(&idev->lock);
+	bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(ifa, &idev->addr_list, if_list) {
 		mvmvif->target_ipv6_addrs[idx] = ifa->addr;
 		if (ifa->flags & IFA_F_TENTATIVE)
@@ -114,7 +115,7 @@ void iwl_mvm_ipv6_addr_change(struct ieee80211_hw *hw,
 		if (idx >= IWL_PROTO_OFFLOAD_NUM_IPV6_ADDRS_MAX)
 			break;
 	}
-	read_unlock_bh(&idev->lock);
+	read_unlock_bh(&idev->lock, bh);
 
 	mvmvif->num_target_ipv6_addrs = idx;
 }

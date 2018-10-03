@@ -1229,6 +1229,7 @@ static void qeth_l3_add_mc6_to_hash(struct qeth_card *card,
 /* called with rcu_read_lock */
 static void qeth_l3_add_vlan_mc6(struct qeth_card *card)
 {
+	unsigned int bh;
 	struct inet6_dev *in_dev;
 	u16 vid;
 
@@ -1248,15 +1249,16 @@ static void qeth_l3_add_vlan_mc6(struct qeth_card *card)
 		in_dev = in6_dev_get(netdev);
 		if (!in_dev)
 			continue;
-		read_lock_bh(&in_dev->lock);
+		bh = read_lock_bh(&in_dev->lock, SOFTIRQ_ALL_MASK);
 		qeth_l3_add_mc6_to_hash(card, in_dev);
-		read_unlock_bh(&in_dev->lock);
+		read_unlock_bh(&in_dev->lock, bh);
 		in6_dev_put(in_dev);
 	}
 }
 
 static void qeth_l3_add_multicast_ipv6(struct qeth_card *card)
 {
+	unsigned int bh;
 	struct inet6_dev *in6_dev;
 
 	QETH_CARD_TEXT(card, 4, "chkmcv6");
@@ -1268,10 +1270,10 @@ static void qeth_l3_add_multicast_ipv6(struct qeth_card *card)
 		return;
 
 	rcu_read_lock();
-	read_lock_bh(&in6_dev->lock);
+	bh = read_lock_bh(&in6_dev->lock, SOFTIRQ_ALL_MASK);
 	qeth_l3_add_mc6_to_hash(card, in6_dev);
 	qeth_l3_add_vlan_mc6(card);
-	read_unlock_bh(&in6_dev->lock);
+	read_unlock_bh(&in6_dev->lock, bh);
 	rcu_read_unlock();
 	in6_dev_put(in6_dev);
 }

@@ -81,9 +81,10 @@ void mac802154_llsec_destroy(struct mac802154_llsec *sec)
 int mac802154_llsec_get_params(struct mac802154_llsec *sec,
 			       struct ieee802154_llsec_params *params)
 {
-	read_lock_bh(&sec->lock);
+	unsigned int bh;
+	bh = read_lock_bh(&sec->lock, SOFTIRQ_ALL_MASK);
 	*params = sec->params;
-	read_unlock_bh(&sec->lock);
+	read_unlock_bh(&sec->lock, bh);
 
 	return 0;
 }
@@ -92,7 +93,8 @@ int mac802154_llsec_set_params(struct mac802154_llsec *sec,
 			       const struct ieee802154_llsec_params *params,
 			       int changed)
 {
-	write_lock_bh(&sec->lock);
+	unsigned int bh;
+	bh = write_lock_bh(&sec->lock, SOFTIRQ_ALL_MASK);
 
 	if (changed & IEEE802154_LLSEC_PARAM_ENABLED)
 		sec->params.enabled = params->enabled;
@@ -113,7 +115,7 @@ int mac802154_llsec_set_params(struct mac802154_llsec *sec,
 	if (changed & IEEE802154_LLSEC_PARAM_COORD_SHORTADDR)
 		sec->params.coord_shortaddr = params->coord_shortaddr;
 
-	write_unlock_bh(&sec->lock);
+	write_unlock_bh(&sec->lock, bh);
 
 	return 0;
 }
@@ -708,6 +710,8 @@ static int llsec_do_encrypt(struct sk_buff *skb,
 
 int mac802154_llsec_encrypt(struct mac802154_llsec *sec, struct sk_buff *skb)
 {
+	unsigned int bh;
+	unsigned int bh;
 	struct ieee802154_hdr hdr;
 	int rc, authlen, hlen;
 	struct mac802154_llsec_key *key;
@@ -731,7 +735,7 @@ int mac802154_llsec_encrypt(struct mac802154_llsec *sec, struct sk_buff *skb)
 
 	rcu_read_lock();
 
-	read_lock_bh(&sec->lock);
+	bh = read_lock_bh(&sec->lock, SOFTIRQ_ALL_MASK);
 
 	if (!sec->params.enabled) {
 		rc = -EINVAL;
@@ -744,14 +748,14 @@ int mac802154_llsec_encrypt(struct mac802154_llsec *sec, struct sk_buff *skb)
 		goto fail_read;
 	}
 
-	read_unlock_bh(&sec->lock);
+	read_unlock_bh(&sec->lock, bh);
 
-	write_lock_bh(&sec->lock);
+	bh = write_lock_bh(&sec->lock, SOFTIRQ_ALL_MASK);
 
 	frame_ctr = be32_to_cpu(sec->params.frame_counter);
 	hdr.sec.frame_counter = cpu_to_le32(frame_ctr);
 	if (frame_ctr == 0xFFFFFFFF) {
-		write_unlock_bh(&sec->lock);
+		write_unlock_bh(&sec->lock, bh);
 		llsec_key_put(key);
 		rc = -EOVERFLOW;
 		goto fail;
@@ -759,7 +763,7 @@ int mac802154_llsec_encrypt(struct mac802154_llsec *sec, struct sk_buff *skb)
 
 	sec->params.frame_counter = cpu_to_be32(frame_ctr + 1);
 
-	write_unlock_bh(&sec->lock);
+	write_unlock_bh(&sec->lock, bh);
 
 	rcu_read_unlock();
 
@@ -772,7 +776,7 @@ int mac802154_llsec_encrypt(struct mac802154_llsec *sec, struct sk_buff *skb)
 	return rc;
 
 fail_read:
-	read_unlock_bh(&sec->lock);
+	read_unlock_bh(&sec->lock, bh);
 fail:
 	rcu_read_unlock();
 	return rc;
@@ -984,6 +988,7 @@ llsec_update_devkey_info(struct mac802154_llsec_device *dev,
 
 int mac802154_llsec_decrypt(struct mac802154_llsec *sec, struct sk_buff *skb)
 {
+	unsigned int bh;
 	struct ieee802154_hdr hdr;
 	struct mac802154_llsec_key *key;
 	struct ieee802154_llsec_key_id key_id;
@@ -1000,12 +1005,12 @@ int mac802154_llsec_decrypt(struct mac802154_llsec *sec, struct sk_buff *skb)
 	if (hdr.fc.version == 0)
 		return -EINVAL;
 
-	read_lock_bh(&sec->lock);
+	bh = read_lock_bh(&sec->lock, SOFTIRQ_ALL_MASK);
 	if (!sec->params.enabled) {
-		read_unlock_bh(&sec->lock);
+		read_unlock_bh(&sec->lock, bh);
 		return -EINVAL;
 	}
-	read_unlock_bh(&sec->lock);
+	read_unlock_bh(&sec->lock, bh);
 
 	rcu_read_lock();
 

@@ -42,6 +42,7 @@ int lowpan_header_create(struct sk_buff *skb, struct net_device *ldev,
 			 unsigned short type, const void *daddr,
 			 const void *saddr, unsigned int len)
 {
+	unsigned int bh;
 	struct wpan_dev *wpan_dev = lowpan_802154_dev(ldev)->wdev->ieee802154_ptr;
 	struct lowpan_addr_info *info = lowpan_skb_priv(skb);
 	struct lowpan_802154_neigh *llneigh = NULL;
@@ -67,9 +68,9 @@ int lowpan_header_create(struct sk_buff *skb, struct net_device *ldev,
 		n = neigh_lookup(&nd_tbl, &hdr->daddr, ldev);
 		if (n) {
 			llneigh = lowpan_802154_neigh(neighbour_priv(n));
-			read_lock_bh(&n->lock);
+			bh = read_lock_bh(&n->lock, SOFTIRQ_ALL_MASK);
 			short_addr = llneigh->short_addr;
-			read_unlock_bh(&n->lock);
+			read_unlock_bh(&n->lock, bh);
 		}
 
 		if (llneigh &&

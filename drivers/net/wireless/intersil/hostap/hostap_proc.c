@@ -98,7 +98,7 @@ static int prism2_wds_proc_show(struct seq_file *m, void *v)
 static void *prism2_wds_proc_start(struct seq_file *m, loff_t *_pos)
 {
 	local_info_t *local = PDE_DATA(file_inode(m->file));
-	read_lock_bh(&local->iface_lock);
+	read_lock_bh(&local->iface_lock, SOFTIRQ_ALL_MASK);
 	return seq_list_start(&local->hostap_interfaces, *_pos);
 }
 

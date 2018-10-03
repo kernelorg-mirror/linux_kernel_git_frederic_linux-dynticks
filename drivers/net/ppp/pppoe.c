@@ -230,13 +230,14 @@ static void __delete_item(struct pppoe_net *pn, __be16 sid,
 static inline struct pppox_sock *get_item(struct pppoe_net *pn, __be16 sid,
 					unsigned char *addr, int ifindex)
 {
+	unsigned int bh;
 	struct pppox_sock *po;
 
-	read_lock_bh(&pn->hash_lock);
+	bh = read_lock_bh(&pn->hash_lock, SOFTIRQ_ALL_MASK);
 	po = __get_item(pn, sid, addr, ifindex);
 	if (po)
 		sock_hold(sk_pppox(po));
-	read_unlock_bh(&pn->hash_lock);
+	read_unlock_bh(&pn->hash_lock, bh);
 
 	return po;
 }
@@ -265,9 +266,10 @@ static inline struct pppox_sock *get_item_by_addr(struct net *net,
 static inline void delete_item(struct pppoe_net *pn, __be16 sid,
 					char *addr, int ifindex)
 {
-	write_lock_bh(&pn->hash_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&pn->hash_lock, SOFTIRQ_ALL_MASK);
 	__delete_item(pn, sid, addr, ifindex);
-	write_unlock_bh(&pn->hash_lock);
+	write_unlock_bh(&pn->hash_lock, bh);
 }
 
 /***************************************************************************
@@ -279,11 +281,12 @@ static inline void delete_item(struct pppoe_net *pn, __be16 sid,
 
 static void pppoe_flush_dev(struct net_device *dev)
 {
+	unsigned int bh;
 	struct pppoe_net *pn;
 	int i;
 
 	pn = pppoe_pernet(dev_net(dev));
-	write_lock_bh(&pn->hash_lock);
+	bh = write_lock_bh(&pn->hash_lock, SOFTIRQ_ALL_MASK);
 	for (i = 0; i < PPPOE_HASH_SIZE; i++) {
 		struct pppox_sock *po = pn->hash_table[i];
 		struct sock *sk;
@@ -327,11 +330,11 @@ static void pppoe_flush_dev(struct net_device *dev)
 			 */
 
 			BUG_ON(pppoe_pernet(dev_net(dev)) == NULL);
-			write_lock_bh(&pn->hash_lock);
+			write_lock_bh(&pn->hash_lock, SOFTIRQ_ALL_MASK);
 			po = pn->hash_table[i];
 		}
 	}
-	write_unlock_bh(&pn->hash_lock);
+	write_unlock_bh(&pn->hash_lock, bh);
 }
 
 static int pppoe_device_event(struct notifier_block *this,
@@ -612,6 +615,7 @@ static int pppoe_release(struct socket *sock)
 static int pppoe_connect(struct socket *sock, struct sockaddr *uservaddr,
 		  int sockaddr_len, int flags)
 {
+	unsigned int bh;
 	struct sock *sk = sock->sk;
 	struct sockaddr_pppox *sp = (struct sockaddr_pppox *)uservaddr;
 	struct pppox_sock *po = pppox_sk(sk);
@@ -684,9 +688,9 @@ static int pppoe_connect(struct socket *sock, struct sockaddr *uservaddr,
 		       &sp->sa_addr.pppoe,
 		       sizeof(struct pppoe_addr));
 
-		write_lock_bh(&pn->hash_lock);
+		bh = write_lock_bh(&pn->hash_lock, SOFTIRQ_ALL_MASK);
 		error = __set_item(pn, po);
-		write_unlock_bh(&pn->hash_lock);
+		write_unlock_bh(&pn->hash_lock, bh);
 		if (error < 0)
 			goto err_put;
 
@@ -1054,7 +1058,7 @@ static void *pppoe_seq_start(struct seq_file *seq, loff_t *pos)
 	struct pppoe_net *pn = pppoe_pernet(seq_file_net(seq));
 	loff_t l = *pos;
 
-	read_lock_bh(&pn->hash_lock);
+	read_lock_bh(&pn->hash_lock, SOFTIRQ_ALL_MASK);
 	return l ? pppoe_get_idx(pn, --l) : SEQ_START_TOKEN;
 }
 

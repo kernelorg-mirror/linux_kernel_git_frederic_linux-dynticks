@@ -422,6 +422,7 @@ struct l2t_entry *cxgb4_l2t_get(struct l2t_data *d, struct neighbour *neigh,
 				const struct net_device *physdev,
 				unsigned int priority)
 {
+	unsigned int bh;
 	u8 lport;
 	u16 vlan;
 	struct l2t_entry *e;
@@ -440,7 +441,7 @@ struct l2t_entry *cxgb4_l2t_get(struct l2t_data *d, struct neighbour *neigh,
 	else
 		vlan = VLAN_NONE;
 
-	write_lock_bh(&d->lock);
+	bh = write_lock_bh(&d->lock, SOFTIRQ_ALL_MASK);
 	for (e = d->l2tab[hash].first; e; e = e->next)
 		if (!addreq(e, addr) && e->ifindex == ifidx &&
 		    e->vlan == vlan && e->lport == lport) {
@@ -470,7 +471,7 @@ struct l2t_entry *cxgb4_l2t_get(struct l2t_data *d, struct neighbour *neigh,
 		spin_unlock(&e->lock);
 	}
 done:
-	write_unlock_bh(&d->lock);
+	write_unlock_bh(&d->lock, bh);
 	return e;
 }
 EXPORT_SYMBOL(cxgb4_l2t_get);
@@ -536,6 +537,7 @@ static void handle_failed_resolution(struct adapter *adap, struct l2t_entry *e)
  */
 void t4_l2t_update(struct adapter *adap, struct neighbour *neigh)
 {
+	unsigned int bh;
 	struct l2t_entry *e;
 	struct sk_buff_head *arpq = NULL;
 	struct l2t_data *d = adap->l2t;
@@ -544,7 +546,7 @@ void t4_l2t_update(struct adapter *adap, struct neighbour *neigh)
 	int ifidx = neigh->dev->ifindex;
 	int hash = addr_hash(d, addr, addr_len, ifidx);
 
-	read_lock_bh(&d->lock);
+	bh = read_lock_bh(&d->lock, SOFTIRQ_ALL_MASK);
 	for (e = d->l2tab[hash].first; e; e = e->next)
 		if (!addreq(e, addr) && e->ifindex == ifidx) {
 			spin_lock(&e->lock);
@@ -553,7 +555,7 @@ void t4_l2t_update(struct adapter *adap, struct neighbour *neigh)
 			spin_unlock(&e->lock);
 			break;
 		}
-	read_unlock_bh(&d->lock);
+	read_unlock_bh(&d->lock, bh);
 	return;
 
  found:
@@ -588,11 +590,12 @@ void t4_l2t_update(struct adapter *adap, struct neighbour *neigh)
 struct l2t_entry *t4_l2t_alloc_switching(struct adapter *adap, u16 vlan,
 					 u8 port, u8 *eth_addr)
 {
+	unsigned int bh;
 	struct l2t_data *d = adap->l2t;
 	struct l2t_entry *e;
 	int ret;
 
-	write_lock_bh(&d->lock);
+	bh = write_lock_bh(&d->lock, SOFTIRQ_ALL_MASK);
 	e = find_or_alloc_l2e(d, vlan, port, eth_addr);
 	if (e) {
 		spin_lock(&e->lock);          /* avoid race with t4_l2t_free */
@@ -606,7 +609,7 @@ struct l2t_entry *t4_l2t_alloc_switching(struct adapter *adap, u16 vlan,
 			if (ret < 0) {
 				_t4_l2e_free(e);
 				spin_unlock(&e->lock);
-				write_unlock_bh(&d->lock);
+				write_unlock_bh(&d->lock, bh);
 				return NULL;
 			}
 		} else {
@@ -615,7 +618,7 @@ struct l2t_entry *t4_l2t_alloc_switching(struct adapter *adap, u16 vlan,
 
 		spin_unlock(&e->lock);
 	}
-	write_unlock_bh(&d->lock);
+	write_unlock_bh(&d->lock, bh);
 	return e;
 }
 

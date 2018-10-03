@@ -1352,14 +1352,15 @@ static void smap_read_sock_strparser(struct strparser *strp,
 /* Called with lock held on socket */
 static void smap_data_ready(struct sock *sk)
 {
+	unsigned int bh;
 	struct smap_psock *psock;
 
 	rcu_read_lock();
 	psock = smap_psock_sk(sk);
 	if (likely(psock)) {
-		write_lock_bh(&sk->sk_callback_lock);
+		bh = write_lock_bh(&sk->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		strp_data_ready(&psock->strp);
-		write_unlock_bh(&sk->sk_callback_lock);
+		write_unlock_bh(&sk->sk_callback_lock, bh);
 	}
 	rcu_read_unlock();
 }
@@ -1472,12 +1473,13 @@ static bool psock_is_smap_sk(struct sock *sk)
 
 static void smap_release_sock(struct smap_psock *psock, struct sock *sock)
 {
+	unsigned int bh;
 	if (refcount_dec_and_test(&psock->refcnt)) {
 		if (psock_is_smap_sk(sock))
 			tcp_cleanup_ulp(sock);
-		write_lock_bh(&sock->sk_callback_lock);
+		bh = write_lock_bh(&sock->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		smap_stop_sock(psock, sock);
-		write_unlock_bh(&sock->sk_callback_lock);
+		write_unlock_bh(&sock->sk_callback_lock, bh);
 		clear_bit(SMAP_TX_RUNNING, &psock->state);
 		rcu_assign_sk_user_data(sock, NULL);
 		call_rcu_sched(&psock->rcu, smap_destroy_psock);
@@ -1793,6 +1795,7 @@ struct sock  *__sock_map_lookup_elem(struct bpf_map *map, u32 key)
 static int sock_map_delete_elem(struct bpf_map *map, void *key)
 {
 	unsigned int bh;
+	unsigned int bh;
 	struct bpf_stab *stab = container_of(map, struct bpf_stab, map);
 	struct smap_psock *psock;
 	int k = *(u32 *)key;
@@ -1812,9 +1815,9 @@ static int sock_map_delete_elem(struct bpf_map *map, void *key)
 	if (!psock)
 		return 0;
 	if (psock->bpf_parse) {
-		write_lock_bh(&sock->sk_callback_lock);
+		bh = write_lock_bh(&sock->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		smap_stop_sock(psock, sock);
-		write_unlock_bh(&sock->sk_callback_lock);
+		write_unlock_bh(&sock->sk_callback_lock, bh);
 	}
 	smap_list_map_remove(psock, &stab->sock_map[k]);
 	smap_release_sock(psock, sock);
@@ -1855,6 +1858,7 @@ static int __sock_map_ctx_update_elem(struct bpf_map *map,
 				      struct sock *sock,
 				      void *key)
 {
+	unsigned int bh;
 	struct bpf_prog *verdict, *parse, *tx_msg;
 	struct smap_psock *psock;
 	bool new = false;
@@ -1948,9 +1952,9 @@ static int __sock_map_ctx_update_elem(struct bpf_map *map,
 		if (err)
 			goto out_free;
 		smap_init_progs(psock, verdict, parse);
-		write_lock_bh(&sock->sk_callback_lock);
+		bh = write_lock_bh(&sock->sk_callback_lock, SOFTIRQ_ALL_MASK);
 		smap_start_sock(psock, sock);
-		write_unlock_bh(&sock->sk_callback_lock);
+		write_unlock_bh(&sock->sk_callback_lock, bh);
 	}
 
 	return err;

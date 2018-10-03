@@ -142,12 +142,13 @@ static inline int prism2_wds_special_addr(u8 *addr)
 int prism2_wds_add(local_info_t *local, u8 *remote_addr,
 		   int rtnl_locked)
 {
+	unsigned int bh;
 	struct net_device *dev;
 	struct list_head *ptr;
 	struct hostap_interface *iface, *empty, *match;
 
 	empty = match = NULL;
-	read_lock_bh(&local->iface_lock);
+	bh = read_lock_bh(&local->iface_lock, SOFTIRQ_ALL_MASK);
 	list_for_each(ptr, &local->hostap_interfaces) {
 		iface = list_entry(ptr, struct hostap_interface, list);
 		if (iface->type != HOSTAP_INTERFACE_WDS)
@@ -163,12 +164,12 @@ int prism2_wds_add(local_info_t *local, u8 *remote_addr,
 	if (!match && empty && !prism2_wds_special_addr(remote_addr)) {
 		/* take pre-allocated entry into use */
 		memcpy(empty->u.wds.remote_addr, remote_addr, ETH_ALEN);
-		read_unlock_bh(&local->iface_lock);
+		read_unlock_bh(&local->iface_lock, bh);
 		printk(KERN_DEBUG "%s: using pre-allocated WDS netdevice %s\n",
 		       local->dev->name, empty->dev->name);
 		return 0;
 	}
-	read_unlock_bh(&local->iface_lock);
+	read_unlock_bh(&local->iface_lock, bh);
 
 	if (!prism2_wds_special_addr(remote_addr)) {
 		if (match)
@@ -702,6 +703,7 @@ static int prism2_open(struct net_device *dev)
 
 static int prism2_set_mac_address(struct net_device *dev, void *p)
 {
+	unsigned int bh;
 	struct hostap_interface *iface;
 	local_info_t *local;
 	struct list_head *ptr;
@@ -714,13 +716,13 @@ static int prism2_set_mac_address(struct net_device *dev, void *p)
 				 ETH_ALEN) < 0 || local->func->reset_port(dev))
 		return -EINVAL;
 
-	read_lock_bh(&local->iface_lock);
+	bh = read_lock_bh(&local->iface_lock, SOFTIRQ_ALL_MASK);
 	list_for_each(ptr, &local->hostap_interfaces) {
 		iface = list_entry(ptr, struct hostap_interface, list);
 		memcpy(iface->dev->dev_addr, addr->sa_data, ETH_ALEN);
 	}
 	memcpy(local->dev->dev_addr, addr->sa_data, ETH_ALEN);
-	read_unlock_bh(&local->iface_lock);
+	read_unlock_bh(&local->iface_lock, bh);
 
 	return 0;
 }

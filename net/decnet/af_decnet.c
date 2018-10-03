@@ -212,13 +212,14 @@ static unsigned short port = 0x2000;
  */
 static int dn_hash_sock(struct sock *sk)
 {
+	unsigned int bh;
 	struct dn_scp *scp = DN_SK(sk);
 	struct hlist_head *list;
 	int rv = -EUSERS;
 
 	BUG_ON(sk_hashed(sk));
 
-	write_lock_bh(&dn_hash_lock);
+	bh = write_lock_bh(&dn_hash_lock, SOFTIRQ_ALL_MASK);
 
 	if (!scp->addrloc && !port_alloc(sk))
 		goto out;
@@ -230,7 +231,7 @@ static int dn_hash_sock(struct sock *sk)
 	sk_add_node(sk, list);
 	rv = 0;
 out:
-	write_unlock_bh(&dn_hash_lock);
+	write_unlock_bh(&dn_hash_lock, bh);
 	return rv;
 }
 
@@ -243,9 +244,10 @@ static void dn_unhash_sock(struct sock *sk)
 
 static void dn_unhash_sock_bh(struct sock *sk)
 {
-	write_lock_bh(&dn_hash_lock);
+	unsigned int bh;
+	bh = write_lock_bh(&dn_hash_lock, SOFTIRQ_ALL_MASK);
 	sk_del_node_init(sk);
-	write_unlock_bh(&dn_hash_lock);
+	write_unlock_bh(&dn_hash_lock, bh);
 }
 
 static struct hlist_head *listen_hash(struct sockaddr_dn *addr)
@@ -271,18 +273,19 @@ static struct hlist_head *listen_hash(struct sockaddr_dn *addr)
  */
 static void dn_rehash_sock(struct sock *sk)
 {
+	unsigned int bh;
 	struct hlist_head *list;
 	struct dn_scp *scp = DN_SK(sk);
 
 	if (scp->addr.sdn_flags & SDF_WILD)
 		return;
 
-	write_lock_bh(&dn_hash_lock);
+	bh = write_lock_bh(&dn_hash_lock, SOFTIRQ_ALL_MASK);
 	sk_del_node_init(sk);
 	DN_SK(sk)->addrloc = 0;
 	list = listen_hash(&DN_SK(sk)->addr);
 	sk_add_node(sk, list);
-	write_unlock_bh(&dn_hash_lock);
+	write_unlock_bh(&dn_hash_lock, bh);
 }
 
 int dn_sockaddr2username(struct sockaddr_dn *sdn, unsigned char *buf, unsigned char type)
@@ -2166,11 +2169,12 @@ static struct sock *socket_get_idx(struct seq_file *seq, loff_t *pos)
 
 static void *dn_socket_get_idx(struct seq_file *seq, loff_t pos)
 {
+	unsigned int bh;
 	void *rc;
-	read_lock_bh(&dn_hash_lock);
+	bh = read_lock_bh(&dn_hash_lock, SOFTIRQ_ALL_MASK);
 	rc = socket_get_idx(seq, &pos);
 	if (!rc) {
-		read_unlock_bh(&dn_hash_lock);
+		read_unlock_bh(&dn_hash_lock, bh);
 	}
 	return rc;
 }

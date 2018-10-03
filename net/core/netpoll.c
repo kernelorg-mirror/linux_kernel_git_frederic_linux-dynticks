@@ -661,6 +661,7 @@ EXPORT_SYMBOL_GPL(__netpoll_setup);
 
 int netpoll_setup(struct netpoll *np)
 {
+	unsigned int bh;
 	struct net_device *ndev = NULL;
 	struct in_device *in_dev;
 	int err;
@@ -740,7 +741,7 @@ int netpoll_setup(struct netpoll *np)
 			if (idev) {
 				struct inet6_ifaddr *ifp;
 
-				read_lock_bh(&idev->lock);
+				bh = read_lock_bh(&idev->lock, SOFTIRQ_ALL_MASK);
 				list_for_each_entry(ifp, &idev->addr_list, if_list) {
 					if (ipv6_addr_type(&ifp->addr) & IPV6_ADDR_LINKLOCAL)
 						continue;
@@ -748,7 +749,7 @@ int netpoll_setup(struct netpoll *np)
 					err = 0;
 					break;
 				}
-				read_unlock_bh(&idev->lock);
+				read_unlock_bh(&idev->lock, bh);
 			}
 			if (err) {
 				np_err(np, "no IPv6 address for %s, aborting\n",

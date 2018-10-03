@@ -69,15 +69,16 @@ static inline struct netns_proto_gre *gre_pernet(struct net *net)
 
 static void nf_ct_gre_keymap_flush(struct net *net)
 {
+	unsigned int bh;
 	struct netns_proto_gre *net_gre = gre_pernet(net);
 	struct nf_ct_gre_keymap *km, *tmp;
 
-	write_lock_bh(&net_gre->keymap_lock);
+	bh = write_lock_bh(&net_gre->keymap_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry_safe(km, tmp, &net_gre->keymap_list, list) {
 		list_del(&km->list);
 		kfree(km);
 	}
-	write_unlock_bh(&net_gre->keymap_lock);
+	write_unlock_bh(&net_gre->keymap_lock, bh);
 }
 
 static inline int gre_key_cmpfn(const struct nf_ct_gre_keymap *km,
@@ -93,18 +94,19 @@ static inline int gre_key_cmpfn(const struct nf_ct_gre_keymap *km,
 /* look up the source key for a given tuple */
 static __be16 gre_keymap_lookup(struct net *net, struct nf_conntrack_tuple *t)
 {
+	unsigned int bh;
 	struct netns_proto_gre *net_gre = gre_pernet(net);
 	struct nf_ct_gre_keymap *km;
 	__be16 key = 0;
 
-	read_lock_bh(&net_gre->keymap_lock);
+	bh = read_lock_bh(&net_gre->keymap_lock, SOFTIRQ_ALL_MASK);
 	list_for_each_entry(km, &net_gre->keymap_list, list) {
 		if (gre_key_cmpfn(km, t)) {
 			key = km->tuple.src.u.gre.key;
 			break;
 		}
 	}
-	read_unlock_bh(&net_gre->keymap_lock);
+	read_unlock_bh(&net_gre->keymap_lock, bh);
 
 	pr_debug("lookup src key 0x%x for ", key);
 	nf_ct_dump_tuple(t);
@@ -116,6 +118,8 @@ static __be16 gre_keymap_lookup(struct net *net, struct nf_conntrack_tuple *t)
 int nf_ct_gre_keymap_add(struct nf_conn *ct, enum ip_conntrack_dir dir,
 			 struct nf_conntrack_tuple *t)
 {
+	unsigned int bh;
+	unsigned int bh;
 	struct net *net = nf_ct_net(ct);
 	struct netns_proto_gre *net_gre = gre_pernet(net);
 	struct nf_ct_pptp_master *ct_pptp_info = nfct_help_data(ct);
@@ -124,14 +128,14 @@ int nf_ct_gre_keymap_add(struct nf_conn *ct, enum ip_conntrack_dir dir,
 	kmp = &ct_pptp_info->keymap[dir];
 	if (*kmp) {
 		/* check whether it's a retransmission */
-		read_lock_bh(&net_gre->keymap_lock);
+		bh = read_lock_bh(&net_gre->keymap_lock, SOFTIRQ_ALL_MASK);
 		list_for_each_entry(km, &net_gre->keymap_list, list) {
 			if (gre_key_cmpfn(km, t) && km == *kmp) {
-				read_unlock_bh(&net_gre->keymap_lock);
+				read_unlock_bh(&net_gre->keymap_lock, bh);
 				return 0;
 			}
 		}
-		read_unlock_bh(&net_gre->keymap_lock);
+		read_unlock_bh(&net_gre->keymap_lock, bh);
 		pr_debug("trying to override keymap_%s for ct %p\n",
 			 dir == IP_CT_DIR_REPLY ? "reply" : "orig", ct);
 		return -EEXIST;
@@ -146,9 +150,9 @@ int nf_ct_gre_keymap_add(struct nf_conn *ct, enum ip_conntrack_dir dir,
 	pr_debug("adding new entry %p: ", km);
 	nf_ct_dump_tuple(&km->tuple);
 
-	write_lock_bh(&net_gre->keymap_lock);
+	bh = write_lock_bh(&net_gre->keymap_lock, SOFTIRQ_ALL_MASK);
 	list_add_tail(&km->list, &net_gre->keymap_list);
-	write_unlock_bh(&net_gre->keymap_lock);
+	write_unlock_bh(&net_gre->keymap_lock, bh);
 
 	return 0;
 }
@@ -157,6 +161,7 @@ EXPORT_SYMBOL_GPL(nf_ct_gre_keymap_add);
 /* destroy the keymap entries associated with specified master ct */
 void nf_ct_gre_keymap_destroy(struct nf_conn *ct)
 {
+	unsigned int bh;
 	struct net *net = nf_ct_net(ct);
 	struct netns_proto_gre *net_gre = gre_pernet(net);
 	struct nf_ct_pptp_master *ct_pptp_info = nfct_help_data(ct);
@@ -164,7 +169,7 @@ void nf_ct_gre_keymap_destroy(struct nf_conn *ct)
 
 	pr_debug("entering for ct %p\n", ct);
 
-	write_lock_bh(&net_gre->keymap_lock);
+	bh = write_lock_bh(&net_gre->keymap_lock, SOFTIRQ_ALL_MASK);
 	for (dir = IP_CT_DIR_ORIGINAL; dir < IP_CT_DIR_MAX; dir++) {
 		if (ct_pptp_info->keymap[dir]) {
 			pr_debug("removing %p from list\n",
@@ -174,7 +179,7 @@ void nf_ct_gre_keymap_destroy(struct nf_conn *ct)
 			ct_pptp_info->keymap[dir] = NULL;
 		}
 	}
-	write_unlock_bh(&net_gre->keymap_lock);
+	write_unlock_bh(&net_gre->keymap_lock, bh);
 }
 EXPORT_SYMBOL_GPL(nf_ct_gre_keymap_destroy);
 

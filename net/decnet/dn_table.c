@@ -142,6 +142,7 @@ static inline void dn_rebuild_zone(struct dn_zone *dz,
 
 static void dn_rehash_zone(struct dn_zone *dz)
 {
+	unsigned int bh;
 	struct dn_fib_node **ht, **old_ht;
 	int old_divisor, new_divisor;
 	u32 new_hashmask;
@@ -167,13 +168,13 @@ static void dn_rehash_zone(struct dn_zone *dz)
 	if (ht == NULL)
 		return;
 
-	write_lock_bh(&dn_fib_tables_lock);
+	bh = write_lock_bh(&dn_fib_tables_lock, SOFTIRQ_ALL_MASK);
 	old_ht = dz->dz_hash;
 	dz->dz_hash = ht;
 	dz->dz_hashmask = new_hashmask;
 	dz->dz_divisor = new_divisor;
 	dn_rebuild_zone(dz, old_ht, old_divisor);
-	write_unlock_bh(&dn_fib_tables_lock);
+	write_unlock_bh(&dn_fib_tables_lock, bh);
 	kfree(old_ht);
 }
 
@@ -186,6 +187,7 @@ static void dn_free_node(struct dn_fib_node *f)
 
 static struct dn_zone *dn_new_zone(struct dn_hash *table, int z)
 {
+	unsigned int bh;
 	int i;
 	struct dn_zone *dz = kzalloc(sizeof(struct dn_zone), GFP_KERNEL);
 	if (!dz)
@@ -212,7 +214,7 @@ static struct dn_zone *dn_new_zone(struct dn_hash *table, int z)
 		if (table->dh_zones[i])
 			break;
 
-	write_lock_bh(&dn_fib_tables_lock);
+	bh = write_lock_bh(&dn_fib_tables_lock, SOFTIRQ_ALL_MASK);
 	if (i>16) {
 		dz->dz_next = table->dh_zone_list;
 		table->dh_zone_list = dz;
@@ -221,7 +223,7 @@ static struct dn_zone *dn_new_zone(struct dn_hash *table, int z)
 		table->dh_zones[i]->dz_next = dz;
 	}
 	table->dh_zones[z] = dz;
-	write_unlock_bh(&dn_fib_tables_lock);
+	write_unlock_bh(&dn_fib_tables_lock, bh);
 	return dz;
 }
 
@@ -528,6 +530,7 @@ out:
 static int dn_fib_table_insert(struct dn_fib_table *tb, struct rtmsg *r, struct nlattr *attrs[],
 			       struct nlmsghdr *n, struct netlink_skb_parms *req)
 {
+	unsigned int bh;
 	struct dn_hash *table = (struct dn_hash *)tb->data;
 	struct dn_fib_node *new_f, *f, **fp, **del_fp;
 	struct dn_zone *dz;
@@ -632,14 +635,14 @@ replace:
 	DN_FIB_INFO(new_f) = fi;
 
 	new_f->fn_next = f;
-	write_lock_bh(&dn_fib_tables_lock);
+	bh = write_lock_bh(&dn_fib_tables_lock, SOFTIRQ_ALL_MASK);
 	*fp = new_f;
-	write_unlock_bh(&dn_fib_tables_lock);
+	write_unlock_bh(&dn_fib_tables_lock, bh);
 	dz->dz_nent++;
 
 	if (del_fp) {
 		f = *del_fp;
-		write_lock_bh(&dn_fib_tables_lock);
+		write_lock_bh(&dn_fib_tables_lock, SOFTIRQ_ALL_MASK);
 		*del_fp = f->fn_next;
 		write_unlock_bh(&dn_fib_tables_lock);
 
@@ -665,6 +668,7 @@ out:
 static int dn_fib_table_delete(struct dn_fib_table *tb, struct rtmsg *r, struct nlattr *attrs[],
 			       struct nlmsghdr *n, struct netlink_skb_parms *req)
 {
+	unsigned int bh;
 	struct dn_hash *table = (struct dn_hash*)tb->data;
 	struct dn_fib_node **fp, **del_fp, *f;
 	int z = r->rtm_dst_len;
@@ -720,9 +724,9 @@ static int dn_fib_table_delete(struct dn_fib_table *tb, struct rtmsg *r, struct 
 		dn_rtmsg_fib(RTM_DELROUTE, f, z, tb->n, n, req);
 
 		if (matched != 1) {
-			write_lock_bh(&dn_fib_tables_lock);
+			bh = write_lock_bh(&dn_fib_tables_lock, SOFTIRQ_ALL_MASK);
 			*del_fp = f->fn_next;
-			write_unlock_bh(&dn_fib_tables_lock);
+			write_unlock_bh(&dn_fib_tables_lock, bh);
 
 			if (f->fn_state & DN_S_ACCESSED)
 				dn_rt_cache_flush(-1);
@@ -746,6 +750,7 @@ static int dn_fib_table_delete(struct dn_fib_table *tb, struct rtmsg *r, struct 
 
 static inline int dn_flush_list(struct dn_fib_node **fp, int z, struct dn_hash *table)
 {
+	unsigned int bh;
 	int found = 0;
 	struct dn_fib_node *f;
 
@@ -753,9 +758,9 @@ static inline int dn_flush_list(struct dn_fib_node **fp, int z, struct dn_hash *
 		struct dn_fib_info *fi = DN_FIB_INFO(f);
 
 		if (fi && ((f->fn_state & DN_S_ZOMBIE) || (fi->fib_flags & RTNH_F_DEAD))) {
-			write_lock_bh(&dn_fib_tables_lock);
+			bh = write_lock_bh(&dn_fib_tables_lock, SOFTIRQ_ALL_MASK);
 			*fp = f->fn_next;
-			write_unlock_bh(&dn_fib_tables_lock);
+			write_unlock_bh(&dn_fib_tables_lock, bh);
 
 			dn_free_node(f);
 			found++;
