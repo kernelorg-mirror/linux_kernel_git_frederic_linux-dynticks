@@ -182,6 +182,7 @@ struct inet_peer *inet_getpeer(struct inet_peer_base *base,
 	struct rb_node **pp, *parent;
 	unsigned int gc_cnt, seq;
 	int invalidated;
+	unsigned int bh;
 
 	/* Attempt a lockless lookup first.
 	 * Because of a concurrent writer, we might not find an existing entry.
@@ -203,7 +204,7 @@ struct inet_peer *inet_getpeer(struct inet_peer_base *base,
 	 * At least, nodes should be hot in our cache.
 	 */
 	parent = NULL;
-	write_seqlock_bh(&base->lock);
+	bh = write_seqlock_bh(&base->lock, SOFTIRQ_ALL_MASK);
 
 	gc_cnt = 0;
 	p = lookup(daddr, base, seq, gc_stack, &gc_cnt, &parent, &pp);
@@ -228,7 +229,7 @@ struct inet_peer *inet_getpeer(struct inet_peer_base *base,
 	}
 	if (gc_cnt)
 		inet_peer_gc(base, gc_stack, gc_cnt);
-	write_sequnlock_bh(&base->lock);
+	write_sequnlock_bh(&base->lock, bh);
 
 	return p;
 }

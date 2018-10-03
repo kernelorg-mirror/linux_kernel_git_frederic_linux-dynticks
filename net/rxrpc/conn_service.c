@@ -71,7 +71,7 @@ static void rxrpc_publish_service_conn(struct rxrpc_peer *peer,
 	struct rxrpc_conn_proto k = conn->proto;
 	struct rb_node **pp, *parent;
 
-	write_seqlock_bh(&peer->service_conn_lock);
+	write_seqlock_bh(&peer->service_conn_lock, SOFTIRQ_ALL_MASK);
 
 	pp = &peer->service_conns.rb_node;
 	parent = NULL;
@@ -191,7 +191,7 @@ void rxrpc_unpublish_service_conn(struct rxrpc_connection *conn)
 {
 	struct rxrpc_peer *peer = conn->params.peer;
 
-	write_seqlock_bh(&peer->service_conn_lock);
+	write_seqlock_bh(&peer->service_conn_lock, SOFTIRQ_ALL_MASK);
 	if (test_and_clear_bit(RXRPC_CONN_IN_SERVICE_CONNS, &conn->flags))
 		rb_erase(&conn->service_node, &peer->service_conns);
 	write_sequnlock_bh(&peer->service_conn_lock);

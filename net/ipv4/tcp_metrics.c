@@ -574,6 +574,7 @@ void tcp_fastopen_cache_set(struct sock *sk, u16 mss,
 			    u16 try_exp)
 {
 	struct dst_entry *dst = __sk_dst_get(sk);
+	unsigned int bh;
 	struct tcp_metrics_block *tm;
 
 	if (!dst)
@@ -583,7 +584,7 @@ void tcp_fastopen_cache_set(struct sock *sk, u16 mss,
 	if (tm) {
 		struct tcp_fastopen_metrics *tfom = &tm->tcpm_fastopen;
 
-		write_seqlock_bh(&fastopen_seqlock);
+		bh = write_seqlock_bh(&fastopen_seqlock, SOFTIRQ_ALL_MASK);
 		if (mss)
 			tfom->mss = mss;
 		if (cookie && cookie->len > 0)
@@ -596,7 +597,7 @@ void tcp_fastopen_cache_set(struct sock *sk, u16 mss,
 			tfom->last_syn_loss = jiffies;
 		} else
 			tfom->syn_loss = 0;
-		write_sequnlock_bh(&fastopen_seqlock);
+		write_sequnlock_bh(&fastopen_seqlock, bh);
 	}
 	rcu_read_unlock();
 }

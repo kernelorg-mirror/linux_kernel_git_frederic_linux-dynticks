@@ -1083,6 +1083,7 @@ EXPORT_SYMBOL(__neigh_event_send);
 static void neigh_update_hhs(struct neighbour *neigh)
 {
 	struct hh_cache *hh;
+	unsigned int bh;
 	void (*update)(struct hh_cache*, const struct net_device*, const unsigned char *)
 		= NULL;
 
@@ -1092,9 +1093,9 @@ static void neigh_update_hhs(struct neighbour *neigh)
 	if (update) {
 		hh = &neigh->hh;
 		if (hh->hh_len) {
-			write_seqlock_bh(&hh->hh_lock);
+			bh = write_seqlock_bh(&hh->hh_lock, SOFTIRQ_ALL_MASK);
 			update(hh, neigh->dev, neigh->ha);
-			write_sequnlock_bh(&hh->hh_lock);
+			write_sequnlock_bh(&hh->hh_lock, bh);
 		}
 	}
 }

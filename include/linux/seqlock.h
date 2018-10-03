@@ -455,16 +455,19 @@ static inline void write_sequnlock(seqlock_t *sl)
 	spin_unlock(&sl->lock);
 }
 
-static inline void write_seqlock_bh(seqlock_t *sl)
+static inline unsigned int write_seqlock_bh(seqlock_t *sl, unsigned int mask)
 {
-	spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
+	unsigned int bh;
+	bh = spin_lock_bh(&sl->lock, mask);
 	write_seqcount_begin(&sl->seqcount);
+	return bh;
 }
 
-static inline void write_sequnlock_bh(seqlock_t *sl)
+static inline void write_sequnlock_bh(seqlock_t *sl,
+				      unsigned int bh)
 {
 	write_seqcount_end(&sl->seqcount);
-	spin_unlock_bh(&sl->lock, 0);
+	spin_unlock_bh(&sl->lock, bh);
 }
 
 static inline void write_seqlock_irq(seqlock_t *sl)
@@ -542,14 +545,16 @@ static inline void done_seqretry(seqlock_t *lock, int seq)
 		read_sequnlock_excl(lock);
 }
 
-static inline void read_seqlock_excl_bh(seqlock_t *sl)
+static inline unsigned int read_seqlock_excl_bh(seqlock_t *sl,
+						unsigned int mask)
 {
-	spin_lock_bh(&sl->lock, SOFTIRQ_ALL_MASK);
+	return spin_lock_bh(&sl->lock, mask);
 }
 
-static inline void read_sequnlock_excl_bh(seqlock_t *sl)
+static inline void read_sequnlock_excl_bh(seqlock_t *sl,
+					  unsigned int bh)
 {
-	spin_unlock_bh(&sl->lock, 0);
+	spin_unlock_bh(&sl->lock, bh);
 }
 
 static inline void read_seqlock_excl_irq(seqlock_t *sl)
