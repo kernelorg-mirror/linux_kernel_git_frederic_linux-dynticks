@@ -37,9 +37,10 @@ enum
 
 
 #ifdef CONFIG_TRACE_IRQFLAGS
-extern void __local_bh_disable_ip(unsigned long ip, unsigned int cnt);
+extern unsigned int __local_bh_disable_ip(unsigned long ip, unsigned int cnt,
+					  unsigned int mask);
 #else
-static __always_inline void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
+static __always_inline unsigned int __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 {
 	preempt_count_add(cnt);
 	barrier();
@@ -48,21 +49,21 @@ static __always_inline void __local_bh_disable_ip(unsigned long ip, unsigned int
 
 static inline unsigned int local_bh_disable(unsigned int mask)
 {
-	__local_bh_disable_ip(_THIS_IP_, SOFTIRQ_DISABLE_OFFSET);
-	return 0;
+	return __local_bh_disable_ip(_THIS_IP_, SOFTIRQ_DISABLE_OFFSET, mask);
 }
 
-extern void local_bh_enable_no_softirq(void);
-extern void __local_bh_enable_ip(unsigned long ip, unsigned int cnt);
+extern void local_bh_enable_no_softirq(unsigned int bh);
+extern void __local_bh_enable_ip(unsigned long ip,
+				 unsigned int cnt, unsigned int bh);
 
-static inline void local_bh_enable_ip(unsigned long ip)
+static inline void local_bh_enable_ip(unsigned long ip, unsigned int bh)
 {
-	__local_bh_enable_ip(ip, SOFTIRQ_DISABLE_OFFSET);
+	__local_bh_enable_ip(ip, SOFTIRQ_DISABLE_OFFSET, bh);
 }
 
 static inline void local_bh_enable(unsigned int bh)
 {
-	__local_bh_enable_ip(_THIS_IP_, SOFTIRQ_DISABLE_OFFSET);
+	__local_bh_enable_ip(_THIS_IP_, SOFTIRQ_DISABLE_OFFSET, bh);
 }
 
 extern void local_bh_disable_all(void);

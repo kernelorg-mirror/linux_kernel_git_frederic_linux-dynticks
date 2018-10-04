@@ -107,13 +107,16 @@ static bool ksoftirqd_running(unsigned long pending)
  * where hardirqs are disabled legitimately:
  */
 #ifdef CONFIG_TRACE_IRQFLAGS
-void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
+unsigned int __local_bh_disable_ip(unsigned long ip, unsigned int cnt,
+				   unsigned int mask)
 {
 	unsigned long flags;
+	unsigned int enabled;
 
 	WARN_ON_ONCE(in_irq());
 
 	raw_local_irq_save(flags);
+
 	/*
 	 * The preempt tracer hooks into preempt_count_add and will break
 	 * lockdep because it calls back into lockdep after SOFTIRQ_OFFSET
@@ -127,6 +130,9 @@ void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 	 */
 	if (softirq_count() == (cnt & SOFTIRQ_MASK))
 		trace_softirqs_off(ip);
+
+	enabled = local_softirq_enabled();
+	softirq_enabled_nand(mask);
 	raw_local_irq_restore(flags);
 
 	if (preempt_count() == cnt) {
@@ -135,6 +141,7 @@ void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 #endif
 		trace_preempt_off(CALLER_ADDR0, get_lock_parent_ip());
 	}
+	return enabled;
 }
 EXPORT_SYMBOL(__local_bh_disable_ip);
 #endif /* CONFIG_TRACE_IRQFLAGS */
@@ -143,10 +150,12 @@ EXPORT_SYMBOL(__local_bh_disable_ip);
  * Special-case - softirqs can safely be enabled by __do_softirq(),
  * without processing still-pending softirqs:
  */
-void local_bh_enable_no_softirq(void)
+void local_bh_enable_no_softirq(unsigned int bh)
 {
 	WARN_ON_ONCE(in_irq());
 	lockdep_assert_irqs_disabled();
+
+	softirq_enabled_set(bh);
 
 	if (preempt_count() == SOFTIRQ_DISABLE_OFFSET)
 		trace_preempt_on(CALLER_ADDR0, get_lock_parent_ip());
@@ -155,17 +164,18 @@ void local_bh_enable_no_softirq(void)
 		trace_softirqs_on(_RET_IP_);
 
 	__preempt_count_sub(SOFTIRQ_DISABLE_OFFSET);
-
 }
 EXPORT_SYMBOL(local_bh_enable_no_softirq);
 
-void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
+void __local_bh_enable_ip(unsigned long ip, unsigned int cnt, unsigned int bh)
 {
 	WARN_ON_ONCE(in_irq());
 	lockdep_assert_irqs_enabled();
 #ifdef CONFIG_TRACE_IRQFLAGS
 	local_irq_disable();
 #endif
+	softirq_enabled_set(bh);
+
 	/*
 	 * Are softirqs going to be turned on now:
 	 */
@@ -176,6 +186,7 @@ void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
 	 * softirq processing:
 	 */
 	preempt_count_sub(cnt - 1);
+
 
 	if (unlikely(!in_interrupt() && local_softirq_pending())) {
 		/*
@@ -245,9 +256,6 @@ static void local_bh_exit(void)
 
 	__preempt_count_sub(SOFTIRQ_OFFSET);
 }
-
-
-
 
 /*
  * We restart softirq processing for at most MAX_SOFTIRQ_RESTART times,
@@ -395,15 +403,17 @@ asmlinkage __visible void do_softirq(void)
  */
 void irq_enter(void)
 {
+	unsigned int bh;
+
 	rcu_irq_enter();
 	if (is_idle_task(current) && !in_interrupt()) {
 		/*
 		 * Prevent raise_softirq from needlessly waking up ksoftirqd
 		 * here, as softirq will be serviced on return from interrupt.
 		 */
-		local_bh_disable(SOFTIRQ_ALL_MASK);
+		bh = local_bh_disable(SOFTIRQ_ALL_MASK);
 		tick_irq_enter();
-		local_bh_enable_no_softirq();
+		local_bh_enable_no_softirq(bh);
 	}
 
 	__irq_enter();

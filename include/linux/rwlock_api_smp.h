@@ -173,10 +173,11 @@ static inline void __raw_read_lock_irq(rwlock_t *lock)
 static inline unsigned int __raw_read_lock_bh(rwlock_t *lock,
 					      unsigned int mask)
 {
-	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET);
+	unsigned int bh;
+	bh = __local_bh_disable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET, mask);
 	rwlock_acquire_read(&lock->dep_map, 0, 0, _RET_IP_);
 	LOCK_CONTENDED(lock, do_raw_read_trylock, do_raw_read_lock);
-	return 0;
+	return bh;
 }
 
 static inline unsigned long __raw_write_lock_irqsave(rwlock_t *lock)
@@ -202,10 +203,11 @@ static inline void __raw_write_lock_irq(rwlock_t *lock)
 static inline unsigned int  __raw_write_lock_bh(rwlock_t *lock,
 						unsigned int mask)
 {
-	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET);
+	unsigned int bh;
+	bh = __local_bh_disable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET, mask);
 	rwlock_acquire(&lock->dep_map, 0, 0, _RET_IP_);
 	LOCK_CONTENDED(lock, do_raw_write_trylock, do_raw_write_lock);
-	return 0;
+	return bh;
 }
 
 static inline void __raw_write_lock(rwlock_t *lock)
@@ -253,7 +255,7 @@ static inline void __raw_read_unlock_bh(rwlock_t *lock,
 {
 	rwlock_release(&lock->dep_map, 1, _RET_IP_);
 	do_raw_read_unlock(lock);
-	__local_bh_enable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET);
+	__local_bh_enable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET, bh);
 }
 
 static inline void __raw_write_unlock_irqrestore(rwlock_t *lock,
@@ -278,7 +280,7 @@ static inline void __raw_write_unlock_bh(rwlock_t *lock,
 {
 	rwlock_release(&lock->dep_map, 1, _RET_IP_);
 	do_raw_write_unlock(lock);
-	__local_bh_enable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET);
+	__local_bh_enable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET, bh);
 }
 
 #endif /* __LINUX_RWLOCK_API_SMP_H */

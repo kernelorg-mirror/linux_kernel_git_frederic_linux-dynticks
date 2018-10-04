@@ -132,9 +132,9 @@ static inline void __raw_spin_lock_irq(raw_spinlock_t *lock)
 
 static inline unsigned int __raw_spin_lock_bh(raw_spinlock_t *lock, unsigned int mask)
 {
-	unsigned int bh = 0;
+	unsigned int bh;
 
-	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET);
+	bh = __local_bh_disable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET, mask);
 	spin_acquire(&lock->dep_map, 0, 0, _RET_IP_);
 	LOCK_CONTENDED(lock, do_raw_spin_trylock, do_raw_spin_lock);
 
@@ -179,19 +179,19 @@ static inline void __raw_spin_unlock_bh(raw_spinlock_t *lock,
 {
 	spin_release(&lock->dep_map, 1, _RET_IP_);
 	do_raw_spin_unlock(lock);
-	__local_bh_enable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET);
+	__local_bh_enable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET, bh);
 }
 
 static inline int __raw_spin_trylock_bh(raw_spinlock_t *lock,
 					unsigned int *bh,
 					unsigned int mask)
 {
-	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET);
+	*bh = __local_bh_disable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET, mask);
 	if (do_raw_spin_trylock(lock)) {
 		spin_acquire(&lock->dep_map, 0, 1, _RET_IP_);
 		return 1;
 	}
-	__local_bh_enable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET);
+	__local_bh_enable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET, *bh);
 	return 0;
 }
 
