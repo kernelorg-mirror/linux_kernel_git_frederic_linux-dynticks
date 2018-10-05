@@ -268,7 +268,7 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 
 restart:
 	/* Reset the pending bitmask before enabling irqs */
-	set_softirq_pending(0);
+	softirq_pending_set(0);
 
 	local_irq_enable();
 
@@ -449,7 +449,7 @@ void raise_softirq(unsigned int nr)
 void __raise_softirq_irqoff(unsigned int nr)
 {
 	trace_softirq_raise(nr);
-	or_softirq_pending(1UL << nr);
+	softirq_pending_or(1UL << nr);
 }
 
 void open_softirq(int nr, void (*action)(struct softirq_action *))
