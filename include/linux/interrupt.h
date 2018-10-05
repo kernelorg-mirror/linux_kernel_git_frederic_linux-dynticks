@@ -474,8 +474,8 @@ enum
 #endif
 
 #define local_softirq_pending()	(__this_cpu_read(local_softirq_data_ref))
-#define set_softirq_pending(x)	(__this_cpu_write(local_softirq_data_ref, (x)))
-#define or_softirq_pending(x)	(__this_cpu_or(local_softirq_data_ref, (x)))
+#define softirq_pending_set(x)	(__this_cpu_write(local_softirq_data_ref, (x)))
+#define softirq_pending_or(x)	(__this_cpu_or(local_softirq_data_ref, (x)))
 
 #endif /* local_softirq_pending */
 
