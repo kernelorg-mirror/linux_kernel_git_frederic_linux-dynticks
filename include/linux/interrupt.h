@@ -447,18 +447,6 @@ extern bool force_irqthreads;
 #define force_irqthreads	(0)
 #endif
 
-#ifndef local_softirq_pending
-
-#ifndef local_softirq_data_ref
-#define local_softirq_data_ref irq_stat.__softirq_data
-#endif
-
-#define local_softirq_pending()	(__this_cpu_read(local_softirq_data_ref))
-#define set_softirq_pending(x)	(__this_cpu_write(local_softirq_data_ref, (x)))
-#define or_softirq_pending(x)	(__this_cpu_or(local_softirq_data_ref, (x)))
-
-#endif /* local_softirq_pending */
-
 /* Some architectures might implement lazy enabling/disabling of
  * interrupts. In some cases, such as stop_machine, we might want
  * to ensure that after a local_irq_disable(), interrupts have
@@ -484,6 +472,18 @@ enum
 };
 
 #define SOFTIRQ_STOP_IDLE_MASK (~(1 << RCU_SOFTIRQ))
+
+#ifndef local_softirq_pending
+
+#ifndef local_softirq_data_ref
+#define local_softirq_data_ref irq_stat.__softirq_data
+#endif
+
+#define local_softirq_pending()	(__this_cpu_read(local_softirq_data_ref))
+#define softirq_pending_set(x)	(__this_cpu_write(local_softirq_data_ref, (x)))
+#define softirq_pending_or(x)	(__this_cpu_or(local_softirq_data_ref, (x)))
+
+#endif /* local_softirq_pending */
 
 /* map softirq index to softirq name. update 'softirq_to_name' in
  * kernel/softirq.c when adding a new softirq.
