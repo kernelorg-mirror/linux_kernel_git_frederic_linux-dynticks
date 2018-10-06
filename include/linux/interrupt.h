@@ -472,6 +472,7 @@ enum
 };
 
 #define SOFTIRQ_STOP_IDLE_MASK (~(1 << RCU_SOFTIRQ))
+#define SOFTIRQ_ALL_MASK (BIT(NR_SOFTIRQS) - 1)
 
 #ifndef local_softirq_pending
 
@@ -480,8 +481,8 @@ enum
 #endif
 
 #define local_softirq_pending()	(__this_cpu_read(local_softirq_data_ref))
-#define softirq_pending_set(x)	(__this_cpu_write(local_softirq_data_ref, (x)))
-#define softirq_pending_or(x)	(__this_cpu_or(local_softirq_data_ref, (x)))
+#define softirq_pending_clear_mask(x)	(__this_cpu_and(local_softirq_data_ref, ~(x)))
+#define softirq_pending_set_mask(x)	(__this_cpu_or(local_softirq_data_ref, (x)))
 
 #endif /* local_softirq_pending */
 
