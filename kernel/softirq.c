@@ -271,7 +271,7 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 
 restart:
 	/* Reset the pending bitmask before enabling irqs */
-	softirq_pending_set(0);
+	softirq_pending_nand(SOFTIRQ_ALL_MASK);
 
 	local_irq_enable();
 
