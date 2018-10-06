@@ -4,6 +4,30 @@
 
 #include <linux/preempt.h>
 
+
+/*
+ * PLEASE, avoid to allocate new softirqs, if you need not _really_ high
+ * frequency threaded job scheduling. For almost all the purposes
+ * tasklets are more than enough. F.e. all serial device BHs et
+ * al. should be converted to tasklets, not to softirqs.
+ */
+enum
+{
+#define SOFTIRQ_VECTOR(__SVEC) \
+	__SVEC##_SOFTIRQ,
+#include <linux/softirq_vector.h>
+#undef SOFTIRQ_VECTOR
+	NR_SOFTIRQS
+};
+
+#define SOFTIRQ_STOP_IDLE_MASK (~(1 << RCU_SOFTIRQ))
+#define SOFTIRQ_ALL_MASK (BIT(NR_SOFTIRQS) - 1)
+
+#define SOFTIRQ_ENABLED_SHIFT 16
+#define SOFTIRQ_PENDING_MASK (BIT(SOFTIRQ_ENABLED_SHIFT) - 1)
+
+
+
 #ifdef CONFIG_TRACE_IRQFLAGS
 extern void __local_bh_disable_ip(unsigned long ip, unsigned int cnt);
 #else
