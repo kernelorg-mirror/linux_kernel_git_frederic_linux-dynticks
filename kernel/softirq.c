@@ -49,7 +49,9 @@
  */
 
 #ifndef __ARCH_IRQ_STAT
-DEFINE_PER_CPU_ALIGNED(irq_cpustat_t, irq_stat);
+DEFINE_PER_CPU_ALIGNED(irq_cpustat_t, irq_stat) = {
+	.__softirq_data = SOFTIRQ_DATA_INIT,
+};
 EXPORT_PER_CPU_SYMBOL(irq_stat);
 #endif
 
