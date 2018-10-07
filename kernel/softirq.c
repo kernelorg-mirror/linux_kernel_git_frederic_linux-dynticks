@@ -357,7 +357,10 @@ restart:
 		kstat_incr_softirqs_this_cpu(vec_nr);
 
 		trace_softirq_entry(vec_nr);
+		softirq_enabled_nand(BIT(vec_nr));
+		barrier();
 		h->action(h);
+		softirq_enabled_or(BIT(vec_nr));
 		trace_softirq_exit(vec_nr);
 		if (unlikely(prev_count != preempt_count())) {
 			pr_err("huh, entered softirq %u %s %p with preempt_count %08x, exited with %08x?\n",
