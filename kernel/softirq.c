@@ -195,7 +195,7 @@ void __local_bh_enable_ip(unsigned long ip, unsigned int cnt, unsigned int bh)
 	if (cnt)
 		preempt_count_sub(cnt - 1);
 
-	if (unlikely(!in_interrupt() && local_softirq_pending())) {
+	if (unlikely(!in_irq() && (local_softirq_pending() & local_softirq_enabled()))) {
 		/*
 		 * Run softirq if any pending. And do it in its own stack
 		 * as we may be calling this deep in a task call stack already.
@@ -387,7 +387,7 @@ restart:
 	lockdep_softirq_end(in_hardirq);
 	account_irq_exit_time(current);
 	local_bh_exit();
-	WARN_ON_ONCE(in_interrupt());
+	WARN_ON_ONCE(in_irq());
 	current_restore_flags(old_flags, PF_MEMALLOC);
 }
 
@@ -396,12 +396,12 @@ asmlinkage __visible void do_softirq(void)
 	__u32 pending;
 	unsigned long flags;
 
-	if (in_interrupt())
+	if (in_irq())
 		return;
 
 	local_irq_save(flags);
 
-	pending = local_softirq_pending();
+	pending = local_softirq_pending() & local_softirq_enabled();
 
 	if (pending && !ksoftirqd_running(pending))
 		do_softirq_own_stack();
@@ -432,7 +432,7 @@ void irq_enter(void)
 
 static inline void invoke_softirq(void)
 {
-	if (ksoftirqd_running(local_softirq_pending()))
+	if (ksoftirqd_running(local_softirq_pending() & local_softirq_enabled()))
 		return;
 
 	if (!force_irqthreads) {
@@ -481,7 +481,7 @@ void irq_exit(void)
 #endif
 	account_irq_exit_time(current);
 	preempt_count_sub(HARDIRQ_OFFSET);
-	if (!in_interrupt() && local_softirq_pending())
+	if (!in_irq() && (local_softirq_pending() & local_softirq_enabled()))
 		invoke_softirq();
 
 	tick_irq_exit();
@@ -712,13 +712,13 @@ void __init softirq_init(void)
 
 static int ksoftirqd_should_run(unsigned int cpu)
 {
-	return local_softirq_pending();
+	return local_softirq_pending() & local_softirq_enabled();
 }
 
 static void run_ksoftirqd(unsigned int cpu)
 {
 	local_irq_disable();
-	if (local_softirq_pending()) {
+	if (local_softirq_pending() & local_softirq_enabled()) {
 		/*
 		 * We can safely run softirq on inline stack, as we are not deep
 		 * in the task stack here.
