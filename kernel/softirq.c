@@ -139,19 +139,6 @@ void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 EXPORT_SYMBOL(__local_bh_disable_ip);
 #endif /* CONFIG_TRACE_IRQFLAGS */
 
-static void __local_bh_enable(unsigned int cnt)
-{
-	lockdep_assert_irqs_disabled();
-
-	if (preempt_count() == cnt)
-		trace_preempt_on(CALLER_ADDR0, get_lock_parent_ip());
-
-	if (softirq_count() == (cnt & SOFTIRQ_MASK))
-		trace_softirqs_on(_RET_IP_);
-
-	__preempt_count_sub(cnt);
-}
-
 /*
  * Special-case - softirqs can safely be enabled by __do_softirq(),
  * without processing still-pending softirqs:
@@ -159,7 +146,16 @@ static void __local_bh_enable(unsigned int cnt)
 void local_bh_enable_no_softirq(void)
 {
 	WARN_ON_ONCE(in_irq());
-	__local_bh_enable(SOFTIRQ_DISABLE_OFFSET);
+	lockdep_assert_irqs_disabled();
+
+	if (preempt_count() == SOFTIRQ_DISABLE_OFFSET)
+		trace_preempt_on(CALLER_ADDR0, get_lock_parent_ip());
+
+	if (softirq_count() == SOFTIRQ_DISABLE_OFFSET)
+		trace_softirqs_on(_RET_IP_);
+
+	__preempt_count_sub(SOFTIRQ_DISABLE_OFFSET);
+
 }
 EXPORT_SYMBOL(local_bh_enable_no_softirq);
 
@@ -206,6 +202,52 @@ void local_bh_enable_all(void)
 {
 	local_bh_enable(SOFTIRQ_ALL_MASK);
 }
+
+static void local_bh_enter(unsigned long ip)
+{
+	unsigned long flags;
+
+	WARN_ON_ONCE(in_irq());
+
+	raw_local_irq_save(flags);
+	/*
+	 * The preempt tracer hooks into preempt_count_add and will break
+	 * lockdep because it calls back into lockdep after SOFTIRQ_OFFSET
+	 * is set and before current->softirq_enabled is cleared.
+	 * We must manually increment preempt_count here and manually
+	 * call the trace_preempt_off later.
+	 */
+	__preempt_count_add(SOFTIRQ_OFFSET);
+	/*
+	 * Were softirqs turned off above:
+	 */
+	if (softirq_count() == SOFTIRQ_OFFSET)
+		trace_softirqs_off(ip);
+	raw_local_irq_restore(flags);
+
+	if (preempt_count() == SOFTIRQ_OFFSET) {
+#ifdef CONFIG_DEBUG_PREEMPT
+		current->preempt_disable_ip = get_lock_parent_ip();
+#endif
+		trace_preempt_off(CALLER_ADDR0, get_lock_parent_ip());
+	}
+}
+
+static void local_bh_exit(void)
+{
+	lockdep_assert_irqs_disabled();
+
+	if (preempt_count() == SOFTIRQ_OFFSET)
+		trace_preempt_on(CALLER_ADDR0, get_lock_parent_ip());
+
+	if (softirq_count() == SOFTIRQ_OFFSET)
+		trace_softirqs_on(_RET_IP_);
+
+	__preempt_count_sub(SOFTIRQ_OFFSET);
+}
+
+
+
 
 /*
  * We restart softirq processing for at most MAX_SOFTIRQ_RESTART times,
@@ -276,7 +318,7 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 	pending = local_softirq_pending() & local_softirq_enabled();
 	account_irq_enter_time(current);
 
-	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
+	local_bh_enter(_RET_IP_);
 	in_hardirq = lockdep_softirq_start();
 
 restart:
@@ -325,7 +367,7 @@ restart:
 
 	lockdep_softirq_end(in_hardirq);
 	account_irq_exit_time(current);
-	__local_bh_enable(SOFTIRQ_OFFSET);
+	local_bh_exit();
 	WARN_ON_ONCE(in_interrupt());
 	current_restore_flags(old_flags, PF_MEMALLOC);
 }
