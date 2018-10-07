@@ -28,6 +28,7 @@
 #include <linux/kernel_stat.h>
 #include <linux/seq_file.h>
 #include <linux/types.h>
+#include <linux/bottom_half.h>
 #include <asm/io.h>
 
 #include <asm/smp.h>
@@ -152,7 +153,10 @@ static struct irq_chip cpu_interrupt_type = {
 	.irq_retrigger	= NULL,
 };
 
-DEFINE_PER_CPU_SHARED_ALIGNED(irq_cpustat_t, irq_stat);
+DEFINE_PER_CPU_SHARED_ALIGNED(irq_cpustat_t, irq_stat) = {
+	.__softirq_data = SOFTIRQ_DATA_INIT,
+};
+
 #define irq_stats(x)		(&per_cpu(irq_stat, x))
 
 /*
