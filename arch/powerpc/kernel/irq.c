@@ -54,6 +54,7 @@
 #include <linux/debugfs.h>
 #include <linux/of.h>
 #include <linux/of_irq.h>
+#include <linux/bottom_half.h>
 
 #include <linux/uaccess.h>
 #include <asm/io.h>
@@ -78,7 +79,9 @@
 #include <asm/trace.h>
 #include <asm/cpu_has_feature.h>
 
-DEFINE_PER_CPU_SHARED_ALIGNED(irq_cpustat_t, irq_stat);
+DEFINE_PER_CPU_SHARED_ALIGNED(irq_cpustat_t, irq_stat) = {
+	.__softirq_data = SOFTIRQ_DATA_INIT,
+};
 EXPORT_PER_CPU_SYMBOL(irq_stat);
 
 int __irq_offset_value;
