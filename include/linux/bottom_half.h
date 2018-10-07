@@ -49,7 +49,7 @@ static __always_inline unsigned int __local_bh_disable_ip(unsigned long ip, unsi
 
 static inline unsigned int local_bh_disable(unsigned int mask)
 {
-	return __local_bh_disable_ip(_THIS_IP_, SOFTIRQ_DISABLE_OFFSET, mask);
+	return __local_bh_disable_ip(_THIS_IP_, SOFTIRQ_OFFSET, mask);
 }
 
 extern void local_bh_enable_no_softirq(unsigned int bh);
@@ -58,12 +58,12 @@ extern void __local_bh_enable_ip(unsigned long ip,
 
 static inline void local_bh_enable_ip(unsigned long ip, unsigned int bh)
 {
-	__local_bh_enable_ip(ip, SOFTIRQ_DISABLE_OFFSET, bh);
+	__local_bh_enable_ip(ip, SOFTIRQ_OFFSET, bh);
 }
 
 static inline void local_bh_enable(unsigned int bh)
 {
-	__local_bh_enable_ip(_THIS_IP_, SOFTIRQ_DISABLE_OFFSET, bh);
+	__local_bh_enable_ip(_THIS_IP_, SOFTIRQ_OFFSET, bh);
 }
 
 extern void local_bh_disable_all(void);

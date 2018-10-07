@@ -2655,7 +2655,7 @@ trace_recursive_lock(struct ring_buffer_per_cpu *cpu_buffer)
 	unsigned long pc = preempt_count();
 	int bit;
 
-	if (!(pc & (NMI_MASK | HARDIRQ_MASK | SOFTIRQ_OFFSET)))
+	if (in_task())
 		bit = RB_CTX_NORMAL;
 	else
 		bit = pc & NMI_MASK ? RB_CTX_NMI :

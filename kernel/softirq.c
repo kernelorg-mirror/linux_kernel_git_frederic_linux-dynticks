@@ -163,13 +163,13 @@ void local_bh_enable_no_softirq(unsigned int bh)
 	if (bh != SOFTIRQ_ALL_MASK)
 		return;
 			
-	if (preempt_count() == SOFTIRQ_DISABLE_OFFSET)
+	if (preempt_count() == SOFTIRQ_OFFSET)
 		trace_preempt_on(CALLER_ADDR0, get_lock_parent_ip());
 
-	if (softirq_count() == SOFTIRQ_DISABLE_OFFSET)
+	if (softirq_count() == SOFTIRQ_OFFSET)
 		trace_softirqs_on(_RET_IP_);
 
-	__preempt_count_sub(SOFTIRQ_DISABLE_OFFSET);
+	__preempt_count_sub(SOFTIRQ_OFFSET);
 }
 EXPORT_SYMBOL(local_bh_enable_no_softirq);
 
@@ -181,9 +181,10 @@ void __local_bh_enable_ip(unsigned long ip, unsigned int cnt, unsigned int bh)
 	local_irq_disable();
 #endif
 	softirq_enabled_set(bh);
+
 	if (bh != SOFTIRQ_ALL_MASK) {
 		cnt &= ~SOFTIRQ_MASK;
-	} else if (!(softirq_count() & SOFTIRQ_OFFSET)) {
+	} else if (!(softirq_count() & SOFTIRQ_SERVING_MASK)) {
 		/* Are softirqs going to be turned on now: */
 		trace_softirqs_on(ip);
 	}
@@ -235,15 +236,15 @@ static void local_bh_enter(unsigned long ip)
 	 * We must manually increment preempt_count here and manually
 	 * call the trace_preempt_off later.
 	 */
-	__preempt_count_add(SOFTIRQ_OFFSET);
+	__preempt_count_add(SOFTIRQ_SERVING_OFFSET);
 	/*
 	 * Were softirqs turned off above:
 	 */
-	if (softirq_count() == SOFTIRQ_OFFSET)
+	if (softirq_count() == SOFTIRQ_SERVING_OFFSET)
 		trace_softirqs_off(ip);
 	raw_local_irq_restore(flags);
 
-	if (preempt_count() == SOFTIRQ_OFFSET) {
+	if (preempt_count() == SOFTIRQ_SERVING_OFFSET) {
 #ifdef CONFIG_DEBUG_PREEMPT
 		current->preempt_disable_ip = get_lock_parent_ip();
 #endif
@@ -255,13 +256,13 @@ static void local_bh_exit(void)
 {
 	lockdep_assert_irqs_disabled();
 
-	if (preempt_count() == SOFTIRQ_OFFSET)
+	if (preempt_count() == SOFTIRQ_SERVING_OFFSET)
 		trace_preempt_on(CALLER_ADDR0, get_lock_parent_ip());
 
-	if (softirq_count() == SOFTIRQ_OFFSET)
+	if (softirq_count() == SOFTIRQ_SERVING_OFFSET)
 		trace_softirqs_on(_RET_IP_);
 
-	__preempt_count_sub(SOFTIRQ_OFFSET);
+	__preempt_count_sub(SOFTIRQ_SERVING_OFFSET);
 }
 
 /*

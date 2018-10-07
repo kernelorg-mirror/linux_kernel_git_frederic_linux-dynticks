@@ -51,7 +51,8 @@
 #define HARDIRQ_OFFSET	(1UL << HARDIRQ_SHIFT)
 #define NMI_OFFSET	(1UL << NMI_SHIFT)
 
-#define SOFTIRQ_DISABLE_OFFSET	(2 * SOFTIRQ_OFFSET)
+#define SOFTIRQ_SERVING_OFFSET	(2 * SOFTIRQ_OFFSET)
+#define SOFTIRQ_SERVING_MASK (SOFTIRQ_MASK & ~SOFTIRQ_OFFSET)
 
 /* We use the MSB mostly because its available */
 #define PREEMPT_NEED_RESCHED	0x80000000
@@ -101,10 +102,10 @@
 #define in_irq()		(hardirq_count())
 #define in_softirq()		(softirq_count())
 #define in_interrupt()		(irq_count())
-#define in_serving_softirq()	(softirq_count() & SOFTIRQ_OFFSET)
+#define in_serving_softirq()	(softirq_count() & ~SOFTIRQ_OFFSET)
 #define in_nmi()		(preempt_count() & NMI_MASK)
 #define in_task()		(!(preempt_count() & \
-				   (NMI_MASK | HARDIRQ_MASK | SOFTIRQ_OFFSET)))
+				   (NMI_MASK | HARDIRQ_MASK | SOFTIRQ_SERVING_MASK)))
 
 /*
  * The preempt_count offset after preempt_disable();
@@ -133,7 +134,7 @@
  *
  * Work as expected.
  */
-#define SOFTIRQ_LOCK_OFFSET (SOFTIRQ_DISABLE_OFFSET + PREEMPT_LOCK_OFFSET)
+#define SOFTIRQ_LOCK_OFFSET (SOFTIRQ_OFFSET + PREEMPT_LOCK_OFFSET)
 
 /*
  * Are we running in atomic context?  WARNING: this macro cannot
