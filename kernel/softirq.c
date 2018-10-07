@@ -117,6 +117,10 @@ unsigned int __local_bh_disable_ip(unsigned long ip, unsigned int cnt,
 
 	raw_local_irq_save(flags);
 
+	enabled = local_softirq_enabled();
+	if (enabled != SOFTIRQ_ALL_MASK)
+		cnt &= ~SOFTIRQ_MASK;
+
 	/*
 	 * The preempt tracer hooks into preempt_count_add and will break
 	 * lockdep because it calls back into lockdep after SOFTIRQ_OFFSET
@@ -131,7 +135,6 @@ unsigned int __local_bh_disable_ip(unsigned long ip, unsigned int cnt,
 	if (softirq_count() == (cnt & SOFTIRQ_MASK))
 		trace_softirqs_off(ip);
 
-	enabled = local_softirq_enabled();
 	softirq_enabled_nand(mask);
 	raw_local_irq_restore(flags);
 
@@ -157,6 +160,9 @@ void local_bh_enable_no_softirq(unsigned int bh)
 
 	softirq_enabled_set(bh);
 
+	if (bh != SOFTIRQ_ALL_MASK)
+		return;
+			
 	if (preempt_count() == SOFTIRQ_DISABLE_OFFSET)
 		trace_preempt_on(CALLER_ADDR0, get_lock_parent_ip());
 
@@ -175,18 +181,18 @@ void __local_bh_enable_ip(unsigned long ip, unsigned int cnt, unsigned int bh)
 	local_irq_disable();
 #endif
 	softirq_enabled_set(bh);
-
-	/*
-	 * Are softirqs going to be turned on now:
-	 */
-	if (softirq_count() == SOFTIRQ_DISABLE_OFFSET)
+	if (bh != SOFTIRQ_ALL_MASK) {
+		cnt &= ~SOFTIRQ_MASK;
+	} else if (!(softirq_count() & SOFTIRQ_OFFSET)) {
+		/* Are softirqs going to be turned on now: */
 		trace_softirqs_on(ip);
+	}
 	/*
 	 * Keep preemption disabled until we are done with
 	 * softirq processing:
 	 */
-	preempt_count_sub(cnt - 1);
-
+	if (cnt)
+		preempt_count_sub(cnt - 1);
 
 	if (unlikely(!in_interrupt() && local_softirq_pending())) {
 		/*
@@ -196,7 +202,8 @@ void __local_bh_enable_ip(unsigned long ip, unsigned int cnt, unsigned int bh)
 		do_softirq();
 	}
 
-	preempt_count_dec();
+	if (cnt)
+		preempt_count_dec();
 #ifdef CONFIG_TRACE_IRQFLAGS
 	local_irq_enable();
 #endif
