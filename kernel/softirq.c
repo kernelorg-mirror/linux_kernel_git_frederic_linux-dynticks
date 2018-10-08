@@ -320,6 +320,7 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 	unsigned long old_flags = current->flags;
 	int max_restart = MAX_SOFTIRQ_RESTART;
 	struct softirq_action *h;
+	bool tasklet_enabled = false, net_rx_enabled = false;
 	bool in_hardirq;
 	__u32 pending;
 	int softirq_bit;
@@ -338,6 +339,10 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 	in_hardirq = lockdep_softirq_start();
 
 restart:
+	if (local_softirq_enabled() & TASKLET_SOFTIRQ)
+		tasklet_enabled = true;
+	if (local_softirq_enabled() & NET_RX_SOFTIRQ)
+		net_rx_enabled = true;
 	/* Reset the pending bitmask before enabling irqs */
 	softirq_pending_nand(pending);
 
@@ -358,8 +363,16 @@ restart:
 
 		trace_softirq_entry(vec_nr);
 		softirq_enabled_nand(BIT(vec_nr));
+		if (vec_nr == NET_RX_SOFTIRQ && tasklet_enabled)
+			softirq_enabled_nand(BIT(TASKLET_SOFTIRQ));
+		if (vec_nr == TASKLET_SOFTIRQ && net_rx_enabled)
+			softirq_enabled_nand(BIT(NET_RX_SOFTIRQ));
 		barrier();
 		h->action(h);
+		if (vec_nr == TASKLET_SOFTIRQ && net_rx_enabled)
+			softirq_enabled_or(BIT(NET_RX_SOFTIRQ));
+		if (vec_nr == NET_RX_SOFTIRQ && tasklet_enabled)
+			softirq_enabled_or(BIT(TASKLET_SOFTIRQ));
 		softirq_enabled_or(BIT(vec_nr));
 		trace_softirq_exit(vec_nr);
 		if (unlikely(prev_count != preempt_count())) {
