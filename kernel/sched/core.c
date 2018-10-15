@@ -2963,7 +2963,9 @@ unlock:
 #endif
 
 DEFINE_PER_CPU(struct kernel_stat, kstat);
-DEFINE_PER_CPU(struct kernel_cpustat, kernel_cpustat);
+DEFINE_PER_CPU(struct kernel_cpustat, kernel_cpustat) = {
+	.curr = &init_task,
+};
 
 EXPORT_PER_CPU_SYMBOL(kstat);
 EXPORT_PER_CPU_SYMBOL(kernel_cpustat);

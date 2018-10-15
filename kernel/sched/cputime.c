@@ -812,6 +812,7 @@ void vtime_account_idle(struct task_struct *tsk)
 void vtime_task_switch_generic(struct task_struct *prev)
 {
 	struct vtime *vtime = &prev->vtime;
+	struct kernel_cpustat *kcpustat = kcpustat_this_cpu;
 
 	/*
 	 * Flush the prev task vtime, unless it has passed
@@ -835,8 +836,10 @@ void vtime_task_switch_generic(struct task_struct *prev)
 	 * Ignore the next task if it has been preempted after
 	 * vtime_exit_task().
 	 */
-	if (vtime->state == VTIME_DEAD)
+	if (vtime->state == VTIME_DEAD) {
+		rcu_assign_pointer(kcpustat->curr, NULL);
 		return;
+	}
 
 	write_seqcount_begin(&vtime->seqcount);
 	if (is_idle_task(current))
@@ -848,10 +851,13 @@ void vtime_task_switch_generic(struct task_struct *prev)
 	vtime->starttime = sched_clock();
 	vtime->cpu = smp_processor_id();
 	write_seqcount_end(&vtime->seqcount);
+
+	rcu_assign_pointer(kcpustat->curr, current);
 }
 
 void vtime_init_idle(struct task_struct *t, int cpu)
 {
+	struct kernel_cpustat *kcpustat = &kcpustat_cpu(cpu);
 	struct vtime *vtime = &t->vtime;
 	unsigned long flags;
 
@@ -862,6 +868,8 @@ void vtime_init_idle(struct task_struct *t, int cpu)
 	vtime->cpu = cpu;
 	write_seqcount_end(&vtime->seqcount);
 	local_irq_restore(flags);
+
+	rcu_assign_pointer(kcpustat->curr, t);
 }
 
 /*
@@ -885,6 +893,7 @@ void vtime_exit_task(struct task_struct *t)
 	vtime->state = VTIME_DEAD;
 	vtime->cpu = -1;
 	write_seqcount_end(&vtime->seqcount);
+	rcu_assign_pointer(kcpustat_this_cpu->curr, NULL);
 	local_irq_restore(flags);
 }
 
