@@ -108,20 +108,12 @@ static inline void task_group_account_field(struct task_struct *p, int index,
 	cgroup_account_cputime_field(p, index, tmp);
 }
 
-/*
- * Account user CPU time to a process.
- * @p: the process that the CPU time gets accounted to
- * @cputime: the CPU time spent in user space since the last update
- */
-void account_user_time(struct task_struct *p, u64 cputime)
+static void account_user_time_index(struct task_struct *p,
+				    u64 cputime, enum cpu_usage_stat index)
 {
-	int index;
-
 	/* Add user time to process. */
 	p->utime += cputime;
 	account_group_user_time(p, cputime);
-
-	index = (task_nice(p) > 0) ? CPUTIME_NICE : CPUTIME_USER;
 
 	/* Add user time to cpustat. */
 	task_group_account_field(p, index, cputime);
@@ -131,11 +123,20 @@ void account_user_time(struct task_struct *p, u64 cputime)
 }
 
 /*
- * Account guest CPU time to a process.
+ * Account user CPU time to a process.
  * @p: the process that the CPU time gets accounted to
- * @cputime: the CPU time spent in virtual machine since the last update
+ * @cputime: the CPU time spent in user space since the last update
  */
-void account_guest_time(struct task_struct *p, u64 cputime)
+void account_user_time(struct task_struct *p, u64 cputime)
+{
+	enum cpu_usage_stat index;
+
+	index = (task_nice(p) > 0) ? CPUTIME_NICE : CPUTIME_USER;
+	account_user_time_index(p, cputime, index);
+}
+
+static void account_guest_time_index(struct task_struct *p,
+				     u64 cputime, enum cpu_usage_stat index)
 {
 	u64 *cpustat = kcpustat_this_cpu->cpustat;
 
@@ -145,13 +146,26 @@ void account_guest_time(struct task_struct *p, u64 cputime)
 	p->gtime += cputime;
 
 	/* Add guest time to cpustat. */
-	if (task_nice(p) > 0) {
+	if (index == CPUTIME_GUEST_NICE) {
 		cpustat[CPUTIME_NICE] += cputime;
 		cpustat[CPUTIME_GUEST_NICE] += cputime;
 	} else {
 		cpustat[CPUTIME_USER] += cputime;
 		cpustat[CPUTIME_GUEST] += cputime;
 	}
+}
+
+/*
+ * Account guest CPU time to a process.
+ * @p: the process that the CPU time gets accounted to
+ * @cputime: the CPU time spent in virtual machine since the last update
+ */
+void account_guest_time(struct task_struct *p, u64 cputime)
+{
+	enum cpu_usage_stat index;
+
+	index = (task_nice(p) > 0) ? CPUTIME_GUEST_NICE : CPUTIME_GUEST;
+	account_guest_time_index(p, cputime, index);
 }
 
 /*
