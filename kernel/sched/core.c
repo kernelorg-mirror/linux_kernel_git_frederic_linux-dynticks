@@ -4488,6 +4488,7 @@ void set_user_nice(struct task_struct *p, long nice)
 	int old_prio, delta;
 	struct rq_flags rf;
 	struct rq *rq;
+	int old_static;
 
 	if (task_nice(p) == nice || nice < MIN_NICE || nice > MAX_NICE)
 		return;
@@ -4497,6 +4498,8 @@ void set_user_nice(struct task_struct *p, long nice)
 	 */
 	rq = task_rq_lock(p, &rf);
 	update_rq_clock(rq);
+
+	old_static = p->static_prio;
 
 	/*
 	 * The RT priorities are set via sched_setscheduler(), but we still
@@ -4532,7 +4535,9 @@ void set_user_nice(struct task_struct *p, long nice)
 	}
 	if (running)
 		set_next_task(rq, p);
+
 out_unlock:
+	vtime_set_nice(rq, p, old_static);
 	task_rq_unlock(rq, p, &rf);
 }
 EXPORT_SYMBOL(set_user_nice);
@@ -4668,8 +4673,8 @@ static struct task_struct *find_process_by_pid(pid_t pid)
  */
 #define SETPARAM_POLICY	-1
 
-static void __setscheduler_params(struct task_struct *p,
-		const struct sched_attr *attr)
+static void __setscheduler_params(struct rq *rq, struct task_struct *p,
+				  const struct sched_attr *attr)
 {
 	int policy = attr->sched_policy;
 
@@ -4680,8 +4685,11 @@ static void __setscheduler_params(struct task_struct *p,
 
 	if (dl_policy(policy))
 		__setparam_dl(p, attr);
-	else if (fair_policy(policy))
+	else if (fair_policy(policy)) {
+		int old_prio = p->static_prio;
 		p->static_prio = NICE_TO_PRIO(attr->sched_nice);
+		vtime_set_nice(rq, p, old_prio);
+	}
 
 	/*
 	 * __sched_setscheduler() ensures attr->sched_priority == 0 when
@@ -4704,7 +4712,7 @@ static void __setscheduler(struct rq *rq, struct task_struct *p,
 	if (attr->sched_flags & SCHED_FLAG_KEEP_PARAMS)
 		return;
 
-	__setscheduler_params(p, attr);
+	__setscheduler_params(rq, p, attr);
 
 	/*
 	 * Keep a potential priority boosting if called from

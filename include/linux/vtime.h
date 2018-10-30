@@ -9,6 +9,7 @@
 
 
 struct task_struct;
+struct rq;
 
 /*
  * vtime_accounting_enabled_this_cpu() definitions/declarations
@@ -74,6 +75,7 @@ extern void vtime_user_exit(struct task_struct *tsk);
 extern void vtime_guest_enter(struct task_struct *tsk);
 extern void vtime_guest_exit(struct task_struct *tsk);
 extern void vtime_init_idle(struct task_struct *tsk, int cpu);
+extern void __vtime_set_nice(struct rq *rq, struct task_struct *tsk, int old_prio);
 #else /* !CONFIG_VIRT_CPU_ACCOUNTING_GEN  */
 static inline void vtime_user_enter(struct task_struct *tsk) { }
 static inline void vtime_user_exit(struct task_struct *tsk) { }
