@@ -734,21 +734,50 @@ static void vtime_account_system(struct task_struct *tsk,
 }
 
 static void vtime_account_guest(struct task_struct *tsk,
-				struct vtime *vtime)
+				struct vtime *vtime, bool force)
 {
+	enum cpu_usage_stat index;
+
 	vtime->gtime += get_vtime_delta(vtime);
-	if (vtime->gtime >= TICK_NSEC) {
-		account_guest_time(tsk, vtime->gtime);
-		vtime->gtime = 0;
-	}
+
+	if (vtime->gtime < TICK_NSEC && !force)
+		return;
+
+	if (vtime->nice)
+		index = CPUTIME_GUEST_NICE;
+	else
+		index = CPUTIME_GUEST;
+
+	account_guest_time_index(tsk, vtime->gtime, index);
+	vtime->gtime = 0;
 }
+
+static void vtime_account_user(struct task_struct *tsk,
+			       struct vtime *vtime, bool force)
+{
+	enum cpu_usage_stat index;
+
+	vtime->utime += get_vtime_delta(vtime);
+
+	if (vtime->utime < TICK_NSEC && !force)
+		return;
+
+	if (vtime->nice)
+		index = CPUTIME_NICE;
+	else
+		index = CPUTIME_USER;
+
+	account_user_time_index(tsk, vtime->utime, index);
+	vtime->utime = 0;
+}
+
 
 static void __vtime_account_kernel(struct task_struct *tsk,
 				   struct vtime *vtime)
 {
 	/* We might have scheduled out from guest path */
 	if (vtime->state == VTIME_GUEST)
-		vtime_account_guest(tsk, vtime);
+		vtime_account_guest(tsk, vtime, false);
 	else
 		vtime_account_system(tsk, vtime);
 }
@@ -780,11 +809,7 @@ void vtime_user_exit(struct task_struct *tsk)
 	struct vtime *vtime = &tsk->vtime;
 
 	write_seqcount_begin(&vtime->seqcount);
-	vtime->utime += get_vtime_delta(vtime);
-	if (vtime->utime >= TICK_NSEC) {
-		account_user_time(tsk, vtime->utime);
-		vtime->utime = 0;
-	}
+	vtime_account_user(tsk, vtime, false);
 	vtime->state = VTIME_SYS;
 	write_seqcount_end(&vtime->seqcount);
 }
@@ -812,7 +837,7 @@ void vtime_guest_exit(struct task_struct *tsk)
 	struct vtime *vtime = &tsk->vtime;
 
 	write_seqcount_begin(&vtime->seqcount);
-	vtime_account_guest(tsk, vtime);
+	vtime_account_guest(tsk, vtime, false);
 	tsk->flags &= ~PF_VCPU;
 	vtime->state = VTIME_SYS;
 	write_seqcount_end(&vtime->seqcount);
@@ -848,6 +873,7 @@ void vtime_task_switch_generic(struct task_struct *prev)
 		vtime->state = VTIME_SYS;
 	vtime->starttime = sched_clock();
 	vtime->cpu = smp_processor_id();
+	vtime->nice = (task_nice(current) > 0) ? 1 : 0;
 	write_seqcount_end(&vtime->seqcount);
 }
 
@@ -863,6 +889,57 @@ void vtime_init_idle(struct task_struct *t, int cpu)
 	vtime->cpu = cpu;
 	write_seqcount_end(&vtime->seqcount);
 	local_irq_restore(flags);
+}
+
+static void vtime_set_nice_local(struct task_struct *t)
+{
+	struct vtime *vtime = &t->vtime;
+
+	write_seqcount_begin(&vtime->seqcount);
+	if (vtime->state == VTIME_USER)
+		vtime_account_user(t, vtime, true);
+	else if (vtime->state == VTIME_GUEST)
+		vtime_account_guest(t, vtime, true);
+	vtime->nice = (task_nice(t) > 0) ? 1 : 0;
+	write_seqcount_end(&vtime->seqcount);
+}
+
+static void vtime_set_nice_func(struct irq_work *work)
+{
+	vtime_set_nice_local(current);
+}
+
+static DEFINE_PER_CPU(struct irq_work, vtime_set_nice_work) = {
+	.func = vtime_set_nice_func,
+};
+
+void __vtime_set_nice(struct rq *rq, struct task_struct *p, int old_prio)
+{
+	long nice, old_nice = PRIO_TO_NICE(old_prio);
+	int cpu = cpu_of(rq);
+
+	lockdep_assert_held(&rq->lock);
+	/*
+	 * Task not running, nice update will be seen by vtime on its
+	 * next context switch.
+	 */
+	if (!task_current(rq, p))
+		return;
+
+	nice = task_nice(p);
+
+	/* Task stays nice, still accounted as nice in kcpustat */
+	if (old_nice > 0 && nice > 0)
+		return;
+
+	/* Task stays rude, still accounted as non-nice in kcpustat */
+	if (old_nice <= 0 && nice <= 0)
+		return;
+
+	if (p == current)
+		vtime_set_nice_local(p);
+	else
+		irq_work_queue_on(&per_cpu(vtime_set_nice_work, cpu), cpu);
 }
 
 u64 task_gtime(struct task_struct *t)

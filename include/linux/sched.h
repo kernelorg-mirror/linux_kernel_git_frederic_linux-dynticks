@@ -262,6 +262,7 @@ enum vtime_state {
 struct vtime {
 	seqcount_t		seqcount;
 	unsigned long long	starttime;
+	int			nice;
 	enum vtime_state	state;
 	unsigned int		cpu;
 	u64			utime;

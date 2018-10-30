@@ -1895,6 +1895,24 @@ static inline int sched_tick_offload_init(void) { return 0; }
 static inline void sched_update_tick_dependency(struct rq *rq) { }
 #endif
 
+static inline void vtime_set_nice(struct rq *rq,
+				  struct task_struct *p, int old_prio)
+{
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
+	int cpu;
+
+	if (!vtime_accounting_enabled())
+		return;
+
+	cpu = cpu_of(rq);
+
+	if (!vtime_accounting_enabled_cpu(cpu))
+		return;
+
+	__vtime_set_nice(rq, p, old_prio);
+#endif
+}
+
 static inline void add_nr_running(struct rq *rq, unsigned count)
 {
 	unsigned prev_nr = rq->nr_running;
