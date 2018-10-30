@@ -31,6 +31,16 @@ static inline bool vtime_accounting_enabled(void)
 	return context_tracking_enabled();
 }
 
+static inline bool vtime_accounting_enabled_cpu(int cpu)
+{
+	if (vtime_accounting_enabled()) {
+		if (context_tracking_enabled_cpu(cpu))
+			return true;
+	}
+
+	return false;
+}
+
 static inline bool vtime_accounting_enabled_this_cpu(void)
 {
 	if (vtime_accounting_enabled()) {
@@ -51,6 +61,7 @@ static inline void vtime_task_switch(struct task_struct *prev)
 
 #else /* !CONFIG_VIRT_CPU_ACCOUNTING */
 
+static inline bool vtime_accounting_enabled_cpu(int cpu) {return false; }
 static inline bool vtime_accounting_enabled_this_cpu(void) { return false; }
 static inline void vtime_task_switch(struct task_struct *prev) { }
 
