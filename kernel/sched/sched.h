@@ -1790,6 +1790,45 @@ static inline int sched_tick_offload_init(void) { return 0; }
 static inline void sched_update_tick_dependency(struct rq *rq) { }
 #endif
 
+static inline void vtime_set_nice(struct rq *rq,
+				  struct task_struct *p, long old_nice)
+{
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
+	long nice;
+	int cpu;
+
+	if (!vtime_accounting_enabled())
+		return;
+
+	cpu = cpu_of(rq);
+
+	if (!vtime_accounting_enabled_cpu(cpu))
+		return;
+
+	/*
+	 * Task not running, nice update will be seen by vtime on its
+	 * next context switch.
+	 */
+	if (!task_current(rq, p))
+		return;
+
+	nice = task_nice(p);
+
+	/* Task stays nice, still accounted as nice in kcpustat */
+	if (old_nice > 0 && nice > 0)
+		return;
+
+	/* Task stays rude, still accounted as non-nice in kcpustat */
+	if (old_nice <= 0 && nice <= 0)
+		return;
+
+	if (p == current)
+		vtime_set_nice_local(p);
+	else
+		vtime_set_nice_remote(cpu);
+#endif
+}
+
 static inline void add_nr_running(struct rq *rq, unsigned count)
 {
 	unsigned prev_nr = rq->nr_running;

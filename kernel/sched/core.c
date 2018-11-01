@@ -3868,6 +3868,7 @@ void set_user_nice(struct task_struct *p, long nice)
 	int old_prio, delta;
 	struct rq_flags rf;
 	struct rq *rq;
+	long old_nice;
 
 	if (task_nice(p) == nice || nice < MIN_NICE || nice > MAX_NICE)
 		return;
@@ -3877,6 +3878,8 @@ void set_user_nice(struct task_struct *p, long nice)
 	 */
 	rq = task_rq_lock(p, &rf);
 	update_rq_clock(rq);
+
+	old_nice = task_nice(p);
 
 	/*
 	 * The RT priorities are set via sched_setscheduler(), but we still
@@ -3913,6 +3916,7 @@ void set_user_nice(struct task_struct *p, long nice)
 	if (running)
 		set_curr_task(rq, p);
 out_unlock:
+	vtime_set_nice(rq, p, old_nice);
 	task_rq_unlock(rq, p, &rf);
 }
 EXPORT_SYMBOL(set_user_nice);
