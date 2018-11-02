@@ -265,6 +265,8 @@ struct task_cputime {
 enum vtime_state {
 	/* Task is sleeping or running in a CPU with VTIME inactive: */
 	VTIME_INACTIVE = 0,
+	/* Task has passed exit_notify() */
+	VTIME_DEAD,
 	/* Task is idle */
 	VTIME_IDLE,
 	/* Task runs in kernelspace in a CPU with VTIME active: */

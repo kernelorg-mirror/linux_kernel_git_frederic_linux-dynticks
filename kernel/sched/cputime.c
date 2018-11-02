@@ -702,7 +702,7 @@ static u64 get_vtime_delta(struct vtime *vtime)
 	 * errors from causing elapsed vtime to go negative.
 	 */
 	other = account_other_time(delta);
-	WARN_ON_ONCE(vtime->state == VTIME_INACTIVE);
+	WARN_ON_ONCE(vtime->state < VTIME_IDLE);
 	vtime->starttime += delta;
 
 	return delta - other;
@@ -813,16 +813,30 @@ void vtime_task_switch_generic(struct task_struct *prev)
 {
 	struct vtime *vtime = &prev->vtime;
 
-	write_seqcount_begin(&vtime->seqcount);
-	if (vtime->state == VTIME_IDLE)
-		vtime_account_idle(prev);
-	else
-		__vtime_account_kernel(prev, vtime);
-	vtime->state = VTIME_INACTIVE;
-	vtime->cpu = -1;
-	write_seqcount_end(&vtime->seqcount);
+	/*
+	 * Flush the prev task vtime, unless it has passed
+	 * vtime_exit_task(), in which case there is nothing
+	 * left to account.
+	 */
+	if (vtime->state != VTIME_DEAD) {
+		write_seqcount_begin(&vtime->seqcount);
+		if (vtime->state == VTIME_IDLE)
+			vtime_account_idle(prev);
+		else
+			__vtime_account_kernel(prev, vtime);
+		vtime->state = VTIME_INACTIVE;
+		vtime->cpu = -1;
+		write_seqcount_end(&vtime->seqcount);
+	}
 
 	vtime = &current->vtime;
+
+	/*
+	 * Ignore the next task if it has been preempted after
+	 * vtime_exit_task().
+	 */
+	if (vtime->state == VTIME_DEAD)
+		return;
 
 	write_seqcount_begin(&vtime->seqcount);
 	if (is_idle_task(current))
@@ -846,6 +860,30 @@ void vtime_init_idle(struct task_struct *t, int cpu)
 	vtime->state = VTIME_IDLE;
 	vtime->starttime = sched_clock();
 	vtime->cpu = cpu;
+	write_seqcount_end(&vtime->seqcount);
+	local_irq_restore(flags);
+}
+
+/*
+ * This is the final settlement point after which we don't account
+ * anymore vtime for this task.
+ */
+void vtime_exit_task(struct task_struct *t)
+{
+	struct vtime *vtime = &t->vtime;
+	unsigned long flags;
+
+	local_irq_save(flags);
+	write_seqcount_begin(&vtime->seqcount);
+	/*
+	 * A task that has never run on a nohz_full CPU hasn't
+	 * been tracked by vtime. Thus it's in VTIME_INACTIVE
+	 * state. Nothing to account for it.
+	 */
+	if (vtime->state != VTIME_INACTIVE)
+		vtime_account_system(t, vtime);
+	vtime->state = VTIME_DEAD;
+	vtime->cpu = -1;
 	write_seqcount_end(&vtime->seqcount);
 	local_irq_restore(flags);
 }
