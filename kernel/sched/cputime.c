@@ -404,9 +404,10 @@ static inline void irqtime_account_process_tick(struct task_struct *p, int user_
 /*
  * Use precise platform statistics if available:
  */
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING
+#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
+
 # ifndef __ARCH_HAS_VTIME_TASK_SWITCH
-void vtime_common_task_switch(struct task_struct *prev)
+void vtime_task_switch(struct task_struct *prev)
 {
 	if (is_idle_task(prev))
 		vtime_account_idle(prev);
@@ -417,10 +418,7 @@ void vtime_common_task_switch(struct task_struct *prev)
 	arch_vtime_task_switch(prev);
 }
 # endif
-#endif /* CONFIG_VIRT_CPU_ACCOUNTING */
 
-
-#ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 /*
  * Archs that account the whole time spent in the idle task
  * (outside irq) as idle time can rely on this and just implement
@@ -730,6 +728,16 @@ static void vtime_account_guest(struct task_struct *tsk,
 	}
 }
 
+static void __vtime_account_kernel(struct task_struct *tsk,
+				   struct vtime *vtime)
+{
+	/* We might have scheduled out from guest path */
+	if (tsk->flags & PF_VCPU)
+		vtime_account_guest(tsk, vtime);
+	else
+		vtime_account_system(tsk, vtime);
+}
+
 void vtime_account_kernel(struct task_struct *tsk)
 {
 	struct vtime *vtime = &tsk->vtime;
@@ -738,11 +746,7 @@ void vtime_account_kernel(struct task_struct *tsk)
 		return;
 
 	write_seqcount_begin(&vtime->seqcount);
-	/* We might have scheduled out from guest path */
-	if (tsk->flags & PF_VCPU)
-		vtime_account_guest(tsk, vtime);
-	else
-		vtime_account_system(tsk, vtime);
+	__vtime_account_kernel(tsk, vtime);
 	write_seqcount_end(&vtime->seqcount);
 }
 
@@ -800,18 +804,18 @@ EXPORT_SYMBOL_GPL(vtime_guest_exit);
 
 void vtime_account_idle(struct task_struct *tsk)
 {
-	struct vtime *vtime = &tsk->vtime;
-
-	write_seqcount_begin(&vtime->seqcount);
 	account_idle_time(get_vtime_delta(&tsk->vtime));
-	write_seqcount_end(&vtime->seqcount);
 }
 
-void arch_vtime_task_switch(struct task_struct *prev)
+void vtime_task_switch_generic(struct task_struct *prev)
 {
 	struct vtime *vtime = &prev->vtime;
 
 	write_seqcount_begin(&vtime->seqcount);
+	if (is_idle_task(prev))
+		vtime_account_idle(prev);
+	else
+		__vtime_account_kernel(prev, vtime);
 	vtime->state = VTIME_INACTIVE;
 	write_seqcount_end(&vtime->seqcount);
 
