@@ -57,9 +57,12 @@ static void led_activity_function(struct timer_list *t)
 	curr_used = 0;
 
 	for_each_possible_cpu(i) {
-		curr_used += kcpustat_cpu(i).cpustat[CPUTIME_USER]
-			  +  kcpustat_cpu(i).cpustat[CPUTIME_NICE]
-			  +  kcpustat_field(&kcpustat_cpu(i), CPUTIME_SYSTEM, i)
+		u64 user, nice, sys, guest, guest_nice;
+
+		kcpustat_cputime(&kcpustat_cpu(i), i, &user, &nice, &sys,
+				 &guest, &guest_nice);
+
+		curr_used += user + nice + sys
 			  +  kcpustat_cpu(i).cpustat[CPUTIME_SOFTIRQ]
 			  +  kcpustat_cpu(i).cpustat[CPUTIME_IRQ];
 		cpus++;
