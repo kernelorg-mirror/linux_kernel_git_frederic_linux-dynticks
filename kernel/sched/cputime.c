@@ -94,8 +94,8 @@ static u64 irqtime_tick_accounted(u64 dummy)
 
 #endif /* !CONFIG_IRQ_TIME_ACCOUNTING */
 
-static inline void task_group_account_field(struct task_struct *p, int index,
-					    u64 tmp)
+static inline void task_group_account_field(struct task_struct *p, u64 cputime,
+					    enum cpu_usage_stat index)
 {
 	/*
 	 * Since all updates are sure to touch the root cgroup, we
@@ -103,9 +103,9 @@ static inline void task_group_account_field(struct task_struct *p, int index,
 	 * is the only cgroup, then nothing else should be necessary.
 	 *
 	 */
-	__this_cpu_add(kernel_cpustat.cpustat[index], tmp);
+	__this_cpu_add(kernel_cpustat.cpustat[index], cputime);
 
-	cgroup_account_cputime_field(p, index, tmp);
+	cgroup_account_cputime_field(p, index, cputime);
 }
 
 static void account_user_time_index(struct task_struct *p,
@@ -116,7 +116,7 @@ static void account_user_time_index(struct task_struct *p,
 	account_group_user_time(p, cputime);
 
 	/* Add user time to cpustat. */
-	task_group_account_field(p, index, cputime);
+	task_group_account_field(p, cputime, index);
 
 	/* Account for user time used */
 	acct_account_cputime(p);
@@ -174,7 +174,7 @@ void account_guest_time(struct task_struct *p, u64 cputime)
  * @cputime: the CPU time spent in kernel space since the last update
  * @index: pointer to cpustat field that has to be updated
  */
-void account_system_index_time(struct task_struct *p,
+void account_system_time_index(struct task_struct *p,
 			       u64 cputime, enum cpu_usage_stat index)
 {
 	/* Add system time to process. */
@@ -182,7 +182,7 @@ void account_system_index_time(struct task_struct *p,
 	account_group_system_time(p, cputime);
 
 	/* Add system time to cpustat. */
-	task_group_account_field(p, index, cputime);
+	task_group_account_field(p, cputime, index);
 
 	/* Account for system time used */
 	acct_account_cputime(p);
@@ -196,7 +196,7 @@ void account_system_index_time(struct task_struct *p,
  */
 void account_system_time(struct task_struct *p, int hardirq_offset, u64 cputime)
 {
-	int index;
+	enum cpu_usage_stat index;
 
 	if ((p->flags & PF_VCPU) && (irq_count() - hardirq_offset == 0)) {
 		account_guest_time(p, cputime);
@@ -210,7 +210,7 @@ void account_system_time(struct task_struct *p, int hardirq_offset, u64 cputime)
 	else
 		index = CPUTIME_SYSTEM;
 
-	account_system_index_time(p, cputime, index);
+	account_system_time_index(p, cputime, index);
 }
 
 /*
@@ -391,7 +391,7 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 		 * So, we have to handle it separately here.
 		 * Also, p->stime needs to be updated for ksoftirqd.
 		 */
-		account_system_index_time(p, cputime, CPUTIME_SOFTIRQ);
+		account_system_time_index(p, cputime, CPUTIME_SOFTIRQ);
 	} else if (user_tick) {
 		account_user_time(p, cputime);
 	} else if (p == rq->idle) {
@@ -399,7 +399,7 @@ static void irqtime_account_process_tick(struct task_struct *p, int user_tick,
 	} else if (p->flags & PF_VCPU) { /* System time or guest time */
 		account_guest_time(p, cputime);
 	} else {
-		account_system_index_time(p, cputime, CPUTIME_SYSTEM);
+		account_system_time_index(p, cputime, CPUTIME_SYSTEM);
 	}
 }
 
