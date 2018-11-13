@@ -191,7 +191,8 @@ static int do_account_vtime(struct task_struct *tsk)
 	return virt_timer_forward(user + guest + system + hardirq + softirq);
 }
 
-void vtime_task_switch(struct task_struct *prev)
+void vtime_task_switch(struct task_struct *prev,
+		       struct task_struct *next)
 {
 	do_account_vtime(prev);
 	prev->thread.user_timer = S390_lowcore.user_timer;
@@ -199,11 +200,11 @@ void vtime_task_switch(struct task_struct *prev)
 	prev->thread.system_timer = S390_lowcore.system_timer;
 	prev->thread.hardirq_timer = S390_lowcore.hardirq_timer;
 	prev->thread.softirq_timer = S390_lowcore.softirq_timer;
-	S390_lowcore.user_timer = current->thread.user_timer;
-	S390_lowcore.guest_timer = current->thread.guest_timer;
-	S390_lowcore.system_timer = current->thread.system_timer;
-	S390_lowcore.hardirq_timer = current->thread.hardirq_timer;
-	S390_lowcore.softirq_timer = current->thread.softirq_timer;
+	S390_lowcore.user_timer = next->thread.user_timer;
+	S390_lowcore.guest_timer = next->thread.guest_timer;
+	S390_lowcore.system_timer = next->thread.system_timer;
+	S390_lowcore.hardirq_timer = next->thread.hardirq_timer;
+	S390_lowcore.softirq_timer = next->thread.softirq_timer;
 }
 
 /*

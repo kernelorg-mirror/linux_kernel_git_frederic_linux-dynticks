@@ -421,7 +421,8 @@ static inline void irqtime_account_process_tick(struct task_struct *p, int user_
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_NATIVE
 
 # ifndef __ARCH_HAS_VTIME_TASK_SWITCH
-void vtime_task_switch(struct task_struct *prev)
+void vtime_task_switch(struct task_struct *prev,
+		       struct task_struct *next)
 {
 	if (is_idle_task(prev))
 		vtime_account_idle(prev);
@@ -429,7 +430,7 @@ void vtime_task_switch(struct task_struct *prev)
 		vtime_account_kernel(prev);
 
 	vtime_flush(prev);
-	arch_vtime_task_switch(prev);
+	arch_vtime_task_switch(prev, next);
 }
 # endif
 
@@ -848,7 +849,8 @@ void vtime_account_idle(struct task_struct *tsk)
 	account_idle_time(get_vtime_delta(&tsk->vtime));
 }
 
-void vtime_task_switch_generic(struct task_struct *prev)
+void vtime_task_switch_generic(struct task_struct *prev,
+			       struct task_struct *next)
 {
 	struct vtime *vtime = &prev->vtime;
 	struct kernel_cpustat *kcpustat = kcpustat_this_cpu;
@@ -869,7 +871,7 @@ void vtime_task_switch_generic(struct task_struct *prev)
 		write_seqcount_end(&vtime->seqcount);
 	}
 
-	vtime = &current->vtime;
+	vtime = &next->vtime;
 
 	/*
 	 * Ignore the next task if it has been preempted after
@@ -881,18 +883,18 @@ void vtime_task_switch_generic(struct task_struct *prev)
 	}
 
 	write_seqcount_begin(&vtime->seqcount);
-	if (is_idle_task(current))
+	if (is_idle_task(next))
 		vtime->state = VTIME_IDLE;
-	else if (current->flags & PF_VCPU)
+	else if (next->flags & PF_VCPU)
 		vtime->state = VTIME_GUEST;
 	else
 		vtime->state = VTIME_SYS;
 	vtime->starttime = sched_clock();
 	vtime->cpu = smp_processor_id();
-	vtime->nice = (task_nice(current) > 0) ? 1 : 0;
+	vtime->nice = (task_nice(next) > 0) ? 1 : 0;
 	write_seqcount_end(&vtime->seqcount);
 
-	rcu_assign_pointer(kcpustat->curr, current);
+	rcu_assign_pointer(kcpustat->curr, next);
 }
 
 void vtime_init_idle(struct task_struct *t, int cpu)

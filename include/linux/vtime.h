@@ -16,7 +16,8 @@ struct task_struct;
 #if defined(CONFIG_VIRT_CPU_ACCOUNTING_NATIVE)
 
 static inline bool vtime_accounting_enabled_this_cpu(void) { return true; }
-extern void vtime_task_switch(struct task_struct *prev);
+extern void vtime_task_switch(struct task_struct *prev,
+			      struct task_struct *next);
 
 #elif defined(CONFIG_VIRT_CPU_ACCOUNTING_GEN)
 
@@ -51,19 +52,22 @@ static inline bool vtime_accounting_enabled_this_cpu(void)
 	return false;
 }
 
-extern void vtime_task_switch_generic(struct task_struct *prev);
+extern void vtime_task_switch_generic(struct task_struct *prev,
+				      struct task_struct *next);
 
-static inline void vtime_task_switch(struct task_struct *prev)
+static inline void vtime_task_switch(struct task_struct *prev,
+				     struct task_struct *next)
 {
 	if (vtime_accounting_enabled_this_cpu())
-		vtime_task_switch_generic(prev);
+		vtime_task_switch_generic(prev, next);
 }
 
 #else /* !CONFIG_VIRT_CPU_ACCOUNTING */
 
 static inline bool vtime_accounting_enabled_cpu(int cpu) {return false; }
 static inline bool vtime_accounting_enabled_this_cpu(void) { return false; }
-static inline void vtime_task_switch(struct task_struct *prev) { }
+static inline void vtime_task_switch(struct task_struct *prev,
+				     struct task_struct *next) { }
 
 #endif
 
@@ -78,7 +82,8 @@ static inline void vtime_account_kernel(struct task_struct *tsk) { }
 #endif /* !CONFIG_VIRT_CPU_ACCOUNTING */
 
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
-extern void arch_vtime_task_switch(struct task_struct *tsk);
+extern void arch_vtime_task_switch(struct task_struct *prev,
+				   struct task_struct *next);
 extern void vtime_user_enter(struct task_struct *tsk);
 extern void vtime_user_exit(struct task_struct *tsk);
 extern void vtime_guest_enter(struct task_struct *tsk);

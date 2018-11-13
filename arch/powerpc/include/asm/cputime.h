@@ -47,7 +47,8 @@ static inline unsigned long cputime_to_usecs(const cputime_t ct)
  */
 #ifdef CONFIG_PPC64
 #define get_accounting(tsk)	(&get_paca()->accounting)
-static inline void arch_vtime_task_switch(struct task_struct *tsk) { }
+static inline void arch_vtime_task_switch(struct task_struct *prev,
+					  struct task_struct *next) { }
 #else
 #define get_accounting(tsk)	(&task_thread_info(tsk)->accounting)
 /*
@@ -55,9 +56,10 @@ static inline void arch_vtime_task_switch(struct task_struct *tsk) { }
  * accumulated times to the current process, and to prepare accounting on
  * the next process.
  */
-static inline void arch_vtime_task_switch(struct task_struct *prev)
+static inline void arch_vtime_task_switch(struct task_struct *prev,
+					  struct task_struct *next)
 {
-	struct cpu_accounting_data *acct = get_accounting(current);
+	struct cpu_accounting_data *acct = get_accounting(next);
 	struct cpu_accounting_data *acct0 = get_accounting(prev);
 
 	acct->starttime = acct0->starttime;
