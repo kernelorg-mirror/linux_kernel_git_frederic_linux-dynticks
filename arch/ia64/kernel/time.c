@@ -79,17 +79,17 @@ void vtime_flush(struct task_struct *tsk)
 
 	if (ti->stime) {
 		delta = cycle_to_nsec(ti->stime);
-		account_system_index_time(tsk, delta, CPUTIME_SYSTEM);
+		account_system_time_index(tsk, delta, CPUTIME_SYSTEM);
 	}
 
 	if (ti->hardirq_time) {
 		delta = cycle_to_nsec(ti->hardirq_time);
-		account_system_index_time(tsk, delta, CPUTIME_IRQ);
+		account_system_time_index(tsk, delta, CPUTIME_IRQ);
 	}
 
 	if (ti->softirq_time) {
 		delta = cycle_to_nsec(ti->softirq_time);
-		account_system_index_time(tsk, delta, CPUTIME_SOFTIRQ);
+		account_system_time_index(tsk, delta, CPUTIME_SOFTIRQ);
 	}
 
 	ti->utime = 0;

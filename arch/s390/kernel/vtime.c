@@ -115,7 +115,7 @@ static void account_system_index_scaled(struct task_struct *p, u64 cputime,
 					enum cpu_usage_stat index)
 {
 	p->stimescaled += cputime_to_nsecs(scale_vtime(cputime));
-	account_system_index_time(p, cputime_to_nsecs(cputime), index);
+	account_system_time_index(p, cputime_to_nsecs(cputime), index);
 }
 
 /*
