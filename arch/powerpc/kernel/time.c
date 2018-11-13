@@ -418,14 +418,14 @@ void vtime_flush(struct task_struct *tsk)
 		account_idle_time(cputime_to_nsecs(acct->idle_time));
 
 	if (acct->stime)
-		account_system_index_time(tsk, cputime_to_nsecs(acct->stime),
+		account_system_time_index(tsk, cputime_to_nsecs(acct->stime),
 					  CPUTIME_SYSTEM);
 
 	if (acct->hardirq_time)
-		account_system_index_time(tsk, cputime_to_nsecs(acct->hardirq_time),
+		account_system_time_index(tsk, cputime_to_nsecs(acct->hardirq_time),
 					  CPUTIME_IRQ);
 	if (acct->softirq_time)
-		account_system_index_time(tsk, cputime_to_nsecs(acct->softirq_time),
+		account_system_time_index(tsk, cputime_to_nsecs(acct->softirq_time),
 					  CPUTIME_SOFTIRQ);
 
 	vtime_flush_scaled(tsk, acct);
