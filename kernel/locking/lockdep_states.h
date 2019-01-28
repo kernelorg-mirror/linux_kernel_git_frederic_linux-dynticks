@@ -5,4 +5,6 @@
  * you add one, or come up with a nice dynamic solution.
  */
 LOCKDEP_STATE(HARDIRQ)
-LOCKDEP_STATE(SOFTIRQ)
+#define SOFTIRQ_VECTOR(__SVEC) LOCKDEP_STATE(__SVEC##_SOFTIRQ)
+#include <linux/softirq_vector.h>
+#undef SOFTIRQ_VECTOR
