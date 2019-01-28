@@ -474,21 +474,12 @@ extern bool force_irqthreads;
    tasklets are more than enough. F.e. all serial device BHs et
    al. should be converted to tasklets, not to softirqs.
  */
-
 enum
 {
-	HI_SOFTIRQ=0,
-	TIMER_SOFTIRQ,
-	NET_TX_SOFTIRQ,
-	NET_RX_SOFTIRQ,
-	BLOCK_SOFTIRQ,
-	IRQ_POLL_SOFTIRQ,
-	TASKLET_SOFTIRQ,
-	SCHED_SOFTIRQ,
-	HRTIMER_SOFTIRQ, /* Unused, but kept as tools rely on the
-			    numbering. Sigh! */
-	RCU_SOFTIRQ,    /* Preferable RCU should always be the last softirq */
-
+#define SOFTIRQ_VECTOR(__SVEC) \
+	__SVEC##_SOFTIRQ,
+#include <linux/softirq_vector.h>
+#undef SOFTIRQ_VECTOR
 	NR_SOFTIRQS
 };
 
