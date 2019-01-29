@@ -229,18 +229,15 @@ static inline bool lockdep_softirq_start(void)
 		trace_hardirq_exit();
 	}
 
-	lockdep_softirq_enter();
-
 	return in_hardirq;
 }
 
 static inline void lockdep_softirq_end(bool in_hardirq)
 {
-	lockdep_softirq_exit();
-
 	if (in_hardirq)
 		trace_hardirq_enter();
 }
+
 #else
 static inline bool lockdep_softirq_start(void) { return false; }
 static inline void lockdep_softirq_end(bool in_hardirq) { }
@@ -288,9 +285,12 @@ restart:
 
 		kstat_incr_softirqs_this_cpu(vec_nr);
 
+		lockdep_softirq_enter(vec_nr);
 		trace_softirq_entry(vec_nr);
 		h->action(h);
 		trace_softirq_exit(vec_nr);
+		lockdep_softirq_exit(vec_nr);
+
 		if (unlikely(prev_count != preempt_count())) {
 			pr_err("huh, entered softirq %u %s %p with preempt_count %08x, exited with %08x?\n",
 			       vec_nr, softirq_to_name[vec_nr], h->action,

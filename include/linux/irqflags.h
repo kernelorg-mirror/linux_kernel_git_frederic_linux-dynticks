@@ -43,13 +43,13 @@ do {						\
 do {						\
 	current->hardirq_context--;		\
 } while (0)
-# define lockdep_softirq_enter()		\
+# define lockdep_softirq_enter(__VEC)		\
 do {						\
-	current->softirq_context++;		\
+	current->softirq_context |= BIT(__VEC);	\
 } while (0)
-# define lockdep_softirq_exit()			\
+# define lockdep_softirq_exit(__VEC)		\
 do {						\
-	current->softirq_context--;		\
+	current->softirq_context &= ~BIT(__VEC);\
 } while (0)
 #else
 # define trace_hardirqs_on()		do { } while (0)
@@ -60,8 +60,8 @@ do {						\
 # define trace_softirqs_enabled(p)	0
 # define trace_hardirq_enter()		do { } while (0)
 # define trace_hardirq_exit()		do { } while (0)
-# define lockdep_softirq_enter()	do { } while (0)
-# define lockdep_softirq_exit()		do { } while (0)
+# define lockdep_softirq_enter(vec)	do { } while (0)
+# define lockdep_softirq_exit(vec)	do { } while (0)
 #endif
 
 #if defined(CONFIG_IRQSOFF_TRACER) || \
