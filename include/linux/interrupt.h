@@ -508,6 +508,11 @@ static inline void softirq_pending_set_mask(unsigned int pending)
 {
 	__this_cpu_or(local_softirq_data_ref, pending);
 }
+
+static inline int softirq_pending_enabled(void)
+{
+	return local_softirq_pending() & local_softirq_enabled();
+}
 #endif /* local_softirq_pending */
 
 /* map softirq index to softirq name. update 'softirq_to_name' in
