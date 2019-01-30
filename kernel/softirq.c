@@ -183,7 +183,7 @@ void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
 	 */
 	preempt_count_sub(cnt - 1);
 
-	if (unlikely(!in_interrupt() && local_softirq_pending())) {
+	if (unlikely(!in_interrupt() && softirq_pending_enabled())) {
 		/*
 		 * Run softirq if any pending. And do it in its own stack
 		 * as we may be calling this deep in a task call stack already.
@@ -252,7 +252,7 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 	int max_restart = MAX_SOFTIRQ_RESTART;
 	struct softirq_action *h;
 	bool in_hardirq;
-	__u32 pending;
+	__u32 pending, enabled;
 	int softirq_bit;
 
 	/*
@@ -262,7 +262,8 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 	 */
 	current->flags &= ~PF_MEMALLOC;
 
-	pending = local_softirq_pending();
+	enabled = local_softirq_enabled();
+	pending = local_softirq_pending() & enabled;
 	account_irq_enter_time(current);
 
 	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
@@ -270,7 +271,7 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 
 restart:
 	/* Reset the pending bitmask before enabling irqs */
-	softirq_pending_clear_mask(SOFTIRQ_ALL_MASK);
+	softirq_pending_clear_mask(pending);
 
 	local_irq_enable();
 
@@ -307,7 +308,7 @@ restart:
 		rcu_softirq_qs();
 	local_irq_disable();
 
-	pending = local_softirq_pending();
+	pending = local_softirq_pending() & enabled;
 	if (pending) {
 		if (time_before(jiffies, end) && !need_resched() &&
 		    --max_restart)
@@ -333,7 +334,7 @@ asmlinkage __visible void do_softirq(void)
 
 	local_irq_save(flags);
 
-	pending = local_softirq_pending();
+	pending = softirq_pending_enabled();
 
 	if (pending && !ksoftirqd_running(pending))
 		do_softirq_own_stack();
@@ -362,7 +363,7 @@ void irq_enter(void)
 
 static inline void invoke_softirq(void)
 {
-	if (ksoftirqd_running(local_softirq_pending()))
+	if (ksoftirqd_running(softirq_pending_enabled()))
 		return;
 
 	if (!force_irqthreads) {
@@ -411,7 +412,7 @@ void irq_exit(void)
 #endif
 	account_irq_exit_time(current);
 	preempt_count_sub(HARDIRQ_OFFSET);
-	if (!in_interrupt() && local_softirq_pending())
+	if (!in_interrupt() && softirq_pending_enabled())
 		invoke_softirq();
 
 	tick_irq_exit();
@@ -642,13 +643,13 @@ void __init softirq_init(void)
 
 static int ksoftirqd_should_run(unsigned int cpu)
 {
-	return local_softirq_pending();
+	return softirq_pending_enabled();
 }
 
 static void run_ksoftirqd(unsigned int cpu)
 {
 	local_irq_disable();
-	if (local_softirq_pending()) {
+	if (softirq_pending_enabled()) {
 		/*
 		 * We can safely run softirq on inline stack, as we are not deep
 		 * in the task stack here.

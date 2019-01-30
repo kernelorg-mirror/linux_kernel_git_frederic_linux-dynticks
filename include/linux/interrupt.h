@@ -510,6 +510,11 @@ static inline void softirq_pending_set_mask(unsigned int pending)
 }
 #endif /* local_softirq_data */
 
+static inline int softirq_pending_enabled(void)
+{
+	return local_softirq_pending() & local_softirq_enabled();
+}
+
 /* map softirq index to softirq name. update 'softirq_to_name' in
  * kernel/softirq.c when adding a new softirq.
  */
