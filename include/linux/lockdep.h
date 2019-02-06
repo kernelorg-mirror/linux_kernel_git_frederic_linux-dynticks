@@ -83,7 +83,7 @@ struct lock_class {
 	/*
 	 * IRQ/softirq usage tracking bits:
 	 */
-	unsigned long			usage_mask;
+	u64				usage_mask;
 	struct stack_trace		usage_traces[XXX_LOCK_USAGE_STATES];
 
 	/*

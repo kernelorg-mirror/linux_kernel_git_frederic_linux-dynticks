@@ -463,12 +463,12 @@ const char * __get_key_name(struct lockdep_subclass_key *key, char *str)
 	return kallsyms_lookup((unsigned long)key, NULL, NULL, NULL, str);
 }
 
-static inline unsigned long lock_flag(enum lock_usage_bit bit)
+static inline u64 lock_flag(enum lock_usage_bit bit)
 {
-	return 1UL << bit;
+	return BIT_ULL(bit);
 }
 
-static unsigned long lock_usage_mask(struct lock_usage *usage)
+static u64 lock_usage_mask(struct lock_usage *usage)
 {
 	return lock_flag(usage->bit);
 }
@@ -1342,7 +1342,7 @@ check_redundant(struct lock_list *root, struct lock_class *target,
 
 static inline int usage_match(struct lock_list *entry, void *mask)
 {
-	return entry->class->usage_mask & *(unsigned long *)mask;
+	return entry->class->usage_mask & *(u64 *)mask;
 }
 
 
@@ -1358,7 +1358,7 @@ static inline int usage_match(struct lock_list *entry, void *mask)
  * Return <0 on error.
  */
 static int
-find_usage_forwards(struct lock_list *root, unsigned long usage_mask,
+find_usage_forwards(struct lock_list *root, u64 usage_mask,
 			struct lock_list **target_entry)
 {
 	int result;
@@ -1381,7 +1381,7 @@ find_usage_forwards(struct lock_list *root, unsigned long usage_mask,
  * Return <0 on error.
  */
 static int
-find_usage_backwards(struct lock_list *root, unsigned long usage_mask,
+find_usage_backwards(struct lock_list *root, u64 usage_mask,
 			struct lock_list **target_entry)
 {
 	int result;
@@ -1405,7 +1405,7 @@ static void print_lock_class_header(struct lock_class *class, int depth)
 	printk(KERN_CONT " {\n");
 
 	for (bit = 0; bit < LOCK_USAGE_STATES; bit++) {
-		if (class->usage_mask & (1 << bit)) {
+		if (class->usage_mask & lock_flag(bit)) {
 			int len = depth;
 
 			len += printk("%*s   %s", depth, "", usage_str[bit]);
@@ -2484,7 +2484,7 @@ static inline int
 valid_state(struct task_struct *curr, struct held_lock *this,
 	    enum lock_usage_bit new_bit, enum lock_usage_bit bad_bit)
 {
-	if (unlikely(hlock_class(this)->usage_mask & (1 << bad_bit)))
+	if (unlikely(hlock_class(this)->usage_mask & lock_flag(bad_bit)))
 		return print_usage_bug(curr, this, bad_bit, new_bit);
 	return 1;
 }
@@ -2559,7 +2559,7 @@ print_irq_inversion_bug(struct task_struct *curr,
  */
 static int
 check_usage_forwards(struct task_struct *curr, struct held_lock *this,
-		     unsigned long usage_mask, const char *irqclass)
+		     u64 usage_mask, const char *irqclass)
 {
 	int ret;
 	struct lock_list root;
@@ -2583,7 +2583,7 @@ check_usage_forwards(struct task_struct *curr, struct held_lock *this,
  */
 static int
 check_usage_backwards(struct task_struct *curr, struct held_lock *this,
-		      unsigned long usage_mask, const char *irqclass)
+		      u64 usage_mask, const char *irqclass)
 {
 	int ret;
 	struct lock_list root;
@@ -2650,7 +2650,7 @@ static inline int state_verbose(enum lock_usage_bit bit,
 }
 
 typedef int (*check_usage_f)(struct task_struct *, struct held_lock *,
-			     unsigned long usage_mask, const char *name);
+			     u64 usage_mask, const char *name);
 
 static int
 mark_lock_irq(struct task_struct *curr, struct held_lock *this,
@@ -3034,7 +3034,7 @@ static inline int separate_irq_context(struct task_struct *curr,
 static int mark_lock(struct task_struct *curr, struct held_lock *this,
 		     struct lock_usage *new_usage)
 {
-	unsigned long new_mask = lock_usage_mask(new_usage), ret = 1;
+	u64 new_mask = lock_usage_mask(new_usage), ret = 1;
 
 	/*
 	 * If already set then do not dirty the cacheline,
