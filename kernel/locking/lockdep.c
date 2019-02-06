@@ -2755,17 +2755,13 @@ static int SOFTIRQ_verbose(struct lock_class *class)
 
 #define STRICT_READ_CHECKS	1
 
-static int (*state_verbose_f[])(struct lock_class *class) = {
-#define LOCKDEP_STATE(__STATE) \
-	__STATE##_verbose,
-#include "lockdep_states.h"
-#undef LOCKDEP_STATE
-};
-
 static inline int state_verbose(enum lock_usage_bit bit,
 				struct lock_class *class)
 {
-	return state_verbose_f[bit >> 2](class);
+	if (bit < LOCK_USED_IN_SOFTIRQ)
+		return HARDIRQ_verbose(class);
+	else
+		return SOFTIRQ_verbose(class);
 }
 
 typedef int (*check_usage_f)(struct task_struct *, struct held_lock *,
