@@ -3157,7 +3157,7 @@ static int mark_lock(struct task_struct *curr, struct held_lock *this,
 	 * If already set then do not dirty the cacheline,
 	 * nor do any checks:
 	 */
-	if (likely(hlock_class(this)->usage_mask & new_mask))
+	if (likely(!(new_mask & ~hlock_class(this)->usage_mask)))
 		return 1;
 
 	if (!graph_lock())
@@ -3165,7 +3165,7 @@ static int mark_lock(struct task_struct *curr, struct held_lock *this,
 	/*
 	 * Make sure we didn't race:
 	 */
-	if (unlikely(hlock_class(this)->usage_mask & new_mask)) {
+	if (unlikely(!(new_mask & ~hlock_class(this)->usage_mask))) {
 		graph_unlock();
 		return 1;
 	}
