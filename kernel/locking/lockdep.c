@@ -2662,9 +2662,12 @@ print_irq_inversion_bug(struct task_struct *curr,
  */
 static int
 check_usage_forwards(struct task_struct *curr, struct held_lock *this,
-		     u64 usage_mask, const char *irqclass)
+		     u64 usage_mask, bool read)
 {
 	int ret;
+	u64 intersec;
+	int intersec_bit;
+	const char *irqclass;
 	struct lock_list root;
 	struct lock_list *uninitialized_var(target_entry);
 
@@ -2676,8 +2679,14 @@ check_usage_forwards(struct task_struct *curr, struct held_lock *this,
 	if (ret == 1)
 		return ret;
 
+	intersec = usage_mask & target_entry->class->usage_mask;
+	intersec_bit = __ffs64(intersec);
+	if (read)
+		intersec_bit += LOCK_USAGE_READ_MASK;
+	irqclass = state_name(intersec_bit);
+
 	return print_irq_inversion_bug(curr, &root, target_entry,
-					this, 1, irqclass);
+				       this, 1, irqclass);
 }
 
 /*
@@ -2686,9 +2695,12 @@ check_usage_forwards(struct task_struct *curr, struct held_lock *this,
  */
 static int
 check_usage_backwards(struct task_struct *curr, struct held_lock *this,
-		      u64 usage_mask, const char *irqclass)
+		      u64 usage_mask, bool read)
 {
 	int ret;
+	u64 intersec;
+	int intersec_bit;
+	const char *irqclass;
 	struct lock_list root;
 	struct lock_list *uninitialized_var(target_entry);
 
@@ -2699,6 +2711,12 @@ check_usage_backwards(struct task_struct *curr, struct held_lock *this,
 		return print_bfs_bug(ret);
 	if (ret == 1)
 		return ret;
+
+	intersec = usage_mask & target_entry->class->usage_mask;
+	intersec_bit = __ffs64(intersec);
+	if (read)
+		intersec_bit += LOCK_USAGE_READ_MASK;
+	irqclass = state_name(intersec_bit);
 
 	return print_irq_inversion_bug(curr, &root, target_entry,
 					this, 0, irqclass);
@@ -2753,7 +2771,7 @@ static inline int state_verbose(enum lock_usage_bit bit,
 }
 
 typedef int (*check_usage_f)(struct task_struct *, struct held_lock *,
-			     u64 usage_mask, const char *name);
+			     u64 usage_mask, bool read);
 
 static int
 mark_lock_irq(struct task_struct *curr, struct held_lock *this,
@@ -2789,7 +2807,7 @@ mark_lock_irq(struct task_struct *curr, struct held_lock *this,
 	 * states.
 	 */
 	if ((!read || !dir || STRICT_READ_CHECKS) &&
-	    !usage(curr, this, lock_usage_mask(&excl_usage), state_name(new_usage->bit & ~LOCK_USAGE_READ_MASK)))
+	    !usage(curr, this, lock_usage_mask(&excl_usage), false))
 		return 0;
 
 	/*
@@ -2803,7 +2821,7 @@ mark_lock_irq(struct task_struct *curr, struct held_lock *this,
 
 		if (STRICT_READ_CHECKS &&
 		    !usage(curr, this, lock_usage_mask(&excl_usage),
-			   state_name(new_usage->bit + LOCK_USAGE_READ_MASK)))
+			       true))
 			return 0;
 	}
 
