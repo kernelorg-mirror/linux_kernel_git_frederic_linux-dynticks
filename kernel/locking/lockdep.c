@@ -3217,7 +3217,11 @@ static int mark_lock(struct task_struct *curr, struct held_lock *this,
 	 * We must printk outside of the graph_lock:
 	 */
 	if (ret == 2) {
-		printk("\nmarked lock as {%s}:\n", usage_str[new_usage->bit]);
+		int bit;
+
+		for_each_bit_nr(new_mask, bit)
+			printk("\nmarked lock as {%s}:\n", usage_str[bit]);
+
 		print_lock(this);
 		print_irqtrace_events(curr);
 		dump_stack();
