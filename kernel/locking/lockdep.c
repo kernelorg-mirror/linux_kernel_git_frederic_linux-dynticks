@@ -487,7 +487,21 @@ static inline u64 lock_flag(enum lock_usage_bit bit)
 
 static u64 lock_usage_mask(struct lock_usage *usage)
 {
-	return lock_flag(usage->bit);
+	u64 vectors = usage->vector;
+	u64 mask = 0ULL;
+	int nr;
+
+	if (!vectors)
+		return lock_flag(usage->bit);
+
+	/* Only softirqs can have non-zero vectors */
+	WARN_ON_ONCE(usage->bit < LOCK_USED_IN_SOFTIRQ ||
+		     usage->bit > LOCK_ENABLED_SOFTIRQ_READ);
+
+	for_each_bit_nr(vectors, nr)
+		mask |= lock_flag(usage->bit) << (4 * nr);
+
+	return mask;
 }
 
 static char get_usage_char(struct lock_class *class, enum lock_usage_bit bit)
@@ -2558,10 +2572,23 @@ print_usage_bug(struct task_struct *curr, struct held_lock *this,
  */
 static inline int
 valid_state(struct task_struct *curr, struct held_lock *this,
-	    enum lock_usage_bit new_bit, enum lock_usage_bit bad_bit)
+	    u64 new_mask, u64 bad_mask)
 {
-	if (unlikely(hlock_class(this)->usage_mask & lock_flag(bad_bit)))
+	u64 bad_intersec;
+
+	bad_intersec = hlock_class(this)->usage_mask & bad_mask;
+
+	if (unlikely(bad_intersec)) {
+		enum lock_usage_bit new_bit, bad_bit;
+		int err;
+
+		err = find_exclusive_match(new_mask,
+					   bad_intersec, &new_bit, &bad_bit);
+		if (WARN_ON_ONCE(err < 0))
+			return err;
+
 		return print_usage_bug(curr, this, bad_bit, new_bit);
+	}
 	return 1;
 }
 
@@ -2753,7 +2780,8 @@ mark_lock_irq(struct task_struct *curr, struct held_lock *this,
 	 * Validate that this particular lock does not have conflicting
 	 * usage states.
 	 */
-	if (!valid_state(curr, this, new_usage->bit, excl_usage.bit))
+	if (!valid_state(curr, this, lock_usage_mask(new_usage),
+			 lock_usage_mask(&excl_usage)))
 		return 0;
 
 	/*
@@ -2769,7 +2797,8 @@ mark_lock_irq(struct task_struct *curr, struct held_lock *this,
 	 */
 	if (!read) {
 		excl_usage.bit += LOCK_USAGE_READ_MASK;
-		if (!valid_state(curr, this, new_usage->bit, excl_usage.bit))
+		if (!valid_state(curr, this, lock_usage_mask(new_usage),
+				 lock_usage_mask(&excl_usage)))
 			return 0;
 
 		if (STRICT_READ_CHECKS &&
