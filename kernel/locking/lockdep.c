@@ -463,9 +463,9 @@ const char * __get_key_name(struct lockdep_subclass_key *key, char *str)
 	return kallsyms_lookup((unsigned long)key, NULL, NULL, NULL, str);
 }
 
-static inline unsigned long lock_flag(enum lock_usage_bit bit)
+static inline u64 lock_flag(enum lock_usage_bit bit)
 {
-	return 1UL << bit;
+	return BIT_ULL(bit);
 }
 
 static char get_usage_char(struct lock_class *class, enum lock_usage_bit bit)
@@ -1400,7 +1400,7 @@ static void print_lock_class_header(struct lock_class *class, int depth)
 	printk(KERN_CONT " {\n");
 
 	for (bit = 0; bit < LOCK_USAGE_STATES; bit++) {
-		if (class->usage_mask & (1 << bit)) {
+		if (class->usage_mask & lock_flag(bit)) {
 			int len = depth;
 
 			len += printk("%*s   %s", depth, "", usage_str[bit]);
@@ -2478,7 +2478,7 @@ static inline int
 valid_state(struct task_struct *curr, struct held_lock *this,
 	    enum lock_usage_bit new_bit, enum lock_usage_bit bad_bit)
 {
-	if (unlikely(hlock_class(this)->usage_mask & (1 << bad_bit)))
+	if (unlikely(hlock_class(this)->usage_mask & lock_flag(bad_bit)))
 		return print_usage_bug(curr, this, bad_bit, new_bit);
 	return 1;
 }
