@@ -3145,6 +3145,22 @@ static inline int separate_irq_context(struct task_struct *curr,
 
 #endif /* defined(CONFIG_TRACE_IRQFLAGS) && defined(CONFIG_PROVE_LOCKING) */
 
+static int save_trace_mask(struct lock_class *class, u64 mask)
+{
+	int bit = 0;
+
+	while (mask) {
+		long fs = __ffs64(mask) + 1;
+
+		mask >>= fs;
+		bit += fs;
+		if (!save_trace(class->usage_traces + bit - 1))
+			return -1;
+	}
+
+	return 0;
+}
+
 /*
  * Mark a lock with a usage bit, and validate the state transition:
  */
@@ -3172,7 +3188,7 @@ static int mark_lock(struct task_struct *curr, struct held_lock *this,
 
 	hlock_class(this)->usage_mask |= new_mask;
 
-	if (!save_trace(hlock_class(this)->usage_traces + new_usage->bit))
+	if (save_trace_mask(hlock_class(this), new_mask) < 0)
 		return 0;
 
 	switch (new_usage->bit) {

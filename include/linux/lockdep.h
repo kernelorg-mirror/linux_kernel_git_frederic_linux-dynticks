@@ -31,8 +31,9 @@ extern int lock_stat;
 /*
  * We'd rather not expose kernel/lockdep_states.h this wide, but we do need
  * the total number of states... :-(
+ * 1 bit for LOCK_USED, 4 bits for hardirqs and 4 * NR_SOFTIRQS bits
  */
-#define XXX_LOCK_USAGE_STATES		(1+2*4)
+#define XXX_LOCK_USAGE_STATES		(1 + (1 + 10) * 4)
 
 /*
  * NR_LOCKDEP_CACHING_CLASSES ... Number of classes
