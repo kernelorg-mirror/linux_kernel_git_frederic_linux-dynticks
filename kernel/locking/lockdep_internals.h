@@ -26,6 +26,12 @@ enum lock_usage_bit {
 #define LOCK_USAGE_DIR_MASK  2
 #define LOCK_USAGE_STATE_MASK (~(LOCK_USAGE_READ_MASK | LOCK_USAGE_DIR_MASK))
 
+struct lock_usage {
+	enum lock_usage_bit bit;
+	unsigned long vector; /* Softirq vector */
+};
+
+
 /*
  * Usage-state bitmasks:
  */

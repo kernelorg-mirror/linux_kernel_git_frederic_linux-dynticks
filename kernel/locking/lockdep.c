@@ -468,6 +468,11 @@ static inline unsigned long lock_flag(enum lock_usage_bit bit)
 	return 1UL << bit;
 }
 
+static unsigned long lock_usage_mask(struct lock_usage *usage)
+{
+	return lock_flag(usage->bit);
+}
+
 static char get_usage_char(struct lock_class *class, enum lock_usage_bit bit)
 {
 	char c = '.';
@@ -2410,7 +2415,7 @@ static void check_chain_key(struct task_struct *curr)
 }
 
 static int mark_lock(struct task_struct *curr, struct held_lock *this,
-		     enum lock_usage_bit new_bit);
+		     struct lock_usage *new_usage);
 
 #if defined(CONFIG_TRACE_IRQFLAGS) && defined(CONFIG_PROVE_LOCKING)
 
@@ -2483,7 +2488,6 @@ valid_state(struct task_struct *curr, struct held_lock *this,
 		return print_usage_bug(curr, this, bad_bit, new_bit);
 	return 1;
 }
-
 
 /*
  * print irq inversion bug:
@@ -2650,11 +2654,14 @@ typedef int (*check_usage_f)(struct task_struct *, struct held_lock *,
 
 static int
 mark_lock_irq(struct task_struct *curr, struct held_lock *this,
-		enum lock_usage_bit new_bit)
+	      struct lock_usage *new_usage)
 {
-	int excl_bit = exclusive_bit(new_bit);
-	int read = new_bit & LOCK_USAGE_READ_MASK;
-	int dir = new_bit & LOCK_USAGE_DIR_MASK;
+	struct lock_usage excl_usage = {
+		.bit = exclusive_bit(new_usage->bit),
+		.vector = new_usage->vector
+	};
+	int read = new_usage->bit & LOCK_USAGE_READ_MASK;
+	int dir = new_usage->bit & LOCK_USAGE_DIR_MASK;
 
 	/*
 	 * mark USED_IN has to look forwards -- to ensure no dependency
@@ -2670,7 +2677,7 @@ mark_lock_irq(struct task_struct *curr, struct held_lock *this,
 	 * Validate that this particular lock does not have conflicting
 	 * usage states.
 	 */
-	if (!valid_state(curr, this, new_bit, excl_bit))
+	if (!valid_state(curr, this, new_usage->bit, excl_usage.bit))
 		return 0;
 
 	/*
@@ -2678,23 +2685,24 @@ mark_lock_irq(struct task_struct *curr, struct held_lock *this,
 	 * states.
 	 */
 	if ((!read || !dir || STRICT_READ_CHECKS) &&
-	    !usage(curr, this, BIT(excl_bit), state_name(new_bit & ~LOCK_USAGE_READ_MASK)))
+	    !usage(curr, this, lock_usage_mask(&excl_usage), state_name(new_usage->bit & ~LOCK_USAGE_READ_MASK)))
 		return 0;
 
 	/*
 	 * Check for read in write conflicts
 	 */
 	if (!read) {
-		if (!valid_state(curr, this, new_bit, excl_bit + LOCK_USAGE_READ_MASK))
+		excl_usage.bit += LOCK_USAGE_READ_MASK;
+		if (!valid_state(curr, this, new_usage->bit, excl_usage.bit))
 			return 0;
 
 		if (STRICT_READ_CHECKS &&
-		    !usage(curr, this, BIT(excl_bit + LOCK_USAGE_READ_MASK),
-				state_name(new_bit + LOCK_USAGE_READ_MASK)))
+		    !usage(curr, this, lock_usage_mask(&excl_usage),
+			   state_name(new_usage->bit + LOCK_USAGE_READ_MASK)))
 			return 0;
 	}
 
-	if (state_verbose(new_bit, hlock_class(this)))
+	if (state_verbose(new_usage->bit, hlock_class(this)))
 		return 2;
 
 	return 1;
@@ -2704,24 +2712,24 @@ mark_lock_irq(struct task_struct *curr, struct held_lock *this,
  * Mark all held locks with a usage bit:
  */
 static int
-mark_held_locks(struct task_struct *curr, enum lock_usage_bit base_bit)
+mark_held_locks(struct task_struct *curr, struct lock_usage *base_usage)
 {
 	struct held_lock *hlock;
 	int i;
 
 	for (i = 0; i < curr->lockdep_depth; i++) {
-		enum lock_usage_bit hlock_bit = base_bit;
+		struct lock_usage hlock_usage = *base_usage;
 		hlock = curr->held_locks + i;
 
 		if (hlock->read)
-			hlock_bit += LOCK_USAGE_READ_MASK;
+			hlock_usage.bit += LOCK_USAGE_READ_MASK;
 
-		BUG_ON(hlock_bit >= LOCK_USAGE_STATES);
+		BUG_ON(hlock_usage.bit >= LOCK_USAGE_STATES);
 
 		if (!hlock->check)
 			continue;
 
-		if (!mark_lock(curr, hlock, hlock_bit))
+		if (!mark_lock(curr, hlock, &hlock_usage))
 			return 0;
 	}
 
@@ -2734,6 +2742,7 @@ mark_held_locks(struct task_struct *curr, enum lock_usage_bit base_bit)
 static void __trace_hardirqs_on_caller(unsigned long ip)
 {
 	struct task_struct *curr = current;
+	struct lock_usage usage = { .bit = LOCK_ENABLED_HARDIRQ };
 
 	/* we'll do an OFF -> ON transition: */
 	curr->hardirqs_enabled = 1;
@@ -2742,16 +2751,18 @@ static void __trace_hardirqs_on_caller(unsigned long ip)
 	 * We are going to turn hardirqs on, so set the
 	 * usage bit for all held locks:
 	 */
-	if (!mark_held_locks(curr, LOCK_ENABLED_HARDIRQ))
+	if (!mark_held_locks(curr, &usage))
 		return;
 	/*
 	 * If we have softirqs enabled, then set the usage
 	 * bit for all held locks. (disabled hardirqs prevented
 	 * this bit from being set before)
 	 */
-	if (curr->softirqs_enabled)
-		if (!mark_held_locks(curr, LOCK_ENABLED_SOFTIRQ))
+	if (curr->softirqs_enabled) {
+		usage.bit = LOCK_ENABLED_SOFTIRQ;
+		if (!mark_held_locks(curr, &usage))
 			return;
+	}
 
 	curr->hardirq_enable_ip = ip;
 	curr->hardirq_enable_event = ++curr->irq_events;
@@ -2834,6 +2845,9 @@ void lockdep_hardirqs_off(unsigned long ip)
 void trace_softirqs_on(unsigned long ip)
 {
 	struct task_struct *curr = current;
+	struct lock_usage usage = {
+		.bit = LOCK_ENABLED_SOFTIRQ,
+	};
 
 	if (unlikely(!debug_locks || current->lockdep_recursion))
 		return;
@@ -2864,7 +2878,7 @@ void trace_softirqs_on(unsigned long ip)
 	 * enabled too:
 	 */
 	if (curr->hardirqs_enabled)
-		mark_held_locks(curr, LOCK_ENABLED_SOFTIRQ);
+		mark_held_locks(curr, &usage);
 	current->lockdep_recursion = 0;
 }
 
@@ -2902,46 +2916,55 @@ void trace_softirqs_off(unsigned long ip)
 
 static int mark_irqflags(struct task_struct *curr, struct held_lock *hlock)
 {
+	struct lock_usage usage = { .vector = 0 };
 	/*
 	 * If non-trylock use in a hardirq or softirq context, then
 	 * mark the lock as used in these contexts:
 	 */
 	if (!hlock->trylock) {
 		if (hlock->read) {
-			if (curr->hardirq_context)
-				if (!mark_lock(curr, hlock,
-						LOCK_USED_IN_HARDIRQ_READ))
+			if (curr->hardirq_context) {
+				usage.bit = LOCK_USED_IN_HARDIRQ_READ;
+				if (!mark_lock(curr, hlock, &usage))
 					return 0;
-			if (curr->softirq_context)
-				if (!mark_lock(curr, hlock,
-						LOCK_USED_IN_SOFTIRQ_READ))
+			}
+			if (curr->softirq_context) {
+				usage.bit = LOCK_USED_IN_SOFTIRQ_READ;
+				if (!mark_lock(curr, hlock, &usage))
 					return 0;
+			}
 		} else {
-			if (curr->hardirq_context)
-				if (!mark_lock(curr, hlock, LOCK_USED_IN_HARDIRQ))
+			if (curr->hardirq_context) {
+				usage.bit = LOCK_USED_IN_HARDIRQ;
+				if (!mark_lock(curr, hlock, &usage))
 					return 0;
-			if (curr->softirq_context)
-				if (!mark_lock(curr, hlock, LOCK_USED_IN_SOFTIRQ))
+			}
+			if (curr->softirq_context) {
+				usage.bit = LOCK_USED_IN_SOFTIRQ;
+				if (!mark_lock(curr, hlock, &usage))
 					return 0;
+			}
 		}
 	}
 	if (!hlock->hardirqs_off) {
 		if (hlock->read) {
-			if (!mark_lock(curr, hlock,
-					LOCK_ENABLED_HARDIRQ_READ))
+			usage.bit = LOCK_ENABLED_HARDIRQ_READ;
+			if (!mark_lock(curr, hlock, &usage))
 				return 0;
-			if (curr->softirqs_enabled)
-				if (!mark_lock(curr, hlock,
-						LOCK_ENABLED_SOFTIRQ_READ))
+			if (curr->softirqs_enabled) {
+				usage.bit = LOCK_ENABLED_SOFTIRQ_READ;
+				if (!mark_lock(curr, hlock, &usage))
 					return 0;
+			}
 		} else {
-			if (!mark_lock(curr, hlock,
-					LOCK_ENABLED_HARDIRQ))
+			usage.bit = LOCK_ENABLED_HARDIRQ;
+			if (!mark_lock(curr, hlock, &usage))
 				return 0;
-			if (curr->softirqs_enabled)
-				if (!mark_lock(curr, hlock,
-						LOCK_ENABLED_SOFTIRQ))
+			if (curr->softirqs_enabled) {
+				usage.bit = LOCK_ENABLED_SOFTIRQ;
+				if (!mark_lock(curr, hlock, &usage))
 					return 0;
+			}
 		}
 	}
 
@@ -2980,7 +3003,7 @@ static int separate_irq_context(struct task_struct *curr,
 
 static inline
 int mark_lock_irq(struct task_struct *curr, struct held_lock *this,
-		enum lock_usage_bit new_bit)
+		  struct lock_usage *new_usage)
 {
 	WARN_ON(1); /* Impossible innit? when we don't have TRACE_IRQFLAG */
 	return 1;
@@ -3009,9 +3032,9 @@ static inline int separate_irq_context(struct task_struct *curr,
  * Mark a lock with a usage bit, and validate the state transition:
  */
 static int mark_lock(struct task_struct *curr, struct held_lock *this,
-			     enum lock_usage_bit new_bit)
+		     struct lock_usage *new_usage)
 {
-	unsigned int new_mask = 1 << new_bit, ret = 1;
+	unsigned long new_mask = lock_usage_mask(new_usage), ret = 1;
 
 	/*
 	 * If already set then do not dirty the cacheline,
@@ -3032,10 +3055,10 @@ static int mark_lock(struct task_struct *curr, struct held_lock *this,
 
 	hlock_class(this)->usage_mask |= new_mask;
 
-	if (!save_trace(hlock_class(this)->usage_traces + new_bit))
+	if (!save_trace(hlock_class(this)->usage_traces + new_usage->bit))
 		return 0;
 
-	switch (new_bit) {
+	switch (new_usage->bit) {
 #define LOCKDEP_STATE(__STATE)			\
 	case LOCK_USED_IN_##__STATE:		\
 	case LOCK_USED_IN_##__STATE##_READ:	\
@@ -3043,7 +3066,7 @@ static int mark_lock(struct task_struct *curr, struct held_lock *this,
 	case LOCK_ENABLED_##__STATE##_READ:
 #include "lockdep_states.h"
 #undef LOCKDEP_STATE
-		ret = mark_lock_irq(curr, this, new_bit);
+		ret = mark_lock_irq(curr, this, new_usage);
 		if (!ret)
 			return 0;
 		break;
@@ -3063,7 +3086,7 @@ static int mark_lock(struct task_struct *curr, struct held_lock *this,
 	 * We must printk outside of the graph_lock:
 	 */
 	if (ret == 2) {
-		printk("\nmarked lock as {%s}:\n", usage_str[new_bit]);
+		printk("\nmarked lock as {%s}:\n", usage_str[new_usage->bit]);
 		print_lock(this);
 		print_irqtrace_events(curr);
 		dump_stack();
@@ -3187,6 +3210,7 @@ static int __lock_acquire(struct lockdep_map *lock, unsigned int subclass,
 {
 	struct task_struct *curr = current;
 	struct lock_class *class = NULL;
+	struct lock_usage usage = { .bit = LOCK_USED };
 	struct held_lock *hlock;
 	unsigned int depth;
 	int chain_head = 0;
@@ -3280,7 +3304,7 @@ static int __lock_acquire(struct lockdep_map *lock, unsigned int subclass,
 		return 0;
 
 	/* mark it as used: */
-	if (!mark_lock(curr, hlock, LOCK_USED))
+	if (!mark_lock(curr, hlock, &usage))
 		return 0;
 
 	/*
