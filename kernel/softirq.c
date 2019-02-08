@@ -104,14 +104,14 @@ static bool ksoftirqd_running(unsigned long pending)
  * softirq and whether we just have bh disabled.
  */
 
-#ifdef CONFIG_TRACE_IRQFLAGS
 void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 {
+#ifdef CONFIG_TRACE_IRQFLAGS
 	unsigned long flags;
 
-	WARN_ON_ONCE(in_irq());
-
 	raw_local_irq_save(flags);
+#endif
+	WARN_ON_ONCE(in_irq());
 	/*
 	 * The preempt tracer hooks into preempt_count_add and will break
 	 * lockdep because it calls back into lockdep after SOFTIRQ_OFFSET
@@ -125,7 +125,10 @@ void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 	 */
 	if (softirq_count() == (cnt & SOFTIRQ_MASK))
 		trace_softirqs_off(ip);
+
+#ifdef CONFIG_TRACE_IRQFLAGS
 	raw_local_irq_restore(flags);
+#endif
 
 	if (preempt_count() == cnt) {
 #ifdef CONFIG_DEBUG_PREEMPT
@@ -135,7 +138,6 @@ void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 	}
 }
 EXPORT_SYMBOL(__local_bh_disable_ip);
-#endif /* CONFIG_TRACE_IRQFLAGS */
 
 static void __local_bh_enable_no_softirq(unsigned int cnt)
 {
