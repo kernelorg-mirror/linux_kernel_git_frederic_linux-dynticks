@@ -59,6 +59,12 @@ static struct softirq_action softirq_vec[NR_SOFTIRQS] __cacheline_aligned_in_smp
 
 DEFINE_PER_CPU(struct task_struct *, ksoftirqd);
 
+struct softirq_nesting {
+	unsigned int disabled_all;
+};
+
+static DEFINE_PER_CPU(struct softirq_nesting, softirq_nesting);
+
 const char * const softirq_to_name[NR_SOFTIRQS] = {
 	"HI", "TIMER", "NET_TX", "NET_RX", "BLOCK", "IRQ_POLL",
 	"TASKLET", "SCHED", "HRTIMER", "RCU"
@@ -120,11 +126,11 @@ void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 	 * call the trace_preempt_off later.
 	 */
 	__preempt_count_add(cnt);
-	/*
-	 * Were softirqs turned off above:
-	 */
-	if (softirq_count() == (cnt & SOFTIRQ_MASK))
+
+	if (__this_cpu_inc_return(softirq_nesting.disabled_all) == 1) {
+		softirq_enabled_clear_mask(SOFTIRQ_ALL_MASK);
 		trace_softirqs_off(ip);
+	}
 
 #ifdef CONFIG_TRACE_IRQFLAGS
 	raw_local_irq_restore(flags);
@@ -139,6 +145,15 @@ void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 }
 EXPORT_SYMBOL(__local_bh_disable_ip);
 
+static void local_bh_enable_common(unsigned long ip, unsigned int cnt)
+{
+	if (__this_cpu_dec_return(softirq_nesting.disabled_all))
+		return;
+
+	softirq_enabled_set(SOFTIRQ_ALL_MASK);
+	trace_softirqs_on(ip);
+}
+
 static void __local_bh_enable_no_softirq(unsigned int cnt)
 {
 	lockdep_assert_irqs_disabled();
@@ -146,8 +161,7 @@ static void __local_bh_enable_no_softirq(unsigned int cnt)
 	if (preempt_count() == cnt)
 		trace_preempt_on(CALLER_ADDR0, get_lock_parent_ip());
 
-	if (softirq_count() == (cnt & SOFTIRQ_MASK))
-		trace_softirqs_on(_RET_IP_);
+	local_bh_enable_common(_RET_IP_, cnt);
 
 	__preempt_count_sub(cnt);
 }
@@ -170,11 +184,8 @@ void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
 #ifdef CONFIG_TRACE_IRQFLAGS
 	local_irq_disable();
 #endif
-	/*
-	 * Are softirqs going to be turned on now:
-	 */
-	if (softirq_count() == SOFTIRQ_DISABLE_OFFSET)
-		trace_softirqs_on(ip);
+	local_bh_enable_common(ip, cnt);
+
 	/*
 	 * Keep preemption disabled until we are done with
 	 * softirq processing:
