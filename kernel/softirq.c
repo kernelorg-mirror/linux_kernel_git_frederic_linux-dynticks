@@ -324,6 +324,12 @@ asmlinkage __visible void __softirq_entry __do_softirq(void)
 	bool in_hardirq;
 	__u32 pending, enabled;
 	int softirq_bit;
+	int __preemptsoft = 0;
+
+	if (in_softirq()) {
+		__preemptsoft = 1;
+		trace_dump_stack(0);
+	}
 
 	/*
 	 * Mask out PF_MEMALLOC as the current task context is borrowed for the
@@ -360,6 +366,8 @@ restart:
 
 		lockdep_softirq_enter(vec_nr);
 		trace_softirq_entry(vec_nr);
+		if (__preemptsoft)
+			trace_printk("%pf\n", h->action);
 		h->action(h);
 		trace_softirq_exit(vec_nr);
 		lockdep_softirq_exit(vec_nr);
