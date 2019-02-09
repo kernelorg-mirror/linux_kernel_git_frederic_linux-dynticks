@@ -315,11 +315,31 @@ static ssize_t get_mm_cmdline(struct mm_struct *mm, char __user *buf,
 	return len;
 }
 
+static DEFINE_SPINLOCK(__prout_spinA);
+static DEFINE_SPINLOCK(__prout_spinB);
 static ssize_t get_task_cmdline(struct task_struct *tsk, char __user *buf,
 				size_t count, loff_t *pos)
 {
 	struct mm_struct *mm;
 	ssize_t ret;
+	unsigned int bh;
+
+	local_bh_disable();
+	lockdep_softirq_enter(BLOCK_SOFTIRQ);
+	spin_lock(&__prout_spinA);
+	spin_unlock(&__prout_spinA);
+	lockdep_softirq_exit(BLOCK_SOFTIRQ);
+	local_bh_enable();
+
+	bh = spin_lock_bh_mask(&__prout_spinA, BIT(BLOCK_SOFTIRQ));
+	//spin_lock_bh_mask(&__prout_spinA);
+	spin_lock(&__prout_spinB);
+	spin_unlock(&__prout_spinB);
+	spin_unlock_bh_mask(&__prout_spinA, bh);
+//	spin_unlock_bh(&__prout_spinA);
+
+	spin_lock(&__prout_spinB);
+	spin_unlock(&__prout_spinB);
 
 	mm = get_task_mm(tsk);
 	if (!mm)
