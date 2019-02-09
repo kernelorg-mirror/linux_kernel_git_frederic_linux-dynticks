@@ -35,6 +35,10 @@ static inline void local_bh_disable(void)
 	__local_bh_disable_ip(_THIS_IP_, SOFTIRQ_DISABLE_OFFSET);
 }
 
+extern unsigned int local_bh_disable_mask(unsigned long ip,
+					  unsigned int cnt, unsigned int mask);
+
+
 extern void local_bh_enable_no_softirq(void);
 extern void __local_bh_enable_ip(unsigned long ip, unsigned int cnt);
 
@@ -47,5 +51,8 @@ static inline void local_bh_enable(void)
 {
 	__local_bh_enable_ip(_THIS_IP_, SOFTIRQ_DISABLE_OFFSET);
 }
+
+extern void local_bh_enable_mask(unsigned long ip, unsigned int cnt,
+				 unsigned int mask);
 
 #endif /* _LINUX_BH_H */

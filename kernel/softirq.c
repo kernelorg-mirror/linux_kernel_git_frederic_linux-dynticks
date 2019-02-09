@@ -59,6 +59,7 @@ DEFINE_PER_CPU(struct task_struct *, ksoftirqd);
 
 struct softirq_nesting {
 	unsigned int disabled_all;
+	unsigned int enabled_vector;
 };
 
 static DEFINE_PER_CPU(struct softirq_nesting, softirq_nesting);
@@ -108,8 +109,10 @@ static bool ksoftirqd_running(unsigned long pending)
  * softirq and whether we just have bh disabled.
  */
 
-void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
+static unsigned int local_bh_disable_common(unsigned long ip, unsigned int cnt,
+					    bool per_vec, unsigned int vec_mask)
 {
+	unsigned int enabled;
 #ifdef CONFIG_TRACE_IRQFLAGS
 	unsigned long flags;
 
@@ -125,10 +128,31 @@ void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 	 */
 	__preempt_count_add(cnt);
 
-	if (__this_cpu_inc_return(softirq_nesting.disabled_all) == 1) {
-		softirq_enabled_clear_mask(SOFTIRQ_ALL_MASK);
-		trace_softirqs_off(ip);
-	}
+	enabled = local_softirq_enabled();
+
+	/*
+	 * Handle nesting of full/per-vector masking. Per vector masking
+	 * takes effect only if full masking hasn't taken place yet.
+	 */
+	if (!__this_cpu_read(softirq_nesting.disabled_all)) {
+		if (enabled & vec_mask) {
+			softirq_enabled_clear_mask(vec_mask);
+			if (!local_softirq_enabled())
+				trace_softirqs_off(ip);
+		}
+
+		/*
+		 * Save the state prior to full masking. We'll restore it
+		 * on next non-nesting full unmasking in case some vectors
+		 * have been individually disabled before (case of full masking
+		 * nesting inside per-vector masked code).
+		 */
+		if (!per_vec)
+			__this_cpu_write(softirq_nesting.enabled_vector, enabled);
+        }
+
+	if (!per_vec)
+		__this_cpu_inc(softirq_nesting.disabled_all);
 
 #ifdef CONFIG_TRACE_IRQFLAGS
 	raw_local_irq_restore(flags);
@@ -140,15 +164,38 @@ void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 #endif
 		trace_preempt_off(CALLER_ADDR0, get_lock_parent_ip());
 	}
+
+	return enabled;
+}
+
+void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
+{
+	local_bh_disable_common(ip, cnt, false, SOFTIRQ_ALL_MASK);
 }
 EXPORT_SYMBOL(__local_bh_disable_ip);
 
-static void local_bh_enable_common(unsigned long ip, unsigned int cnt)
+unsigned int local_bh_disable_mask(unsigned long ip, unsigned int cnt,
+				   unsigned int vec_mask)
 {
-	if (__this_cpu_dec_return(softirq_nesting.disabled_all))
-		return;
+	return local_bh_disable_common(ip, cnt, true, vec_mask);
+}
+EXPORT_SYMBOL(local_bh_disable_mask);
 
-	softirq_enabled_set(SOFTIRQ_ALL_MASK);
+static void local_bh_enable_common(unsigned long ip, unsigned int cnt,
+				   bool per_vec, unsigned int mask)
+{
+	/*
+	 * Restore the previous softirq mask state. If this was the last
+	 * full unmasking, restore what was saved.
+	 */
+	if (!per_vec) {
+		if (__this_cpu_dec_return(softirq_nesting.disabled_all))
+			return;
+		else
+			mask = __this_cpu_read(softirq_nesting.enabled_vector);
+	}
+
+	softirq_enabled_set(mask);
 	trace_softirqs_on(ip);
 }
 
@@ -159,7 +206,7 @@ static void __local_bh_enable_no_softirq(unsigned int cnt)
 	if (preempt_count() == cnt)
 		trace_preempt_on(CALLER_ADDR0, get_lock_parent_ip());
 
-	local_bh_enable_common(_RET_IP_, cnt);
+	local_bh_enable_common(_RET_IP_, cnt, false, SOFTIRQ_ALL_MASK);
 
 	__preempt_count_sub(cnt);
 }
@@ -175,14 +222,15 @@ void local_bh_enable_no_softirq(void)
 }
 EXPORT_SYMBOL(local_bh_enable_no_softirq);
 
-void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
+static void local_bh_enable_ip_mask(unsigned long ip, unsigned int cnt,
+				    bool per_vec, unsigned int mask)
 {
 	WARN_ON_ONCE(in_irq());
 	lockdep_assert_irqs_enabled();
 #ifdef CONFIG_TRACE_IRQFLAGS
 	local_irq_disable();
 #endif
-	local_bh_enable_common(ip, cnt);
+	local_bh_enable_common(ip, cnt, per_vec, mask);
 
 	/*
 	 * Keep preemption disabled until we are done with
@@ -204,7 +252,20 @@ void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
 #endif
 	preempt_check_resched();
 }
+
+void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
+{
+	local_bh_enable_ip_mask(ip, cnt, false, SOFTIRQ_ALL_MASK);
+}
 EXPORT_SYMBOL(__local_bh_enable_ip);
+
+void local_bh_enable_mask(unsigned long ip, unsigned int cnt,
+			  unsigned int mask)
+{
+	local_bh_enable_ip_mask(ip, cnt, true, mask);
+}
+EXPORT_SYMBOL(local_bh_enable_mask);
+
 
 /*
  * We restart softirq processing for at most MAX_SOFTIRQ_RESTART times,
