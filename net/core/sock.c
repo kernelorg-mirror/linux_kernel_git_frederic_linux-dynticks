@@ -2795,7 +2795,11 @@ EXPORT_SYMBOL(lock_sock_nested);
 
 void release_sock(struct sock *sk)
 {
-	spin_lock_bh(&sk->sk_lock.slock);
+	unsigned int bh;
+
+	bh = spin_lock_bh_mask(&sk->sk_lock.slock,
+			       BIT(NET_RX_SOFTIRQ) | BIT(TIMER_SOFTIRQ) |
+			       BIT(HRTIMER_SOFTIRQ) | BIT(TASKLET_SOFTIRQ));
 	if (sk->sk_backlog.tail)
 		__release_sock(sk);
 
@@ -2808,7 +2812,7 @@ void release_sock(struct sock *sk)
 	sock_release_ownership(sk);
 	if (waitqueue_active(&sk->sk_lock.wq))
 		wake_up(&sk->sk_lock.wq);
-	spin_unlock_bh(&sk->sk_lock.slock);
+	spin_unlock_bh_mask(&sk->sk_lock.slock, bh);
 }
 EXPORT_SYMBOL(release_sock);
 
