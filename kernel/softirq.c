@@ -238,7 +238,7 @@ static void local_bh_enable_ip_mask(unsigned long ip, unsigned int cnt,
 	 */
 	preempt_count_sub(cnt - 1);
 
-	if (unlikely(!in_interrupt() && softirq_pending_enabled())) {
+	if (unlikely(softirq_pending_enabled())) {
 		/*
 		 * Run softirq if any pending. And do it in its own stack
 		 * as we may be calling this deep in a task call stack already.
@@ -388,7 +388,7 @@ restart:
 	lockdep_softirq_end(in_hardirq);
 	account_irq_exit_time(current);
 	__local_bh_enable_no_softirq(SOFTIRQ_OFFSET);
-	WARN_ON_ONCE(in_interrupt());
+	WARN_ON_ONCE(in_irq());
 	current_restore_flags(old_flags, PF_MEMALLOC);
 }
 
@@ -397,7 +397,7 @@ asmlinkage __visible void do_softirq(void)
 	__u32 pending;
 	unsigned long flags;
 
-	if (in_interrupt())
+	if (in_irq())
 		return;
 
 	local_irq_save(flags);
@@ -480,7 +480,7 @@ void irq_exit(void)
 #endif
 	account_irq_exit_time(current);
 	preempt_count_sub(HARDIRQ_OFFSET);
-	if (!in_interrupt() && softirq_pending_enabled())
+	if (!in_irq() && softirq_pending_enabled())
 		invoke_softirq();
 
 	tick_irq_exit();
@@ -504,7 +504,7 @@ inline void raise_softirq_irqoff(unsigned int nr)
 	 * Otherwise we wake up ksoftirqd to make sure we
 	 * schedule the softirq soon.
 	 */
-	if (!in_interrupt())
+	if (!in_irq())
 		wakeup_softirqd();
 }
 
