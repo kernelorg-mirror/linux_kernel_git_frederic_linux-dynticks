@@ -2879,6 +2879,7 @@ static void __trace_hardirqs_on_caller(unsigned long ip)
 	 */
 	if (curr->softirqs_enabled) {
 		usage.bit = LOCK_ENABLED_SOFTIRQ;
+		usage.vector = local_softirq_enabled();
 		if (!mark_held_locks(curr, &usage))
 			return;
 	}
@@ -2966,6 +2967,7 @@ void trace_softirqs_on(unsigned long ip)
 	struct task_struct *curr = current;
 	struct lock_usage usage = {
 		.bit = LOCK_ENABLED_SOFTIRQ,
+		.vector = local_softirq_enabled()
 	};
 
 	if (unlikely(!debug_locks || current->lockdep_recursion))
@@ -3030,7 +3032,7 @@ void trace_softirqs_off(unsigned long ip)
 
 static int mark_irqflags(struct task_struct *curr, struct held_lock *hlock)
 {
-	struct lock_usage usage = { .vector = 0 };
+	struct lock_usage usage;
 	/*
 	 * If non-trylock use in a hardirq or softirq context, then
 	 * mark the lock as used in these contexts:
@@ -3039,22 +3041,26 @@ static int mark_irqflags(struct task_struct *curr, struct held_lock *hlock)
 		if (hlock->read) {
 			if (curr->hardirq_context) {
 				usage.bit = LOCK_USED_IN_HARDIRQ_READ;
+				usage.vector = 0;
 				if (!mark_lock(curr, hlock, &usage))
 					return 0;
 			}
 			if (curr->softirq_context) {
 				usage.bit = LOCK_USED_IN_SOFTIRQ_READ;
+				usage.vector = curr->softirq_context;
 				if (!mark_lock(curr, hlock, &usage))
 					return 0;
 			}
 		} else {
 			if (curr->hardirq_context) {
 				usage.bit = LOCK_USED_IN_HARDIRQ;
+				usage.vector = 0;
 				if (!mark_lock(curr, hlock, &usage))
 					return 0;
 			}
 			if (curr->softirq_context) {
 				usage.bit = LOCK_USED_IN_SOFTIRQ;
+				usage.vector = curr->softirq_context;
 				if (!mark_lock(curr, hlock, &usage))
 					return 0;
 			}
@@ -3063,19 +3069,23 @@ static int mark_irqflags(struct task_struct *curr, struct held_lock *hlock)
 	if (!hlock->hardirqs_off) {
 		if (hlock->read) {
 			usage.bit = LOCK_ENABLED_HARDIRQ_READ;
+			usage.vector = 0;
 			if (!mark_lock(curr, hlock, &usage))
 				return 0;
 			if (curr->softirqs_enabled) {
 				usage.bit = LOCK_ENABLED_SOFTIRQ_READ;
+				usage.vector = local_softirq_enabled();
 				if (!mark_lock(curr, hlock, &usage))
 					return 0;
 			}
 		} else {
 			usage.bit = LOCK_ENABLED_HARDIRQ;
+			usage.vector = 0;
 			if (!mark_lock(curr, hlock, &usage))
 				return 0;
 			if (curr->softirqs_enabled) {
 				usage.bit = LOCK_ENABLED_SOFTIRQ;
+				usage.vector = local_softirq_enabled();
 				if (!mark_lock(curr, hlock, &usage))
 					return 0;
 			}
