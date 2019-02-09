@@ -33,6 +33,13 @@
 #define __LOCK_BH(lock) \
   do { __local_bh_disable_ip(_THIS_IP_, SOFTIRQ_LOCK_OFFSET); ___LOCK(lock); } while (0)
 
+#define __LOCK_BH_MASK(lock, mask) ({							\
+	unsigned int ____old_mask;							\
+	____old_mask = local_bh_disable_mask(_THIS_IP_, SOFTIRQ_LOCK_OFFSET, mask);	\
+	___LOCK(lock);									\
+	____old_mask;									\
+})
+
 #define __LOCK_IRQ(lock) \
   do { local_irq_disable(); __LOCK(lock); } while (0)
 
@@ -49,6 +56,10 @@
   do { __local_bh_enable_ip(_THIS_IP_, SOFTIRQ_LOCK_OFFSET); \
        ___UNLOCK(lock); } while (0)
 
+#define __UNLOCK_BH_MASK(lock, mask)				   \
+  do { local_bh_enable_mask(_THIS_IP_, SOFTIRQ_LOCK_OFFSET, mask); \
+       ___UNLOCK(lock); } while (0)
+
 #define __UNLOCK_IRQ(lock) \
   do { local_irq_enable(); __UNLOCK(lock); } while (0)
 
@@ -60,6 +71,7 @@
 #define _raw_read_lock(lock)			__LOCK(lock)
 #define _raw_write_lock(lock)			__LOCK(lock)
 #define _raw_spin_lock_bh(lock)			__LOCK_BH(lock)
+#define _raw_spin_lock_bh_mask(lock, mask)	__LOCK_BH_MASK(lock, mask)
 #define _raw_read_lock_bh(lock)			__LOCK_BH(lock)
 #define _raw_write_lock_bh(lock)		__LOCK_BH(lock)
 #define _raw_spin_lock_irq(lock)		__LOCK_IRQ(lock)
@@ -76,6 +88,7 @@
 #define _raw_read_unlock(lock)			__UNLOCK(lock)
 #define _raw_write_unlock(lock)			__UNLOCK(lock)
 #define _raw_spin_unlock_bh(lock)		__UNLOCK_BH(lock)
+#define _raw_spin_unlock_bh_mask(lock, mask)	__UNLOCK_BH_MASK(lock, mask)
 #define _raw_write_unlock_bh(lock)		__UNLOCK_BH(lock)
 #define _raw_read_unlock_bh(lock)		__UNLOCK_BH(lock)
 #define _raw_spin_unlock_irq(lock)		__UNLOCK_IRQ(lock)

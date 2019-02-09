@@ -26,6 +26,8 @@ void __lockfunc
 _raw_spin_lock_nest_lock(raw_spinlock_t *lock, struct lockdep_map *map)
 								__acquires(lock);
 void __lockfunc _raw_spin_lock_bh(raw_spinlock_t *lock)		__acquires(lock);
+unsigned int __lockfunc
+_raw_spin_lock_bh_mask(raw_spinlock_t *lock, unsigned int mask)	__acquires(lock);
 void __lockfunc _raw_spin_lock_irq(raw_spinlock_t *lock)
 								__acquires(lock);
 
@@ -38,6 +40,9 @@ int __lockfunc _raw_spin_trylock(raw_spinlock_t *lock);
 int __lockfunc _raw_spin_trylock_bh(raw_spinlock_t *lock);
 void __lockfunc _raw_spin_unlock(raw_spinlock_t *lock)		__releases(lock);
 void __lockfunc _raw_spin_unlock_bh(raw_spinlock_t *lock)	__releases(lock);
+void __lockfunc
+_raw_spin_unlock_bh_mask(raw_spinlock_t *lock, unsigned int mask)
+								__releases(lock);
 void __lockfunc _raw_spin_unlock_irq(raw_spinlock_t *lock)	__releases(lock);
 void __lockfunc
 _raw_spin_unlock_irqrestore(raw_spinlock_t *lock, unsigned long flags)
@@ -136,6 +141,19 @@ static inline void __raw_spin_lock_bh(raw_spinlock_t *lock)
 	LOCK_CONTENDED(lock, do_raw_spin_trylock, do_raw_spin_lock);
 }
 
+static inline unsigned int __raw_spin_lock_bh_mask(raw_spinlock_t *lock,
+						   unsigned int mask)
+{
+	unsigned int old_mask;
+
+	old_mask = local_bh_disable_mask(_RET_IP_, SOFTIRQ_LOCK_OFFSET, mask);
+	spin_acquire(&lock->dep_map, 0, 0, _RET_IP_);
+	LOCK_CONTENDED(lock, do_raw_spin_trylock, do_raw_spin_lock);
+
+	return old_mask;
+}
+
+
 static inline void __raw_spin_lock(raw_spinlock_t *lock)
 {
 	preempt_disable();
@@ -174,6 +192,14 @@ static inline void __raw_spin_unlock_bh(raw_spinlock_t *lock)
 	spin_release(&lock->dep_map, 1, _RET_IP_);
 	do_raw_spin_unlock(lock);
 	__local_bh_enable_ip(_RET_IP_, SOFTIRQ_LOCK_OFFSET);
+}
+
+static inline void __raw_spin_unlock_bh_mask(raw_spinlock_t *lock,
+					     unsigned int mask)
+{
+	spin_release(&lock->dep_map, 1, _RET_IP_);
+	do_raw_spin_unlock(lock);
+	local_bh_enable_mask(_RET_IP_, SOFTIRQ_LOCK_OFFSET, mask);
 }
 
 static inline int __raw_spin_trylock_bh(raw_spinlock_t *lock)
