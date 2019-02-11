@@ -3909,13 +3909,8 @@ static void check_flags(unsigned long flags)
 	 * check if not in hardirq contexts:
 	 */
 	if (!hardirq_count()) {
-		if (softirq_count()) {
-			/* like the above, but with softirqs */
-			DEBUG_LOCKS_WARN_ON(current->softirqs_enabled);
-		} else {
-			/* lick the above, does it taste good? */
+		if (!softirq_count())
 			DEBUG_LOCKS_WARN_ON(!current->softirqs_enabled);
-		}
 	}
 
 	if (!debug_locks)
