@@ -104,10 +104,6 @@ static bool ksoftirqd_running(unsigned long pending)
  * softirq and whether we just have bh disabled.
  */
 
-/*
- * This one is for softirq.c-internal use,
- * where hardirqs are disabled legitimately:
- */
 #ifdef CONFIG_TRACE_IRQFLAGS
 void __local_bh_disable_ip(unsigned long ip, unsigned int cnt)
 {
