@@ -186,7 +186,6 @@ struct lockdep_stats {
 	int	redundant_hardirqs_off;
 	int	softirqs_on_events;
 	int	softirqs_off_events;
-	int	redundant_softirqs_on;
 	int	redundant_softirqs_off;
 	int	nr_unused_locks;
 	int	nr_redundant_checks;
