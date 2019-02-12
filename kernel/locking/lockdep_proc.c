@@ -169,7 +169,7 @@ static void lockdep_stats_debug_show(struct seq_file *m)
 			   hr2 = debug_atomic_read(redundant_hardirqs_off),
 			   si1 = debug_atomic_read(softirqs_on_events),
 			   si2 = debug_atomic_read(softirqs_off_events),
-			   sr1 = debug_atomic_read(redundant_softirqs_on),
+			   sr1 = 0,
 			   sr2 = debug_atomic_read(redundant_softirqs_off);
 
 	seq_printf(m, " chain lookup misses:           %11llu\n",
