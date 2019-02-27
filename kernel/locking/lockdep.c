@@ -463,6 +463,23 @@ const char * __get_key_name(struct lockdep_subclass_key *key, char *str)
 	return kallsyms_lookup((unsigned long)key, NULL, NULL, NULL, str);
 }
 
+static u64 mask_iter(u64 *mask, int *bit)
+{
+	u64 old_mask = *mask;
+
+	if (old_mask) {
+		long fs = __ffs64(old_mask);
+		*bit += fs;
+		*mask >>= fs;
+		*mask >>= 1;
+	}
+
+	return old_mask;
+}
+
+#define for_each_bit_nr(mask, bit)	\
+	for (bit = 0; mask_iter(&mask, &bit); bit++)
+
 static inline u64 lock_flag(enum lock_usage_bit bit)
 {
 	return BIT_ULL(bit);
