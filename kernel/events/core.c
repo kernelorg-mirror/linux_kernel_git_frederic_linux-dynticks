@@ -1689,6 +1689,9 @@ list_add_event(struct perf_event *event, struct perf_event_context *ctx)
 		ctx->nr_stat++;
 
 	ctx->generation++;
+
+	if (event->pmu->pin_ctx)
+		ctx->pin_count++;
 }
 
 /*
@@ -1885,6 +1888,9 @@ list_del_event(struct perf_event *event, struct perf_event_context *ctx)
 		perf_event_set_state(event, PERF_EVENT_STATE_OFF);
 
 	ctx->generation++;
+
+	if (event->pmu->pin_ctx)
+		ctx->pin_count--;
 }
 
 static void perf_group_detach(struct perf_event *event)
