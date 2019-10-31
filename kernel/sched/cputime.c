@@ -1037,9 +1037,38 @@ static int kcpustat_field_vtime(u64 *cpustat,
 
 		*val = cpustat[usage];
 
-		if (vtime->state == VTIME_SYS)
-			*val += vtime->stime + vtime_delta(vtime);
-
+		switch (usage) {
+		case CPUTIME_SYSTEM:
+			if (vtime->state == VTIME_SYS)
+				*val += vtime->stime + vtime_delta(vtime);
+			break;
+		case CPUTIME_USER:
+			if (!vtime->nice) {
+				if (vtime->state == VTIME_USER)
+					*val += vtime->utime + vtime_delta(vtime);
+				else if (vtime->state == VTIME_GUEST)
+					*val += vtime->gtime + vtime_delta(vtime);
+			}
+			break;
+		case CPUTIME_NICE:
+			if (vtime->nice) {
+				if (vtime->state == VTIME_USER)
+					*val += vtime->utime + vtime_delta(vtime);
+				else if (vtime->state == VTIME_GUEST)
+					*val += vtime->gtime + vtime_delta(vtime);
+			}
+			break;
+		case CPUTIME_GUEST:
+			if (vtime->state == VTIME_GUEST && !vtime->nice)
+				*val += vtime->gtime + vtime_delta(vtime);
+			break;
+		case CPUTIME_GUEST_NICE:
+			if (vtime->state == VTIME_GUEST && vtime->nice)
+				*val += vtime->gtime + vtime_delta(vtime);
+			break;
+		default:
+			break;
+		}
 	} while (read_seqcount_retry(&vtime->seqcount, seq));
 
 	return 0;
@@ -1054,10 +1083,6 @@ u64 kcpustat_field(struct kernel_cpustat *kcpustat,
 	int err;
 
 	if (!vtime_accounting_enabled_cpu(cpu))
-		return cpustat[usage];
-
-	/* Only support sys vtime for now */
-	if (usage != CPUTIME_SYSTEM)
 		return cpustat[usage];
 
 	rq = cpu_rq(cpu);
