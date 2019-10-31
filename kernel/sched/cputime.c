@@ -912,6 +912,30 @@ void task_cputime(struct task_struct *t, u64 *utime, u64 *stime)
 	} while (read_seqcount_retry(&vtime->seqcount, seq));
 }
 
+static int vtime_state_check(struct vtime *vtime, int cpu)
+{
+	/*
+	 * We raced against context switch, fetch the
+	 * kcpustat task again.
+	 */
+	if (vtime->cpu != cpu && vtime->cpu != -1)
+		return -EAGAIN;
+
+	/*
+	 * Two possible things here:
+	 * 1) We are seeing the scheduling out task (prev) or any past one.
+	 * 2) We are seeing the scheduling in task (next) but it hasn't
+	 *    passed though vtime_task_switch() yet so the pending
+	 *    cputime of the prev task may not be flushed yet.
+	 *
+	 * Case 1) is ok but 2) is not. So wait for a safe VTIME state.
+	 */
+	if (vtime->state == VTIME_INACTIVE)
+		return -EAGAIN;
+
+	return 0;
+}
+
 static u64 kcpustat_user_vtime(struct vtime *vtime)
 {
 	if (vtime->state == VTIME_USER)
@@ -933,26 +957,9 @@ static int kcpustat_field_vtime(u64 *cpustat,
 	do {
 		seq = read_seqcount_begin(&vtime->seqcount);
 
-		/*
-		 * We raced against context switch, fetch the
-		 * kcpustat task again.
-		 */
-		if (vtime->cpu != cpu && vtime->cpu != -1)
-			return -EAGAIN;
-
-		/*
-		 * Two possible things here:
-		 * 1) We are seeing the scheduling out task (prev) or any past one.
-		 * 2) We are seeing the scheduling in task (next) but it hasn't
-		 *    passed though vtime_task_switch() yet so the pending
-		 *    cputime of the prev task may not be flushed yet.
-		 *
-		 * Case 1) is ok but 2) is not. So wait for a safe VTIME state.
-		 */
-		if (vtime->state == VTIME_INACTIVE)
-			return -EAGAIN;
-
-		err = 0;
+		err = vtime_state_check(vtime, cpu);
+		if (err < 0)
+			return err;
 
 		*val = cpustat[usage];
 
@@ -1024,4 +1031,96 @@ u64 kcpustat_field(struct kernel_cpustat *kcpustat,
 	}
 }
 EXPORT_SYMBOL_GPL(kcpustat_field);
+
+static int kcpustat_cputime_vtime(u64 *cpustat, struct task_struct *tsk,
+				  int cpu, u64 *user, u64 *nice,
+				  u64 *system, u64 *guest, u64 *guest_nice)
+{
+	struct vtime *vtime = &tsk->vtime;
+	unsigned int seq;
+	u64 delta;
+	int err;
+
+	do {
+		seq = read_seqcount_begin(&vtime->seqcount);
+
+		err = vtime_state_check(vtime, cpu);
+		if (err < 0)
+			return err;
+
+		kcpustat_cputime_raw(cpustat, user, nice,
+				     system, guest, guest_nice);
+
+		/* Task is sleeping, dead or idle, nothing to add */
+		if (vtime->state < VTIME_SYS)
+			continue;
+
+		delta = vtime_delta(vtime);
+
+		/*
+		 * Task runs either in user (including guest) or kernel space,
+		 * add pending nohz time to the right place.
+		 */
+		if (vtime->state == VTIME_SYS) {
+			*system += vtime->stime + delta;
+		} else if (vtime->state == VTIME_USER) {
+			if (task_nice(tsk) > 0)
+				*nice += vtime->utime + delta;
+			else
+				*user += vtime->utime + delta;
+		} else {
+			WARN_ON_ONCE(vtime->state != VTIME_GUEST);
+			if (task_nice(tsk) > 0) {
+				*guest_nice += vtime->gtime + delta;
+				*nice += vtime->gtime + delta;
+			} else {
+				*guest += vtime->gtime + delta;
+				*user += vtime->gtime + delta;
+			}
+		}
+	} while (read_seqcount_retry(&vtime->seqcount, seq));
+
+	return err;
+}
+
+void kcpustat_cputime(struct kernel_cpustat *kcpustat, int cpu,
+		      u64 *user, u64 *nice, u64 *system,
+		      u64 *guest, u64 *guest_nice)
+{
+	u64 *cpustat = kcpustat->cpustat;
+	struct rq *rq;
+	int err;
+
+	if (!vtime_accounting_enabled_cpu(cpu)) {
+		kcpustat_cputime_raw(cpustat, user, nice,
+				     system, guest, guest_nice);
+		return;
+	}
+
+	rq = cpu_rq(cpu);
+
+	for (;;) {
+		struct task_struct *curr;
+
+		rcu_read_lock();
+		curr = rcu_dereference(rq->curr);
+		if (WARN_ON_ONCE(!curr)) {
+			rcu_read_unlock();
+			kcpustat_cputime_raw(cpustat, user, nice,
+					     system, guest, guest_nice);
+			return;
+		}
+
+		err = kcpustat_cputime_vtime(cpustat, curr, cpu, user,
+					     nice, system, guest, guest_nice);
+		rcu_read_unlock();
+
+		if (!err)
+			return;
+
+		cpu_relax();
+	}
+}
+EXPORT_SYMBOL_GPL(kcpustat_cputime);
+
 #endif /* CONFIG_VIRT_CPU_ACCOUNTING_GEN */
