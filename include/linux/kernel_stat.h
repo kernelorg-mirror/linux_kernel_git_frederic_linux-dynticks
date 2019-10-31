@@ -78,15 +78,38 @@ static inline unsigned int kstat_cpu_irqs_sum(unsigned int cpu)
 	return kstat_cpu(cpu).irqs_sum;
 }
 
+
+static inline void kcpustat_cputime_raw(u64 *cpustat, u64 *user, u64 *nice,
+					u64 *system, u64 *guest, u64 *guest_nice)
+{
+	*user = cpustat[CPUTIME_USER];
+	*nice = cpustat[CPUTIME_NICE];
+	*system = cpustat[CPUTIME_SYSTEM];
+	*guest = cpustat[CPUTIME_GUEST];
+	*guest_nice = cpustat[CPUTIME_GUEST_NICE];
+}
+
 #ifdef CONFIG_VIRT_CPU_ACCOUNTING_GEN
 extern u64 kcpustat_field(struct kernel_cpustat *kcpustat,
 			  enum cpu_usage_stat usage, int cpu);
+extern void kcpustat_cputime(struct kernel_cpustat *kcpustat, int cpu,
+			     u64 *user, u64 *nice, u64 *system,
+			     u64 *guest, u64 *guest_nice);
 #else
 static inline u64 kcpustat_field(struct kernel_cpustat *kcpustat,
 				 enum cpu_usage_stat usage, int cpu)
 {
 	return kcpustat->cpustat[usage];
 }
+
+static inline void kcpustat_cputime(struct kernel_cpustat *kcpustat, int cpu,
+				    u64 *user, u64 *nice, u64 *system,
+				    u64 *guest, u64 *guest_nice)
+{
+	kcpustat_cputime_raw(kcpustat->cpustat, user, nice,
+			     system, guest, guest_nice);
+}
+
 #endif
 
 extern void account_user_time(struct task_struct *, u64);
