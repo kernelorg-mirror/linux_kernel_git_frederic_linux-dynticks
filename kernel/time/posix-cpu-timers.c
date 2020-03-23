@@ -1126,9 +1126,9 @@ void run_posix_cpu_timers(void)
 	if (!fastpath_timer_check(tsk))
 		return;
 
-	lockdep_posixtimer_enter();
+	trace_hardirq_threadable();
 	if (!lock_task_sighand(tsk, &flags)) {
-		lockdep_posixtimer_exit();
+		trace_hardirq_unthreadable();
 		return;
 	}
 	/*
@@ -1172,7 +1172,7 @@ void run_posix_cpu_timers(void)
 			cpu_timer_fire(timer);
 		spin_unlock(&timer->it_lock);
 	}
-	lockdep_posixtimer_exit();
+	trace_hardirq_unthreadable();
 }
 
 /*
