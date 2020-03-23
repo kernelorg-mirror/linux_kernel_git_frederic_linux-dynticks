@@ -1126,6 +1126,7 @@ void run_posix_cpu_timers(void)
 	if (!fastpath_timer_check(tsk))
 		return;
 
+	/* Should be offloaded to task_work at some future */
 	trace_hardirq_threadable();
 	if (!lock_task_sighand(tsk, &flags)) {
 		trace_hardirq_unthreadable();
