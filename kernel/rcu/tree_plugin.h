@@ -1909,7 +1909,7 @@ static void do_nocb_bypass_wakeup_timer(struct timer_list *t)
 	struct rcu_data *rdp = from_timer(rdp, t, nocb_bypass_timer);
 
 	trace_rcu_nocb_wake(rcu_state.name, rdp->cpu, TPS("Timer"));
-	rcu_nocb_lock_irqsave(rdp, flags);
+	raw_spin_lock_irqsave(&rdp->nocb_lock, flags);
 	smp_mb__after_spinlock(); /* Timer expire before wakeup. */
 	__call_rcu_nocb_wake(rdp, true, flags);
 }
@@ -1942,7 +1942,7 @@ static void nocb_gp_wait(struct rcu_data *my_rdp)
 	 */
 	for (rdp = my_rdp; rdp; rdp = rdp->nocb_next_cb_rdp) {
 		trace_rcu_nocb_wake(rcu_state.name, rdp->cpu, TPS("Check"));
-		rcu_nocb_lock_irqsave(rdp, flags);
+		raw_spin_lock_irqsave(&rdp->nocb_lock, flags);
 		bypass_ncbs = rcu_cblist_n_cbs(&rdp->nocb_bypass);
 		if (bypass_ncbs &&
 		    (time_after(j, READ_ONCE(rdp->nocb_bypass_first) + 1) ||
@@ -1951,7 +1951,7 @@ static void nocb_gp_wait(struct rcu_data *my_rdp)
 			(void)rcu_nocb_try_flush_bypass(rdp, j);
 			bypass_ncbs = rcu_cblist_n_cbs(&rdp->nocb_bypass);
 		} else if (!bypass_ncbs && rcu_segcblist_empty(&rdp->cblist)) {
-			rcu_nocb_unlock_irqrestore(rdp, flags);
+			raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
 			continue; /* No callbacks here, try next. */
 		}
 		if (bypass_ncbs) {
@@ -1996,7 +1996,7 @@ static void nocb_gp_wait(struct rcu_data *my_rdp)
 		} else {
 			needwake = false;
 		}
-		rcu_nocb_unlock_irqrestore(rdp, flags);
+		raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
 		if (needwake) {
 			swake_up_one(&rdp->nocb_cb_wq);
 			gotcbs = true;
@@ -2084,7 +2084,7 @@ static void nocb_cb_wait(struct rcu_data *rdp)
 	rcu_do_batch(rdp);
 	local_bh_enable();
 	lockdep_assert_irqs_enabled();
-	rcu_nocb_lock_irqsave(rdp, flags);
+	raw_spin_lock_irqsave(&rdp->nocb_lock, flags);
 	if (rcu_segcblist_nextgp(&rdp->cblist, &cur_gp_seq) &&
 	    rcu_seq_done(&rnp->gp_seq, cur_gp_seq) &&
 	    raw_spin_trylock_rcu_node(rnp)) { /* irqs already disabled. */
@@ -2092,7 +2092,7 @@ static void nocb_cb_wait(struct rcu_data *rdp)
 		raw_spin_unlock_rcu_node(rnp); /* irqs remain disabled. */
 	}
 	if (rcu_segcblist_ready_cbs(&rdp->cblist)) {
-		rcu_nocb_unlock_irqrestore(rdp, flags);
+		raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
 		if (needwake_gp)
 			rcu_gp_kthread_wake();
 		return;
@@ -2100,7 +2100,7 @@ static void nocb_cb_wait(struct rcu_data *rdp)
 
 	trace_rcu_nocb_wake(rcu_state.name, rdp->cpu, TPS("CBSleep"));
 	WRITE_ONCE(rdp->nocb_cb_sleep, true);
-	rcu_nocb_unlock_irqrestore(rdp, flags);
+	raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
 	if (needwake_gp)
 		rcu_gp_kthread_wake();
 	swait_event_interruptible_exclusive(rdp->nocb_cb_wq,
