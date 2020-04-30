@@ -166,6 +166,7 @@ void rcu_segcblist_disable(struct rcu_segcblist *rsclp)
 	rsclp->enabled = 0;
 }
 
+#ifdef CONFIG_RCU_NOCB_CPU
 /*
  * Mark the specified rcu_segcblist structure as offloaded.  This
  * structure must be empty.
@@ -174,6 +175,7 @@ void rcu_segcblist_offload(struct rcu_segcblist *rsclp)
 {
 	rsclp->offloaded = 1;
 }
+#endif
 
 /*
  * Does the specified rcu_segcblist structure contain callbacks that

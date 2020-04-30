@@ -73,7 +73,9 @@ struct rcu_segcblist {
 	long len;
 #endif
 	u8 enabled;
+#ifdef CONFIG_RCU_NOCB_CPU
 	u8 offloaded;
+#endif
 };
 
 #define RCU_SEGCBLIST_INITIALIZER(n) \
