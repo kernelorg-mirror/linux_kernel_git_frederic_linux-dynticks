@@ -3680,7 +3680,6 @@ void rcutree_migrate_callbacks(int cpu)
 		raw_spin_unlock_rcu_node(my_rnp); /* irqs remain disabled. */
 		__call_rcu_nocb_wake(my_rdp, true, flags);
 	} else {
-		rcu_nocb_unlock(my_rdp); /* irqs remain disabled. */
 		raw_spin_unlock_irqrestore_rcu_node(my_rnp, flags);
 	}
 	if (needwake)
