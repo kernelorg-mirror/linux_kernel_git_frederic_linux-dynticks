@@ -1943,6 +1943,10 @@ static void nocb_gp_wait(struct rcu_data *my_rdp)
 	for (rdp = my_rdp; rdp; rdp = rdp->nocb_next_cb_rdp) {
 		trace_rcu_nocb_wake(rcu_state.name, rdp->cpu, TPS("Check"));
 		raw_spin_lock_irqsave(&rdp->nocb_lock, flags);
+		if (!rcu_segcblist_is_offloaded(&rdp->cblist)) {
+			raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
+			continue;
+		}
 		bypass_ncbs = rcu_cblist_n_cbs(&rdp->nocb_bypass);
 		if (bypass_ncbs &&
 		    (time_after(j, READ_ONCE(rdp->nocb_bypass_first) + 1) ||
@@ -2176,6 +2180,50 @@ static void do_nocb_deferred_wakeup(struct rcu_data *rdp)
 		do_nocb_deferred_wakeup_common(rdp);
 }
 
+static void __rcu_nocb_rdp_deoffload(struct rcu_data *rdp)
+{
+	unsigned long flags;
+	struct rcu_node *rnp = rdp->mynode;
+
+	printk("De-offloading %d\n", rdp->cpu);
+	kthread_park(rdp->nocb_cb_kthread);
+
+	raw_spin_lock_irqsave(&rdp->nocb_lock, flags);
+	rcu_nocb_flush_bypass(rdp, NULL, jiffies);
+	raw_spin_lock_rcu_node(rnp);
+	rcu_segcblist_offload(&rdp->cblist, false);
+	raw_spin_unlock_rcu_node(rnp);
+	raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
+}
+
+static long rcu_nocb_rdp_deoffload(void *arg)
+{
+	struct rcu_data *rdp = arg;
+
+	WARN_ON_ONCE(rdp->cpu != raw_smp_processor_id());
+	__rcu_nocb_rdp_deoffload(rdp);
+
+	return 0;
+}
+
+void rcu_nocb_cpu_deoffload(int cpu)
+{
+	struct rcu_data *rdp = per_cpu_ptr(&rcu_data, cpu);
+
+	mutex_lock(&rcu_state.barrier_mutex);
+	cpus_read_lock();
+	if (rcu_segcblist_is_offloaded(&rdp->cblist)) {
+		if (cpu_online(cpu)) {
+			work_on_cpu(cpu, rcu_nocb_rdp_deoffload, rdp);
+		} else {
+			__rcu_nocb_rdp_deoffload(rdp);
+		}
+		cpumask_clear_cpu(cpu, rcu_nocb_mask);
+	}
+	cpus_read_unlock();
+	mutex_unlock(&rcu_state.barrier_mutex);
+}
+
 void __init rcu_init_nohz(void)
 {
 	int cpu;
@@ -2218,7 +2266,7 @@ void __init rcu_init_nohz(void)
 		rdp = per_cpu_ptr(&rcu_data, cpu);
 		if (rcu_segcblist_empty(&rdp->cblist))
 			rcu_segcblist_init(&rdp->cblist);
-		rcu_segcblist_offload(&rdp->cblist);
+		rcu_segcblist_offload(&rdp->cblist, true);
 	}
 	rcu_organize_nocb_kthreads();
 }
