@@ -2142,9 +2142,9 @@ static void do_nocb_deferred_wakeup_common(struct rcu_data *rdp)
 	unsigned long flags;
 	int ndw;
 
-	rcu_nocb_lock_irqsave(rdp, flags);
+	raw_spin_lock_irqsave(&rdp->nocb_lock, flags);
 	if (!rcu_nocb_need_deferred_wakeup(rdp)) {
-		rcu_nocb_unlock_irqrestore(rdp, flags);
+		raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
 		return;
 	}
 	ndw = READ_ONCE(rdp->nocb_defer_wakeup);
