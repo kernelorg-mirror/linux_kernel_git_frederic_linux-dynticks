@@ -2104,7 +2104,9 @@ static void nocb_cb_wait(struct rcu_data *rdp)
 	if (needwake_gp)
 		rcu_gp_kthread_wake();
 	swait_event_interruptible_exclusive(rdp->nocb_cb_wq,
-				 !READ_ONCE(rdp->nocb_cb_sleep));
+				    !READ_ONCE(rdp->nocb_cb_sleep) ||
+				    kthread_should_park());
+
 	if (!smp_load_acquire(&rdp->nocb_cb_sleep)) { /* VVV */
 		/* ^^^ Ensure CB invocation follows _sleep test. */
 		return;
@@ -2125,6 +2127,8 @@ static int rcu_nocb_cb_kthread(void *arg)
 	// if there are no more ready callbacks, waits for them.
 	for (;;) {
 		nocb_cb_wait(rdp);
+		if (kthread_should_park())
+			kthread_parkme();
 		cond_resched_tasks_rcu_qs();
 	}
 	return 0;
