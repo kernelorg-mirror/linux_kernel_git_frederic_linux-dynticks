@@ -2224,6 +2224,50 @@ void rcu_nocb_cpu_deoffload(int cpu)
 	mutex_unlock(&rcu_state.barrier_mutex);
 }
 
+static void __rcu_nocb_rdp_offload(struct rcu_data *rdp)
+{
+	unsigned long flags;
+	struct rcu_node *rnp = rdp->mynode;
+
+	printk("Offloading %d\n", rdp->cpu);
+
+	raw_spin_lock_irqsave(&rdp->nocb_lock, flags);
+	raw_spin_lock_rcu_node(rnp);
+	rcu_segcblist_offload(&rdp->cblist, true);
+	raw_spin_unlock_rcu_node(rnp);
+	raw_spin_unlock_irqrestore(&rdp->nocb_lock, flags);
+
+	kthread_unpark(rdp->nocb_cb_kthread);
+}
+
+static long rcu_nocb_rdp_offload(void *arg)
+{
+	struct rcu_data *rdp = arg;
+
+	WARN_ON_ONCE(rdp->cpu != raw_smp_processor_id());
+	__rcu_nocb_rdp_offload(rdp);
+
+	return 0;
+}
+
+void rcu_nocb_cpu_offload(int cpu)
+{
+	struct rcu_data *rdp = per_cpu_ptr(&rcu_data, cpu);
+
+	mutex_lock(&rcu_state.barrier_mutex);
+	cpus_read_lock();
+	if (!rcu_segcblist_is_offloaded(&rdp->cblist) && rdp->nocb_cb_kthread) {
+		if (cpu_online(cpu)) {
+			work_on_cpu(cpu, rcu_nocb_rdp_offload, rdp);
+		} else {
+			__rcu_nocb_rdp_offload(rdp);
+		}
+		cpumask_set_cpu(cpu, rcu_nocb_mask);
+	}
+	cpus_read_unlock();
+	mutex_unlock(&rcu_state.barrier_mutex);
+}
+
 void __init rcu_init_nohz(void)
 {
 	int cpu;
