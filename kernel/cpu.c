@@ -2208,10 +2208,33 @@ static ssize_t show_cpuhp_fail(struct device *dev,
 
 static DEVICE_ATTR(fail, 0644, show_cpuhp_fail, write_cpuhp_fail);
 
+static ssize_t write_nocb(struct device *dev,
+			  struct device_attribute *attr,
+			  const char *buf, size_t count)
+{
+	int val, ret;
+
+	ret = kstrtoint(buf, 10, &val);
+	if (ret)
+		return ret;
+
+	if (val == 0)
+		rcu_nocb_cpu_deoffload(dev->id);
+	else if (val == 1)
+		rcu_nocb_cpu_offload(dev->id);
+	else
+		return -EINVAL;
+
+	return count;
+}
+
+static DEVICE_ATTR(nocb, 0644, NULL, write_nocb);
+
 static struct attribute *cpuhp_cpu_attrs[] = {
 	&dev_attr_state.attr,
 	&dev_attr_target.attr,
 	&dev_attr_fail.attr,
+	&dev_attr_nocb.attr,
 	NULL
 };
 
