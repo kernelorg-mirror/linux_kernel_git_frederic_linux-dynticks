@@ -451,7 +451,7 @@ do {									\
 #endif /* #else #ifdef CONFIG_RCU_NOCB_CPU */
 
 static void rcu_bind_gp_kthread(void);
-static bool rcu_nohz_full_cpu(void);
+static bool rcu_nohz_full_cpu(struct rcu_data *rdp);
 static void rcu_dynticks_task_enter(void);
 static void rcu_dynticks_task_exit(void);
 

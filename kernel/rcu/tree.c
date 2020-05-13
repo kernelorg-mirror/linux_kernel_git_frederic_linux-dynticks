@@ -3223,7 +3223,7 @@ static int rcu_pending(int user)
 		return 1;
 
 	/* Is this a nohz_full CPU in userspace or idle?  (Ignore RCU if so.) */
-	if ((user || rcu_is_cpu_rrupt_from_idle()) && rcu_nohz_full_cpu())
+	if ((user || rcu_is_cpu_rrupt_from_idle()) && rcu_nohz_full_cpu(rdp))
 		return 0;
 
 	/* Is the RCU core waiting for a quiescent state from this CPU? */

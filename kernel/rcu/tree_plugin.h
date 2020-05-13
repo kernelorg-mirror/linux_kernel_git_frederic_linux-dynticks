@@ -2532,13 +2532,14 @@ static void show_rcu_nocb_state(struct rcu_data *rdp)
  * The idea is to avoid waking up RCU core processing on such a
  * CPU unless the grace period has extended for too long.
  *
- * This code relies on the fact that all NO_HZ_FULL CPUs are also
- * CONFIG_RCU_NOCB_CPU CPUs.
+ * This code relies on the fact that NO_HZ_FULL CPUs might not
+ * be CONFIG_RCU_NOCB_CPU CPUs (temporary development state).
  */
-static bool rcu_nohz_full_cpu(void)
+static bool rcu_nohz_full_cpu(struct rcu_data *rdp)
 {
 #ifdef CONFIG_NO_HZ_FULL
 	if (tick_nohz_full_cpu(smp_processor_id()) &&
+	    rcu_segcblist_is_offloaded(&rdp->cblist) &&
 	    (!rcu_gp_in_progress() ||
 	     ULONG_CMP_LT(jiffies, READ_ONCE(rcu_state.gp_start) + HZ)))
 		return true;
