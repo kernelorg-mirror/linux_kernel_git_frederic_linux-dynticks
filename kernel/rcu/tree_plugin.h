@@ -2398,6 +2398,7 @@ int rcu_nocb_cpu_deoffload(int cpu)
 
 	return ret;
 }
+EXPORT_SYMBOL_GPL(rcu_nocb_cpu_deoffload);
 
 static int __rcu_nocb_rdp_offload(struct rcu_data *rdp)
 {
@@ -2473,7 +2474,7 @@ int rcu_nocb_cpu_offload(int cpu)
 
 	return ret;
 }
-
+EXPORT_SYMBOL_GPL(rcu_nocb_cpu_offload);
 
 void __init rcu_init_nohz(void)
 {
