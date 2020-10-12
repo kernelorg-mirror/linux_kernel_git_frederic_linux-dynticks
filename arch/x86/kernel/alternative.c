@@ -1125,6 +1125,10 @@ noinstr int poke_int3_handler(struct pt_regs *regs)
 		int3_emulate_jmp(regs, (long)ip + tp->rel32);
 		break;
 
+	case XOR5RAX_INSN_OPCODE:
+		int3_emulate_xor5rax(regs);
+		break;
+
 	default:
 		BUG();
 	}
@@ -1291,6 +1295,7 @@ static void text_poke_loc_init(struct text_poke_loc *tp, void *addr,
 	switch (tp->opcode) {
 	case INT3_INSN_OPCODE:
 	case RET_INSN_OPCODE:
+	case XOR5RAX_INSN_OPCODE:
 		break;
 
 	case CALL_INSN_OPCODE:

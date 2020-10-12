@@ -136,6 +136,9 @@ extern void arch_static_call_transform(void *site, void *tramp, void *func, bool
 
 #ifdef CONFIG_HAVE_STATIC_CALL_INLINE
 
+extern int __static_call_return0(void);
+extern long __static_call_returnl0(void);
+
 extern int __init static_call_init(void);
 
 struct static_call_mod {
@@ -187,6 +190,9 @@ extern int static_call_text_reserved(void *start, void *end);
 
 #elif defined(CONFIG_HAVE_STATIC_CALL)
 
+extern int __static_call_return0(void);
+extern long __static_call_returnl0(void);
+
 static inline int static_call_init(void) { return 0; }
 
 struct static_call_key {
@@ -233,6 +239,9 @@ static inline int static_call_text_reserved(void *start, void *end)
 	EXPORT_SYMBOL_GPL(STATIC_CALL_TRAMP(name))
 
 #else /* Generic implementation */
+
+static inline int __static_call_return0(void) { return 0; }
+static inline long __static_call_returnl0(void) { return 0; }
 
 static inline int static_call_init(void) { return 0; }
 

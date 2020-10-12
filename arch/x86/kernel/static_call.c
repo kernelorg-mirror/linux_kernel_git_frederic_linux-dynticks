@@ -18,7 +18,11 @@ static void __ref __static_call_transform(void *insn, enum insn_type type, void 
 
 	switch (type) {
 	case CALL:
-		code = text_gen_insn(CALL_INSN_OPCODE, insn, func);
+		if (func == &__static_call_return0 ||
+		    func == &__static_call_returnl0)
+			code = text_gen_insn(XOR5RAX_INSN_OPCODE, insn, func);
+		else
+			code = text_gen_insn(CALL_INSN_OPCODE, insn, func);
 		break;
 
 	case NOP:
@@ -54,7 +58,9 @@ static void __static_call_validate(void *insn, bool tail)
 			return;
 	} else {
 		if (opcode == CALL_INSN_OPCODE ||
-		    !memcmp(insn, ideal_nops[NOP_ATOMIC5], 5))
+		    !memcmp(insn, ideal_nops[NOP_ATOMIC5], 5) ||
+		    !memcmp(insn, text_gen_insn(XOR5RAX_INSN_OPCODE, NULL, NULL),
+			    XOR5RAX_INSN_SIZE))
 			return;
 	}
 

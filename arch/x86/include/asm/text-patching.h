@@ -65,6 +65,9 @@ extern void text_poke_finish(void);
 #define JMP8_INSN_SIZE		2
 #define JMP8_INSN_OPCODE	0xEB
 
+#define XOR5RAX_INSN_SIZE	5
+#define XOR5RAX_INSN_OPCODE	0x31
+
 #define DISP32_SIZE		4
 
 static __always_inline int text_opcode_size(u8 opcode)
@@ -80,6 +83,7 @@ static __always_inline int text_opcode_size(u8 opcode)
 	__CASE(CALL);
 	__CASE(JMP32);
 	__CASE(JMP8);
+	__CASE(XOR5RAX);
 	}
 
 #undef __CASE
@@ -99,8 +103,21 @@ static __always_inline
 void *text_gen_insn(u8 opcode, const void *addr, const void *dest)
 {
 	static union text_poke_insn insn; /* per instance */
-	int size = text_opcode_size(opcode);
+	int size;
 
+	if (opcode == XOR5RAX_INSN_OPCODE) {
+		/*
+		 * data16 data16 xorq %rax, %rax - a single 5 byte instruction that clears %rax
+		 * The REX.W cancels the effect of any data16.
+		 */
+		static union text_poke_insn xor5rax = {
+			.text = { 0x66, 0x66, 0x48, 0x31, 0xc0 },
+		};
+
+		return &xor5rax.text;
+	}
+
+	size = text_opcode_size(opcode);
 	insn.opcode = opcode;
 
 	if (size > 1) {
@@ -165,6 +182,13 @@ void int3_emulate_ret(struct pt_regs *regs)
 	unsigned long ip = int3_emulate_pop(regs);
 	int3_emulate_jmp(regs, ip);
 }
+
+static __always_inline
+void int3_emulate_xor5rax(struct pt_regs *regs)
+{
+	regs->ax = 0;
+}
+
 #endif /* !CONFIG_UML_X86 */
 
 #endif /* _ASM_X86_TEXT_PATCHING_H */
