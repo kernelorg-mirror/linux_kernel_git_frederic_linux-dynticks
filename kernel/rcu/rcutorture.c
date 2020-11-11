@@ -1580,9 +1580,6 @@ rcu_torture_reader(void *arg)
 	return 0;
 }
 
-void __weak rcu_nocb_cpu_offload(int cpu) {}
-void __weak rcu_nocb_cpu_deoffload(int cpu) {}
-
 /*
  * Randomly Toggle CPUs' callback-offload state.  This uses hrtimers to
  * increase race probabilities and fuzzes the interval between toggling.
