@@ -25,7 +25,12 @@ static int imx6q_enter_wait(struct cpuidle_device *dev,
 	raw_spin_unlock(&cpuidle_lock);
 
 	rcu_idle_enter();
-	cpu_do_idle();
+	/*
+	 * Last need_resched() check must come after rcu_idle_enter()
+	 * which may wake up RCU internal tasks.
+	 */
+	if (!need_resched())
+		cpu_do_idle();
 	rcu_idle_exit();
 
 	raw_spin_lock(&cpuidle_lock);
