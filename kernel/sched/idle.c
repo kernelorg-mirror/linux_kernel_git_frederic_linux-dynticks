@@ -185,6 +185,8 @@ static void cpuidle_idle_call(void)
 		return;
 	}
 
+	sched_resched_local_forbid();
+
 	/*
 	 * The RCU framework needs to be told that we are entering an idle
 	 * section, so no more rcu read side critical sections and one more
@@ -247,6 +249,7 @@ static void cpuidle_idle_call(void)
 	}
 
 exit_idle:
+	sched_resched_local_allow();
 	__current_set_polling();
 
 	/*
