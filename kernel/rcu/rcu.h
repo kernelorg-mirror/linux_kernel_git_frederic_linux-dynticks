@@ -278,6 +278,7 @@ extern void resched_cpu(int cpu);
 extern int rcu_num_lvls;
 extern int num_rcu_lvl[];
 extern int rcu_num_nodes;
+extern bool rcu_geometry_initialized;
 static bool rcu_fanout_exact;
 static int rcu_fanout_leaf;
 
@@ -307,6 +308,8 @@ static inline void rcu_init_levelspread(int *levelspread, const int *levelcnt)
 		}
 	}
 }
+
+extern void rcu_init_geometry(void);
 
 /* Returns a pointer to the first leaf rcu_node structure. */
 #define rcu_first_leaf_node() (rcu_state.level[rcu_num_lvls - 1])

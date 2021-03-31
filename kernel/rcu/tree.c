@@ -4556,16 +4556,32 @@ static void __init rcu_init_one(void)
 	}
 }
 
+bool rcu_geometry_initialized __read_mostly;
+
 /*
  * Compute the rcu_node tree geometry from kernel parameters.  This cannot
  * replace the definitions in tree.h because those are needed to size
  * the ->node array in the rcu_state structure.
  */
-static void __init rcu_init_geometry(void)
+void rcu_init_geometry(void)
 {
 	ulong d;
 	int i;
+	static unsigned long old_nr_cpu_ids;
 	int rcu_capacity[RCU_NUM_LVLS];
+
+	if (rcu_geometry_initialized) {
+		/*
+		 * Arrange for warning if rcu_init_geometry() was called before
+		 * setup_nr_cpu_ids(). We may miss cases when
+		 * nr_cpus_ids == NR_CPUS but that shouldn't matter too much.
+		 */
+		WARN_ON_ONCE(old_nr_cpu_ids != nr_cpu_ids);
+		return;
+	}
+
+	old_nr_cpu_ids = nr_cpu_ids;
+	rcu_geometry_initialized = true;
 
 	/*
 	 * Initialize any unspecified boot parameters.
