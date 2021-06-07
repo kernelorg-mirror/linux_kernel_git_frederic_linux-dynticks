@@ -6238,6 +6238,14 @@ enum {
 
 int preempt_dynamic_mode = preempt_dynamic_full;
 
+#if defined(CONFIG_PREEMPT_DYNAMIC_FULL)
+static __initdata int preempt_dynamic_mode_init = preempt_dynamic_full;
+#elif defined(CONFIG_PREEMPT_DYNAMIC_VOLUNTARY)
+static __initdata int preempt_dynamic_mode_init = preempt_dynamic_voluntary;
+#elif defined(CONFIG_PREEMPT_DYNAMIC_NONE)
+static __initdata int preempt_dynamic_mode_init = preempt_dynamic_none;
+#endif
+
 int sched_dynamic_mode(const char *str)
 {
 	if (!strcmp(str, "none"))
@@ -6254,6 +6262,9 @@ int sched_dynamic_mode(const char *str)
 
 void sched_dynamic_update(int mode)
 {
+	if (preempt_dynamic_mode == mode)
+		return;
+
 	/*
 	 * Avoid {NONE,VOLUNTARY} -> FULL transitions from ever ending up in
 	 * the ZERO state, which is invalid.
@@ -6304,12 +6315,21 @@ static int __init setup_preempt_mode(char *str)
 		return 1;
 	}
 
-	sched_dynamic_update(mode);
+	preempt_dynamic_mode_init = mode;
+
 	return 0;
 }
 __setup("preempt=", setup_preempt_mode);
 
+static void __init init_preempt(void)
+{
+	if (preempt_dynamic_mode_init != preempt_dynamic_full)
+		sched_dynamic_update(preempt_dynamic_mode_init);
+}
+#else
+static inline void init_preempt(void) { }
 #endif /* CONFIG_PREEMPT_DYNAMIC */
+
 
 /*
  * This is the entry point to schedule() from kernel preemption
@@ -9079,6 +9099,7 @@ void __init sched_init(void)
 	psi_init();
 
 	init_uclamp();
+	init_preempt();
 
 	scheduler_running = 1;
 }
