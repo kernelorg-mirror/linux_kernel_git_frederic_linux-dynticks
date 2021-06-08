@@ -6262,6 +6262,21 @@ int sched_dynamic_mode(const char *str)
 
 void sched_dynamic_update(int mode)
 {
+	switch (mode) {
+		case preempt_dynamic_none:
+			pr_info("Dynamic Preempt: none\n");
+			break;
+		case preempt_dynamic_voluntary:
+			pr_info("Dynamic Preempt: voluntary\n");
+			break;
+		case preempt_dynamic_full:
+			pr_info("Dynamic Preempt: full\n");
+			break;
+		default:
+			pr_info("Dynamic Preempt: incorrect\n");
+			return;
+	}
+
 	if (preempt_dynamic_mode == mode)
 		return;
 
@@ -6282,7 +6297,6 @@ void sched_dynamic_update(int mode)
 		static_call_update(preempt_schedule, NULL);
 		static_call_update(preempt_schedule_notrace, NULL);
 		static_call_update(irqentry_exit_cond_resched, NULL);
-		pr_info("Dynamic Preempt: none\n");
 		break;
 
 	case preempt_dynamic_voluntary:
@@ -6291,7 +6305,6 @@ void sched_dynamic_update(int mode)
 		static_call_update(preempt_schedule, NULL);
 		static_call_update(preempt_schedule_notrace, NULL);
 		static_call_update(irqentry_exit_cond_resched, NULL);
-		pr_info("Dynamic Preempt: voluntary\n");
 		break;
 
 	case preempt_dynamic_full:
@@ -6300,7 +6313,6 @@ void sched_dynamic_update(int mode)
 		static_call_update(preempt_schedule, __preempt_schedule_func);
 		static_call_update(preempt_schedule_notrace, __preempt_schedule_notrace_func);
 		static_call_update(irqentry_exit_cond_resched, irqentry_exit_cond_resched);
-		pr_info("Dynamic Preempt: full\n");
 		break;
 	}
 
@@ -6323,8 +6335,7 @@ __setup("preempt=", setup_preempt_mode);
 
 static void __init init_preempt(void)
 {
-	if (preempt_dynamic_mode_init != preempt_dynamic_full)
-		sched_dynamic_update(preempt_dynamic_mode_init);
+	sched_dynamic_update(preempt_dynamic_mode_init);
 }
 #else
 static inline void init_preempt(void) { }
