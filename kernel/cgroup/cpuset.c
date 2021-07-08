@@ -82,6 +82,7 @@ struct cpuset {
 	struct cgroup_subsys_state css;
 
 	unsigned long flags;		/* "unsigned long" so bitops work */
+	unsigned long isol_flags;
 
 	/*
 	 * On default hierarchy:
@@ -258,6 +259,17 @@ static inline int is_spread_slab(const struct cpuset *cs)
 	return test_bit(CS_SPREAD_SLAB, &cs->flags);
 }
 
+/* bits in struct cpuset flags field */
+typedef enum {
+	CS_ISOL_DOMAIN,
+	CS_ISOL_MAX
+} isol_flagbits_t;
+
+static inline int is_isol_domain(const struct cpuset *cs)
+{
+	return test_bit(CS_ISOL_DOMAIN, &cs->isol_flags);
+}
+
 static inline int is_partition_root(const struct cpuset *cs)
 {
 	return cs->partition_root_state > 0;
@@ -268,6 +280,13 @@ static struct cpuset top_cpuset = {
 		  (1 << CS_MEM_EXCLUSIVE)),
 	.partition_root_state = PRS_ENABLED,
 };
+
+/*
+ * CPUs passed through "isolcpus=" on boot, waiting to be mounted
+ * as soon as we meet a cpuset directory whose cpus_allowed is a
+ * subset of "isolcpus="
+ */
+static cpumask_var_t unmounted_isolcpus_mask;
 
 /**
  * cpuset_for_each_child - traverse online children of a cpuset
@@ -681,6 +700,39 @@ static inline int nr_cpusets(void)
 	return static_key_count(&cpusets_enabled_key.key) + 1;
 }
 
+static int update_domain_housekeeping_mask(void)
+{
+	struct cpuset *cp;	/* top-down scan of cpusets */
+	struct cgroup_subsys_state *pos_css;
+	cpumask_var_t domain_mask;
+
+	if (!zalloc_cpumask_var(&domain_mask, GFP_KERNEL))
+		return -ENOMEM;
+
+	cpumask_andnot(domain_mask, cpu_possible_mask, unmounted_isolcpus_mask);
+
+	rcu_read_lock();
+	cpuset_for_each_descendant_pre(cp, pos_css, &top_cpuset) {
+		if (is_isol_domain(cp))
+			cpumask_andnot(domain_mask, domain_mask, cp->cpus_allowed);
+
+		if (cpumask_subset(cp->cpus_allowed, unmounted_isolcpus_mask)) {
+			unsigned long flags;
+			cpumask_andnot(unmounted_isolcpus_mask, unmounted_isolcpus_mask,
+				       cp->cpus_allowed);
+			spin_lock_irqsave(&callback_lock, flags);
+			cp->isol_flags |= BIT(CS_ISOL_DOMAIN);
+			spin_unlock_irqrestore(&callback_lock, flags);
+		}
+	}
+	rcu_read_unlock();
+
+	housekeeping_cpumask_set(domain_mask, HK_FLAG_DOMAIN);
+	free_cpumask_var(domain_mask);
+
+	return 0;
+}
+
 /*
  * generate_sched_domains()
  *
@@ -741,6 +793,7 @@ static int generate_sched_domains(cpumask_var_t **domains,
 	struct cpuset **csa;	/* array of all cpuset ptrs */
 	int csn;		/* how many cpuset ptrs in csa so far */
 	int i, j, k;		/* indices for partition finding loops */
+	int err;
 	cpumask_var_t *doms;	/* resulting partition; i.e. sched domains */
 	struct sched_domain_attr *dattr;  /* attributes for custom domains */
 	int ndoms = 0;		/* number of sched domains in result */
@@ -751,6 +804,10 @@ static int generate_sched_domains(cpumask_var_t **domains,
 	doms = NULL;
 	dattr = NULL;
 	csa = NULL;
+
+	err = update_domain_housekeeping_mask();
+	if (err < 0)
+		pr_err("Can't update housekeeping cpumask\n");
 
 	/* Special case for the 99% of systems with one, full, sched domain */
 	if (root_load_balance && !top_cpuset.nr_subparts_cpus) {
@@ -1449,7 +1506,7 @@ static void update_cpumasks_hier(struct cpuset *cs, struct tmpmasks *tmp)
 		 * root as well.
 		 */
 		if (!cpumask_empty(cp->cpus_allowed) &&
-		    is_sched_load_balance(cp) &&
+		    (is_sched_load_balance(cp) || is_isol_domain(cs)) &&
 		   (!cgroup_subsys_on_dfl(cpuset_cgrp_subsys) ||
 		    is_partition_root(cp)))
 			need_rebuild_sched_domains = true;
@@ -1936,6 +1993,30 @@ out:
 }
 
 /*
+ * update_isol_flags - read a 0 or a 1 in a file and update associated isol flag
+ * mask:	the new mask value to apply (see isol_flagbits_t)
+ * cs:		the cpuset to update
+ *
+ * Call with cpuset_mutex held.
+ */
+static int update_isol_flags(struct cpuset *cs, u64 mask)
+{
+	unsigned long old_mask = cs->isol_flags;
+
+	if (mask & ~(BIT_ULL(CS_ISOL_MAX) - 1))
+		return -EINVAL;
+
+	spin_lock_irq(&callback_lock);
+	cs->isol_flags = (unsigned long)mask;
+	spin_unlock_irq(&callback_lock);
+
+	if (mask ^ old_mask)
+		rebuild_sched_domains_locked();
+
+	return 0;
+}
+
+/*
  * update_prstate - update partititon_root_state
  * cs:	the cpuset to update
  * val: 0 - disabled, 1 - enabled
@@ -2273,6 +2354,9 @@ typedef enum {
 	FILE_MEMORY_PRESSURE,
 	FILE_SPREAD_PAGE,
 	FILE_SPREAD_SLAB,
+//CHECKME: should we have individual cpuset.isolation.$feature files
+//instead of a mask of features in a single file?
+	FILE_ISOLATION_MASK,
 } cpuset_filetype_t;
 
 static int cpuset_write_u64(struct cgroup_subsys_state *css, struct cftype *cft,
@@ -2313,6 +2397,9 @@ static int cpuset_write_u64(struct cgroup_subsys_state *css, struct cftype *cft,
 		break;
 	case FILE_SPREAD_SLAB:
 		retval = update_flag(CS_SPREAD_SLAB, cs, val);
+		break;
+	case FILE_ISOLATION_MASK:
+		retval = update_isol_flags(cs, val);
 		break;
 	default:
 		retval = -EINVAL;
@@ -2481,6 +2568,8 @@ static u64 cpuset_read_u64(struct cgroup_subsys_state *css, struct cftype *cft)
 		return is_spread_page(cs);
 	case FILE_SPREAD_SLAB:
 		return is_spread_slab(cs);
+	case FILE_ISOLATION_MASK:
+		return cs->isol_flags;
 	default:
 		BUG();
 	}
@@ -2656,6 +2745,13 @@ static struct cftype legacy_files[] = {
 		.read_u64 = cpuset_read_u64,
 		.write_u64 = cpuset_write_u64,
 		.private = FILE_MEMORY_PRESSURE_ENABLED,
+	},
+
+	{
+		.name = "isolation_mask",
+		.read_u64 = cpuset_read_u64,
+		.write_u64 = cpuset_write_u64,
+		.private = FILE_ISOLATION_MASK,
 	},
 
 	{ }	/* terminate */
@@ -2834,9 +2930,12 @@ static void cpuset_css_offline(struct cgroup_subsys_state *css)
 	if (is_partition_root(cs))
 		update_prstate(cs, 0);
 
-	if (!cgroup_subsys_on_dfl(cpuset_cgrp_subsys) &&
-	    is_sched_load_balance(cs))
-		update_flag(CS_SCHED_LOAD_BALANCE, cs, 0);
+	if (!cgroup_subsys_on_dfl(cpuset_cgrp_subsys)) {
+		if (is_sched_load_balance(cs))
+			update_flag(CS_SCHED_LOAD_BALANCE, cs, 0);
+		if (is_isol_domain(cs))
+			update_isol_flags(cs, cs->isol_flags & ~BIT(CS_ISOL_DOMAIN));
+	}
 
 	if (cs->use_parent_ecpus) {
 		struct cpuset *parent = parent_cs(cs);
@@ -2872,6 +2971,9 @@ static void cpuset_bind(struct cgroup_subsys_state *root_css)
 			     top_cpuset.effective_cpus);
 		top_cpuset.mems_allowed = top_cpuset.effective_mems;
 	}
+
+	cpumask_andnot(unmounted_isolcpus_mask, cpu_possible_mask,
+		       housekeeping_cpumask(HK_FLAG_DOMAIN));
 
 	spin_unlock_irq(&callback_lock);
 	percpu_up_write(&cpuset_rwsem);
@@ -2932,6 +3034,7 @@ int __init cpuset_init(void)
 	top_cpuset.relax_domain_level = -1;
 
 	BUG_ON(!alloc_cpumask_var(&cpus_attach, GFP_KERNEL));
+	BUG_ON(!alloc_cpumask_var(&unmounted_isolcpus_mask, GFP_KERNEL));
 
 	return 0;
 }
