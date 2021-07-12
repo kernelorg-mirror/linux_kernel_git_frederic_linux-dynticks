@@ -12,6 +12,7 @@
 DEFINE_STATIC_KEY_FALSE(housekeeping_overridden);
 EXPORT_SYMBOL_GPL(housekeeping_overridden);
 static cpumask_var_t housekeeping_mask;
+static cpumask_var_t hk_domain_mask;
 static unsigned int housekeeping_flags;
 
 bool housekeeping_enabled(enum hk_flags flags)
@@ -26,7 +27,7 @@ int housekeeping_any_cpu(enum hk_flags flags)
 
 	if (static_branch_unlikely(&housekeeping_overridden)) {
 		if (housekeeping_flags & flags) {
-			cpu = sched_numa_find_closest(housekeeping_mask, smp_processor_id());
+			cpu = sched_numa_find_closest(housekeeping_cpumask(flags), smp_processor_id());
 			if (cpu < nr_cpu_ids)
 				return cpu;
 
@@ -39,9 +40,13 @@ EXPORT_SYMBOL_GPL(housekeeping_any_cpu);
 
 const struct cpumask *housekeeping_cpumask(enum hk_flags flags)
 {
-	if (static_branch_unlikely(&housekeeping_overridden))
+	if (static_branch_unlikely(&housekeeping_overridden)) {
+		WARN_ON_ONCE((flags & HK_FLAG_DOMAIN) && (flags & ~HK_FLAG_DOMAIN));
+		if (housekeeping_flags & HK_FLAG_DOMAIN)
+			return hk_domain_mask;
 		if (housekeeping_flags & flags)
 			return housekeeping_mask;
+	}
 	return cpu_possible_mask;
 }
 EXPORT_SYMBOL_GPL(housekeeping_cpumask);
@@ -50,7 +55,7 @@ void housekeeping_affine(struct task_struct *t, enum hk_flags flags)
 {
 	if (static_branch_unlikely(&housekeeping_overridden))
 		if (housekeeping_flags & flags)
-			set_cpus_allowed_ptr(t, housekeeping_mask);
+			set_cpus_allowed_ptr(t, housekeeping_cpumask(flags));
 }
 EXPORT_SYMBOL_GPL(housekeeping_affine);
 
@@ -58,10 +63,12 @@ bool housekeeping_test_cpu(int cpu, enum hk_flags flags)
 {
 	if (static_branch_unlikely(&housekeeping_overridden))
 		if (housekeeping_flags & flags)
-			return cpumask_test_cpu(cpu, housekeeping_mask);
+			return cpumask_test_cpu(cpu, housekeeping_cpumask(flags));
 	return true;
 }
 EXPORT_SYMBOL_GPL(housekeeping_test_cpu);
+
+
 
 void __init housekeeping_init(void)
 {
@@ -91,27 +98,56 @@ static int __init housekeeping_setup(char *str, enum hk_flags flags)
 
 	alloc_bootmem_cpumask_var(&tmp);
 	if (!housekeeping_flags) {
-		alloc_bootmem_cpumask_var(&housekeeping_mask);
-		cpumask_andnot(housekeeping_mask,
-			       cpu_possible_mask, non_housekeeping_mask);
+		if (flags & ~HK_FLAG_DOMAIN) {
+			alloc_bootmem_cpumask_var(&housekeeping_mask);
+			cpumask_andnot(housekeeping_mask,
+				       cpu_possible_mask, non_housekeeping_mask);
+		}
+
+		if (flags & HK_FLAG_DOMAIN) {
+			alloc_bootmem_cpumask_var(&hk_domain_mask);
+			cpumask_andnot(hk_domain_mask,
+				       cpu_possible_mask, non_housekeeping_mask);
+		}
 
 		cpumask_andnot(tmp, cpu_present_mask, non_housekeeping_mask);
 		if (cpumask_empty(tmp)) {
 			pr_warn("Housekeeping: must include one present CPU, "
 				"using boot CPU:%d\n", smp_processor_id());
-			__cpumask_set_cpu(smp_processor_id(), housekeeping_mask);
+			if (flags & ~HK_FLAG_DOMAIN)
+				__cpumask_set_cpu(smp_processor_id(), housekeeping_mask);
+			if (flags & HK_FLAG_DOMAIN)
+				__cpumask_set_cpu(smp_processor_id(), hk_domain_mask);
 			__cpumask_clear_cpu(smp_processor_id(), non_housekeeping_mask);
 		}
 	} else {
+		struct cpumask *prev;
+
 		cpumask_andnot(tmp, cpu_present_mask, non_housekeeping_mask);
 		if (cpumask_empty(tmp))
 			__cpumask_clear_cpu(smp_processor_id(), non_housekeeping_mask);
 		cpumask_andnot(tmp, cpu_possible_mask, non_housekeeping_mask);
-		if (!cpumask_equal(tmp, housekeeping_mask)) {
+
+		if (housekeeping_flags == HK_FLAG_DOMAIN)
+			prev = hk_domain_mask;
+		else
+			prev = housekeeping_mask;
+
+		if (!cpumask_equal(tmp, prev)) {
 			pr_warn("Housekeeping: nohz_full= must match isolcpus=\n");
 			free_bootmem_cpumask_var(tmp);
 			free_bootmem_cpumask_var(non_housekeeping_mask);
 			return 0;
+		}
+
+		if ((housekeeping_flags & HK_FLAG_DOMAIN) && (flags & ~HK_FLAG_DOMAIN)) {
+			alloc_bootmem_cpumask_var(&housekeeping_mask);
+			cpumask_copy(housekeeping_mask, hk_domain_mask);
+		}
+
+		if ((housekeeping_flags & ~HK_FLAG_DOMAIN) && (flags & HK_FLAG_DOMAIN)) {
+			alloc_bootmem_cpumask_var(&hk_domain_mask);
+			cpumask_copy(hk_domain_mask, housekeeping_mask);
 		}
 	}
 	free_bootmem_cpumask_var(tmp);
