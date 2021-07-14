@@ -68,7 +68,26 @@ bool housekeeping_test_cpu(int cpu, enum hk_flags flags)
 }
 EXPORT_SYMBOL_GPL(housekeeping_test_cpu);
 
+// Only support HK_FLAG_DOMAIN for now
+// TODO: propagate the changes through all interested subsystems:
+// workqueues, net, pci; ...
+void housekeeping_cpumask_set(struct cpumask *mask, enum hk_flags flags)
+{
+	/* Only HK_FLAG_DOMAIN change supported for now */
+	if (WARN_ON_ONCE(flags != HK_FLAG_DOMAIN))
+		return;
 
+	if (!static_key_enabled(&housekeeping_overridden.key)) {
+		if (cpumask_equal(mask, cpu_possible_mask))
+			return;
+		if (WARN_ON_ONCE(!alloc_cpumask_var(&hk_domain_mask, GFP_KERNEL)))
+			return;
+		cpumask_copy(hk_domain_mask, mask);
+		static_branch_enable(&housekeeping_overridden);
+	} else {
+		cpumask_copy(hk_domain_mask, mask);
+	}
+}
 
 void __init housekeeping_init(void)
 {
