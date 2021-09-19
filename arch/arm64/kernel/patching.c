@@ -66,7 +66,7 @@ int __kprobes aarch64_insn_read(void *addr, u32 *insnp)
 	return ret;
 }
 
-static int __kprobes __aarch64_insn_write(void *addr, __le32 insn)
+static int __kprobes __aarch64_insn_write(void *addr, void *insn, int size)
 {
 	void *waddr = addr;
 	unsigned long flags = 0;
@@ -75,7 +75,7 @@ static int __kprobes __aarch64_insn_write(void *addr, __le32 insn)
 	raw_spin_lock_irqsave(&patch_lock, flags);
 	waddr = patch_map(addr, FIX_TEXT_POKE0);
 
-	ret = copy_to_kernel_nofault(waddr, &insn, AARCH64_INSN_SIZE);
+	ret = copy_to_kernel_nofault(waddr, insn, size);
 
 	patch_unmap(FIX_TEXT_POKE0);
 	raw_spin_unlock_irqrestore(&patch_lock, flags);
@@ -85,7 +85,15 @@ static int __kprobes __aarch64_insn_write(void *addr, __le32 insn)
 
 int __kprobes aarch64_insn_write(void *addr, u32 insn)
 {
-	return __aarch64_insn_write(addr, cpu_to_le32(insn));
+	__le32 i = cpu_to_le32(insn);
+
+	return __aarch64_insn_write(addr, &i, AARCH64_INSN_SIZE);
+}
+
+int aarch64_literal_write(void *addr, u64 literal)
+{
+	BUG_ON(!IS_ALIGNED((u64)addr, sizeof(u64)));
+	return __aarch64_insn_write(addr, &literal, sizeof(u64));
 }
 
 int __kprobes aarch64_insn_patch_text_nosync(void *addr, u32 insn)

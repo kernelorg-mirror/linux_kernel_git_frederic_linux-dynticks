@@ -547,6 +547,8 @@ u32 aarch64_set_branch_offset(u32 insn, s32 offset);
 s32 aarch64_insn_adrp_get_offset(u32 insn);
 u32 aarch64_insn_adrp_set_offset(u32 insn, s32 offset);
 
+int aarch64_literal_write(void *addr, u64 literal);
+
 bool aarch32_insn_is_wide(u32 insn);
 
 #define A32_RN_OFFSET	16
