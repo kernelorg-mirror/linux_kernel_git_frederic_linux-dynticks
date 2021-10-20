@@ -79,6 +79,44 @@ bool housekeeping_test_cpu(int cpu, enum hk_type type)
 }
 EXPORT_SYMBOL_GPL(housekeeping_test_cpu);
 
+static int housekeeping_cpumask_update(struct cpumask *cpumask,
+				       enum hk_type type, bool on)
+{
+	int err;
+
+	switch (type) {
+	case HK_TYPE_RCU:
+		err = rcu_nocb_cpumask_update(cpumask, on);
+		break;
+	default:
+		err = -EINVAL;
+	}
+
+	if (err >= 0) {
+		if (on) {
+			cpumask_or(housekeeping.cpumasks[type],
+				   housekeeping.cpumasks[type],
+				   cpumask);
+		} else {
+			cpumask_andnot(housekeeping.cpumasks[type],
+				       housekeeping.cpumasks[type],
+				       cpumask);
+		}
+	}
+
+	return err;
+}
+
+int housekeeping_cpumask_set(struct cpumask *cpumask, enum hk_type type)
+{
+	return housekeeping_cpumask_update(cpumask, type, true);
+}
+
+int housekeeping_cpumask_clear(struct cpumask *cpumask, enum hk_type type)
+{
+	return housekeeping_cpumask_update(cpumask, type, false);
+}
+
 void __init housekeeping_init(void)
 {
 	enum hk_type type;
