@@ -1925,10 +1925,10 @@ static int rcu_nocb_toggle(void *arg)
 		r = torture_random(&rand);
 		cpu = (r >> 4) % (maxcpu + 1);
 		if (r & 0x1) {
-			rcu_nocb_cpu_offload(cpu);
+			rcu_nocb_cpumask_update(cpumask_of(cpu), true);
 			atomic_long_inc(&n_nocb_offload);
 		} else {
-			rcu_nocb_cpu_deoffload(cpu);
+			rcu_nocb_cpumask_update(cpumask_of(cpu), false);
 			atomic_long_inc(&n_nocb_deoffload);
 		}
 		toggle_delay = torture_random(&rand) % toggle_fuzz + toggle_interval;

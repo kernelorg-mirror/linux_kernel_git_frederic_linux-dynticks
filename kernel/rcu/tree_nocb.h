@@ -1098,29 +1098,23 @@ static long rcu_nocb_rdp_deoffload(void *arg)
 	return 0;
 }
 
-int rcu_nocb_cpu_deoffload(int cpu)
+static int rcu_nocb_cpu_deoffload(int cpu)
 {
 	struct rcu_data *rdp = per_cpu_ptr(&rcu_data, cpu);
 	int ret = 0;
 
-	cpus_read_lock();
-	mutex_lock(&rcu_state.barrier_mutex);
-	if (rcu_rdp_is_offloaded(rdp)) {
-		if (cpu_online(cpu)) {
-			ret = work_on_cpu(cpu, rcu_nocb_rdp_deoffload, rdp);
-			if (!ret)
-				cpumask_clear_cpu(cpu, rcu_nocb_mask);
-		} else {
-			pr_info("NOCB: Can't CB-deoffload an offline CPU\n");
-			ret = -EINVAL;
-		}
-	}
-	mutex_unlock(&rcu_state.barrier_mutex);
-	cpus_read_unlock();
+	if (cpu_is_offline(cpu))
+		return -EINVAL;
+
+	if (!rcu_rdp_is_offloaded(rdp))
+		return 0;
+
+	ret = work_on_cpu(cpu, rcu_nocb_rdp_deoffload, rdp);
+	if (!ret)
+		cpumask_clear_cpu(cpu, rcu_nocb_mask);
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(rcu_nocb_cpu_deoffload);
 
 static long rcu_nocb_rdp_offload(void *arg)
 {
@@ -1131,12 +1125,6 @@ static long rcu_nocb_rdp_offload(void *arg)
 	struct rcu_data *rdp_gp = rdp->nocb_gp_rdp;
 
 	WARN_ON_ONCE(rdp->cpu != raw_smp_processor_id());
-	/*
-	 * For now we only support re-offload, ie: the rdp must have been
-	 * offloaded on boot first.
-	 */
-	if (!rdp->nocb_gp_rdp)
-		return -EINVAL;
 
 	if (WARN_ON_ONCE(!rdp_gp->nocb_gp_kthread))
 		return -EINVAL;
@@ -1183,29 +1171,77 @@ static long rcu_nocb_rdp_offload(void *arg)
 	return 0;
 }
 
-int rcu_nocb_cpu_offload(int cpu)
+static int rcu_nocb_cpu_offload(int cpu)
 {
 	struct rcu_data *rdp = per_cpu_ptr(&rcu_data, cpu);
-	int ret = 0;
+	int ret;
 
-	cpus_read_lock();
-	mutex_lock(&rcu_state.barrier_mutex);
-	if (!rcu_rdp_is_offloaded(rdp)) {
-		if (cpu_online(cpu)) {
-			ret = work_on_cpu(cpu, rcu_nocb_rdp_offload, rdp);
-			if (!ret)
-				cpumask_set_cpu(cpu, rcu_nocb_mask);
-		} else {
-			pr_info("NOCB: Can't CB-offload an offline CPU\n");
-			ret = -EINVAL;
-		}
-	}
-	mutex_unlock(&rcu_state.barrier_mutex);
-	cpus_read_unlock();
+	if (cpu_is_offline(cpu))
+		return -EINVAL;
+
+	if (rcu_rdp_is_offloaded(rdp))
+		return 0;
+
+	ret = work_on_cpu(cpu, rcu_nocb_rdp_offload, rdp);
+	if (!ret)
+		cpumask_set_cpu(cpu, rcu_nocb_mask);
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(rcu_nocb_cpu_offload);
+
+int rcu_nocb_cpumask_update(struct cpumask *cpumask, bool offload)
+{
+	int cpu;
+	int err = 0;
+	int err_cpu;
+	cpumask_var_t saved_nocb_mask;
+
+	if (!alloc_cpumask_var(&saved_nocb_mask, GFP_KERNEL))
+		return -ENOMEM;
+
+	cpumask_copy(saved_nocb_mask, rcu_nocb_mask);
+
+	cpus_read_lock();
+	mutex_lock(&rcu_state.barrier_mutex);
+	for_each_cpu(cpu, cpumask) {
+		if (offload) {
+			err = rcu_nocb_cpu_offload(cpu);
+			if (err < 0) {
+				err_cpu = cpu;
+				pr_err("NOCB: offload cpu %d failed (%d)\n", cpu, err);
+				break;
+			}
+		} else {
+			err = rcu_nocb_cpu_deoffload(cpu);
+			if (err < 0) {
+				err_cpu = cpu;
+				pr_err("NOCB: deoffload cpu %d failed (%d)\n", cpu, err);
+				break;
+			}
+		}
+	}
+
+	/* Rollback in case of error */
+	if (err < 0) {
+		err_cpu = cpu;
+		for_each_cpu(cpu, cpumask) {
+			if (err_cpu == cpu)
+				break;
+			if (cpumask_test_cpu(cpu, saved_nocb_mask))
+				WARN_ON_ONCE(rcu_nocb_cpu_offload(cpu));
+			else
+				WARN_ON_ONCE(rcu_nocb_cpu_deoffload(cpu));
+		}
+	}
+
+	mutex_unlock(&rcu_state.barrier_mutex);
+	cpus_read_unlock();
+
+	free_cpumask_var(saved_nocb_mask);
+
+	return err;
+}
+EXPORT_SYMBOL_GPL(rcu_nocb_cpumask_update);
 
 void __init rcu_init_nohz(void)
 {

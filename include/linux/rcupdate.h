@@ -116,13 +116,14 @@ static inline void rcu_irq_work_resched(void) { }
 
 #ifdef CONFIG_RCU_NOCB_CPU
 void rcu_init_nohz(void);
-int rcu_nocb_cpu_offload(int cpu);
-int rcu_nocb_cpu_deoffload(int cpu);
+int rcu_nocb_cpumask_update(struct cpumask *cpumask, bool offload);
 void rcu_nocb_flush_deferred_wakeup(void);
 #else /* #ifdef CONFIG_RCU_NOCB_CPU */
 static inline void rcu_init_nohz(void) { }
-static inline int rcu_nocb_cpu_offload(int cpu) { return -EINVAL; }
-static inline int rcu_nocb_cpu_deoffload(int cpu) { return 0; }
+static inline int rcu_nocb_cpumask_update(struct cpumask *cpumask, bool offload)
+{
+	return -EINVAL;
+}
 static inline void rcu_nocb_flush_deferred_wakeup(void) { }
 #endif /* #else #ifdef CONFIG_RCU_NOCB_CPU */
 
