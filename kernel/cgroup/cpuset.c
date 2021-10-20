@@ -255,6 +255,7 @@ typedef enum {
 	CS_SCHED_LOAD_BALANCE,
 	CS_SPREAD_PAGE,
 	CS_SPREAD_SLAB,
+	CS_CPU_ISOLATION,
 } cpuset_flagbits_t;
 
 /* convenient tests for these bits */
@@ -296,6 +297,11 @@ static inline int is_spread_page(const struct cpuset *cs)
 static inline int is_spread_slab(const struct cpuset *cs)
 {
 	return test_bit(CS_SPREAD_SLAB, &cs->flags);
+}
+
+static inline int is_cpu_isolation(const struct cpuset *cs)
+{
+	return test_bit(CS_CPU_ISOLATION, &cs->flags);
 }
 
 static inline int is_partition_valid(const struct cpuset *cs)
@@ -672,6 +678,62 @@ static inline void free_cpuset(struct cpuset *cs)
 	free_cpumasks(cs, NULL);
 	kfree(cs);
 }
+
+#ifdef CONFIG_NO_HZ_FULL
+static int cpuset_cpu_isolation_apply(struct cpuset *root)
+{
+	int err;
+
+	if (is_cpu_isolation(root))
+		err = housekeeping_cpumask_set(root->effective_cpus, HK_TYPE_RCU);
+	else
+		err = housekeeping_cpumask_clear(root->effective_cpus, HK_TYPE_RCU);
+
+	return err;
+}
+
+static int cpuset_cpu_isolation_update(struct cpuset *cur, struct cpuset *trialcs)
+{
+	struct cgroup_subsys_state *des_css;
+	struct cpuset *des;
+	int err;
+
+	if (cur->partition_root_state < PRS_ROOT)
+		return -EINVAL;
+
+	err = cpuset_cpu_isolation_apply(trialcs);
+	if (err < 0)
+		return err;
+
+	rcu_read_lock();
+	cpuset_for_each_descendant_pre(des, des_css, cur) {
+		if (des == cur)
+			continue;
+		if (des->partition_root_state < PRS_ROOT)
+			break;
+		spin_lock_irq(&callback_lock);
+		if (is_cpu_isolation(trialcs))
+			set_bit(CS_CPU_ISOLATION, &des->flags);
+		else
+			clear_bit(CS_CPU_ISOLATION, &des->flags);
+		spin_unlock_irq(&callback_lock);
+	}
+	rcu_read_unlock();
+
+	return 0;
+}
+#else
+static inline int cpuset_cpu_isolation_apply(struct cpuset *root)
+{
+	return 0;
+}
+
+static inline int cpuset_cpu_isolation_update(struct cpuset *cur,
+					 struct cpuset *trialcs)
+{
+	return 0;
+}
+#endif /* #ifdef CONFIG_NO_HZ_FULL */
 
 /*
  * validate_change_legacy() - Validate conditions specific to legacy (v1)
@@ -1836,6 +1898,9 @@ static int update_cpumask(struct cpuset *cs, struct cpuset *trialcs,
 	if (cs->partition_root_state) {
 		struct cpuset *parent = parent_cs(cs);
 
+		WARN_ON_ONCE(cpuset_cpu_isolation_apply(parent) < 0);
+		WARN_ON_ONCE(cpuset_cpu_isolation_apply(cs) < 0);
+
 		/*
 		 * For partition root, update the cpumasks of sibling
 		 * cpusets if they use parent's effective_cpus.
@@ -2192,6 +2257,12 @@ static int update_flag(cpuset_flagbits_t bit, struct cpuset *cs,
 
 	spread_flag_changed = ((is_spread_slab(cs) != is_spread_slab(trialcs))
 			|| (is_spread_page(cs) != is_spread_page(trialcs)));
+
+	if (is_cpu_isolation(cs) != is_cpu_isolation(trialcs)) {
+		err = cpuset_cpu_isolation_update(cs, trialcs);
+		if (err < 0)
+			goto out;
+	}
 
 	spin_lock_irq(&callback_lock);
 	cs->flags = trialcs->flags;
@@ -2588,6 +2659,7 @@ typedef enum {
 	FILE_MEMORY_PRESSURE,
 	FILE_SPREAD_PAGE,
 	FILE_SPREAD_SLAB,
+	FILE_CPU_ISOLATION,
 } cpuset_filetype_t;
 
 static int cpuset_write_u64(struct cgroup_subsys_state *css, struct cftype *cft,
@@ -2628,6 +2700,9 @@ static int cpuset_write_u64(struct cgroup_subsys_state *css, struct cftype *cft,
 		break;
 	case FILE_SPREAD_SLAB:
 		retval = update_flag(CS_SPREAD_SLAB, cs, val);
+		break;
+	case FILE_CPU_ISOLATION:
+		retval = update_flag(CS_CPU_ISOLATION, cs, val);
 		break;
 	default:
 		retval = -EINVAL;
@@ -2796,6 +2871,8 @@ static u64 cpuset_read_u64(struct cgroup_subsys_state *css, struct cftype *cft)
 		return is_spread_page(cs);
 	case FILE_SPREAD_SLAB:
 		return is_spread_slab(cs);
+	case FILE_CPU_ISOLATION:
+		return is_cpu_isolation(cs);
 	default:
 		BUG();
 	}
@@ -3041,7 +3118,14 @@ static struct cftype dfl_files[] = {
 		.private = FILE_SUBPARTS_CPULIST,
 		.flags = CFTYPE_DEBUG,
 	},
-
+#ifdef CONFIG_NO_HZ_FULL
+	{
+		.name = "cpu_isolation",
+		.read_u64 = cpuset_read_u64,
+		.write_u64 = cpuset_write_u64,
+		.private = FILE_CPU_ISOLATION,
+	},
+#endif
 	{ }	/* terminate */
 };
 
@@ -3099,6 +3183,8 @@ static int cpuset_css_online(struct cgroup_subsys_state *css)
 		set_bit(CS_SPREAD_PAGE, &cs->flags);
 	if (is_spread_slab(parent))
 		set_bit(CS_SPREAD_SLAB, &cs->flags);
+	if (is_cpu_isolation(parent))
+		set_bit(CS_CPU_ISOLATION, &cs->flags);
 
 	cpuset_inc();
 
@@ -3479,12 +3565,15 @@ update_tasks:
 	if (mems_updated)
 		check_insane_mems_config(&new_mems);
 
-	if (is_in_v2_mode())
+	if (is_in_v2_mode()) {
 		hotplug_update_tasks(cs, &new_cpus, &new_mems,
 				     cpus_updated, mems_updated);
-	else
+		if (cpus_updated)
+			WARN_ON_ONCE(cpuset_cpu_isolation_apply(cs) < 0);
+	} else {
 		hotplug_update_tasks_legacy(cs, &new_cpus, &new_mems,
 					    cpus_updated, mems_updated);
+	}
 
 	percpu_up_write(&cpuset_rwsem);
 }
