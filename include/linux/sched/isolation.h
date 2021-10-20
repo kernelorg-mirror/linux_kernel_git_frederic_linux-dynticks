@@ -25,6 +25,8 @@ extern const struct cpumask *housekeeping_cpumask(enum hk_type type);
 extern bool housekeeping_enabled(enum hk_type type);
 extern void housekeeping_affine(struct task_struct *t, enum hk_type type);
 extern bool housekeeping_test_cpu(int cpu, enum hk_type type);
+extern int housekeeping_cpumask_set(struct cpumask *cpumask, enum hk_type type);
+extern int housekeeping_cpumask_clear(struct cpumask *cpumask, enum hk_type type);
 extern void __init housekeeping_init(void);
 
 #else
@@ -46,6 +48,17 @@ static inline bool housekeeping_enabled(enum hk_type type)
 
 static inline void housekeeping_affine(struct task_struct *t,
 				       enum hk_type type) { }
+
+static inline int housekeeping_cpumask_set(struct cpumask *cpumask, enum hk_type type)
+{
+	return -EINVAL;
+}
+
+static inline int housekeeping_cpumask_clear(struct cpumask *cpumask, enum hk_type type)
+{
+	return -EINVAL;
+}
+
 static inline void housekeeping_init(void) { }
 #endif /* CONFIG_CPU_ISOLATION */
 
