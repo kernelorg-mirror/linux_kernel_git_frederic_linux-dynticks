@@ -94,7 +94,7 @@ extern int __cond_resched(void);
 
 extern int __cond_resched(void);
 
-DECLARE_STATIC_CALL(might_resched, __cond_resched);
+DECLARE_STATIC_CALL_TOGGLE(might_resched, __cond_resched);
 
 static __always_inline void might_resched(void)
 {

@@ -2014,7 +2014,7 @@ extern int __cond_resched(void);
 
 #ifdef CONFIG_PREEMPT_DYNAMIC
 
-DECLARE_STATIC_CALL(cond_resched, __cond_resched);
+DECLARE_STATIC_CALL_TOGGLE(cond_resched, __cond_resched);
 
 static __always_inline int _cond_resched(void)
 {

@@ -6487,7 +6487,7 @@ NOKPROBE_SYMBOL(preempt_schedule);
 EXPORT_SYMBOL(preempt_schedule);
 
 #ifdef CONFIG_PREEMPT_DYNAMIC
-DEFINE_STATIC_CALL(preempt_schedule, __preempt_schedule_func);
+DEFINE_STATIC_CALL_ENABLED(preempt_schedule, __preempt_schedule_func);
 EXPORT_STATIC_CALL_TRAMP(preempt_schedule);
 #endif
 
@@ -6545,7 +6545,7 @@ asmlinkage __visible void __sched notrace preempt_schedule_notrace(void)
 EXPORT_SYMBOL_GPL(preempt_schedule_notrace);
 
 #ifdef CONFIG_PREEMPT_DYNAMIC
-DEFINE_STATIC_CALL(preempt_schedule_notrace, __preempt_schedule_notrace_func);
+DEFINE_STATIC_CALL_ENABLED(preempt_schedule_notrace, __preempt_schedule_notrace_func);
 EXPORT_STATIC_CALL_TRAMP(preempt_schedule_notrace);
 #endif
 
@@ -6614,37 +6614,37 @@ void sched_dynamic_update(int mode)
 	 * Avoid {NONE,VOLUNTARY} -> FULL transitions from ever ending up in
 	 * the ZERO state, which is invalid.
 	 */
-	static_call_update(cond_resched, __cond_resched);
-	static_call_update(might_resched, __cond_resched);
-	static_call_update(preempt_schedule, __preempt_schedule_func);
-	static_call_update(preempt_schedule_notrace, __preempt_schedule_notrace_func);
-	static_call_update(irqentry_exit_cond_resched, irqentry_exit_cond_resched);
+	static_call_enable(cond_resched);
+	static_call_enable(might_resched);
+	static_call_enable(preempt_schedule);
+	static_call_enable(preempt_schedule_notrace);
+	static_call_enable(irqentry_exit_cond_resched);
 
 	switch (mode) {
 	case preempt_dynamic_none:
-		static_call_update(cond_resched, __cond_resched);
-		static_call_update(might_resched, (void *)&__static_call_return0);
-		static_call_update(preempt_schedule, NULL);
-		static_call_update(preempt_schedule_notrace, NULL);
-		static_call_update(irqentry_exit_cond_resched, NULL);
+		static_call_enable(cond_resched);
+		static_call_disable(might_resched);
+		static_call_disable(preempt_schedule);
+		static_call_disable(preempt_schedule_notrace);
+		static_call_disable(irqentry_exit_cond_resched);
 		pr_info("Dynamic Preempt: none\n");
 		break;
 
 	case preempt_dynamic_voluntary:
-		static_call_update(cond_resched, __cond_resched);
-		static_call_update(might_resched, __cond_resched);
-		static_call_update(preempt_schedule, NULL);
-		static_call_update(preempt_schedule_notrace, NULL);
-		static_call_update(irqentry_exit_cond_resched, NULL);
+		static_call_enable(cond_resched);
+		static_call_enable(might_resched);
+		static_call_disable(preempt_schedule);
+		static_call_disable(preempt_schedule_notrace);
+		static_call_disable(irqentry_exit_cond_resched);
 		pr_info("Dynamic Preempt: voluntary\n");
 		break;
 
 	case preempt_dynamic_full:
-		static_call_update(cond_resched, (void *)&__static_call_return0);
-		static_call_update(might_resched, (void *)&__static_call_return0);
-		static_call_update(preempt_schedule, __preempt_schedule_func);
-		static_call_update(preempt_schedule_notrace, __preempt_schedule_notrace_func);
-		static_call_update(irqentry_exit_cond_resched, irqentry_exit_cond_resched);
+		static_call_disable(cond_resched);
+		static_call_disable(might_resched);
+		static_call_enable(preempt_schedule);
+		static_call_enable(preempt_schedule_notrace);
+		static_call_enable(irqentry_exit_cond_resched);
 		pr_info("Dynamic Preempt: full\n");
 		break;
 	}
@@ -8192,10 +8192,9 @@ EXPORT_SYMBOL(__cond_resched);
 #endif
 
 #ifdef CONFIG_PREEMPT_DYNAMIC
-DEFINE_STATIC_CALL_RET0(cond_resched, __cond_resched);
+DEFINE_STATIC_CALL_DISABLED_RET0(cond_resched, __cond_resched);
 EXPORT_STATIC_CALL_TRAMP(cond_resched);
-
-DEFINE_STATIC_CALL_RET0(might_resched, __cond_resched);
+DEFINE_STATIC_CALL_DISABLED_RET0(might_resched, __cond_resched);
 EXPORT_STATIC_CALL_TRAMP(might_resched);
 #endif
 
