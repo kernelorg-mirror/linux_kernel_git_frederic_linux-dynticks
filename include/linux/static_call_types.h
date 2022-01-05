@@ -18,6 +18,9 @@
 #define STATIC_CALL_TRAMP(name)		__PASTE(STATIC_CALL_TRAMP_PREFIX, name)
 #define STATIC_CALL_TRAMP_STR(name)	__stringify(STATIC_CALL_TRAMP(name))
 
+#define STATIC_CALL_TOGGLE_PREFIX	__SCG_
+#define STATIC_CALL_TOGGLE(name)	__PASTE(STATIC_CALL_TOGGLE_PREFIX, name)
+
 /*
  * Flags in the low bits of static_call_site::key.
  */
@@ -37,6 +40,10 @@ struct static_call_site {
 #define DECLARE_STATIC_CALL(name, func)					\
 	extern struct static_call_key STATIC_CALL_KEY(name);		\
 	extern typeof(func) STATIC_CALL_TRAMP(name);
+
+#define DECLARE_STATIC_CALL_TOGGLE(name, func)				\
+	DECLARE_STATIC_CALL(name, func);				\
+	extern struct static_call_toggle STATIC_CALL_TOGGLE(name);
 
 #ifdef CONFIG_HAVE_STATIC_CALL
 
@@ -67,6 +74,13 @@ struct static_call_key {
 		struct static_call_site *sites;
 	};
 };
+
+struct static_call_toggle {
+	struct static_call_key *key;
+	void *func_enabled;
+	void *func_disabled;
+};
+
 
 #else /* !CONFIG_HAVE_STATIC_CALL_INLINE */
 

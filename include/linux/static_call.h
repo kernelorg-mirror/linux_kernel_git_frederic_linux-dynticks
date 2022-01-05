@@ -156,6 +156,19 @@ extern void arch_static_call_transform(void *site, void *tramp, void *func, bool
 			     STATIC_CALL_TRAMP_ADDR(name), __F);	\
 })
 
+#define static_call_toggle(name, enable)				\
+({									\
+	struct static_call_toggle *__G = &STATIC_CALL_TOGGLE(name);	\
+	if (enable)							\
+		static_call_update(name, __G->func_enabled);		\
+	else								\
+		static_call_update(name, __G->func_disabled);		\
+})
+
+#define static_call_enable(name) static_call_toggle(name, 1);
+#define static_call_disable(name) static_call_toggle(name, 0);
+
+
 #define static_call_query(name) (READ_ONCE(STATIC_CALL_KEY(name).func))
 
 #ifdef CONFIG_HAVE_STATIC_CALL_INLINE
@@ -332,5 +345,28 @@ static inline int static_call_text_reserved(void *start, void *end)
 
 #define DEFINE_STATIC_CALL_RET0(name, _func)				\
 	__DEFINE_STATIC_CALL(name, _func, __static_call_return0)
+
+#define __DEFINE_STATIC_CALL_TOGGLE(name, _func_enabled, _func_disabled) \
+	struct static_call_toggle STATIC_CALL_TOGGLE(name) = {			\
+		.key = &STATIC_CALL_KEY(name),					\
+		.func_enabled = _func_enabled,					\
+		.func_disabled = _func_disabled,				\
+	}
+
+#define DEFINE_STATIC_CALL_ENABLED(name, _func)					\
+	DEFINE_STATIC_CALL(name, _func);					\
+	__DEFINE_STATIC_CALL_TOGGLE(name, _func, NULL)
+
+#define DEFINE_STATIC_CALL_DISABLED(name, _func)				\
+	DEFINE_STATIC_CALL_NULL(name, _func);					\
+	__DEFINE_STATIC_CALL_TOGGLE(name, _func, NULL)
+
+#define DEFINE_STATIC_CALL_ENABLED_RET0(name, _func)				\
+	DEFINE_STATIC_CALL(name, _func);					\
+	__DEFINE_STATIC_CALL_TOGGLE(name, _func, __static_call_return0)
+
+#define DEFINE_STATIC_CALL_DISABLED_RET0(name, _func)				\
+	DEFINE_STATIC_CALL_RET0(name, _func);					\
+	__DEFINE_STATIC_CALL_TOGGLE(name, _func, __static_call_return0)
 
 #endif /* _LINUX_STATIC_CALL_H */
