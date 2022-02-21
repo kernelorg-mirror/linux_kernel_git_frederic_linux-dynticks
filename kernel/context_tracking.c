@@ -125,11 +125,16 @@ void context_tracking_enter(enum ctx_state state)
 NOKPROBE_SYMBOL(context_tracking_enter);
 EXPORT_SYMBOL_GPL(context_tracking_enter);
 
-void context_tracking_user_enter(void)
+/**
+ * user_enter_callable() - Unfortunate ASM callable version of user_enter() for
+ * 			   archs that didn't manage to check the context tracking
+ * 			   static key from low level code.
+ */
+void user_enter_callable(void)
 {
 	user_enter();
 }
-NOKPROBE_SYMBOL(context_tracking_user_enter);
+NOKPROBE_SYMBOL(user_enter_callable);
 
 /**
  * __ct_user_exit - Inform the context tracking that the CPU is
@@ -182,11 +187,16 @@ void context_tracking_exit(enum ctx_state state)
 NOKPROBE_SYMBOL(context_tracking_exit);
 EXPORT_SYMBOL_GPL(context_tracking_exit);
 
-void context_tracking_user_exit(void)
+/**
+ * user_exit_callable() - Unfortunate ASM callable version of user_exit() for
+ * 			  archs that didn't manage to check the context tracking
+ * 			  static key from low level code.
+ */
+void user_exit_callable(void)
 {
 	user_exit();
 }
-NOKPROBE_SYMBOL(context_tracking_user_exit);
+NOKPROBE_SYMBOL(user_exit_callable);
 
 void __init context_tracking_cpu_set(int cpu)
 {
