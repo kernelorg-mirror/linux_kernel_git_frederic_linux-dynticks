@@ -24,6 +24,7 @@ struct context_tracking {
 	} state;
 #endif
 	atomic_t dynticks;		/* Even value for idle, else odd. */
+	long dynticks_nesting;		/* Track process nesting level. */
 };
 
 #ifdef CONFIG_CONTEXT_TRACKING
