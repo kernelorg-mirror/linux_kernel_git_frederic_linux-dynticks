@@ -6,6 +6,9 @@
 #include <linux/static_key.h>
 #include <linux/context_tracking_irq.h>
 
+/* Offset to allow distinguishing irq vs. task-based idle entry/exit. */
+#define DYNTICK_IRQ_NONIDLE	((LONG_MAX / 2) + 1)
+
 struct context_tracking {
 #ifdef CONFIG_CONTEXT_TRACKING_USER
 	/*
@@ -25,6 +28,7 @@ struct context_tracking {
 #endif
 	atomic_t dynticks;		/* Even value for idle, else odd. */
 	long dynticks_nesting;		/* Track process nesting level. */
+	long dynticks_nmi_nesting;	/* Track irq/NMI nesting level. */
 };
 
 #ifdef CONFIG_CONTEXT_TRACKING
