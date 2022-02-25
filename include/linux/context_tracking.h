@@ -110,7 +110,7 @@ static inline void context_tracking_init(void) { }
 #ifdef CONFIG_CONTEXT_TRACKING
 extern void ct_idle_enter(void);
 extern void ct_idle_exit(void);
-extern unsigned long rcu_dynticks_inc(int incby);
+extern unsigned long ct_state_inc(int incby);
 
 /*
  * Is the current CPU in an extended quiescent state?
@@ -119,7 +119,7 @@ extern unsigned long rcu_dynticks_inc(int incby);
  */
 static __always_inline bool rcu_dynticks_curr_cpu_in_eqs(void)
 {
-	return !(arch_atomic_read(this_cpu_ptr(&context_tracking.dynticks)) & 0x1);
+	return !(arch_atomic_read(this_cpu_ptr(&context_tracking.state)) & RCU_DYNTICKS_IDX);
 }
 
 #else
