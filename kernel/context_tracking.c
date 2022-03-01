@@ -133,7 +133,7 @@ static noinstr void rcu_eqs_enter(bool user)
 
 	lockdep_assert_irqs_disabled();
 	instrumentation_begin();
-	trace_rcu_dyntick(TPS("Start"), ct->dynticks_nesting, 0, atomic_read(&ct->dynticks));
+	trace_rcu_dyntick(TPS("Start"), ct->dynticks_nesting, 0, ct_dynticks());
 	WARN_ON_ONCE(IS_ENABLED(CONFIG_RCU_EQS_DEBUG) && !user && !is_idle_task(current));
 	rcu_preempt_deferred_qs(current);
 
@@ -178,7 +178,7 @@ noinstr void ct_nmi_exit(void)
 	 */
 	if (ct->dynticks_nmi_nesting != 1) {
 		trace_rcu_dyntick(TPS("--="), ct->dynticks_nmi_nesting, ct->dynticks_nmi_nesting - 2,
-				  atomic_read(&ct->dynticks));
+				  ct_dynticks());
 		WRITE_ONCE(ct->dynticks_nmi_nesting, /* No store tearing. */
 			   ct->dynticks_nmi_nesting - 2);
 		instrumentation_end();
@@ -186,7 +186,7 @@ noinstr void ct_nmi_exit(void)
 	}
 
 	/* This NMI interrupted an RCU-idle CPU, restore RCU-idleness. */
-	trace_rcu_dyntick(TPS("Startirq"), ct->dynticks_nmi_nesting, 0, atomic_read(&ct->dynticks));
+	trace_rcu_dyntick(TPS("Startirq"), ct->dynticks_nmi_nesting, 0, ct_dynticks());
 	WRITE_ONCE(ct->dynticks_nmi_nesting, 0); /* Avoid store tearing. */
 
 	// instrumentation for the noinstr rcu_dynticks_eqs_enter()
@@ -231,7 +231,7 @@ static void noinstr rcu_eqs_exit(bool user)
 	// instrumentation for the noinstr rcu_dynticks_eqs_exit()
 	instrument_atomic_write(&ct->dynticks, sizeof(ct->dynticks));
 
-	trace_rcu_dyntick(TPS("End"), ct->dynticks_nesting, 1, atomic_read(&ct->dynticks));
+	trace_rcu_dyntick(TPS("End"), ct->dynticks_nesting, 1, ct_dynticks());
 	WARN_ON_ONCE(IS_ENABLED(CONFIG_RCU_EQS_DEBUG) && !user && !is_idle_task(current));
 	WRITE_ONCE(ct->dynticks_nesting, 1);
 	WARN_ON_ONCE(ct->dynticks_nmi_nesting);
@@ -292,7 +292,7 @@ noinstr void ct_nmi_enter(void)
 
 	trace_rcu_dyntick(incby == 1 ? TPS("Endirq") : TPS("++="),
 			  ct->dynticks_nmi_nesting,
-			  ct->dynticks_nmi_nesting + incby, atomic_read(&ct->dynticks));
+			  ct->dynticks_nmi_nesting + incby, ct_dynticks());
 	instrumentation_end();
 	WRITE_ONCE(ct->dynticks_nmi_nesting, /* Prevent store tearing. */
 		   ct->dynticks_nmi_nesting + incby);

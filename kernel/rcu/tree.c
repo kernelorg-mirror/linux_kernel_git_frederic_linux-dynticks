@@ -272,9 +272,7 @@ void rcu_softirq_qs(void)
  */
 static void rcu_dynticks_eqs_online(void)
 {
-	struct context_tracking *ct = this_cpu_ptr(&context_tracking);
-
-	if (atomic_read(&ct->dynticks) & 0x1)
+	if (ct_dynticks() & 0x1)
 		return;
 	rcu_dynticks_inc(1);
 }
@@ -285,10 +283,8 @@ static void rcu_dynticks_eqs_online(void)
  */
 static int rcu_dynticks_snap(int cpu)
 {
-	struct context_tracking *ct = per_cpu_ptr(&context_tracking, cpu);
-
 	smp_mb();  // Fundamental RCU ordering guarantee.
-	return atomic_read_acquire(&ct->dynticks);
+	return ct_dynticks_cpu_acquire(cpu);
 }
 
 /*
@@ -322,11 +318,10 @@ static bool rcu_dynticks_in_eqs_since(struct rcu_data *rdp, int snap)
  */
 bool rcu_dynticks_zero_in_eqs(int cpu, int *vp)
 {
-	struct context_tracking *ct = per_cpu_ptr(&context_tracking, cpu);
 	int snap;
 
 	// If not quiescent, force back to earlier extended quiescent state.
-	snap = atomic_read(&ct->dynticks) & ~0x1;
+	snap = ct_dynticks_cpu(cpu) & ~0x1;
 
 	smp_rmb(); // Order ->dynticks and *vp reads.
 	if (READ_ONCE(*vp))
@@ -334,7 +329,7 @@ bool rcu_dynticks_zero_in_eqs(int cpu, int *vp)
 	smp_rmb(); // Order *vp read and ->dynticks re-read.
 
 	// If still in the same extended quiescent state, we are good!
-	return snap == atomic_read(&ct->dynticks);
+	return snap == ct_dynticks_cpu(cpu);
 }
 
 /*

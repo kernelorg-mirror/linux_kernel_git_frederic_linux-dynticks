@@ -40,6 +40,23 @@ static __always_inline int __ct_state(void)
 {
 	return atomic_read(this_cpu_ptr(&context_tracking.state));
 }
+
+static __always_inline int ct_dynticks(void)
+{
+	return atomic_read(this_cpu_ptr(&context_tracking.dynticks));
+}
+
+static __always_inline int ct_dynticks_cpu(int cpu)
+{
+	struct context_tracking *ct = per_cpu_ptr(&context_tracking, cpu);
+	return atomic_read(&ct->dynticks);
+}
+
+static __always_inline int ct_dynticks_cpu_acquire(int cpu)
+{
+	struct context_tracking *ct = per_cpu_ptr(&context_tracking, cpu);
+	return atomic_read_acquire(&ct->state);
+}
 #endif
 
 #ifdef CONFIG_CONTEXT_TRACKING_USER
