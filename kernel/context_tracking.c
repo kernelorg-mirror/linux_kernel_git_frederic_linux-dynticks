@@ -374,7 +374,7 @@ void noinstr __ct_user_enter(enum ctx_state state)
 			 * when the CPU runs in userspace.
 			 */
 			ct_kernel_exit(true, RCU_DYNTICKS_IDX + state);
-		} else {
+		} else if (!IS_ENABLED(CONFIG_HAVE_CONTEXT_TRACKING_USER_OFFSTACK)) {
 			/*
 			 * Even if context tracking is disabled on this CPU, because it's outside
 			 * the full dynticks mask for example, we still have to keep track of the
@@ -384,7 +384,8 @@ void noinstr __ct_user_enter(enum ctx_state state)
 			 * handler and then migrate to another CPU, that new CPU must know where
 			 * the exception returns by the time we call exception_exit().
 			 * This information can only be provided by the previous CPU when it called
-			 * exception_enter().
+			 * exception_enter(). CONFIG_HAVE_CONTEXT_TRACKING_USER_OFFSTACK is
+			 * excused though because it doesn't use exception_enter().
 			 * OTOH we can spare the calls to vtime and RCU when context_tracking.active
 			 * is false because we know that CPU is not tickless.
 			 */
@@ -460,7 +461,7 @@ void noinstr __ct_user_exit(enum ctx_state state)
 				trace_user_exit(0);
 				instrumentation_end();
 			}
-		} else {
+		} else if (!IS_ENABLED(CONFIG_HAVE_CONTEXT_TRACKING_USER_OFFSTACK)) {
 			atomic_sub(state, &ct->state);
 		}
 	}
