@@ -1242,7 +1242,7 @@ u8 rcu_trc_cmpxchg_need_qs(struct task_struct *t, u8 old, u8 new)
 	if (trs_old.b.need_qs != old)
 		return trs_old.b.need_qs;
 	trs_new.b.need_qs = new;
-	ret = cmpxchg(&t->trc_reader_special, trs_old, trs_new);
+	ret.s = cmpxchg(&t->trc_reader_special.s, trs_old.s, trs_new.s);
 	return ret.b.need_qs;
 }
 EXPORT_SYMBOL_GPL(rcu_trc_cmpxchg_need_qs);
