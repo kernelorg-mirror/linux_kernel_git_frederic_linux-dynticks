@@ -62,6 +62,7 @@ struct tick_sched {
 	unsigned int			idle_active	: 1;
 	unsigned int			do_timer_last	: 1;
 	unsigned int			got_idle_tick	: 1;
+	unsigned int			nohz_full	: 1;
 
 	ktime_t				last_tick;
 	ktime_t				next_tick;
