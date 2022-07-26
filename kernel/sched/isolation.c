@@ -18,6 +18,7 @@ enum hk_flags {
 	HK_FLAG_WQ		= BIT(HK_TYPE_WQ),
 	HK_FLAG_MANAGED_IRQ	= BIT(HK_TYPE_MANAGED_IRQ),
 	HK_FLAG_KTHREAD		= BIT(HK_TYPE_KTHREAD),
+	HK_FLAG_NOHZ_FULL	= BIT(HK_TYPE_NOHZ_FULL),
 };
 
 DEFINE_STATIC_KEY_FALSE(housekeeping_overridden);
@@ -182,7 +183,7 @@ static int __init housekeeping_nohz_full_setup(char *str)
 	unsigned long flags;
 
 	flags = HK_FLAG_TICK | HK_FLAG_WQ | HK_FLAG_TIMER | HK_FLAG_RCU |
-		HK_FLAG_MISC | HK_FLAG_KTHREAD;
+		HK_FLAG_MISC | HK_FLAG_KTHREAD | HK_FLAG_NOHZ_FULL;
 
 	return housekeeping_setup(str, flags);
 }
@@ -199,7 +200,8 @@ static int __init housekeeping_isolcpus_setup(char *str)
 		if (!strncmp(str, "nohz,", 5)) {
 			str += 5;
 			flags |= HK_FLAG_TICK | HK_FLAG_WQ | HK_FLAG_TIMER |
-				HK_FLAG_RCU | HK_FLAG_MISC | HK_FLAG_KTHREAD;
+				HK_FLAG_RCU | HK_FLAG_MISC | HK_FLAG_KTHREAD |
+				HK_FLAG_NOHZ_FULL;
 			continue;
 		}
 
