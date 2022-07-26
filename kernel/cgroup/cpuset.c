@@ -602,9 +602,9 @@ static int cpuset_rcu_nocb_apply(struct cpuset *root)
 	int err;
 
 	if (is_rcu_nocb(root))
-		err = housekeeping_cpumask_set(root->effective_cpus, HK_TYPE_RCU);
+		err = housekeeping_cpumask_set(root->effective_cpus, HK_TYPE_NOHZ_FULL);
 	else
-		err = housekeeping_cpumask_clear(root->effective_cpus, HK_TYPE_RCU);
+		err = housekeeping_cpumask_clear(root->effective_cpus, HK_TYPE_NOHZ_FULL);
 
 	return err;
 }

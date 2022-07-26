@@ -1079,13 +1079,13 @@ int get_nohz_timer_target(void)
 	struct sched_domain *sd;
 	const struct cpumask *hk_mask;
 
-	if (housekeeping_cpu(cpu, HK_TYPE_TIMER)) {
+	if (housekeeping_cpu(cpu, HK_TYPE_NOHZ_FULL)) {
 		if (!idle_cpu(cpu))
 			return cpu;
 		default_cpu = cpu;
 	}
 
-	hk_mask = housekeeping_cpumask(HK_TYPE_TIMER);
+	hk_mask = housekeeping_cpumask(HK_TYPE_NOHZ_FULL);
 
 	rcu_read_lock();
 	for_each_domain(cpu, sd) {
@@ -1101,7 +1101,7 @@ int get_nohz_timer_target(void)
 	}
 
 	if (default_cpu == -1)
-		default_cpu = housekeeping_any_cpu(HK_TYPE_TIMER);
+		default_cpu = housekeeping_any_cpu(HK_TYPE_NOHZ_FULL);
 	cpu = default_cpu;
 unlock:
 	rcu_read_unlock();
@@ -5562,7 +5562,7 @@ static void sched_tick_start(int cpu)
 	int os;
 	struct tick_work *twork;
 
-	if (housekeeping_cpu(cpu, HK_TYPE_TICK))
+	if (housekeeping_cpu(cpu, HK_TYPE_NOHZ_FULL))
 		return;
 
 	WARN_ON_ONCE(!tick_work_cpu);
@@ -5583,7 +5583,7 @@ static void sched_tick_stop(int cpu)
 	struct tick_work *twork;
 	int os;
 
-	if (housekeeping_cpu(cpu, HK_TYPE_TICK))
+	if (housekeeping_cpu(cpu, HK_TYPE_NOHZ_FULL))
 		return;
 
 	WARN_ON_ONCE(!tick_work_cpu);

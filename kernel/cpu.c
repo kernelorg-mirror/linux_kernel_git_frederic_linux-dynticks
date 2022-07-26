@@ -1500,8 +1500,8 @@ int freeze_secondary_cpus(int primary)
 	cpu_maps_update_begin();
 	if (primary == -1) {
 		primary = cpumask_first(cpu_online_mask);
-		if (!housekeeping_cpu(primary, HK_TYPE_TIMER))
-			primary = housekeeping_any_cpu(HK_TYPE_TIMER);
+		if (!housekeeping_cpu(primary, HK_TYPE_NOHZ_FULL))
+			primary = housekeeping_any_cpu(HK_TYPE_NOHZ_FULL);
 	} else {
 		if (!cpu_online(primary))
 			primary = cpumask_first(cpu_online_mask);

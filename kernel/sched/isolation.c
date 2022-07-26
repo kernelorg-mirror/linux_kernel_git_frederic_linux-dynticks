@@ -4,20 +4,15 @@
  *  any CPU: unbound workqueues, timers, kthreads and any offloadable work.
  *
  * Copyright (C) 2017 Red Hat, Inc., Frederic Weisbecker
- * Copyright (C) 2017-2018 SUSE, Frederic Weisbecker
+ * Copyright (C) 2017-2022 SUSE, Frederic Weisbecker
  *
  */
 
 enum hk_flags {
-	HK_FLAG_TIMER		= BIT(HK_TYPE_TIMER),
-	HK_FLAG_RCU		= BIT(HK_TYPE_RCU),
-	HK_FLAG_MISC		= BIT(HK_TYPE_MISC),
+	HK_FLAG_NOHZ_FULL	= BIT(HK_TYPE_NOHZ_FULL),
 	HK_FLAG_SCHED		= BIT(HK_TYPE_SCHED),
-	HK_FLAG_TICK		= BIT(HK_TYPE_TICK),
 	HK_FLAG_DOMAIN		= BIT(HK_TYPE_DOMAIN),
-	HK_FLAG_WQ		= BIT(HK_TYPE_WQ),
 	HK_FLAG_MANAGED_IRQ	= BIT(HK_TYPE_MANAGED_IRQ),
-	HK_FLAG_KTHREAD		= BIT(HK_TYPE_KTHREAD),
 };
 
 DEFINE_STATIC_KEY_FALSE(housekeeping_overridden);
@@ -85,7 +80,7 @@ static int housekeeping_cpumask_update(struct cpumask *cpumask,
 	int err;
 
 	switch (type) {
-	case HK_TYPE_RCU:
+	case HK_TYPE_NOHZ_FULL:
 		err = rcu_nocb_cpumask_update(cpumask, on);
 		break;
 	default:
@@ -126,7 +121,7 @@ void __init housekeeping_init(void)
 
 	static_branch_enable(&housekeeping_overridden);
 
-	if (housekeeping.flags & HK_FLAG_TICK)
+	if (housekeeping.flags & HK_FLAG_NOHZ_FULL)
 		sched_tick_offload_init();
 
 	for_each_set_bit(type, &housekeeping.flags, HK_TYPE_MAX) {
@@ -149,7 +144,7 @@ static int __init housekeeping_setup(char *str, unsigned long flags)
 	cpumask_var_t non_housekeeping_mask, housekeeping_staging;
 	int err = 0;
 
-	if ((flags & HK_FLAG_TICK) && !(housekeeping.flags & HK_FLAG_TICK)) {
+	if ((flags & HK_FLAG_NOHZ_FULL) && !(housekeeping.flags & HK_FLAG_NOHZ_FULL)) {
 		if (!IS_ENABLED(CONFIG_NO_HZ_FULL)) {
 			pr_warn("Housekeeping: nohz unsupported."
 				" Build with CONFIG_NO_HZ_FULL\n");
@@ -201,7 +196,7 @@ static int __init housekeeping_setup(char *str, unsigned long flags)
 			housekeeping_setup_type(type, housekeeping_staging);
 	}
 
-	if ((flags & HK_FLAG_TICK) && !(housekeeping.flags & HK_FLAG_TICK))
+	if ((flags & HK_FLAG_NOHZ_FULL) && !(housekeeping.flags & HK_FLAG_NOHZ_FULL))
 		tick_nohz_full_setup(non_housekeeping_mask);
 
 	housekeeping.flags |= flags;
@@ -217,12 +212,7 @@ free_non_housekeeping_mask:
 
 static int __init housekeeping_nohz_full_setup(char *str)
 {
-	unsigned long flags;
-
-	flags = HK_FLAG_TICK | HK_FLAG_WQ | HK_FLAG_TIMER | HK_FLAG_RCU |
-		HK_FLAG_MISC | HK_FLAG_KTHREAD;
-
-	return housekeeping_setup(str, flags);
+	return housekeeping_setup(str, HK_FLAG_NOHZ_FULL);
 }
 __setup("nohz_full=", housekeeping_nohz_full_setup);
 
@@ -236,8 +226,7 @@ static int __init housekeeping_isolcpus_setup(char *str)
 	while (isalpha(*str)) {
 		if (!strncmp(str, "nohz,", 5)) {
 			str += 5;
-			flags |= HK_FLAG_TICK | HK_FLAG_WQ | HK_FLAG_TIMER |
-				HK_FLAG_RCU | HK_FLAG_MISC | HK_FLAG_KTHREAD;
+			flags |= HK_FLAG_NOHZ_FULL;
 			continue;
 		}
 
