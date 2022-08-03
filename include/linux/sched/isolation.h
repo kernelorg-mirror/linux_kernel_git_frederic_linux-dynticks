@@ -4,6 +4,7 @@
 #include <linux/cpumask.h>
 #include <linux/init.h>
 #include <linux/tick.h>
+#include <linux/percpu-rwsem.h>
 
 enum hk_type {
 	HK_TYPE_NOHZ_FULL,
@@ -15,6 +16,18 @@ enum hk_type {
 
 #ifdef CONFIG_CPU_ISOLATION
 DECLARE_STATIC_KEY_FALSE(housekeeping_overridden);
+extern struct percpu_rw_semaphore housekeeping_rwsem;
+
+static inline void hk_down_read(void)
+{
+	percpu_down_read(&housekeeping_rwsem);
+}
+
+static inline void hk_up_read(void)
+{
+	percpu_up_read(&housekeeping_rwsem);
+}
+
 extern int housekeeping_any_cpu(enum hk_type type);
 extern const struct cpumask *housekeeping_cpumask(enum hk_type type);
 extern bool housekeeping_enabled(enum hk_type type);
@@ -25,6 +38,9 @@ extern int housekeeping_cpumask_clear(struct cpumask *cpumask, enum hk_type type
 extern void __init housekeeping_init(void);
 
 #else
+
+static inline void hk_down_read(void) { }
+static inline void hk_up_read(void) { }
 
 static inline int housekeeping_any_cpu(enum hk_type type)
 {

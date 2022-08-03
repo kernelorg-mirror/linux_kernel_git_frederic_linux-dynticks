@@ -25,6 +25,8 @@ struct housekeeping {
 
 static struct housekeeping housekeeping;
 
+DEFINE_PERCPU_RWSEM(housekeeping_rwsem);
+
 bool housekeeping_enabled(enum hk_type type)
 {
 	return !!(housekeeping.flags & BIT(type));
@@ -59,9 +61,12 @@ EXPORT_SYMBOL_GPL(housekeeping_cpumask);
 
 void housekeeping_affine(struct task_struct *t, enum hk_type type)
 {
-	if (static_branch_unlikely(&housekeeping_overridden))
+	if (static_branch_unlikely(&housekeeping_overridden)) {
+		hk_down_read();
 		if (housekeeping.flags & BIT(type))
 			set_cpus_allowed_ptr(t, housekeeping.cpumasks[type]);
+		hk_up_read();
+	}
 }
 EXPORT_SYMBOL_GPL(housekeeping_affine);
 
