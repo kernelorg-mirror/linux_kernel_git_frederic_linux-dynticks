@@ -1237,10 +1237,14 @@ static void rcu_boost_kthread_setaffinity(struct rcu_node *rnp, int outgoingcpu)
 		if ((mask & leaf_node_cpu_bit(rnp, cpu)) &&
 		    cpu != outgoingcpu)
 			cpumask_set_cpu(cpu, cm);
+
+	hk_down_read(&housekeeping_rwsem);
 	cpumask_and(cm, cm, housekeeping_cpumask(HK_TYPE_NOHZ_FULL));
 	if (cpumask_empty(cm))
 		cpumask_copy(cm, housekeeping_cpumask(HK_TYPE_NOHZ_FULL));
 	set_cpus_allowed_ptr(t, cm);
+	hk_up_read(&housekeeping_rwsem);
+
 	mutex_unlock(&rnp->boost_kthread_mutex);
 	free_cpumask_var(cm);
 }
