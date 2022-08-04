@@ -850,10 +850,12 @@ static ssize_t store_rps_map(struct netdev_rx_queue *queue,
 		return err;
 	}
 
+	hk_down_read();
 	if (!cpumask_empty(mask)) {
 		cpumask_and(mask, mask, housekeeping_cpumask(HK_TYPE_DOMAIN));
 		cpumask_and(mask, mask, housekeeping_cpumask(HK_TYPE_NOHZ_FULL));
 		if (cpumask_empty(mask)) {
+			hk_up_read();
 			free_cpumask_var(mask);
 			return -EINVAL;
 		}
@@ -863,6 +865,7 @@ static ssize_t store_rps_map(struct netdev_rx_queue *queue,
 			    RPS_MAP_SIZE(cpumask_weight(mask)), L1_CACHE_BYTES),
 		      GFP_KERNEL);
 	if (!map) {
+		hk_up_read();
 		free_cpumask_var(mask);
 		return -ENOMEM;
 	}
@@ -889,6 +892,7 @@ static ssize_t store_rps_map(struct netdev_rx_queue *queue,
 		static_branch_dec(&rps_needed);
 
 	mutex_unlock(&rps_map_mutex);
+	hk_up_read();
 
 	if (old_map)
 		kfree_rcu(old_map, rcu);
