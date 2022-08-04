@@ -1081,6 +1081,12 @@ int get_nohz_timer_target(void)
 
 	lockdep_assert_irqs_enabled();
 
+	/*
+	 * The housekeeping cpumask read and the actual enqueue of
+	 * the target must be in the same RCU read side critical
+	 * section in order not to race with timers remigration.
+	 * IRQs are currently disabled during this whole process.
+	 */
 	if (housekeeping_cpu(cpu, HK_TYPE_NOHZ_FULL)) {
 		if (!idle_cpu(cpu))
 			return cpu;
