@@ -362,7 +362,7 @@ static int pci_call_probe(struct pci_driver *drv, struct pci_dev *dev,
 	dev->is_probed = 1;
 
 	cpu_hotplug_disable();
-
+	hk_down_read();
 	/*
 	 * Prevent nesting work_on_cpu() for the case where a Virtual Function
 	 * device is probed from work_on_cpu() of the Physical device.
@@ -392,6 +392,7 @@ static int pci_call_probe(struct pci_driver *drv, struct pci_dev *dev,
 		error = local_pci_probe(&ddi);
 out:
 	dev->is_probed = 0;
+	hk_up_read();
 	cpu_hotplug_enable();
 	return error;
 }
