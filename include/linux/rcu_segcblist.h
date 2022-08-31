@@ -212,6 +212,7 @@ struct rcu_segcblist {
 #else
 	long len;
 #endif
+	long lazy_len;
 	long seglen[RCU_CBLIST_NSEGS];
 	u8 flags;
 };

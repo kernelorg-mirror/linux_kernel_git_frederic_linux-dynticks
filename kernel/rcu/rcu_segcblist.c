@@ -246,6 +246,7 @@ void rcu_segcblist_init(struct rcu_segcblist *rsclp)
 		rcu_segcblist_set_seglen(rsclp, i, 0);
 	}
 	rcu_segcblist_set_len(rsclp, 0);
+	rsclp->lazy_len = 0;
 	rcu_segcblist_set_flags(rsclp, SEGCBLIST_ENABLED);
 }
 
@@ -341,6 +342,8 @@ void rcu_segcblist_enqueue(struct rcu_segcblist *rsclp,
 			   struct rcu_head *rhp)
 {
 	rcu_segcblist_inc_len(rsclp);
+	if ((unsigned long)rhp->func & 1UL)
+		rsclp->lazy_len++;
 	rcu_segcblist_inc_seglen(rsclp, RCU_NEXT_TAIL);
 	rhp->next = NULL;
 	WRITE_ONCE(*rsclp->tails[RCU_NEXT_TAIL], rhp);
@@ -618,11 +621,13 @@ void rcu_segcblist_merge(struct rcu_segcblist *dst_rsclp,
 	rcu_segcblist_extract_done_cbs(src_rsclp, &donecbs);
 	rcu_segcblist_extract_pend_cbs(src_rsclp, &pendcbs);
 
+	dst_rsclp->lazy_len = src_rsclp->lazy_len;
 	/*
 	 * No need smp_mb() before setting length to 0, because CPU hotplug
 	 * lock excludes rcu_barrier.
 	 */
 	rcu_segcblist_set_len(src_rsclp, 0);
+	src_rsclp->lazy_len = 0;
 
 	rcu_segcblist_insert_count(dst_rsclp, &donecbs);
 	rcu_segcblist_insert_count(dst_rsclp, &pendcbs);

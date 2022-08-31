@@ -1099,6 +1099,12 @@ void rcu_irq_enter_irqson(void)
  */
 int rcu_needs_cpu(void)
 {
+	struct rcu_segcblist *rsclp = &this_cpu_ptr(&rcu_data)->cblist;
+
+	if (rsclp->lazy_len > 0 && rsclp->lazy_len == rcu_segcblist_n_cbs(rsclp))
+		trace_printk("BAD: %ld lazy callbacks retaining dynticks-idle\n", rsclp->lazy_len);
+	else
+		trace_printk("GOOD: %ld lazy %ld regular\n", rsclp->lazy_len, rcu_segcblist_n_cbs(rsclp));
 	return !rcu_segcblist_empty(&this_cpu_ptr(&rcu_data)->cblist) &&
 		!rcu_rdp_is_offloaded(this_cpu_ptr(&rcu_data));
 }
@@ -2520,7 +2526,7 @@ static void rcu_do_batch(struct rcu_data *rdp)
 	unsigned long flags;
 	struct rcu_head *rhp;
 	struct rcu_cblist rcl = RCU_CBLIST_INITIALIZER(rcl);
-	long bl, count = 0;
+	long bl, count = 0, count_lazy = 0;
 	long pending, tlimit = 0;
 
 	/* If no callbacks are ready, just return. */
@@ -2568,12 +2574,14 @@ static void rcu_do_batch(struct rcu_data *rdp)
 		rcu_callback_t f;
 
 		count++;
+		if (((unsigned long)rhp->func & 1UL))
+			count_lazy++;
 		debug_rcu_head_unqueue(rhp);
 
 		rcu_lock_acquire(&rcu_callback_map);
 		trace_rcu_invoke_callback(rcu_state.name, rhp);
 
-		f = rhp->func;
+		f = (rcu_callback_t)((unsigned long)rhp->func & ~1UL);
 		WRITE_ONCE(rhp->func, (rcu_callback_t)0L);
 		f(rhp);
 
@@ -2613,6 +2621,7 @@ static void rcu_do_batch(struct rcu_data *rdp)
 	/* Update counts and requeue any remaining callbacks. */
 	rcu_segcblist_insert_done_cbs(&rdp->cblist, &rcl);
 	rcu_segcblist_add_len(&rdp->cblist, -count);
+	rdp->cblist.lazy_len -= count_lazy;
 
 	/* Reinstate batch limit if we have worked down the excess. */
 	count = rcu_segcblist_n_cbs(&rdp->cblist);
@@ -3143,9 +3152,9 @@ void call_rcu(struct rcu_head *head, rcu_callback_t func)
 		return; // Enqueued onto ->nocb_bypass, so just leave.
 	// If no-CBs CPU gets here, rcu_nocb_try_bypass() acquired ->nocb_lock.
 	rcu_segcblist_enqueue(&rdp->cblist, head);
-	if (__is_kvfree_rcu_offset((unsigned long)func))
+	if (__is_kvfree_rcu_offset((unsigned long)func & ~1UL))
 		trace_rcu_kvfree_callback(rcu_state.name, head,
-					 (unsigned long)func,
+					 (unsigned long)func & ~1UL,
 					 rcu_segcblist_n_cbs(&rdp->cblist));
 	else
 		trace_rcu_callback(rcu_state.name, head,
@@ -3162,6 +3171,12 @@ void call_rcu(struct rcu_head *head, rcu_callback_t func)
 	}
 }
 EXPORT_SYMBOL_GPL(call_rcu);
+
+void call_rcu_lazy(struct rcu_head *head, rcu_callback_t func)
+{
+	func = (rcu_callback_t)((unsigned long)func | 1UL);
+	call_rcu(head, func);
+}
 
 
 /* Maximum number of jiffies to wait before draining a batch. */
