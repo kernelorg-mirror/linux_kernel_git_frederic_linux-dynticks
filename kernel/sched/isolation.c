@@ -19,6 +19,7 @@ DEFINE_STATIC_KEY_FALSE(housekeeping_overridden);
 EXPORT_SYMBOL_GPL(housekeeping_overridden);
 
 struct housekeeping {
+	struct cpumask __rcu *non_nohz_full;
 	cpumask_var_t cpumasks[HK_TYPE_MAX];
 	unsigned long flags;
 };
@@ -29,22 +30,33 @@ DEFINE_PERCPU_RWSEM(housekeeping_rwsem);
 
 bool housekeeping_enabled(enum hk_type type)
 {
+	if (type == HK_TYPE_NOHZ_FULL)
+		return !!rcu_dereference(housekeeping.non_nohz_full);
 	return !!(housekeeping.flags & BIT(type));
 }
 EXPORT_SYMBOL_GPL(housekeeping_enabled);
 
 int housekeeping_any_cpu(enum hk_type type)
 {
-	int cpu;
-
 	if (static_branch_unlikely(&housekeeping_overridden)) {
-		if (housekeeping.flags & BIT(type)) {
-			cpu = sched_numa_find_closest(housekeeping.cpumasks[type], smp_processor_id());
-			if (cpu < nr_cpu_ids)
-				return cpu;
+		struct cpumask *cpumask;
+		int cpu;
 
-			return cpumask_any_and(housekeeping.cpumasks[type], cpu_online_mask);
+		if (type == HK_TYPE_NOHZ_FULL) {
+			cpumask = rcu_dereference(housekeeping.non_nohz_full);
+			if (!cpumask)
+				return smp_processor_id();
+		} else if (housekeeping.flags & BIT(type)) {
+			cpumask = housekeeping.cpumasks[type];
+		} else {
+			return smp_processor_id();
 		}
+
+		cpu = sched_numa_find_closest(cpumask, smp_processor_id());
+		if (cpu < nr_cpu_ids)
+			return cpu;
+
+		return cpumask_any_and(housekeeping.cpumasks[type], cpu_online_mask);
 	}
 	return smp_processor_id();
 }
@@ -52,9 +64,16 @@ EXPORT_SYMBOL_GPL(housekeeping_any_cpu);
 
 const struct cpumask *housekeeping_cpumask(enum hk_type type)
 {
-	if (static_branch_unlikely(&housekeeping_overridden))
-		if (housekeeping.flags & BIT(type))
+	if (static_branch_unlikely(&housekeeping_overridden)) {
+		if (type == HK_TYPE_NOHZ_FULL) {
+			struct cpumask *cpumask;
+			cpumask = rcu_dereference(housekeeping.non_nohz_full);
+			if (!cpumask)
+				return cpu_possible_mask;
+		} else if (housekeeping.flags & BIT(type)) {
 			return housekeeping.cpumasks[type];
+		}
+	}
 	return cpu_possible_mask;
 }
 EXPORT_SYMBOL_GPL(housekeeping_cpumask);
@@ -63,8 +82,14 @@ void housekeeping_affine(struct task_struct *t, enum hk_type type)
 {
 	if (static_branch_unlikely(&housekeeping_overridden)) {
 		hk_down_read();
-		if (housekeeping.flags & BIT(type))
+		if (type == HK_TYPE_NOHZ_FULL) {
+			struct cpumask *cpumask;
+			cpumask = rcu_dereference(housekeeping.non_nohz_full);
+			if (cpumask)
+				set_cpus_allowed_ptr(t, cpumask);
+		} else if (housekeeping.flags & BIT(type)) {
 			set_cpus_allowed_ptr(t, housekeeping.cpumasks[type]);
+		}
 		hk_up_read();
 	}
 }
@@ -72,9 +97,16 @@ EXPORT_SYMBOL_GPL(housekeeping_affine);
 
 bool housekeeping_test_cpu(int cpu, enum hk_type type)
 {
-	if (static_branch_unlikely(&housekeeping_overridden))
-		if (housekeeping.flags & BIT(type))
+	if (static_branch_unlikely(&housekeeping_overridden)) {
+		if (type == HK_TYPE_NOHZ_FULL) {
+			struct cpumask *cpumask;
+			cpumask = rcu_dereference(housekeeping.non_nohz_full);
+			if (cpumask)
+				cpumask_test_cpu(cpu, cpumask);
+		} else if (housekeeping.flags & BIT(type)) {
 			return cpumask_test_cpu(cpu, housekeeping.cpumasks[type]);
+		}
+	}
 	return true;
 }
 EXPORT_SYMBOL_GPL(housekeeping_test_cpu);
@@ -130,6 +162,12 @@ void __init housekeeping_init(void)
 		sched_tick_offload_init();
 
 	for_each_set_bit(type, &housekeeping.flags, HK_TYPE_MAX) {
+		if (type == HK_TYPE_NOHZ_FULL) {
+			struct cpumask *cpumask;
+			cpumask = rcu_dereference(housekeeping.non_nohz_full);
+			if (!WARN_ON_ONCE(!cpumask))
+				WARN_ON_ONCE(cpumask_empty(cpumask));
+		}
 		/* We need at least one CPU to handle housekeeping work */
 		WARN_ON_ONCE(cpumask_empty(housekeeping.cpumasks[type]));
 	}
@@ -138,10 +176,18 @@ void __init housekeeping_init(void)
 static void __init housekeeping_setup_type(enum hk_type type,
 					   cpumask_var_t housekeeping_staging)
 {
+	if (type == HK_TYPE_NOHZ_FULL) {
+		struct cpumask *cpumask = kzalloc(sizeof(*cpumask), GFP_KERNEL);
+		if (WARN_ON_ONCE(!cpumask))
+			return;
 
-	alloc_bootmem_cpumask_var(&housekeeping.cpumasks[type]);
-	cpumask_copy(housekeeping.cpumasks[type],
-		     housekeeping_staging);
+		cpumask_copy(cpumask, housekeeping_staging);
+		rcu_assign_pointer(housekeeping.non_nohz_full, cpumask);
+	} else {
+		alloc_bootmem_cpumask_var(&housekeeping.cpumasks[type]);
+		cpumask_copy(housekeeping.cpumasks[type],
+			     housekeeping_staging);
+	}
 }
 
 static int __init housekeeping_setup(char *str, unsigned long flags)
@@ -149,7 +195,7 @@ static int __init housekeeping_setup(char *str, unsigned long flags)
 	cpumask_var_t non_housekeeping_mask, housekeeping_staging;
 	int err = 0;
 
-	if ((flags & HK_FLAG_NOHZ_FULL) && !(housekeeping.flags & HK_FLAG_NOHZ_FULL)) {
+	if ((flags & HK_FLAG_NOHZ_FULL) && !housekeeping_enabled(HK_TYPE_NOHZ_FULL)) {
 		if (!IS_ENABLED(CONFIG_NO_HZ_FULL)) {
 			pr_warn("Housekeeping: nohz unsupported."
 				" Build with CONFIG_NO_HZ_FULL\n");
@@ -170,13 +216,11 @@ static int __init housekeeping_setup(char *str, unsigned long flags)
 	if (!cpumask_intersects(cpu_present_mask, housekeeping_staging)) {
 		__cpumask_set_cpu(smp_processor_id(), housekeeping_staging);
 		__cpumask_clear_cpu(smp_processor_id(), non_housekeeping_mask);
-		if (!housekeeping.flags) {
-			pr_warn("Housekeeping: must include one present CPU, "
-				"using boot CPU:%d\n", smp_processor_id());
-		}
+		pr_warn("Housekeeping: must include one present CPU, "
+			"using boot CPU:%d\n", smp_processor_id());
 	}
 
-	if (!housekeeping.flags) {
+	if (!housekeeping.flags && !housekeeping_enabled(HK_TYPE_NOHZ_FULL)) {
 		/* First setup call ("nohz_full=" or "isolcpus=") */
 		enum hk_type type;
 
@@ -185,26 +229,43 @@ static int __init housekeeping_setup(char *str, unsigned long flags)
 	} else {
 		/* Second setup call ("nohz_full=" after "isolcpus=" or the reverse) */
 		enum hk_type type;
-		unsigned long iter_flags = flags & housekeeping.flags;
+		unsigned long iter_flags;
+		unsigned long oflags = housekeeping.flags;
 
+		if (housekeeping_enabled(HK_TYPE_NOHZ_FULL))
+			oflags |= HK_FLAG_NOHZ_FULL;
+
+		/* First check that nohz_full= matches isolcpus=nohz */
+		iter_flags = flags & oflags;
 		for_each_set_bit(type, &iter_flags, HK_TYPE_MAX) {
-			if (!cpumask_equal(housekeeping_staging,
-					   housekeeping.cpumasks[type])) {
+			struct cpumask *ocpumask;
+
+			if (type == HK_TYPE_NOHZ_FULL) {
+				ocpumask = rcu_dereference(housekeeping.non_nohz_full);
+				if (WARN_ON_ONCE(!ocpumask))
+					goto free_housekeeping_staging;
+			} else {
+				ocpumask = housekeeping.cpumasks[type];
+			}
+			if (!cpumask_equal(housekeeping_staging, ocpumask)) {
 				pr_warn("Housekeeping: nohz_full= must match isolcpus=\n");
 				goto free_housekeeping_staging;
 			}
 		}
 
+		/* Second, handle the newcomers */
 		iter_flags = flags & ~housekeeping.flags;
+		if (housekeeping_enabled(HK_TYPE_NOHZ_FULL))
+			iter_flags &= ~HK_FLAG_NOHZ_FULL;
 
 		for_each_set_bit(type, &iter_flags, HK_TYPE_MAX)
 			housekeeping_setup_type(type, housekeeping_staging);
 	}
 
-	if ((flags & HK_FLAG_NOHZ_FULL) && !(housekeeping.flags & HK_FLAG_NOHZ_FULL))
+	if ((flags & HK_FLAG_NOHZ_FULL) && !housekeeping_enabled(HK_TYPE_NOHZ_FULL))
 		tick_nohz_full_setup(non_housekeeping_mask);
 
-	housekeeping.flags |= flags;
+	housekeeping.flags |= flags & ~HK_FLAG_NOHZ_FULL;
 	err = 1;
 
 free_housekeeping_staging:
