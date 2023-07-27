@@ -1358,6 +1358,9 @@ config RELR
 config ARCH_HAS_MEM_ENCRYPT
 	bool
 
+config ARCH_HAS_SOFTIRQ_DISABLED_MASK
+       bool
+
 config ARCH_HAS_CC_PLATFORM
 	bool
 

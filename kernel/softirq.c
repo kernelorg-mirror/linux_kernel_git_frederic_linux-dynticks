@@ -297,6 +297,18 @@ void do_softirq_post_smp_call_flush(unsigned int was_pending)
 		invoke_softirq();
 }
 
+#ifdef CONFIG_ARCH_HAS_SOFTIRQ_DISABLED_MASK
+void local_bh_vec_enable(int vec)
+{
+	__this_cpu_and(local_softirq_disabled_ref, ~vec);
+}
+
+void local_bh_vec_disable(int vec)
+{
+	__this_cpu_or(local_softirq_disabled_ref, vec);
+}
+#endif
+
 #else /* CONFIG_PREEMPT_RT */
 
 /*
@@ -1009,11 +1021,13 @@ static int timersd_should_run(unsigned int cpu)
 static void run_timersd(unsigned int cpu)
 {
 	unsigned int timer_si;
+	unsigned long timersd_vecs = (1 << TIMER_SOFTIRQ) | (1 << HRTIMER_SOFTIRQ);
 
 	ksoftirqd_run_begin();
 
 	timer_si = local_pending_timers();
-	__this_cpu_write(pending_timer_softirq, 0);
+	__this_cpu_and(pending_timer_softirq,
+		       local_softirq_disabled() & timersd_vecs);
 	or_softirq_pending(timer_si);
 
 	__do_softirq();

@@ -523,8 +523,16 @@ DECLARE_STATIC_KEY_FALSE(force_irqthreads_key);
 #define local_softirq_pending_ref irq_stat.__softirq_pending
 #endif
 
-#define local_softirq_pending()	(__this_cpu_read(local_softirq_pending_ref))
-#define reset_softirq_pending()	(__this_cpu_write(local_softirq_pending_ref, 0))
+#if defined(CONFIG_PREEMPT_RT) && defined(CONFIG_ARCH_HAS_SOFTIRQ_DISABLED_MASK)
+#define local_softirq_disabled()	(__this_cpu_read(local_softirq_disabled_ref))
+#else
+#define local_softirq_disabled()	(0)
+#endif
+
+#define local_softirq_pending()	(__this_cpu_read(local_softirq_pending_ref) & \
+				 ~local_softirq_disabled())
+#define reset_softirq_pending() (__this_cpu_and(local_softirq_pending_ref, \
+				local_softirq_disabled()))
 #define or_softirq_pending(x)	(__this_cpu_or(local_softirq_pending_ref, (x)))
 
 #endif /* local_softirq_pending */
@@ -614,7 +622,8 @@ extern void raise_hrtimer_softirq(void);
 
 static inline unsigned int local_pending_timers(void)
 {
-        return __this_cpu_read(pending_timer_softirq);
+        return __this_cpu_read(pending_timer_softirq) &
+		~local_softirq_disabled();
 }
 
 #else

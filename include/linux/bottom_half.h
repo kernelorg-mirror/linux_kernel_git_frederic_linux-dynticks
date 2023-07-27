@@ -42,6 +42,8 @@ extern void local_bh_exit(void);
 
 #ifdef CONFIG_PREEMPT_RT
 extern bool local_bh_blocked(void);
+extern void local_bh_vec_enable(int vec);
+extern void local_bh_vec_disable(int vec);
 #else
 static inline bool local_bh_blocked(void) { return false; }
 #endif
