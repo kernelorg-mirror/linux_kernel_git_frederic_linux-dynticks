@@ -247,21 +247,26 @@ out:
 }
 EXPORT_SYMBOL(__local_bh_enable_ip);
 
+inline void local_bh_exit(void)
+{
+	__local_bh_enable(SOFTIRQ_OFFSET, true);
+	WARN_ON_ONCE(in_interrupt());
+}
+
 /*
  * Invoked from ksoftirqd_run() outside of the interrupt disabled section
  * to acquire the per CPU local lock for reentrancy protection.
  */
 static inline void ksoftirqd_run_begin(void)
 {
-	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
+	local_bh_enter();
 	local_irq_disable();
 }
 
 /* Counterpart to ksoftirqd_run_begin() */
 static inline void ksoftirqd_run_end(void)
 {
-	__local_bh_enable(SOFTIRQ_OFFSET, true);
-	WARN_ON_ONCE(in_interrupt());
+	local_bh_exit();
 	local_irq_enable();
 }
 
@@ -389,15 +394,20 @@ void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
 }
 EXPORT_SYMBOL(__local_bh_enable_ip);
 
+inline void local_bh_exit(void)
+{
+	__local_bh_enable(SOFTIRQ_OFFSET);
+	WARN_ON_ONCE(in_interrupt());
+}
+
 static inline void softirq_handle_begin(void)
 {
-	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
+	local_bh_enter();
 }
 
 static inline void softirq_handle_end(void)
 {
-	__local_bh_enable(SOFTIRQ_OFFSET);
-	WARN_ON_ONCE(in_interrupt());
+	local_bh_exit();
 }
 
 static inline void ksoftirqd_run_begin(void)

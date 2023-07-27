@@ -33,6 +33,13 @@ static inline void local_bh_enable(void)
 	__local_bh_enable_ip(_THIS_IP_, SOFTIRQ_DISABLE_OFFSET);
 }
 
+static inline void local_bh_enter(void)
+{
+	__local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
+}
+
+extern void local_bh_exit(void);
+
 #ifdef CONFIG_PREEMPT_RT
 extern bool local_bh_blocked(void);
 #else
