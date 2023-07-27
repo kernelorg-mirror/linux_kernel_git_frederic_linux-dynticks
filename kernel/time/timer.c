@@ -1676,6 +1676,7 @@ static void call_timer_fn(struct timer_list *timer,
 			  unsigned long baseclk)
 {
 	int count = preempt_count();
+	bool softinterruptible = false;
 
 #ifdef CONFIG_LOCKDEP
 	/*
@@ -1689,6 +1690,17 @@ static void call_timer_fn(struct timer_list *timer,
 
 	lockdep_copy_map(&lockdep_map, &timer->lockdep_map);
 #endif
+
+	if (IS_ENABLED(CONFIG_PREEMPT_RT) &&
+	    IS_ENABLED(CONFIG_ARCH_HAS_SOFTIRQ_DISABLED_MASK) &&
+	    timer->flags & TIMER_SOFTINTERRUPTIBLE)
+		softinterruptible = true;
+
+	if (softinterruptible) {
+		local_bh_vec_disable(1 << TIMER_SOFTIRQ);
+		local_bh_exit();
+	}
+
 	/*
 	 * Couple the lock chain with the lock chain at
 	 * timer_delete_sync() by acquiring the lock_map around the fn()
@@ -1701,6 +1713,12 @@ static void call_timer_fn(struct timer_list *timer,
 	trace_timer_expire_exit(timer);
 
 	lock_map_release(&lockdep_map);
+
+	if (softinterruptible) {
+		local_bh_enter();
+		local_bh_vec_enable(1 << TIMER_SOFTIRQ);
+	}
+
 
 	if (count != preempt_count()) {
 		WARN_ONCE(1, "timer: %pS preempt leak: %08x -> %08x\n",
