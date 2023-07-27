@@ -524,7 +524,7 @@ DECLARE_STATIC_KEY_FALSE(force_irqthreads_key);
 #endif
 
 #define local_softirq_pending()	(__this_cpu_read(local_softirq_pending_ref))
-#define set_softirq_pending(x)	(__this_cpu_write(local_softirq_pending_ref, (x)))
+#define reset_softirq_pending()	(__this_cpu_write(local_softirq_pending_ref, 0))
 #define or_softirq_pending(x)	(__this_cpu_or(local_softirq_pending_ref, (x)))
 
 #endif /* local_softirq_pending */
