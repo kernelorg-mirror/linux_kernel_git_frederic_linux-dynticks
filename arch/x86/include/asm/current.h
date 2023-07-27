@@ -23,6 +23,7 @@ struct pcpu_hot {
 			unsigned long		top_of_stack;
 			void			*hardirq_stack_ptr;
 			u16			softirq_pending;
+			u16			softirq_disabled;
 #ifdef CONFIG_X86_64
 			bool			hardirq_stack_inuse;
 #else

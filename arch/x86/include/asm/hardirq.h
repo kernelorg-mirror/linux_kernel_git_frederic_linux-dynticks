@@ -61,6 +61,7 @@ extern u64 arch_irq_stat(void);
 #define arch_irq_stat		arch_irq_stat
 
 #define local_softirq_pending_ref       pcpu_hot.softirq_pending
+#define local_softirq_disabled_ref       pcpu_hot.softirq_disabled
 
 #if IS_ENABLED(CONFIG_KVM_INTEL)
 static inline void kvm_set_cpu_l1tf_flush_l1d(void)
