@@ -2180,7 +2180,7 @@ signed long __sched schedule_timeout(signed long timeout)
 	expire = timeout + jiffies;
 
 	timer.task = current;
-	timer_setup_on_stack(&timer.timer, process_timeout, 0);
+	timer_setup_on_stack(&timer.timer, process_timeout, TIMER_SOFTINTERRUPTIBLE);
 	__mod_timer(&timer.timer, expire, MOD_TIMER_NOTPENDING);
 	schedule();
 	del_timer_sync(&timer.timer);
