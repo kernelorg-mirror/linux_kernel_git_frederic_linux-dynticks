@@ -7,6 +7,7 @@
 #include <linux/sched.h>
 #include <linux/sched/clock.h>
 #include <linux/sched/idle.h>
+#include <linux/tick.h>
 
 #define POLL_IDLE_RELAX_COUNT	200
 
@@ -18,6 +19,13 @@ static int __cpuidle poll_idle(struct cpuidle_device *dev,
 	time_start = local_clock_noinstr();
 
 	dev->poll_time_limit = false;
+
+	/*
+	 * This re-enables IRQs and only polls on TIF_NEED_RESCHED.
+	 * A timer queued by an interrupt here may go unnoticed if
+	 * the tick is stopped.
+	 */
+	WARN_ON_ONCE(tick_nohz_tick_stopped());
 
 	raw_local_irq_enable();
 	if (!current_set_polling_and_test()) {
