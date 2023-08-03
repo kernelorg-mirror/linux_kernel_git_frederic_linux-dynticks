@@ -48,8 +48,6 @@ static int __cpuidle poll_idle(struct cpuidle_device *dev,
 	}
 	raw_local_irq_disable();
 
-	current_clr_polling();
-
 	return index;
 }
 
