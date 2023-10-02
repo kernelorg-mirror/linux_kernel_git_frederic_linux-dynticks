@@ -784,8 +784,7 @@ static void srcu_gp_start(struct srcu_struct *ssp)
 	spin_lock_rcu_node(sdp);  /* Interrupts already disabled. */
 	rcu_segcblist_advance(&sdp->srcu_cblist,
 			      rcu_seq_current(&ssp->srcu_sup->srcu_gp_seq));
-	(void)rcu_segcblist_accelerate(&sdp->srcu_cblist,
-				       rcu_seq_snap(&ssp->srcu_sup->srcu_gp_seq));
+	WARN_ON_ONCE(!rcu_segcblist_segempty(&sdp->srcu_cblist, RCU_NEXT_TAIL));
 	spin_unlock_rcu_node(sdp);  /* Interrupts remain disabled. */
 	WRITE_ONCE(ssp->srcu_sup->srcu_gp_start, jiffies);
 	WRITE_ONCE(ssp->srcu_sup->srcu_n_exp_nodelay, 0);
@@ -1224,9 +1223,10 @@ static unsigned long srcu_gp_start_if_needed(struct srcu_struct *ssp,
 	int idx;
 	bool needexp = false;
 	bool needgp = false;
-	unsigned long s;
 	struct srcu_data *sdp;
 	struct srcu_node *sdp_mynode;
+	unsigned long seq_old;
+	unsigned long seq_snap;
 	int ss_state;
 
 	check_init_srcu_struct(ssp);
@@ -1244,16 +1244,49 @@ static unsigned long srcu_gp_start_if_needed(struct srcu_struct *ssp,
 	spin_lock_irqsave_sdp_contention(sdp, &flags);
 	if (rhp)
 		rcu_segcblist_enqueue(&sdp->srcu_cblist, rhp);
-	rcu_segcblist_advance(&sdp->srcu_cblist,
-			      rcu_seq_current(&ssp->srcu_sup->srcu_gp_seq));
-	s = rcu_seq_snap(&ssp->srcu_sup->srcu_gp_seq);
-	(void)rcu_segcblist_accelerate(&sdp->srcu_cblist, s);
-	if (ULONG_CMP_LT(sdp->srcu_gp_seq_needed, s)) {
-		sdp->srcu_gp_seq_needed = s;
+
+	seq_old = rcu_seq_current(&ssp->srcu_sup->srcu_gp_seq);
+	rcu_segcblist_advance(&sdp->srcu_cblist, seq_old);
+	seq_snap = rcu_seq_snap(&ssp->srcu_sup->srcu_gp_seq);
+	if (!rcu_segcblist_accelerate(&sdp->srcu_cblist, seq_snap)) {
+		unsigned long seq_new;
+
+		/*
+		 * Acceleration might fail if the preceding call to
+		 * rcu_segcblist_advance() also failed. This happens when:
+		 *
+		 * 1) Callbacks are queued in both the WAIT and NEXT_WAIT
+		 *    segments and the grace period for the WAIT segment hasn't
+		 *    completed as observed in 'seq_old'.
+		 *
+		 * And:
+		 *
+		 * 2) By the time rcu_seq_snap() is called, the grace period
+		 *    for the WAIT segment is eventually observed as completed
+		 *    and the grace period for the NEXT_WAIT segment has started.
+		 *    Therefore 'seq_snap' is two grace periods above the WAIT
+		 *    gp_num, and 1 grace period above the NEXT_WAIT gp_num.
+		 *    Therefore there is no room left for the NEXT segment to
+		 *    be accelerated.
+		 *
+		 * A new advance call with the newly observed grace period number
+		 * followed by another acceleration attempt is expected to sort
+		 * out the situation.
+		 */
+
+		seq_new = rcu_seq_current(&ssp->srcu_sup->srcu_gp_seq);
+		WARN_ON_ONCE(!rcu_seq_completed_gp(seq_old, seq_new));
+		WARN_ON_ONCE(rcu_seq_new_gp(seq_old, seq_new));
+		rcu_segcblist_advance(&sdp->srcu_cblist, seq_new);
+		WARN_ON_ONCE(!rcu_segcblist_accelerate(&sdp->srcu_cblist,
+						       seq_snap));
+	}
+	if (ULONG_CMP_LT(sdp->srcu_gp_seq_needed, seq_snap)) {
+		sdp->srcu_gp_seq_needed = seq_snap;
 		needgp = true;
 	}
-	if (!do_norm && ULONG_CMP_LT(sdp->srcu_gp_seq_needed_exp, s)) {
-		sdp->srcu_gp_seq_needed_exp = s;
+	if (!do_norm && ULONG_CMP_LT(sdp->srcu_gp_seq_needed_exp, seq_snap)) {
+		sdp->srcu_gp_seq_needed_exp = seq_snap;
 		needexp = true;
 	}
 	spin_unlock_irqrestore_rcu_node(sdp, flags);
@@ -1265,11 +1298,11 @@ static unsigned long srcu_gp_start_if_needed(struct srcu_struct *ssp,
 		sdp_mynode = sdp->mynode;
 
 	if (needgp)
-		srcu_funnel_gp_start(ssp, sdp, s, do_norm);
+		srcu_funnel_gp_start(ssp, sdp, seq_snap, do_norm);
 	else if (needexp)
-		srcu_funnel_exp_start(ssp, sdp_mynode, s);
+		srcu_funnel_exp_start(ssp, sdp_mynode, seq_snap);
 	__srcu_read_unlock_nmisafe(ssp, idx);
-	return s;
+	return seq_snap;
 }
 
 /*
@@ -1694,6 +1727,7 @@ static void srcu_invoke_callbacks(struct work_struct *work)
 	ssp = sdp->ssp;
 	rcu_cblist_init(&ready_cbs);
 	spin_lock_irq_rcu_node(sdp);
+	WARN_ON_ONCE(!rcu_segcblist_segempty(&sdp->srcu_cblist, RCU_NEXT_TAIL));
 	rcu_segcblist_advance(&sdp->srcu_cblist,
 			      rcu_seq_current(&ssp->srcu_sup->srcu_gp_seq));
 	if (sdp->srcu_cblist_invoking ||
@@ -1723,8 +1757,6 @@ static void srcu_invoke_callbacks(struct work_struct *work)
 	 */
 	spin_lock_irq_rcu_node(sdp);
 	rcu_segcblist_add_len(&sdp->srcu_cblist, -len);
-	(void)rcu_segcblist_accelerate(&sdp->srcu_cblist,
-				       rcu_seq_snap(&ssp->srcu_sup->srcu_gp_seq));
 	sdp->srcu_cblist_invoking = false;
 	more = rcu_segcblist_ready_cbs(&sdp->srcu_cblist);
 	spin_unlock_irq_rcu_node(sdp);
