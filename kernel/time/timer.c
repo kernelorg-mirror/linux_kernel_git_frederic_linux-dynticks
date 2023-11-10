@@ -1877,6 +1877,38 @@ static void next_expiry_recalc(struct timer_base *base)
 	base->timers_pending = !(next == base->clk + NEXT_TIMER_MAX_DELTA);
 }
 
+void timers_dump_base(void)
+{
+	int cpu;
+
+	for_each_online_cpu(cpu) {
+		struct timer_base *base = per_cpu_ptr(&timer_bases[BASE_STD], cpu);
+		unsigned idx;
+
+		raw_spin_lock(&base->lock);
+
+		pr_info("CPU %d running_timer=%p clk=%lu next_expiry=%lu next_expiry_recalc=%d is_idle=%d pending=%d\n",
+			cpu, base->running_timer, base->clk, base->next_expiry, base->next_expiry_recalc, base->is_idle,
+			base->timers_pending);
+
+		if (!base->timers_pending) {
+			raw_spin_unlock(&base->lock);
+			continue;
+		}
+
+		for (idx = 0; idx < WHEEL_SIZE; idx++) {
+			if (_test_bit(idx, base->pending_map)) {
+				struct timer_list *timer;
+
+				hlist_for_each_entry(timer, &base->vectors[idx], entry)
+					pr_info("timer=%p function=%ps expires=%lu idx=%u\n",
+						timer, timer->function, timer->expires, idx);
+			}
+		}
+		raw_spin_unlock(&base->lock);
+	}
+}
+
 #ifdef CONFIG_NO_HZ_COMMON
 /*
  * Check, if the next hrtimer event is before the next timer wheel

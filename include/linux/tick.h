@@ -13,6 +13,8 @@
 #include <linux/sched.h>
 #include <linux/rcupdate.h>
 
+void timers_dump_base(void);
+
 #ifdef CONFIG_GENERIC_CLOCKEVENTS
 extern void __init tick_init(void);
 /* Should be core only, but ARM BL switcher requires it */
