@@ -1937,18 +1937,18 @@ u64 get_next_timer_interrupt(unsigned long basej, u64 basem)
 		next_expiry_recalc(base);
 	nextevt = base->next_expiry;
 
-	/*
-	 * We have a fresh next event. Check whether we can forward the
-	 * base.
-	 */
-	__forward_timer_base(base, basej);
-
 	if (base->timers_pending) {
 		/* If we missed a tick already, force 0 delta */
 		if (time_before(nextevt, basej))
 			nextevt = basej;
 		expires = basem + (u64)(nextevt - basej) * TICK_NSEC;
 	}
+
+	/*
+	 * We have a fresh next event. Check whether we can forward the
+	 * base.
+	 */
+	__forward_timer_base(base, basej);
 
 	/*
 	 * Base is idle if the next event is more than a tick away.
