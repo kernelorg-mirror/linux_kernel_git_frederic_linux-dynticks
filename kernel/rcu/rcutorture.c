@@ -2270,6 +2270,9 @@ rcu_torture_stats_print(void)
 		}
 		if (cur_ops->gp_kthread_dbg)
 			cur_ops->gp_kthread_dbg();
+		tracing_off();
+		show_all_workqueues();
+		show_state_filter(0);
 		rcu_ftrace_dump(DUMP_ALL);
 	}
 	rtcv_snap = rcu_torture_current_version;

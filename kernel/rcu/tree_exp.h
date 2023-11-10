@@ -983,6 +983,7 @@ void synchronize_rcu_expedited(void)
 
 	/* If expedited grace periods are prohibited, fall back to normal. */
 	if (rcu_gp_is_normal()) {
+		trace_printk("wait_rcu_gp\n");
 		wait_rcu_gp(call_rcu_hurry);
 		return;
 	}
@@ -1004,6 +1005,7 @@ void synchronize_rcu_expedited(void)
 
 	/* Wait for expedited grace period to complete. */
 	rnp = rcu_get_root();
+	trace_printk("wait s=%lu\n", s);
 	wait_event(rnp->exp_wq[rcu_seq_ctr(s) & 0x3],
 		   sync_exp_work_done(s));
 	smp_mb(); /* Work actions happen before return. */

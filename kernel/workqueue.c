@@ -2386,6 +2386,8 @@ static void send_mayday(struct work_struct *work)
 	struct pool_workqueue *pwq = get_work_pwq(work);
 	struct workqueue_struct *wq = pwq->wq;
 
+	trace_printk("mayday\n");
+
 	lockdep_assert_held(&wq_mayday_lock);
 
 	if (!wq->rescuer)
@@ -2400,6 +2402,7 @@ static void send_mayday(struct work_struct *work)
 		 */
 		get_pwq(pwq);
 		list_add_tail(&pwq->mayday_node, &wq->maydays);
+		trace_printk("wakeup rescuer: pid=%d\n", task_pid_nr(wq->rescuer->task));
 		wake_up_process(wq->rescuer->task);
 		pwq->stats[PWQ_STAT_MAYDAY]++;
 	}
@@ -2413,6 +2416,7 @@ static void pool_mayday_timeout(struct timer_list *t)
 	raw_spin_lock_irq(&pool->lock);
 	raw_spin_lock(&wq_mayday_lock);		/* for wq->maydays */
 
+	trace_printk("timeout: id=%d empty=%d running=%d idle=%d workers=%d\n", pool->id, list_empty(&pool->worklist), pool->nr_running, pool->nr_idle, pool->nr_workers);
 	if (need_to_create_worker(pool)) {
 		/*
 		 * We've been trying to create a new worker but
@@ -2427,6 +2431,7 @@ static void pool_mayday_timeout(struct timer_list *t)
 	raw_spin_unlock(&wq_mayday_lock);
 	raw_spin_unlock_irq(&pool->lock);
 
+	trace_printk("timer=%p timeout=%lu\n", &pool->mayday_timer, jiffies + MAYDAY_INTERVAL);
 	mod_timer(&pool->mayday_timer, jiffies + MAYDAY_INTERVAL);
 }
 
@@ -5079,7 +5084,7 @@ static void pr_cont_pool_info(struct worker_pool *pool)
 	pr_cont(" cpus=%*pbl", nr_cpumask_bits, pool->attrs->cpumask);
 	if (pool->node != NUMA_NO_NODE)
 		pr_cont(" node=%d", pool->node);
-	pr_cont(" flags=0x%x nice=%d", pool->flags, pool->attrs->nice);
+	pr_cont(" flags=0x%x nice=%d nr_running=%d", pool->flags, pool->attrs->nice, pool->nr_running);
 }
 
 struct pr_cont_work_struct {
@@ -5258,8 +5263,6 @@ static void show_one_worker_pool(struct worker_pool *pool)
 	unsigned long hung = 0;
 
 	raw_spin_lock_irqsave(&pool->lock, flags);
-	if (pool->nr_workers == pool->nr_idle)
-		goto next_pool;
 
 	/* How long the first pending work is waiting for a worker. */
 	if (!list_empty(&pool->worklist))
@@ -5284,7 +5287,6 @@ static void show_one_worker_pool(struct worker_pool *pool)
 	}
 	pr_cont("\n");
 	printk_deferred_exit();
-next_pool:
 	raw_spin_unlock_irqrestore(&pool->lock, flags);
 	/*
 	 * We could be printing a lot from atomic context, e.g.
