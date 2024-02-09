@@ -885,13 +885,12 @@ static u64 tmigr_new_timer(struct tmigr_cpu *tmc, u64 nextexp)
 	return data.firstexp;
 }
 
-static u64 tmigr_handle_remote_cpu(unsigned int cpu, u64 now,
-				   unsigned long jif)
+static void tmigr_handle_remote_cpu(unsigned int cpu, u64 now,
+				    unsigned long jif)
 {
 	struct timer_events tevt;
 	struct tmigr_walk data;
 	struct tmigr_cpu *tmc;
-	u64 next = KTIME_MAX;
 
 	tmc = per_cpu_ptr(&tmigr_cpu, cpu);
 
@@ -915,7 +914,7 @@ static u64 tmigr_handle_remote_cpu(unsigned int cpu, u64 now,
 	if (!tmc->online || tmc->remote || tmc->cpuevt.ignore ||
 	    now < tmc->cpuevt.nextevt.expires) {
 		raw_spin_unlock_irq(&tmc->lock);
-		return next;
+		return;
 	}
 
 	tmc->remote = true;
@@ -979,13 +978,11 @@ static u64 tmigr_handle_remote_cpu(unsigned int cpu, u64 now,
 	 */
 	walk_groups(&tmigr_new_timer_up, &data, tmc);
 
-	next = data.firstexp;
-
 unlock:
 	tmc->remote = false;
 	raw_spin_unlock_irq(&tmc->lock);
 
-	return next;
+	return;
 }
 
 static bool tmigr_handle_remote_up(struct tmigr_group *group,
@@ -993,10 +990,10 @@ static bool tmigr_handle_remote_up(struct tmigr_group *group,
 				   void *ptr)
 {
 	struct tmigr_remote_data *data = ptr;
-	u64 now, next = KTIME_MAX;
 	struct tmigr_event *evt;
 	unsigned long jif;
 	u8 childmask;
+	u64 now;
 
 	jif = data->basej;
 	now = data->now;
@@ -1021,7 +1018,7 @@ again:
 
 		raw_spin_unlock_irq(&group->lock);
 
-		next = tmigr_handle_remote_cpu(remote_cpu, now, jif);
+		tmigr_handle_remote_cpu(remote_cpu, now, jif);
 
 		/* check if there is another event, that needs to be handled */
 		goto again;
@@ -1034,7 +1031,7 @@ again:
 	 * tmigr_handle_remote_cpu()).
 	 */
 	data->childmask = group->childmask;
-	data->firstexp = min_t(u64, group->next_expiry, next);
+	data->firstexp = group->next_expiry;
 
 	raw_spin_unlock_irq(&group->lock);
 
