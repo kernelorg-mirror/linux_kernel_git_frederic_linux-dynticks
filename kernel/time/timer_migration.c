@@ -669,7 +669,6 @@ static void __tmigr_cpu_activate(struct tmigr_cpu *tmc)
 
 	tmc->cpuevt.ignore = true;
 	WRITE_ONCE(tmc->wakeup, KTIME_MAX);
-	tmc->wakeup_recalc = false;
 
 	walk_groups(&tmigr_active_up, &data, tmc);
 }
@@ -1173,41 +1172,10 @@ int tmigr_requires_handle_remote(void)
 	}
 
 	/*
-	 * If the CPU is idle, check whether the recalculation of @tmc->wakeup
-	 * is required. @tmc->wakeup_recalc is set, when the last active CPU
-	 * went offline. The last active CPU delegated the handling of the timer
-	 * migration hierarchy to another (this) CPU by updating this flag and
-	 * sending a reschedule.
-	 *
-	 * Racy lockless check is valid:
-	 * - @tmc->wakeup_recalc is set by the remote CPU before it issues
-	 *   reschedule IPI.
-	 * - As interrupts are disabled here this CPU will either observe
-	 *   @tmc->wakeup_recalc set before the reschedule IPI can be handled or
-	 *   it will observe it when this function is called again on return
-	 *   from handling the reschedule IPI.
-	 */
-	if (tmc->wakeup_recalc) {
-		__walk_groups(&tmigr_requires_handle_remote_up, &data, tmc);
-
-		if (data.firstexp != KTIME_MAX)
-			ret = 1;
-
-		raw_spin_lock(&tmc->lock);
-		WRITE_ONCE(tmc->wakeup, data.firstexp);
-		tmc->wakeup_recalc = false;
-		raw_spin_unlock(&tmc->lock);
-
-		return ret;
-	}
-
-	/*
-	 * When the CPU is idle and @tmc->wakeup is reliable as
-	 * @tmc->wakeup_recalc is not set, compare it with @data.now. The lock
+	 * When the CPU is idle, compare @tmc->wakeup with @data.now. The lock
 	 * is required on 32bit architectures to read the variable consistently
 	 * with a concurrent writer. On 64bit the lock is not required because
 	 * the read operation is not split and so it is always consistent.
-
 	 */
 	if (IS_ENABLED(CONFIG_64BIT)) {
 		if (data.now >= READ_ONCE(tmc->wakeup))
@@ -1251,21 +1219,7 @@ u64 tmigr_cpu_new_timer(u64 nextexp)
 		    tmc->cpuevt.ignore) {
 			ret = tmigr_new_timer(tmc, nextexp);
 		}
-	} else if (tmc->wakeup_recalc) {
-		struct tmigr_remote_data data;
-
-		data.now = KTIME_MAX;
-		data.childmask = tmc->childmask;
-		data.firstexp = KTIME_MAX;
-		data.tmc_active = false;
-		data.check = false;
-
-		__walk_groups(&tmigr_requires_handle_remote_up, &data, tmc);
-
-		ret = data.firstexp;
 	}
-	tmc->wakeup_recalc = false;
-
 	/*
 	 * Make sure the reevaluation of timers in idle path will not miss an
 	 * event.
@@ -1348,36 +1302,7 @@ static bool tmigr_inactive_up(struct tmigr_group *group,
 	 *   hierarchy) and
 	 * - there is a pending event in the hierarchy
 	 */
-	if (data->firstexp != KTIME_MAX) {
-		WARN_ON_ONCE(group->parent);
-		/*
-		 * Top level path: If this CPU is about going offline and was
-		 * the last active CPU, wake up some random other CPU so it will
-		 * take over the migrator duty and program its timer
-		 * properly. Ideally wake the CPU with the closest expiry time,
-		 * but that's overkill to figure out.
-		 *
-		 * Set wakeup_recalc of remote CPU, to make sure the complete
-		 * idle hierarchy with enqueued timers is reevaluated.
-		 */
-		if (!(this_cpu_ptr(&tmigr_cpu)->online)) {
-			struct tmigr_cpu *tmc = this_cpu_ptr(&tmigr_cpu);
-			unsigned int cpu = smp_processor_id();
-			struct tmigr_cpu *tmc_resched;
-
-			cpu = cpumask_any_but(cpu_online_mask, cpu);
-			tmc_resched = per_cpu_ptr(&tmigr_cpu, cpu);
-
-			raw_spin_unlock(&tmc->lock);
-
-			raw_spin_lock(&tmc_resched->lock);
-			tmc_resched->wakeup_recalc = true;
-			raw_spin_unlock(&tmc_resched->lock);
-
-			raw_spin_lock(&tmc->lock);
-			smp_send_reschedule(cpu);
-		}
-	}
+	WARN_ON_ONCE(data->firstexp != KTIME_MAX && group->parent);
 
 	return walk_done;
 }
@@ -1715,9 +1640,27 @@ static int tmigr_cpu_online(unsigned int cpu)
 	return 0;
 }
 
+/*
+ * tmigr_trigger_active() - trigger a CPU to become active again
+ *
+ * This function is executed on a CPU which is part of cpu_online_mask, when the
+ * last active CPU in the hierarchy is offlining. With this, it is ensured that
+ * the other CPU is active and takes over the migrator duty.
+ */
+static long tmigr_trigger_active(void *unused)
+{
+	struct tmigr_cpu *tmc = this_cpu_ptr(&tmigr_cpu);
+
+	WARN_ON_ONCE(!tmc->online || tmc->idle);
+
+	return 0;
+}
+
 static int tmigr_cpu_offline(unsigned int cpu)
 {
 	struct tmigr_cpu *tmc = this_cpu_ptr(&tmigr_cpu);
+	int migrator;
+	u64 firstexp;
 
 	raw_spin_lock_irq(&tmc->lock);
 	tmc->online = false;
@@ -1727,8 +1670,13 @@ static int tmigr_cpu_offline(unsigned int cpu)
 	 * CPU has to handle the local events on his own, when on the way to
 	 * offline; Therefore nextevt value is set to KTIME_MAX
 	 */
-	__tmigr_cpu_deactivate(tmc, KTIME_MAX);
+	firstexp = __tmigr_cpu_deactivate(tmc, KTIME_MAX);
 	raw_spin_unlock_irq(&tmc->lock);
+
+	if (firstexp != KTIME_MAX) {
+		migrator = cpumask_any_but(cpu_online_mask, cpu);
+		work_on_cpu(migrator, tmigr_trigger_active, NULL);
+	}
 
 	return 0;
 }

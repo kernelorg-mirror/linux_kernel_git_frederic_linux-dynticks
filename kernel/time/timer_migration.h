@@ -78,18 +78,12 @@ struct tmigr_group {
  * @idle:		Indicates whether the CPU is idle in the timer migration
  *			hierarchy
  * @remote:		Is set when timers of the CPU are expired remotely
- * @wakeup_recalc:	Indicates, whether a recalculation of the @wakeup value
- *			is required. @wakeup_recalc is only used by this CPU
- *			when it is marked idle in the timer migration
- *			hierarchy. It is set by a remote CPU which was the last
- *			active CPU and is on the way to idle.
  * @tmgroup:		Pointer to the parent group
  * @childmask:		childmask of tmigr_cpu in the parent group
  * @wakeup:		Stores the first timer when the timer migration
  *			hierarchy is completely idle and remote expiry was done;
  *			is returned to timer code in the idle path and is only
- *			used in idle path; it is only valid, when @wakeup_recalc
- *			is not set.
+ *			used in idle path.
  * @cpuevt:		CPU event which could be enqueued into the parent group
  */
 struct tmigr_cpu {
@@ -97,7 +91,6 @@ struct tmigr_cpu {
 	bool			online;
 	bool			idle;
 	bool			remote;
-	bool			wakeup_recalc;
 	struct tmigr_group	*tmgroup;
 	u8			childmask;
 	u64			wakeup;
