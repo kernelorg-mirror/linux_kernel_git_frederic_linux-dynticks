@@ -203,6 +203,128 @@
  * the sequence number during the update in step 3 so the expected old value (as
  * seen by CPU0 before starting the walk) does not match.
  *
+ * Prevent race between new event and last CPU going inactive
+ * ----------------------------------------------------------
+ *
+ * When the last CPU is going idle and there is a concurrent update of a new
+ * first global timer of an idle CPU, the group and child states have to be read
+ * while holding the lock in tmigr_update_event(). The following scenario shows
+ * what happens, when this is not done.
+ *
+ * 1. Only CPU2 is active:
+ *
+ *    LVL 1            [GRP1:0]
+ *                     migrator = GRP0:1
+ *                     active   = GRP0:1
+ *                     next_expiry = KTIME_MAX
+ *                   /                \
+ *    LVL 0  [GRP0:0]                  [GRP0:1]
+ *           migrator = TMIGR_NONE     migrator = CPU2
+ *           active   =                active   = CPU2
+ *           next_expiry = KTIME_MAX   next_expiry = KTIME_MAX
+ *              /         \                /         \
+ *    CPUs     0           1              2           3
+ *             idle        idle           active      idle
+ *
+ * 2. Now CPU 2 goes idle (and has no global timer, that has to be handled) and
+ *    propagates that to GRP0:1:
+ *
+ *    LVL 1            [GRP1:0]
+ *                     migrator = GRP0:1
+ *                     active   = GRP0:1
+ *                     next_expiry = KTIME_MAX
+ *                   /                \
+ *    LVL 0  [GRP0:0]                  [GRP0:1]
+ *           migrator = TMIGR_NONE --> migrator = TMIGR_NONE
+ *           active   =            --> active   =
+ *           next_expiry = KTIME_MAX   next_expiry = KTIME_MAX
+ *              /         \                /         \
+ *    CPUs     0           1              2           3
+ *             idle        idle       --> idle        idle
+ *
+ * 3. Now the idle state is propagated up to GRP1:0. As this is now the last
+ *    child going idle in top level group, the expiry of the next group event
+ *    has to be handed back to make sure no event is lost. As there is no event
+ *    enqueued, KTIME_MAX is handed back to CPU2.
+ *
+ *    LVL 1            [GRP1:0]
+ *                 --> migrator = TMIGR_NONE
+ *                 --> active   =
+ *                     next_expiry = KTIME_MAX
+ *                   /                \
+ *    LVL 0  [GRP0:0]                  [GRP0:1]
+ *           migrator = TMIGR_NONE     migrator = TMIGR_NONE
+ *           active   =                active   =
+ *           next_expiry = KTIME_MAX   next_expiry = KTIME_MAX
+ *              /         \                /         \
+ *    CPUs     0           1              2           3
+ *             idle        idle       --> idle        idle
+ *
+ * 4. CPU 0 has a new timer queued from idle and it expires at TIMER0. CPU0
+ *    propagates that to GRP0:0:
+ *
+ *    LVL 1            [GRP1:0]
+ *                     migrator = TMIGR_NONE
+ *                     active   =
+ *                     next_expiry = KTIME_MAX
+ *                   /                \
+ *    LVL 0  [GRP0:0]                  [GRP0:1]
+ *           migrator = TMIGR_NONE     migrator = TMIGR_NONE
+ *           active   =                active   =
+ *       --> next_expiry = TIMER0      next_expiry  = KTIME_MAX
+ *              /         \                /         \
+ *    CPUs     0           1              2           3
+ *             idle        idle           idle        idle
+ *
+ * 5. GRP0:0 is not active, so the new timer has to be propagated to
+ *    GRP1:0. Therefore the GRP1:0 state has to be read. When the stalled value
+ *    (from step 2) is read, the timer is enqueued into GRP1:0, but nothing is
+ *    handed back to CPU0, as it seems that there is still an active child in
+ *    top level group.
+ *
+ *    LVL 1            [GRP1:0]
+ *                     migrator = TMIGR_NONE
+ *                     active   =
+ *                 --> next_expiry = TIMER0
+ *                   /                \
+ *    LVL 0  [GRP0:0]                  [GRP0:1]
+ *           migrator = TMIGR_NONE     migrator = TMIGR_NONE
+ *           active   =                active   =
+ *           next_expiry = TIMER0      next_expiry  = KTIME_MAX
+ *              /         \                /         \
+ *    CPUs     0           1              2           3
+ *             idle        idle           idle        idle
+ *
+ * This is prevented by reading the state when holding the lock (when a new
+ * timer has to be propagated from idle path)::
+ *
+ *   CPU2 (tmigr_inactive_up())          CPU0 (tmigr_new_timer_up())
+ *   --------------------------          ---------------------------
+ *   // step 3:
+ *   cmpxchg(&GRP1:0->state);
+ *   tmigr_update_event() {
+ *       spin_lock(&GRP1:0->lock);
+ *       // ... update events ...
+ *       // hand back first expiry when GRP1:0 is idle
+ *       spin_unlock(&GRP1:0->lock);
+ *       // ^^^ release state modification
+ *   }
+ *                                       tmigr_update_events() {
+ *                                           spin_lock(&GRP1:0->lock)
+ *                                           // ^^^ acquire state modification
+ *                                           group_state = atomic_read(&GRP1:0->state)
+ *                                           // .... update events ...
+ *                                           // hand back first expiry when GRP1:0 is idle
+ *                                           spin_unlock(&GRP1:0->lock) <3>
+ *                                           // ^^^ makes state visible for other
+ *                                           // callers of tmigr_new_timer_up()
+ *                                       }
+ *
+ * When CPU0 grabs the lock directly after cmpxchg, the first timer is reported
+ * back to CPU0 and also later on to CPU2. So no timer is missed. A concurrent
+ * update of the group state from active path is no problem, as the upcoming CPU
+ * will take care of the group events.
+ *
  * Required event and timerqueue update after a remote expiry:
  * -----------------------------------------------------------
  *
@@ -579,12 +701,18 @@ void tmigr_cpu_activate(void)
  * @data->firstexp is set to expiry of first gobal event of the (top level of
  * the) hierarchy, but only when hierarchy is completely idle.
  *
+ * When reread_state is set, childstate and groupstate are handed in as 0. The
+ * state has to be reread under the lock, to prevent a race against a concurrent
+ * tmigr_inactive_up() run when the last CPU goes idle. See also section
+ * "Prevent race between new event and last CPU going inactive" in the
+ * documentation at the top.
+ *
  * This is the only place where the group event expiry value is set.
  */
 static
 bool tmigr_update_events(struct tmigr_group *group, struct tmigr_group *child,
 			 struct tmigr_walk *data, union tmigr_state childstate,
-			 union tmigr_state groupstate)
+			 union tmigr_state groupstate, bool reread_state)
 {
 	struct tmigr_event *evt, *first_childevt;
 	bool walk_done, remote = data->remote;
@@ -594,6 +722,11 @@ bool tmigr_update_events(struct tmigr_group *group, struct tmigr_group *child,
 	if (child) {
 		raw_spin_lock(&child->lock);
 		raw_spin_lock_nested(&group->lock, SINGLE_DEPTH_NESTING);
+
+		if (reread_state) {
+			groupstate.state = atomic_read(&group->migr_state);
+			childstate.state = atomic_read(&child->migr_state);
+		}
 
 		if (childstate.active) {
 			walk_done = true;
@@ -629,6 +762,9 @@ bool tmigr_update_events(struct tmigr_group *group, struct tmigr_group *child,
 			return true;
 
 		raw_spin_lock(&group->lock);
+
+		if (reread_state)
+			groupstate.state = atomic_read(&group->migr_state);
 	}
 
 	if (nextexp == KTIME_MAX) {
@@ -715,17 +851,14 @@ static bool tmigr_new_timer_up(struct tmigr_group *group,
 			       struct tmigr_group *child,
 			       void *ptr)
 {
-	union tmigr_state childstate, groupstate;
+	/*
+	 * use this dummy zero initialized tmigr_state as arguments for
+	 * tmigr_update_events(); states are read by the function anyway
+	 */
+	union tmigr_state s = {.state = 0};
 	struct tmigr_walk *data = ptr;
 
-	if (child)
-		childstate.state = atomic_read(&child->migr_state);
-	else
-		childstate.state = 0;
-
-	groupstate.state = atomic_read(&group->migr_state);
-
-	return tmigr_update_events(group, child, data, childstate, groupstate);
+	return tmigr_update_events(group, child, data, s, s, true);
 }
 
 /*
@@ -1201,7 +1334,7 @@ static bool tmigr_inactive_up(struct tmigr_group *group,
 	data->remote = false;
 
 	/* Event Handling */
-	tmigr_update_events(group, child, data, childstate, newstate);
+	tmigr_update_events(group, child, data, childstate, newstate, false);
 
 	if (group->parent && (walk_done == false))
 		data->childmask = group->childmask;
