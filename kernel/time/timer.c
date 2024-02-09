@@ -2132,7 +2132,7 @@ static void timer_use_tmigr(unsigned long basej, u64 basem,
 	else if (tick_stop_path)
 		next_tmigr = tmigr_cpu_deactivate(tevt->global);
 	else
-		next_tmigr = tmigr_quick_check();
+		next_tmigr = tmigr_quick_check(tevt->global);
 
 	/*
 	 * If the CPU is the last going idle in timer migration hierarchy, make

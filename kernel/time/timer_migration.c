@@ -1325,7 +1325,7 @@ static u64 __tmigr_cpu_deactivate(struct tmigr_cpu *tmc, u64 nextexp)
 
 /**
  * tmigr_cpu_deactivate() - Put current CPU into inactive state
- * @nextexp:	The next timer event expiry set in the current CPU
+ * @nextexp:	The next global timer expiry of the current CPU
  *
  * Must be called with interrupts disabled.
  *
@@ -1360,40 +1360,44 @@ u64 tmigr_cpu_deactivate(u64 nextexp)
 /**
  * tmigr_quick_check() - Quick forecast of next tmigr event when CPU wants to
  *			 go idle
+ * @nextexp:	The next global timer expiry of the current CPU
  *
- * Returns KTIME_MAX, when it is probable that nothing has to be done (not the
- * only one in the level 0 group; and if it is the only one in level 0 group,
- * but there are more than a single group active in top level)
- *
- * Returns first expiry of the top level group, when it is the only one in level
- * 0 and top level also only has a single active child.
+ * Return:
+ * * KTIME_MAX		- when it is probable that nothing has to be done (not
+ *	 		  the only one in the level 0 group; and if it is the
+ *	 		  only one in level 0 group, but there are more than a
+ *	 		  single group active on the way to top level)
+ * * nextevt		- when CPU is offline and has to handle timer on his own
+ *			  or when on the way to top in every group only a single
+ *			  child is active and but @nextevt is before next_expiry
+ *			  of top level group
+  * * next_expiry (top)	- value of top level group, when on the way to top in
+ * 			  every group only a single child is active and @nextevt
+ * 			  is after this value active child.
  */
-u64 tmigr_quick_check(void)
+u64 tmigr_quick_check(u64 nextevt)
 {
 	struct tmigr_cpu *tmc = this_cpu_ptr(&tmigr_cpu);
-	struct tmigr_group *topgroup;
-	struct list_head lvllist;
+	struct tmigr_group *group = tmc->tmgroup;
 
 	if (tmigr_is_not_available(tmc))
-		return KTIME_MAX;
+		return nextevt;
 
 	if (WARN_ON_ONCE(tmc->idle))
-		return KTIME_MAX;
+		return nextevt;
 
 	if (!tmigr_check_migrator_and_lonely(tmc->tmgroup, tmc->childmask))
 		return KTIME_MAX;
 
-	for (int i = tmigr_hierarchy_levels; i > 0 ; i--) {
-		lvllist = tmigr_level_list[i - 1];
-		if (list_is_singular(&lvllist)) {
-			topgroup = list_first_entry(&lvllist, struct tmigr_group, list);
-
-			if (tmigr_check_lonely(topgroup))
-				return READ_ONCE(topgroup->next_expiry);
-		} else {
-			continue;
+	do {
+		if (!tmigr_check_lonely(group)) {
+			return KTIME_MAX;
+		} else if (!group->parent) {
+			u64 first_global = READ_ONCE(group->next_expiry);
+			return min_t(u64, nextevt, first_global);
 		}
-	}
+		group = group->parent;
+	} while (group);
 
 	return KTIME_MAX;
 }
