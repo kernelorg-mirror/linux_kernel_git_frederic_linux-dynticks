@@ -1489,7 +1489,18 @@ static void tmigr_connect_child_parent(struct tmigr_group *child,
 	/*
 	 * To prevent inconsistent states, active children need to be active in
 	 * the new parent as well. Inactive children are already marked inactive
-	 * in the parent group.
+	 * in the parent group:
+	 *
+	 * * When new groups were created by tmigr_setup_groups() starting from
+	 *   the lowest level (and not higher then one level below the current
+	 *   top level), then they are not active. They will be set active when
+	 *   the new online CPU comes active.
+	 *
+	 * * But if a new group above the current top level is required, it is
+	 *   mandatory to propagate the active state of the already existing
+	 *   child to the new parent. So tmigr_connect_child_parent() is
+	 *   executed with the formerly top level group (child) and the newly
+	 *   created group (parent).
 	 */
 	childstate.state = atomic_read(&child->migr_state);
 	if (childstate.migrator != TMIGR_NONE) {
