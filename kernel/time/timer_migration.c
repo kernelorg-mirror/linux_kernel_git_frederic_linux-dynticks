@@ -208,7 +208,7 @@
  *
  * When the last CPU is going idle and there is a concurrent update of a new
  * first global timer of an idle CPU, the group and child states have to be read
- * while holding the lock in tmigr_update_event(). The following scenario shows
+ * while holding the lock in tmigr_update_events(). The following scenario shows
  * what happens, when this is not done.
  *
  * 1. Only CPU2 is active:
@@ -302,7 +302,7 @@
  *   --------------------------          ---------------------------
  *   // step 3:
  *   cmpxchg(&GRP1:0->state);
- *   tmigr_update_event() {
+ *   tmigr_update_events() {
  *       spin_lock(&GRP1:0->lock);
  *       // ... update events ...
  *       // hand back first expiry when GRP1:0 is idle
@@ -714,8 +714,9 @@ bool tmigr_update_events(struct tmigr_group *group, struct tmigr_group *child,
 			 union tmigr_state groupstate, bool reread_state)
 {
 	struct tmigr_event *evt, *first_childevt;
-	bool walk_done, remote = data->remote;
 	bool leftmost_change = false;
+	bool remote = data->remote;
+	bool walk_done = false;
 	u64 nextexp;
 
 	if (child) {
@@ -735,6 +736,8 @@ bool tmigr_update_events(struct tmigr_group *group, struct tmigr_group *child,
 		first_childevt = tmigr_next_groupevt(child);
 		nextexp = child->next_expiry;
 		evt = &child->groupevt;
+
+		evt->ignore = (nextexp == KTIME_MAX) ? true : false;
 	} else {
 		nextexp = data->nextexp;
 
@@ -766,9 +769,20 @@ bool tmigr_update_events(struct tmigr_group *group, struct tmigr_group *child,
 			groupstate.state = atomic_read(&group->migr_state);
 	}
 
-	if (nextexp == KTIME_MAX) {
-		evt->ignore = true;
+	/*
+	 * If the child event is already queued in the group, remove it from the
+	 * queue when the expiry time changed only or when it could be ignored.
+	 */
+	if (timerqueue_node_queued(&evt->nextevt)) {
+		if ((evt->nextevt.expires == nextexp) && !evt->ignore)
+			goto check_toplvl;
 
+		leftmost_change = timerqueue_getnext(&group->events) == &evt->nextevt;
+		if (!timerqueue_del(&group->events, &evt->nextevt))
+			WRITE_ONCE(group->next_expiry, KTIME_MAX);
+	}
+
+	if (evt->ignore) {
 		/*
 		 * When the next child event could be ignored (nextexp is
 		 * KTIME_MAX) and there was no remote timer handling before or
@@ -782,51 +796,31 @@ bool tmigr_update_events(struct tmigr_group *group, struct tmigr_group *child,
 		 * of the group needs to be propagated to a higher level to
 		 * ensure it is handled.
 		 */
-		if (!remote || groupstate.active) {
+		if (!remote || groupstate.active)
 			walk_done = true;
-			goto unlock;
-		}
 	} else {
-		/*
-		 * An update of @evt->cpu and @evt->ignore flag is required only
-		 * when @child is set (the child is equal or higher than lvl0),
-		 * but it doesn't matter if it is written once more to the per
-		 * CPU event; make the update unconditional.
-		 */
+		evt->nextevt.expires = nextexp;
 		evt->cpu = first_childevt->cpu;
-		evt->ignore = false;
-	}
 
-	walk_done = !group->parent;
-
-	/*
-	 * If the child event is already queued in the group, remove it from the
-	 * queue when the expiry time changed only.
-	 */
-	if (timerqueue_node_queued(&evt->nextevt)) {
-		if (evt->nextevt.expires == nextexp)
-			goto check_toplvl;
-
-		leftmost_change = timerqueue_getnext(&group->events) == &evt->nextevt;
-		if (!timerqueue_del(&group->events, &evt->nextevt))
-			WRITE_ONCE(group->next_expiry, KTIME_MAX);
-	}
-
-	evt->nextevt.expires = nextexp;
-
-	if (timerqueue_add(&group->events, &evt->nextevt)) {
-		leftmost_change = true;
-		WRITE_ONCE(group->next_expiry, nextexp);
+		if (timerqueue_add(&group->events, &evt->nextevt)) {
+			leftmost_change = true;
+			WRITE_ONCE(group->next_expiry, nextexp);
+		}
 	}
 
 check_toplvl:
-	if (walk_done && (groupstate.migrator == TMIGR_NONE)) {
+	if (!group->parent && (groupstate.migrator == TMIGR_NONE)) {
+		walk_done = true;
+
 		/*
-		 * Nothing to do when first event didn't changed and update was
-		 * done during remote timer handling.
+		 * Nothing to do when update was done during remote timer
+		 * handling. First timer in top level group which needs to be
+		 * handled when top level group is not active, is calculated
+		 * directly in tmigr_handle_remote_up().
 		 */
-		if (remote && !leftmost_change)
+		if (remote)
 			goto unlock;
+
 		/*
 		 * The top level group is idle and it has to be ensured the
 		 * global timers are handled in time. (This could be optimized
@@ -959,11 +953,10 @@ static void tmigr_handle_remote_cpu(unsigned int cpu, u64 now,
 	if (!tmc->online || !tmc->idle) {
 		timer_unlock_remote_bases(cpu);
 		goto unlock;
-	} else {
-		/* next	event of CPU */
-		fetch_next_timer_interrupt_remote(jif, now, &tevt, cpu);
 	}
 
+	/* next	event of CPU */
+	fetch_next_timer_interrupt_remote(jif, now, &tevt, cpu);
 	timer_unlock_remote_bases(cpu);
 
 	data.nextexp = tevt.global;
