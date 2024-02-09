@@ -126,14 +126,14 @@ union tmigr_state {
 
 #if defined(CONFIG_SMP) && defined(CONFIG_NO_HZ_COMMON)
 extern void tmigr_handle_remote(void);
-extern int tmigr_requires_handle_remote(void);
+extern bool tmigr_requires_handle_remote(void);
 extern void tmigr_cpu_activate(void);
 extern u64 tmigr_cpu_deactivate(u64 nextevt);
 extern u64 tmigr_cpu_new_timer(u64 nextevt);
 extern u64 tmigr_quick_check(void);
 #else
 static inline void tmigr_handle_remote(void) { }
-static inline int tmigr_requires_handle_remote(void) { return 0; }
+static inline bool tmigr_requires_handle_remote(void) { return false; }
 static inline void tmigr_cpu_activate(void) { }
 #endif
 

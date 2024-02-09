@@ -529,7 +529,7 @@ struct tmigr_walk {
  *			CPU which expires remote timers
  * @childmask:		childmask of child group
  * @check:		is set if there is the need to handle remote timers;
- *			required in tmigr_check_handle_remote() only
+ *			required in tmigr_require_handle_remote() only
  * @tmc_active:		this flag indicates, whether the CPU which triggers
  *			the hierarchy walk is !idle in the timer migration
  *			hierarchy. When the CPU is idle and the whole hierarchy is
@@ -1139,12 +1139,12 @@ out:
  *
  * Must be called with interrupts disabled.
  */
-int tmigr_requires_handle_remote(void)
+bool tmigr_requires_handle_remote(void)
 {
 	struct tmigr_cpu *tmc = this_cpu_ptr(&tmigr_cpu);
 	struct tmigr_remote_data data;
-	unsigned int ret = 0;
 	unsigned long jif;
+	bool ret = false;
 
 	if (tmigr_is_not_available(tmc))
 		return ret;
@@ -1165,10 +1165,7 @@ int tmigr_requires_handle_remote(void)
 	if (!tmc->idle) {
 		__walk_groups(&tmigr_requires_handle_remote_up, &data, tmc);
 
-		if (data.firstexp != KTIME_MAX)
-			ret = 1;
-
-		return ret;
+		return data.check;
 	}
 
 	/*
@@ -1179,11 +1176,11 @@ int tmigr_requires_handle_remote(void)
 	 */
 	if (IS_ENABLED(CONFIG_64BIT)) {
 		if (data.now >= READ_ONCE(tmc->wakeup))
-			ret = 1;
+			return true;
 	} else {
 		raw_spin_lock(&tmc->lock);
 		if (data.now >= tmc->wakeup)
-			ret = 1;
+			ret = true;
 		raw_spin_unlock(&tmc->lock);
 	}
 
