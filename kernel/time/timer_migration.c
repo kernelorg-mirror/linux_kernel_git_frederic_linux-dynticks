@@ -519,7 +519,6 @@ static bool tmigr_active_up(struct tmigr_group *group,
 
 	} while (!atomic_try_cmpxchg(&group->migr_state, &curstate.state, newstate.state));
 
-
 	if ((walk_done == false) && group->parent)
 		data->childmask = group->childmask;
 
@@ -1154,10 +1153,10 @@ static bool tmigr_inactive_up(struct tmigr_group *group,
 	u8 childmask;
 
 	childmask = data->childmask;
-	curstate.state = atomic_read(&group->migr_state);
+	curstate.state = atomic_read_acquire(&group->migr_state);
 	childstate.state = 0;
 
-	do {
+	for (;;) {
 		if (child)
 			childstate.state = atomic_read(&child->migr_state);
 
@@ -1193,7 +1192,11 @@ static bool tmigr_inactive_up(struct tmigr_group *group,
 
 		WARN_ON_ONCE((newstate.migrator != TMIGR_NONE) && !(newstate.active));
 
-	} while (!atomic_try_cmpxchg(&group->migr_state, &curstate.state, newstate.state));
+		if (atomic_try_cmpxchg(&group->migr_state, &curstate.state,
+				       newstate.state))
+			break;
+		smp_mb__after_atomic();
+	}
 
 	data->remote = false;
 
