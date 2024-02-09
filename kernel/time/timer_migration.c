@@ -585,7 +585,7 @@ static struct tmigr_event *tmigr_next_groupevt(struct tmigr_group *group)
  * Event, which is returned, is also removed from the queue.
  */
 static struct tmigr_event *tmigr_next_expired_groupevt(struct tmigr_group *group,
-						     u64 now)
+						       u64 now)
 {
 	struct tmigr_event *evt = tmigr_next_groupevt(group);
 
@@ -1025,16 +1025,18 @@ again:
 
 		/* check if there is another event, that needs to be handled */
 		goto again;
-	} else {
-		raw_spin_unlock_irq(&group->lock);
 	}
 
 	/*
 	 * Update of childmask for the next level and keep track of the expiry
-	 * of the first event that needs to be handled
+	 * of the first event that needs to be handled (group->next_expiry was
+	 * updated by tmigr_next_expired_groupevt(), next was set by
+	 * tmigr_handle_remote_cpu()).
 	 */
 	data->childmask = group->childmask;
-	data->firstexp = next;
+	data->firstexp = min_t(u64, group->next_expiry, next);
+
+	raw_spin_unlock_irq(&group->lock);
 
 	return false;
 }
