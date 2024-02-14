@@ -717,10 +717,10 @@ void tmigr_cpu_activate(void)
  */
 static
 bool tmigr_update_events(struct tmigr_group *group, struct tmigr_group *child,
-			 struct tmigr_walk *data, union tmigr_state childstate,
-			 union tmigr_state groupstate, bool reread_state)
+			 struct tmigr_walk *data)
 {
 	struct tmigr_event *evt, *first_childevt;
+	union tmigr_state childstate, groupstate;
 	bool leftmost_change = false;
 	bool remote = data->remote;
 	bool walk_done = false;
@@ -730,10 +730,8 @@ bool tmigr_update_events(struct tmigr_group *group, struct tmigr_group *child,
 		raw_spin_lock(&child->lock);
 		raw_spin_lock_nested(&group->lock, SINGLE_DEPTH_NESTING);
 
-		if (reread_state) {
-			groupstate.state = atomic_read(&group->migr_state);
-			childstate.state = atomic_read(&child->migr_state);
-		}
+		childstate.state = atomic_read(&child->migr_state);
+		groupstate.state = atomic_read(&group->migr_state);
 
 		if (childstate.active) {
 			walk_done = true;
@@ -772,8 +770,8 @@ bool tmigr_update_events(struct tmigr_group *group, struct tmigr_group *child,
 
 		raw_spin_lock(&group->lock);
 
-		if (reread_state)
-			groupstate.state = atomic_read(&group->migr_state);
+		childstate.state = 0;
+		groupstate.state = atomic_read(&group->migr_state);
 	}
 
 	/*
@@ -854,14 +852,9 @@ static bool tmigr_new_timer_up(struct tmigr_group *group,
 			       struct tmigr_group *child,
 			       void *ptr)
 {
-	/*
-	 * use this dummy zero initialized tmigr_state as arguments for
-	 * tmigr_update_events(); states are read by the function anyway
-	 */
-	union tmigr_state s = {.state = 0};
 	struct tmigr_walk *data = ptr;
 
-	return tmigr_update_events(group, child, data, s, s, true);
+	return tmigr_update_events(group, child, data);
 }
 
 /*
@@ -1293,7 +1286,7 @@ static bool tmigr_inactive_up(struct tmigr_group *group,
 	data->remote = false;
 
 	/* Event Handling */
-	tmigr_update_events(group, child, data, childstate, newstate, false);
+	tmigr_update_events(group, child, data);
 
 	if (group->parent && (walk_done == false))
 		data->childmask = group->childmask;
