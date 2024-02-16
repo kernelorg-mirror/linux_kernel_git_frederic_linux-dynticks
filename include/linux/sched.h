@@ -745,6 +745,11 @@ struct kmap_ctrl {
 #endif
 };
 
+struct process_timer {
+	struct timer_list timer;
+	struct task_struct *task;
+};
+
 struct task_struct {
 #ifdef CONFIG_THREAD_INFO_IN_TASK
 	/*
@@ -1546,6 +1551,7 @@ struct task_struct {
 #ifdef CONFIG_USER_EVENTS
 	struct user_event_mm		*user_event_mm;
 #endif
+	struct process_timer process_timer;
 
 	/*
 	 * New fields for task_struct should be added above here, so that

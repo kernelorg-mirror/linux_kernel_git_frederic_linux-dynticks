@@ -616,7 +616,8 @@ static void enqueue_timer(struct timer_base *base, struct timer_list *timer,
 	__set_bit(idx, base->pending_map);
 	timer_set_idx(timer, idx);
 
-	trace_timer_start(timer, bucket_expiry);
+        if (!(timer->flags & TIMER_PINNED))
+		trace_timer_start(timer, bucket_expiry);
 
 	/*
 	 * Check whether this is the new first expiring timer. The
@@ -838,8 +839,9 @@ static inline void debug_init(struct timer_list *timer)
 
 static inline void debug_deactivate(struct timer_list *timer)
 {
-	debug_timer_deactivate(timer);
-	trace_timer_cancel(timer);
+	debug_timer_deactivate(timer);	
+	if (!(timer->flags & TIMER_PINNED))
+		trace_timer_cancel(timer);
 }
 
 static inline void debug_assert_init(struct timer_list *timer)
@@ -1744,7 +1746,8 @@ static void call_timer_fn(struct timer_list *timer,
 	 */
 	lock_map_acquire(&lockdep_map);
 
-	trace_timer_expire_entry(timer, baseclk);
+	if (!(timer->flags & TIMER_PINNED))
+		trace_timer_expire_entry(timer, baseclk);
 	fn(timer);
 	trace_timer_expire_exit(timer);
 
@@ -2004,6 +2007,8 @@ static unsigned long fetch_next_timer_interrupt(unsigned long basej, u64 basem,
 		if (time_before(nextevt, basej))
 			nextevt = basej;
 		tevt->local = basem + (u64)(nextevt - basej) * TICK_NSEC;
+		if (!local_first)
+			tevt->global = tevt->local;
 		return nextevt;
 	}
 
@@ -2428,10 +2433,6 @@ void update_process_times(int user_tick)
  * Since schedule_timeout()'s timer is defined on the stack, it must store
  * the target task on the stack as well.
  */
-struct process_timer {
-	struct timer_list timer;
-	struct task_struct *task;
-};
 
 static void process_timeout(struct timer_list *t)
 {
@@ -2473,7 +2474,7 @@ static void process_timeout(struct timer_list *t)
  */
 signed long __sched schedule_timeout(signed long timeout)
 {
-	struct process_timer timer;
+	struct process_timer *timer = &current->process_timer;
 	unsigned long expire;
 
 	switch (timeout)
@@ -2507,14 +2508,11 @@ signed long __sched schedule_timeout(signed long timeout)
 
 	expire = timeout + jiffies;
 
-	timer.task = current;
-	timer_setup_on_stack(&timer.timer, process_timeout, 0);
-	__mod_timer(&timer.timer, expire, MOD_TIMER_NOTPENDING);
+	timer->task = current;
+	timer_setup(&timer->timer, process_timeout, 0);
+	__mod_timer(&timer->timer, expire, MOD_TIMER_NOTPENDING);
 	schedule();
-	del_timer_sync(&timer.timer);
-
-	/* Remove the timer from the object tracker */
-	destroy_timer_on_stack(&timer.timer);
+	del_timer_sync(&timer->timer);
 
 	timeout = expire - jiffies;
 
@@ -2623,6 +2621,29 @@ int timers_dead_cpu(unsigned int cpu)
 	}
 	return 0;
 }
+
+void timers_dump_cpu(unsigned int cpu);
+
+void timers_dump_cpu(unsigned int cpu)
+{
+	struct timer_base *base = per_cpu_ptr(&timer_bases[BASE_GLOBAL], cpu);
+	unsigned long flags;
+	int i;
+
+	printk("Dumping CPU timers for %d\n", cpu);
+	raw_spin_lock_irqsave(&base->lock, flags);
+	for (i = 0; i < WHEEL_SIZE; i++) {
+		struct timer_list *t;
+
+		hlist_for_each_entry(t, base->vectors + i, entry) {
+			if (t->expires < jiffies)
+				printk("CPU: %d timer:%p func=%ps expires=%lu now=%lu diff=%lu\n", cpu, t, t->function, t->expires, jiffies, jiffies - t->expires); 
+		}
+	}
+	raw_spin_unlock_irqrestore(&base->lock, flags);
+}
+EXPORT_SYMBOL(timers_dump_cpu);
+
 
 #endif /* CONFIG_HOTPLUG_CPU */
 

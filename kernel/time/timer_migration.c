@@ -977,7 +977,7 @@ static void tmigr_handle_remote_cpu(unsigned int cpu, u64 now,
 	 * after a remote expiry" in the documentation at the top)
 	 */
 	walk_groups(&tmigr_new_timer_up, &data, tmc);
-
+	trace_tmigr_cpu_new_timer_idle(tmc, tevt.global);
 unlock:
 	tmc->remote = false;
 	raw_spin_unlock_irq(&tmc->lock);
@@ -1017,6 +1017,8 @@ again:
 	if (evt) {
 		unsigned int remote_cpu = evt->cpu;
 
+//		if (now > evt->nextevt.expires + 1)
+//			trace_printk("Handle late CPU=%u now=%llu expires=%llu delta=%llu\n", remote_cpu, now, evt->nextevt.expires, now - evt->nextevt.expires);
 		raw_spin_unlock_irq(&group->lock);
 
 		tmigr_handle_remote_cpu(remote_cpu, now, jif);

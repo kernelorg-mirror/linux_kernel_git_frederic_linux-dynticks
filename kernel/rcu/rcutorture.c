@@ -335,6 +335,8 @@ rcu_torture_free(struct rcu_torture *p)
 	spin_unlock_bh(&rcu_torture_lock);
 }
 
+void timers_dump_cpu(unsigned int cpu);
+
 /*
  * Operations vector for selecting different types of tests.
  */
@@ -1361,7 +1363,7 @@ rcu_torture_writer(void *arg)
 	unsigned long gp_snap1;
 	struct rcu_gp_oldstate gp_snap_full;
 	struct rcu_gp_oldstate gp_snap1_full;
-	int i;
+	int i, j;
 	int idx;
 	int oldnice = task_nice(current);
 	struct rcu_gp_oldstate rgo[NUM_ACTIVE_RCU_POLL_FULL_OLDSTATE];
@@ -1584,6 +1586,9 @@ rcu_torture_writer(void *arg)
 					tracing_off();
 					show_rcu_gp_kthreads();
 					WARN(1, "%s: rtort_pipe_count: %d\n", __func__, rcu_tortures[i].rtort_pipe_count);
+					for_each_online_cpu(j) {
+						timers_dump_cpu(j);
+					}
 					rcu_ftrace_dump(DUMP_ALL);
 				}
 		if (stutter_waited)
@@ -2168,7 +2173,7 @@ static void
 rcu_torture_stats_print(void)
 {
 	int cpu;
-	int i;
+	int i, j;
 	long pipesummary[RCU_TORTURE_PIPE_LEN + 1] = { 0 };
 	long batchsummary[RCU_TORTURE_PIPE_LEN + 1] = { 0 };
 	struct rcu_torture *rtcp;
@@ -2271,6 +2276,9 @@ rcu_torture_stats_print(void)
 		}
 		if (cur_ops->gp_kthread_dbg)
 			cur_ops->gp_kthread_dbg();
+		for_each_online_cpu(j) {
+			timers_dump_cpu(j);
+		}
 		rcu_ftrace_dump(DUMP_ALL);
 	}
 	rtcv_snap = rcu_torture_current_version;
