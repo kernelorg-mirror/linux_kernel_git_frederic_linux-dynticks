@@ -2624,6 +2624,30 @@ int timers_dead_cpu(unsigned int cpu)
 	return 0;
 }
 
+void timers_dump_cpu(unsigned int cpu);
+
+void timers_dump_cpu(unsigned int cpu)
+{
+	struct timer_base *base = per_cpu_ptr(&timer_bases[BASE_GLOBAL], cpu);
+	unsigned long flags;
+	int i;
+
+	raw_spin_lock_irqsave(&base->lock, flags);
+	for (i = 0; i < WHEEL_SIZE; i++) {
+		struct timer_list *t;
+		
+		hlist_for_each_entry(t, base->vectors + i, entry) {
+			if (t->expires > jiffies) {
+				printk("CPU: %d, func=%ps expires=%lu now=%lu\n", cpu, t->function, t->expires, jiffies); 
+			}
+		}
+			
+	}
+	raw_spin_unlock_irqrestore(&base->lock, flags);
+}
+EXPORT_SYMBOL(timers_dump_cpu);
+
+
 #endif /* CONFIG_HOTPLUG_CPU */
 
 static void __init init_timer_cpu(int cpu)

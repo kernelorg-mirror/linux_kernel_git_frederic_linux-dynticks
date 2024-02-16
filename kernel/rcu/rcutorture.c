@@ -2155,7 +2155,7 @@ static int rcu_nocb_toggle(void *arg)
 	torture_kthread_stopping("rcu_nocb_toggle");
 	return 0;
 }
-
+void timers_dump_cpu(unsigned int cpu);
 /*
  * Print torture statistics.  Caller must ensure that there is only
  * one call to this function at a given time!!!  This is normally
@@ -2168,7 +2168,7 @@ static void
 rcu_torture_stats_print(void)
 {
 	int cpu;
-	int i;
+	int i, j;
 	long pipesummary[RCU_TORTURE_PIPE_LEN + 1] = { 0 };
 	long batchsummary[RCU_TORTURE_PIPE_LEN + 1] = { 0 };
 	struct rcu_torture *rtcp;
@@ -2271,6 +2271,9 @@ rcu_torture_stats_print(void)
 		}
 		if (cur_ops->gp_kthread_dbg)
 			cur_ops->gp_kthread_dbg();
+		for_each_online_cpu(j) {
+			timers_dump_cpu(j);
+		}
 		rcu_ftrace_dump(DUMP_ALL);
 	}
 	rtcv_snap = rcu_torture_current_version;
