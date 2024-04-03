@@ -9,7 +9,6 @@
 
 /* Linker adds these: start and end of __cpuidle functions */
 extern char __cpuidle_text_start[], __cpuidle_text_end[];
-
 /**
  * sched_idle_set_state - Record idle state for the current CPU.
  * @idle_state: State to record.
@@ -89,7 +88,9 @@ void __weak arch_cpu_idle(void)
 void __cpuidle default_idle_call(void)
 {
 	instrumentation_begin();
+//	trace_sched_nr(6);
 	if (!current_clr_polling_and_test()) {
+//		trace_sched_nr(7);
 		trace_cpu_idle(1, smp_processor_id());
 		stop_critical_timings();
 
@@ -100,6 +101,7 @@ void __cpuidle default_idle_call(void)
 		start_critical_timings();
 		trace_cpu_idle(PWR_EVENT_EXIT, smp_processor_id());
 	}
+//	trace_sched_nr(8);
 	local_irq_enable();
 	instrumentation_end();
 }
@@ -116,6 +118,7 @@ static int call_cpuidle_s2idle(struct cpuidle_driver *drv,
 static int call_cpuidle(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 		      int next_state)
 {
+//	trace_sched_nr(0);
 	/*
 	 * The idle task must be scheduled, it is pointless to go to idle, just
 	 * update no idle residency and return.
@@ -125,6 +128,7 @@ static int call_cpuidle(struct cpuidle_driver *drv, struct cpuidle_device *dev,
 		local_irq_enable();
 		return -EBUSY;
 	}
+//	trace_sched_nr(1);
 
 	/*
 	 * Enter the idle state previously returned by the governor decision.
@@ -165,8 +169,8 @@ static void cpuidle_idle_call(void)
 	 */
 
 	if (cpuidle_not_available(drv, dev)) {
+		//trace_sched_nr(5);
 		tick_nohz_idle_stop_tick();
-
 		default_idle_call();
 		goto exit_idle;
 	}

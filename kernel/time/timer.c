@@ -54,9 +54,11 @@
 
 #include "tick-internal.h"
 #include "timer_migration.h"
-
+#include <trace/events/sched.h>
+#include <trace/events/timer_migration.h>
 #define CREATE_TRACE_POINTS
 #include <trace/events/timer.h>
+
 
 __visible u64 jiffies_64 __cacheline_aligned_in_smp = INITIAL_JIFFIES;
 
@@ -2264,10 +2266,11 @@ static inline u64 __get_next_timer_interrupt(unsigned long basej, u64 basem,
 	 * event. See timer_use_tmigr() for detailed information.
 	 */
 	idle_is_possible = time_after(nextevt, basej + 1);
+	trace_tmigr_fetched(basem, tevt.local, tevt.global, idle ? *idle: -1, base_local->is_idle, idle_is_possible);
+
 	if (idle_is_possible)
 		timer_use_tmigr(basej, basem, &nextevt, idle,
 				base_local->is_idle, &tevt);
-
 	/*
 	 * We have a fresh next event. Check whether we can forward the
 	 * base.
@@ -2312,8 +2315,11 @@ static inline u64 __get_next_timer_interrupt(unsigned long basej, u64 basem,
 		 * When timer base was already marked idle, nothing will be
 		 * changed here.
 		 */
-		if (!base_local->is_idle && idle_is_possible)
+		if (!base_local->is_idle && idle_is_possible) {
+			//trace_sched_nr(-2);
 			tmigr_cpu_activate();
+		}
+		//trace_sched_nr(-1);
 	}
 
 	raw_spin_unlock(&base_global->lock);

@@ -8,6 +8,52 @@
 
 #include <linux/tracepoint.h>
 
+TRACE_EVENT(timer_trace_printk,
+
+	TP_PROTO(const char *bpf_string),
+
+	TP_ARGS(bpf_string),
+
+	TP_STRUCT__entry(
+		__string(bpf_string, bpf_string)
+	),
+
+	TP_fast_assign(
+		__assign_str(bpf_string, bpf_string);
+	),
+
+	TP_printk("%s", __get_str(bpf_string))
+);
+
+/* Group events */
+TRACE_EVENT(tmigr_fetched,
+
+	    TP_PROTO(u64 basem, u64 local, u64 global, int idle, int is_idle, int idle_is_possible),
+
+	    TP_ARGS(basem, local, global, idle, is_idle, idle_is_possible),
+
+	TP_STRUCT__entry(
+		__field( unsigned long long,	basem		)
+		__field( unsigned long long,	local		)
+		__field( unsigned long long,	global		)
+		__field( int,	idle		)
+		__field( int,	is_idle		)
+		__field( int,	idle_is_possible		)
+	),
+
+	TP_fast_assign(
+		__entry->basem		= basem;
+		__entry->local		= local;
+		__entry->global	= global;
+		__entry->idle	= idle;
+		__entry->is_idle	= is_idle;
+		__entry->idle_is_possible	= idle_is_possible;
+	),
+
+	TP_printk("basem:%llu local: %llu global: %llu idle: %d is_idle: %d idle_is_possible:%d",
+		  __entry->basem, __entry->local, __entry->global, __entry->idle, __entry->is_idle, __entry->idle_is_possible)
+);
+
 /* Group events */
 TRACE_EVENT(tmigr_group_set,
 

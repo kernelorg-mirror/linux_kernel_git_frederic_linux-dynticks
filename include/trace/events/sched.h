@@ -10,6 +10,40 @@
 #include <linux/tracepoint.h>
 #include <linux/binfmts.h>
 
+TRACE_EVENT(sched_trace_printk,
+
+	TP_PROTO(const char *bpf_string),
+
+	TP_ARGS(bpf_string),
+
+	TP_STRUCT__entry(
+		__string(bpf_string, bpf_string)
+	),
+
+	TP_fast_assign(
+		__assign_str(bpf_string, bpf_string);
+	),
+
+	TP_printk("%s", __get_str(bpf_string))
+);
+
+TRACE_EVENT(sched_nr,
+
+	TP_PROTO(int nr),
+
+	TP_ARGS(nr),
+
+	TP_STRUCT__entry(
+		__field(	int,	nr			)
+	),
+
+	TP_fast_assign(
+		__entry->nr	= nr;
+	),
+
+	TP_printk("%d", __entry->nr)
+);
+
 /*
  * Tracepoint for calling kthread_stop, performed to end a kthread:
  */

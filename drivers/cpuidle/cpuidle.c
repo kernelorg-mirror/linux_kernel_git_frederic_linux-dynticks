@@ -27,7 +27,7 @@
 #include <linux/mmu_context.h>
 #include <linux/context_tracking.h>
 #include <trace/events/power.h>
-
+#include <trace/events/sched.h>
 #include "cpuidle.h"
 
 DEFINE_PER_CPU(struct cpuidle_device *, cpuidle_devices);
@@ -219,7 +219,7 @@ noinstr int cpuidle_enter_state(struct cpuidle_device *dev,
 	ktime_t time_start, time_end;
 
 	instrumentation_begin();
-
+//	trace_sched_nr(2);
 	/*
 	 * Tell the time framework to switch to a broadcast timer because our
 	 * local timer will be shut down.  If a local timer is used from another
@@ -235,7 +235,7 @@ noinstr int cpuidle_enter_state(struct cpuidle_device *dev,
 		target_state = &drv->states[index];
 		broadcast = false;
 	}
-
+//	trace_sched_nr(3);
 	if (target_state->flags & CPUIDLE_FLAG_TLB_FLUSHED)
 		leave_mm(dev->cpu);
 
@@ -334,6 +334,7 @@ noinstr int cpuidle_enter_state(struct cpuidle_device *dev,
 		dev->last_residency_ns = 0;
 		dev->states_usage[index].rejected++;
 	}
+//	trace_sched_nr(4);
 
 	instrumentation_end();
 

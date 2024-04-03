@@ -26,6 +26,7 @@
 #include <linux/posix-timers.h>
 #include <linux/context_tracking.h>
 #include <linux/mm.h>
+#include <trace/events/sched.h>
 
 #include <asm/irq_regs.h>
 
@@ -832,9 +833,19 @@ static ktime_t tick_nohz_next_event(struct tick_sched *ts, int cpu)
 	u64 basemono, next_tick, delta, expires;
 	unsigned long basejiff;
 
+	if (need_resched())
+		trace_sched_nr(1);
+	else
+		trace_sched_nr(2);
+
 	basemono = get_jiffies_update(&basejiff);
 	ts->last_jiffies = basejiff;
 	ts->timer_expires_base = basemono;
+
+	if (need_resched())
+		trace_sched_nr(3);
+	else
+		trace_sched_nr(4);
 
 	/*
 	 * Keep the periodic tick, when RCU, architecture or irq_work
@@ -849,6 +860,10 @@ static ktime_t tick_nohz_next_event(struct tick_sched *ts, int cpu)
 	if (rcu_needs_cpu() || arch_needs_cpu() ||
 	    irq_work_needs_cpu() || local_timer_softirq_pending()) {
 		next_tick = basemono + TICK_NSEC;
+		if (need_resched())
+			trace_sched_nr(5);
+		else
+			trace_sched_nr(6);
 	} else {
 		/*
 		 * Get the next pending timer. If high resolution
@@ -859,6 +874,10 @@ static ktime_t tick_nohz_next_event(struct tick_sched *ts, int cpu)
 		 */
 		next_tick = get_next_timer_interrupt(basejiff, basemono);
 		ts->next_timer = next_tick;
+		if (need_resched())
+			trace_sched_nr(7);
+		else
+			trace_sched_nr(8);
 	}
 
 	/* Make sure next_tick is never before basemono! */
@@ -880,6 +899,10 @@ static ktime_t tick_nohz_next_event(struct tick_sched *ts, int cpu)
 			goto out;
 		}
 	}
+	if (need_resched())
+		trace_sched_nr(9);
+	else
+		trace_sched_nr(10);
 
 	/*
 	 * If this CPU is the one which had the do_timer() duty last, we limit
@@ -891,12 +914,21 @@ static ktime_t tick_nohz_next_event(struct tick_sched *ts, int cpu)
 	    (tick_do_timer_cpu != TICK_DO_TIMER_NONE || !ts->do_timer_last))
 		delta = KTIME_MAX;
 
+	if (need_resched())
+		trace_sched_nr(11);
+	else
+		trace_sched_nr(12);
+
 	/* Calculate the next expiry time */
 	if (delta < (KTIME_MAX - basemono))
 		expires = basemono + delta;
 	else
 		expires = KTIME_MAX;
 
+	if (need_resched())
+		trace_sched_nr(13);
+	else
+		trace_sched_nr(14);
 	ts->timer_expires = min_t(u64, expires, next_tick);
 
 out:
@@ -980,6 +1012,10 @@ static void tick_nohz_stop_tick(struct tick_sched *ts, int cpu)
 		ts->tick_stopped = 1;
 		trace_tick_stop(1, TICK_DEP_MASK_NONE);
 	}
+//	if (need_resched())
+//		trace_sched_nr(11);
+//	else
+//		trace_sched_nr(12);
 
 	ts->next_tick = expires;
 
@@ -1157,6 +1193,11 @@ void tick_nohz_idle_stop_tick(void)
 	int cpu = smp_processor_id();
 	ktime_t expires;
 
+//	if (need_resched())
+//		trace_sched_nr(9);
+//	else
+//		trace_sched_nr(10);
+
 	/*
 	 * If tick_nohz_get_sleep_length() ran tick_nohz_next_event(), the
 	 * tick timer expiration time is known already.
@@ -1167,6 +1208,11 @@ void tick_nohz_idle_stop_tick(void)
 		expires = tick_nohz_next_event(ts, cpu);
 	else
 		return;
+//	if (need_resched())
+//		trace_sched_nr(11);
+//	else
+//		trace_sched_nr(12);
+
 
 	ts->idle_calls++;
 
@@ -1174,6 +1220,11 @@ void tick_nohz_idle_stop_tick(void)
 		int was_stopped = ts->tick_stopped;
 
 		tick_nohz_stop_tick(ts, cpu);
+//		if (need_resched())
+//			trace_sched_nr(13);
+//		else
+//			trace_sched_nr(14);
+
 
 		ts->idle_sleeps++;
 		ts->idle_expires = expires;
