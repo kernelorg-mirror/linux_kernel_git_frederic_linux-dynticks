@@ -55,6 +55,7 @@ static inline bool irq_work_is_hard(struct irq_work *work)
 }
 
 bool irq_work_queue(struct irq_work *work);
+bool irq_work_queue_raise_if_not_idle(struct irq_work *work);
 bool irq_work_queue_on(struct irq_work *work, int cpu);
 
 void irq_work_tick(void);

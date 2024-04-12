@@ -9621,7 +9621,7 @@ static int __perf_event_overflow(struct perf_event *event,
 
 	if (*perf_event_fasync(event) && event->pending_kill) {
 		event->pending_wakeup = 1;
-		irq_work_queue(&event->pending_irq);
+		irq_work_queue_raise_if_not_idle(&event->pending_irq);
 	}
 
 	return ret;

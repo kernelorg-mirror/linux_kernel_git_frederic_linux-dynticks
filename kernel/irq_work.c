@@ -128,6 +128,24 @@ bool irq_work_queue(struct irq_work *work)
 }
 EXPORT_SYMBOL_GPL(irq_work_queue);
 
+/* Enqueue the irq work @work on the current CPU */
+bool irq_work_queue_raise_if_not_idle(struct irq_work *work)
+{
+	/* Only queue if not already pending */
+	if (!irq_work_claim(work))
+		return false;
+
+	if (is_idle_task(current))
+		return false;
+
+	/* Queue the entry and raise the IPI if needed. */
+	preempt_disable();
+	__irq_work_queue_local(work);
+	preempt_enable();
+
+	return true;
+}
+
 /*
  * Enqueue the irq_work @work on @cpu unless it's already pending
  * somewhere.
