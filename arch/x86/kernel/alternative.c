@@ -2077,14 +2077,9 @@ void *text_poke_set(void *addr, int c, size_t len)
 	return addr;
 }
 
-static void do_sync_core(void *info)
-{
-	sync_core();
-}
-
 void text_poke_sync(void)
 {
-	on_each_cpu(do_sync_core, NULL, 1);
+	//on_each_cpu(do_sync_core, NULL, 1);
 }
 
 /*
