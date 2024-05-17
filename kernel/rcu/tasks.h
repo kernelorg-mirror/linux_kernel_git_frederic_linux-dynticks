@@ -1738,9 +1738,21 @@ static void rcu_tasks_trace_pregp_step(struct list_head *hop)
 	for_each_online_cpu(cpu) {
 		rcu_read_lock();
 		/*
-		 * RQ must be locked because no ordering exists/can be relied upon
-		 * between rq->curr write and subsequent read sides. This ensures that
-		 * further context switching tasks will see update side pre-GP accesses.
+		 * RQ lock + smp_mb__after_spinlock() before reading rq->curr serve
+		 * two purposes:
+		 *
+		 * 1) Ordering against previous tasks accesses (though already enforced
+		 *    by upcoming IPIs and post-gp synchronize_rcu()).
+		 *
+		 * 2) Make sure not to miss latest context switch, because no ordering
+		 *    exists/can be relied upon between rq->curr write and subsequent read
+		 *    sides.
+		 *
+		 * 3) Make sure subsequent context switching tasks will see update side
+		 *    pre-GP accesses.
+		 *
+		 * smp_mb() after reading rq->curr doesn't play a significant role and might
+		 * be considered for removal in the future.
 		 */
 		t = cpu_curr_snapshot(cpu);
 		if (rcu_tasks_trace_pertask_prep(t, true))
