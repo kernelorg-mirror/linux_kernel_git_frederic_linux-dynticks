@@ -1737,6 +1737,11 @@ static void rcu_tasks_trace_pregp_step(struct list_head *hop)
 	// allow safe access to the hop list.
 	for_each_online_cpu(cpu) {
 		rcu_read_lock();
+		/*
+		 * RQ must be locked because no ordering exists/can be relied upon
+		 * between rq->curr write and subsequent read sides. This ensures that
+		 * further context switching tasks will see update side pre-GP accesses.
+		 */
 		t = cpu_curr_snapshot(cpu);
 		if (rcu_tasks_trace_pertask_prep(t, true))
 			trc_add_holdout(t, hop);
