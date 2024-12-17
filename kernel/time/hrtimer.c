@@ -2292,6 +2292,11 @@ static void migrate_hrtimer_list(struct hrtimer_clock_base *old_base,
 	}
 }
 
+static enum hrtimer_restart tmp_func(struct hrtimer *timer)
+{
+	return HRTIMER_NORESTART;
+}
+
 int hrtimers_cpu_dying(unsigned int dying_cpu)
 {
 	int i, ncpu = cpumask_any_and(cpu_active_mask, housekeeping_cpumask(HK_TYPE_TIMER));
@@ -2323,6 +2328,14 @@ int hrtimers_cpu_dying(unsigned int dying_cpu)
 	raw_spin_unlock(&new_base->lock);
 	old_base->online = 0;
 	raw_spin_unlock(&old_base->lock);
+
+	{
+		static struct hrtimer tmp;
+		hrtimer_init(&tmp, CLOCK_MONOTONIC, HRTIMER_MODE_ABS_HARD);
+		tmp.function = tmp_func;
+		hrtimer_set_expires(&tmp, ktime_get());
+		hrtimer_start_expires(&tmp,  HRTIMER_MODE_ABS_HARD);
+	}
 
 	return 0;
 }
