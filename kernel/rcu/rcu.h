@@ -157,6 +157,13 @@ static inline bool rcu_seq_done(unsigned long *sp, unsigned long s)
  * Given a snapshot from rcu_seq_snap(), determine whether or not a
  * full update-side operation has occurred, but do not allow the
  * (ULONG_MAX / 2) safety-factor/guard-band.
+ *
+ * The token returned by get_state_synchronize_rcu_full() is based on
+ * rcu_state.gp_seq but it is tested in poll_state_synchronize_rcu_full()
+ * against the root rnp->gp_seq. Since rcu_seq_start() is first called
+ * on rcu_state.gp_seq and only later reflected on the root rnp->gp_seq,
+ * it is possible that rcu_seq_snap(rcu_state.gp_seq) returns 2 full grace
+ * periods ahead of the root rnp->gp_seq.
  */
 static inline bool rcu_seq_done_exact(unsigned long *sp, unsigned long s)
 {
