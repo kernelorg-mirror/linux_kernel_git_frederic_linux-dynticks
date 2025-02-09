@@ -146,6 +146,18 @@ config NO_HZ_FULL
 
 endchoice
 
+config NO_HZ_FULL_WORK
+	bool "Full dynticks work flush on kernel exit"
+	depends on NO_HZ_FULL
+	help
+	 Selectively flush pending asynchronous kernel work upon user exit.
+	 Assuming userspace is not performing any critical isolated work while
+	 issuing syscalls, some per-CPU kernel works are flushed before resuming
+	 to userspace so that they don't get remotely queued later when the CPU
+	 doesn't want to be disturbed.
+
+	 If in doubt say N.
+
 config CONTEXT_TRACKING_USER
 	bool
 	depends on HAVE_CONTEXT_TRACKING_USER

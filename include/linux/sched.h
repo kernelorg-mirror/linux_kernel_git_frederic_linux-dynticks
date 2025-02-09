@@ -1448,6 +1448,10 @@ struct task_struct {
 	atomic_t			tick_dep_mask;
 #endif
 
+#ifdef CONFIG_NO_HZ_FULL_WORK
+	struct callback_head		nohz_full_work;
+#endif
+
 #ifdef CONFIG_FAULT_INJECTION
 	int				make_it_fail;
 	unsigned int			fail_nth;

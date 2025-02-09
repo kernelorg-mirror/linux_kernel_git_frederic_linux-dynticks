@@ -60,6 +60,7 @@
 #include <linux/stop_machine.h>
 #include <linux/syscalls_api.h>
 #include <linux/syscalls.h>
+#include <linux/task_work.h>
 #include <linux/tick.h>
 #include <linux/topology.h>
 #include <linux/types.h>

@@ -249,3 +249,26 @@ static int __init housekeeping_isolcpus_setup(char *str)
 	return housekeeping_setup(str, flags);
 }
 __setup("isolcpus=", housekeeping_isolcpus_setup);
+
+#ifdef CONFIG_NO_HZ_FULL_WORK
+static void isolated_task_work(struct callback_head *head)
+{
+}
+
+int __isolated_task_work_queue(void)
+{
+	if (current->flags & (PF_KTHREAD | PF_USER_WORKER | PF_IO_WORKER))
+		return -EINVAL;
+
+	guard(irqsave)();
+	if (task_work_queued(&current->nohz_full_work))
+		return 0;
+
+	return task_work_add(current, &current->nohz_full_work, TWA_RESUME);
+}
+
+void isolated_task_work_init(struct task_struct *tsk)
+{
+	init_task_work(&tsk->nohz_full_work, isolated_task_work);
+}
+#endif /* CONFIG_NO_HZ_FULL_WORK */

@@ -4538,6 +4538,7 @@ static void __sched_fork(unsigned long clone_flags, struct task_struct *p)
 	p->migration_pending = NULL;
 #endif
 	init_sched_mm_cid(p);
+	isolated_task_work_init(p);
 }
 
 DEFINE_STATIC_KEY_FALSE(sched_numa_balancing);
