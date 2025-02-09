@@ -77,4 +77,21 @@ static inline bool cpu_is_isolated(int cpu)
 	       cpuset_cpu_is_isolated(cpu);
 }
 
+#if defined(CONFIG_NO_HZ_FULL)
+extern int __isolated_task_work_queue(void);
+
+static inline int isolated_task_work_queue(void)
+{
+	if (!housekeeping_cpu(raw_smp_processor_id(), HK_TYPE_KERNEL_NOISE))
+		return -ENOTSUPP;
+
+	return __isolated_task_work_queue();
+}
+
+extern void isolated_task_work_init(struct task_struct *tsk);
+#else
+static inline int isolated_task_work_queue(void) { return -ENOTSUPP; }
+static inline void isolated_task_work_init(struct task_struct *tsk) { }
+#endif /* CONFIG_NO_HZ_FULL */
+
 #endif /* _LINUX_SCHED_ISOLATION_H */

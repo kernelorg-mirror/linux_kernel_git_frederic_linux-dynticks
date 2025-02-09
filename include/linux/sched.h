@@ -1437,6 +1437,7 @@ struct task_struct {
 #endif
 
 #ifdef CONFIG_NO_HZ_FULL
+	struct callback_head		nohz_full_work;
 	atomic_t			tick_dep_mask;
 #endif
 
