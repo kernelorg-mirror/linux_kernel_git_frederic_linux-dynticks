@@ -8,6 +8,8 @@
  *
  */
 
+#include <linux/swap.h>
+
 enum hk_flags {
 	HK_FLAG_DOMAIN		= BIT(HK_TYPE_DOMAIN),
 	HK_FLAG_MANAGED_IRQ	= BIT(HK_TYPE_MANAGED_IRQ),
@@ -253,6 +255,7 @@ __setup("isolcpus=", housekeeping_isolcpus_setup);
 #ifdef CONFIG_NO_HZ_FULL_WORK
 static void isolated_task_work(struct callback_head *head)
 {
+	lru_add_and_bh_lrus_drain();
 }
 
 int __isolated_task_work_queue(void)

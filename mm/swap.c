@@ -37,6 +37,7 @@
 #include <linux/page_idle.h>
 #include <linux/local_lock.h>
 #include <linux/buffer_head.h>
+#include <linux/sched/isolation.h>
 
 #include "internal.h"
 
@@ -154,6 +155,29 @@ static void lru_add(struct lruvec *lruvec, struct folio *folio)
 	lruvec_add_folio(lruvec, folio);
 	trace_mm_lru_insertion(folio);
 }
+
+/**
+ * folio_batch_add() - Add a folio to a batch.
+ * @fbatch: The folio batch.
+ * @folio: The folio to add.
+ *
+ * The folio is added to the end of the batch.
+ * The batch must have previously been initialised using folio_batch_init().
+ *
+ * Return: The number of slots still available.
+ */
+unsigned int folio_batch_add(struct folio_batch *fbatch,
+			     struct folio *folio)
+{
+	unsigned int ret;
+
+	fbatch->folios[fbatch->nr++] = folio;
+	ret = folio_batch_space(fbatch);
+	isolated_task_work_queue();
+
+	return ret;
+}
+EXPORT_SYMBOL(folio_batch_add);
 
 static void folio_batch_move_lru(struct folio_batch *fbatch, move_fn_t move_fn)
 {
@@ -738,7 +762,7 @@ void lru_add_drain(void)
  * the same cpu. It shouldn't be a problem in !SMP case since
  * the core is only one and the locks will disable preemption.
  */
-static void lru_add_and_bh_lrus_drain(void)
+void lru_add_and_bh_lrus_drain(void)
 {
 	local_lock(&cpu_fbatches.lock);
 	lru_add_drain_cpu(smp_processor_id());
@@ -863,6 +887,10 @@ static inline void __lru_add_drain_all(bool force_all_cpus)
 	cpumask_clear(&has_work);
 	for_each_online_cpu(cpu) {
 		struct work_struct *work = &per_cpu(lru_add_drain_work, cpu);
+
+		/* Isolated CPUs handle their cache upon return to userspace */
+		if (IS_ENABLED(CONFIG_NO_HZ_FULL_WORK) && !housekeeping_cpu(cpu, HK_TYPE_KERNEL_NOISE))
+			continue;
 
 		if (cpu_needs_drain(cpu)) {
 			INIT_WORK(work, lru_add_drain_per_cpu);
