@@ -61,22 +61,8 @@ static inline unsigned int folio_batch_space(struct folio_batch *fbatch)
 	return PAGEVEC_SIZE - fbatch->nr;
 }
 
-/**
- * folio_batch_add() - Add a folio to a batch.
- * @fbatch: The folio batch.
- * @folio: The folio to add.
- *
- * The folio is added to the end of the batch.
- * The batch must have previously been initialised using folio_batch_init().
- *
- * Return: The number of slots still available.
- */
-static inline unsigned folio_batch_add(struct folio_batch *fbatch,
-		struct folio *folio)
-{
-	fbatch->folios[fbatch->nr++] = folio;
-	return folio_batch_space(fbatch);
-}
+unsigned int folio_batch_add(struct folio_batch *fbatch,
+			     struct folio *folio);
 
 /**
  * folio_batch_next - Return the next folio to process.
