@@ -5,12 +5,15 @@
 #include <linux/list.h>
 #include <linux/sched.h>
 
+#define TASK_WORK_DEQUEUED	((void *) -1UL)
+
 typedef void (*task_work_func_t)(struct callback_head *);
 
 static inline void
 init_task_work(struct callback_head *twork, task_work_func_t func)
 {
 	twork->func = func;
+	twork->next = TASK_WORK_DEQUEUED;
 }
 
 enum task_work_notify_mode {
@@ -24,6 +27,15 @@ enum task_work_notify_mode {
 static inline bool task_work_pending(struct task_struct *task)
 {
 	return READ_ONCE(task->task_works);
+}
+
+/*
+ * Check if a work is queued. Beware: this is inherently racy if the work can
+ * be queued elsewhere than the current task.
+ */
+static inline bool task_work_queued(struct callback_head *twork)
+{
+	return twork->next != TASK_WORK_DEQUEUED;
 }
 
 int task_work_add(struct task_struct *task, struct callback_head *twork,

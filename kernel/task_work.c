@@ -67,8 +67,10 @@ int task_work_add(struct task_struct *task, struct callback_head *work,
 
 	head = READ_ONCE(task->task_works);
 	do {
-		if (unlikely(head == &work_exited))
+		if (unlikely(head == &work_exited)) {
+			work->next = TASK_WORK_DEQUEUED;
 			return -ESRCH;
+		}
 		work->next = head;
 	} while (!try_cmpxchg(&task->task_works, &head, work));
 
@@ -129,8 +131,10 @@ task_work_cancel_match(struct task_struct *task,
 		if (!match(work, data)) {
 			pprev = &work->next;
 			work = READ_ONCE(*pprev);
-		} else if (try_cmpxchg(pprev, &work, work->next))
+		} else if (try_cmpxchg(pprev, &work, work->next)) {
+			work->next = TASK_WORK_DEQUEUED;
 			break;
+		}
 	}
 	raw_spin_unlock_irqrestore(&task->pi_lock, flags);
 
@@ -224,6 +228,7 @@ void task_work_run(void)
 
 		do {
 			next = work->next;
+			work->next = TASK_WORK_DEQUEUED;
 			work->func(work);
 			work = next;
 			cond_resched();
