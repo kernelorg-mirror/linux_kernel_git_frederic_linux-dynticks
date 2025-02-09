@@ -10599,7 +10599,6 @@ static void task_mm_cid_work(struct callback_head *work)
 
 	WARN_ON_ONCE(t != container_of(work, struct task_struct, cid_work));
 
-	work->next = work;	/* Prevent double-add */
 	if (t->flags & PF_EXITING)
 		return;
 	mm = t->mm;
@@ -10643,7 +10642,6 @@ void init_sched_mm_cid(struct task_struct *t)
 		if (mm_users == 1)
 			mm->mm_cid_next_scan = jiffies + msecs_to_jiffies(MM_CID_SCAN_DELAY);
 	}
-	t->cid_work.next = &t->cid_work;	/* Protect against double add */
 	init_task_work(&t->cid_work, task_mm_cid_work);
 }
 
@@ -10652,8 +10650,7 @@ void task_tick_mm_cid(struct rq *rq, struct task_struct *curr)
 	struct callback_head *work = &curr->cid_work;
 	unsigned long now = jiffies;
 
-	if (!curr->mm || (curr->flags & (PF_EXITING | PF_KTHREAD)) ||
-	    work->next != work)
+	if (!curr->mm || (curr->flags & (PF_EXITING | PF_KTHREAD)) || task_work_queued(work))
 		return;
 	if (time_before(now, READ_ONCE(curr->mm->mm_cid_next_scan)))
 		return;
