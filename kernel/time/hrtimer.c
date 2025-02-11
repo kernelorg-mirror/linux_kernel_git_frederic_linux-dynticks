@@ -2255,7 +2255,7 @@ static void migrate_hrtimer_list(struct hrtimer_clock_base *old_base,
 
 int hrtimers_cpu_dying(unsigned int dying_cpu)
 {
-	int i, ncpu = cpumask_any_and(cpu_active_mask, housekeeping_cpumask(HK_TYPE_TIMER));
+	int i, ncpu = cpumask_any_and(cpu_active_mask, housekeeping_cpumask(HK_TYPE_KERNEL_NOISE));
 	struct hrtimer_cpu_base *old_base, *new_base;
 
 	old_base = this_cpu_ptr(&hrtimer_bases);

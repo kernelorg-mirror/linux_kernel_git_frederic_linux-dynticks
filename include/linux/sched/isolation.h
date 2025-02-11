@@ -16,7 +16,6 @@ enum hk_type {
 	 * The following housekeeping types are only set by the nohz_full
 	 * boot commandline option. So they can share the same value.
 	 */
-	HK_TYPE_TIMER   = HK_TYPE_KERNEL_NOISE,
 	HK_TYPE_MISC    = HK_TYPE_KERNEL_NOISE,
 	HK_TYPE_WQ      = HK_TYPE_KERNEL_NOISE,
 };

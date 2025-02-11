@@ -49,7 +49,7 @@ int housekeeping_any_cpu(enum hk_type type)
 			 * housekeeping CPU up.
 			 */
 			WARN_ON_ONCE(system_state == SYSTEM_RUNNING ||
-				     type != HK_TYPE_TIMER);
+				     type != HK_TYPE_KERNEL_NOISE);
 		}
 	}
 	return smp_processor_id();

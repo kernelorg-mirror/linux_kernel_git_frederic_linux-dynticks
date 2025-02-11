@@ -1324,7 +1324,7 @@ static void __cold try_to_generate_entropy(void)
 			preempt_disable();
 
 			/* Only schedule callbacks on timer CPUs that are online. */
-			cpumask_and(&timer_cpus, housekeeping_cpumask(HK_TYPE_TIMER), cpu_online_mask);
+			cpumask_and(&timer_cpus, housekeeping_cpumask(HK_TYPE_KERNEL_NOISE), cpu_online_mask);
 			num_cpus = cpumask_weight(&timer_cpus);
 			/* In very bizarre case of misconfiguration, fallback to all online. */
 			if (unlikely(num_cpus == 0)) {
