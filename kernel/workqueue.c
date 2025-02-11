@@ -7762,7 +7762,7 @@ void __init workqueue_init_early(void)
 	 * If nohz_full is enabled, set power efficient workqueue as unbound.
 	 * This allows workqueue items to be moved to HK CPUs.
 	 */
-	if (housekeeping_enabled(HK_TYPE_TICK))
+	if (housekeeping_enabled(HK_TYPE_KERNEL_NOISE))
 		wq_power_efficient = true;
 
 	/* initialize WQ_AFFN_SYSTEM pods */

@@ -16,7 +16,6 @@ enum hk_type {
 	 * The following housekeeping types are only set by the nohz_full
 	 * boot commandline option. So they can share the same value.
 	 */
-	HK_TYPE_TICK    = HK_TYPE_KERNEL_NOISE,
 	HK_TYPE_TIMER   = HK_TYPE_KERNEL_NOISE,
 	HK_TYPE_MISC    = HK_TYPE_KERNEL_NOISE,
 	HK_TYPE_WQ      = HK_TYPE_KERNEL_NOISE,
@@ -71,7 +70,7 @@ static inline bool housekeeping_cpu(int cpu, enum hk_type type)
 static inline bool cpu_is_isolated(int cpu)
 {
 	return !housekeeping_test_cpu(cpu, HK_TYPE_DOMAIN) ||
-	       !housekeeping_test_cpu(cpu, HK_TYPE_TICK) ||
+	       !housekeeping_test_cpu(cpu, HK_TYPE_KERNEL_NOISE) ||
 	       cpuset_cpu_is_isolated(cpu);
 }
 
