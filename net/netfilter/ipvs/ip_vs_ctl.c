@@ -1976,7 +1976,7 @@ static int ipvs_proc_est_cpumask_get(const struct ctl_table *table,
 	if (ipvs->est_cpulist_valid)
 		mask = *valp;
 	else
-		mask = (struct cpumask *)housekeeping_cpumask(HK_TYPE_KTHREAD);
+		mask = (struct cpumask *)housekeeping_cpumask(HK_TYPE_KERNEL_NOISE);
 	ret = scnprintf(buffer, size, "%*pbl\n", cpumask_pr_args(mask));
 
 	mutex_unlock(&ipvs->est_mutex);

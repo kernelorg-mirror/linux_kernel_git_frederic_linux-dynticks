@@ -1160,7 +1160,7 @@ static inline const struct cpumask *sysctl_est_cpulist(struct netns_ipvs *ipvs)
 	if (ipvs->est_cpulist_valid)
 		return ipvs->sysctl_est_cpulist;
 	else
-		return housekeeping_cpumask(HK_TYPE_KTHREAD);
+		return housekeeping_cpumask(HK_TYPE_KERNEL_NOISE);
 }
 
 static inline int sysctl_est_nice(struct netns_ipvs *ipvs)
@@ -1267,7 +1267,7 @@ static inline int sysctl_run_estimation(struct netns_ipvs *ipvs)
 
 static inline const struct cpumask *sysctl_est_cpulist(struct netns_ipvs *ipvs)
 {
-	return housekeeping_cpumask(HK_TYPE_KTHREAD);
+	return housekeeping_cpumask(HK_TYPE_KERNEL_NOISE);
 }
 
 static inline int sysctl_est_nice(struct netns_ipvs *ipvs)

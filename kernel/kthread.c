@@ -371,9 +371,9 @@ static void kthread_fetch_affinity(struct kthread *kthread, struct cpumask *cpum
 		pref = cpumask_of_node(kthread->node);
 	}
 
-	cpumask_and(cpumask, pref, housekeeping_cpumask(HK_TYPE_KTHREAD));
+	cpumask_and(cpumask, pref, housekeeping_cpumask(HK_TYPE_KERNEL_NOISE));
 	if (cpumask_empty(cpumask))
-		cpumask_copy(cpumask, housekeeping_cpumask(HK_TYPE_KTHREAD));
+		cpumask_copy(cpumask, housekeeping_cpumask(HK_TYPE_KERNEL_NOISE));
 }
 
 static void kthread_affine_node(void)
@@ -384,7 +384,7 @@ static void kthread_affine_node(void)
 	WARN_ON_ONCE(kthread_is_per_cpu(current));
 
 	if (kthread->node == NUMA_NO_NODE) {
-		housekeeping_affine(current, HK_TYPE_KTHREAD);
+		housekeeping_affine(current, HK_TYPE_KERNEL_NOISE);
 	} else {
 		if (!zalloc_cpumask_var(&affinity, GFP_KERNEL)) {
 			WARN_ON_ONCE(1);
@@ -823,7 +823,7 @@ int kthreadd(void *unused)
 	/* Setup a clean context for our children to inherit. */
 	set_task_comm(tsk, comm);
 	ignore_signals(tsk);
-	set_cpus_allowed_ptr(tsk, housekeeping_cpumask(HK_TYPE_KTHREAD));
+	set_cpus_allowed_ptr(tsk, housekeeping_cpumask(HK_TYPE_KERNEL_NOISE));
 	set_mems_allowed(node_states[N_MEMORY]);
 
 	current->flags |= PF_NOFREEZE;
