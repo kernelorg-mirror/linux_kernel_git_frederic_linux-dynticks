@@ -642,7 +642,7 @@ static int __noreturn rcu_tasks_kthread(void *arg)
 	}
 
 	/* Run on housekeeping CPUs by default.  Sysadm can move if desired. */
-	housekeeping_affine(current, HK_TYPE_RCU);
+	housekeeping_affine(current, HK_TYPE_KERNEL_NOISE);
 	smp_store_release(&rtp->kthread_ptr, current); // Let GPs start!
 
 	/*

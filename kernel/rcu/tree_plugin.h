@@ -1281,5 +1281,5 @@ static void rcu_bind_gp_kthread(void)
 {
 	if (!tick_nohz_full_enabled())
 		return;
-	housekeeping_affine(current, HK_TYPE_RCU);
+	housekeeping_affine(current, HK_TYPE_KERNEL_NOISE);
 }
