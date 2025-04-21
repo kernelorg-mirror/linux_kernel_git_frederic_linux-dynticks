@@ -208,7 +208,6 @@ static void perf_ctx_unlock(struct perf_cpu_context *cpuctx,
 }
 
 #define TASK_TOMBSTONE ((void *)-1L)
-#define EVENT_TOMBSTONE ((void *)-1L)
 
 static bool is_kernel_event(struct perf_event *event)
 {
@@ -2338,12 +2337,6 @@ static void perf_child_detach(struct perf_event *event)
 
 	sync_child_event(event);
 	list_del_init(&event->child_list);
-	/*
-	 * Cannot set to NULL, as that would confuse the situation vs
-	 * not being a child event. See for example unaccount_event().
-	 */
-	event->parent = EVENT_TOMBSTONE;
-	put_event(parent_event);
 }
 
 static bool is_orphaned_event(struct perf_event *event)
@@ -2469,6 +2462,11 @@ ctx_time_update_event(struct perf_event_context *ctx, struct perf_event *event)
 #define DETACH_REVOKE	0x08UL
 #define DETACH_DEAD	0x10UL
 
+struct perf_remove_data {
+	unsigned int detach_flags;
+	unsigned int old_state;
+};
+
 /*
  * Cross CPU call to remove a performance event
  *
@@ -2483,28 +2481,30 @@ __perf_remove_from_context(struct perf_event *event,
 {
 	struct perf_event_pmu_context *pmu_ctx = event->pmu_ctx;
 	enum perf_event_state state = PERF_EVENT_STATE_OFF;
-	unsigned long flags = (unsigned long)info;
+	struct perf_remove_data *prd = info;
 
 	ctx_time_update(cpuctx, ctx);
+
+	prd->old_state = event->attach_state;
 
 	/*
 	 * Ensure event_sched_out() switches to OFF, at the very least
 	 * this avoids raising perf_pending_task() at this time.
 	 */
-	if (flags & DETACH_EXIT)
+	if (prd->detach_flags & DETACH_EXIT)
 		state = PERF_EVENT_STATE_EXIT;
-	if (flags & DETACH_REVOKE)
+	if (prd->detach_flags & DETACH_REVOKE)
 		state = PERF_EVENT_STATE_REVOKED;
-	if (flags & DETACH_DEAD) {
+	if (prd->detach_flags & DETACH_DEAD) {
 		event->pending_disable = 1;
 		state = PERF_EVENT_STATE_DEAD;
 	}
 	event_sched_out(event, ctx);
 	perf_event_set_state(event, min(event->state, state));
 
-	if (flags & DETACH_GROUP)
+	if (prd->detach_flags & DETACH_GROUP)
 		perf_group_detach(event);
-	if (flags & DETACH_CHILD)
+	if (prd->detach_flags & DETACH_CHILD)
 		perf_child_detach(event);
 	list_del_event(event, ctx);
 
@@ -2541,7 +2541,7 @@ __perf_remove_from_context(struct perf_event *event,
  * When called from perf_event_exit_task, it's OK because the
  * context has been detached from its task.
  */
-static void perf_remove_from_context(struct perf_event *event, unsigned long flags)
+static void perf_remove_from_context(struct perf_event *event, struct perf_remove_data *prd)
 {
 	struct perf_event_context *ctx = event->ctx;
 
@@ -2555,13 +2555,13 @@ static void perf_remove_from_context(struct perf_event *event, unsigned long fla
 	raw_spin_lock_irq(&ctx->lock);
 	if (!ctx->is_active) {
 		__perf_remove_from_context(event, this_cpu_ptr(&perf_cpu_context),
-					   ctx, (void *)flags);
+					   ctx, (void *)prd);
 		raw_spin_unlock_irq(&ctx->lock);
 		return;
 	}
 	raw_spin_unlock_irq(&ctx->lock);
 
-	event_function_call(event, __perf_remove_from_context, (void *)flags);
+	event_function_call(event, __perf_remove_from_context, (void *)prd);
 }
 
 /*
@@ -5705,7 +5705,7 @@ static void put_event(struct perf_event *event)
 	_free_event(event);
 
 	/* Matches the refcount bump in inherit_event() */
-	if (parent && parent != EVENT_TOMBSTONE)
+	if (parent)
 		put_event(parent);
 }
 
@@ -5718,6 +5718,7 @@ int perf_event_release_kernel(struct perf_event *event)
 {
 	struct perf_event_context *ctx = event->ctx;
 	struct perf_event *child, *tmp;
+	struct perf_remove_data prd = { .old_state = 0 };
 
 	/*
 	 * If we got here through err_alloc: free_event(event); we will not
@@ -5747,7 +5748,8 @@ int perf_event_release_kernel(struct perf_event *event)
 	 * child events.
 	 */
 	if (event->state > PERF_EVENT_STATE_REVOKED) {
-		perf_remove_from_context(event, DETACH_GROUP|DETACH_DEAD);
+		prd.detach_flags = DETACH_GROUP | DETACH_DEAD;
+		perf_remove_from_context(event, &prd);
 	} else {
 		event->state = PERF_EVENT_STATE_DEAD;
 	}
@@ -5789,7 +5791,8 @@ again:
 		tmp = list_first_entry_or_null(&event->child_list,
 					       struct perf_event, child_list);
 		if (tmp == child) {
-			perf_remove_from_context(child, DETACH_GROUP | DETACH_CHILD);
+			prd.detach_flags = DETACH_GROUP | DETACH_CHILD;
+			perf_remove_from_context(child, &prd);
 		} else {
 			child = NULL;
 		}
@@ -13583,11 +13586,12 @@ SYSCALL_DEFINE5(perf_event_open,
 	 */
 
 	if (move_group) {
-		perf_remove_from_context(group_leader, 0);
+		struct perf_remove_data prd = { 0 };
+		perf_remove_from_context(group_leader, &prd);
 		put_pmu_ctx(group_leader->pmu_ctx);
 
 		for_each_sibling_event(sibling, group_leader) {
-			perf_remove_from_context(sibling, 0);
+			perf_remove_from_context(sibling, &prd);
 			put_pmu_ctx(sibling->pmu_ctx);
 		}
 
@@ -13789,14 +13793,15 @@ static void __perf_pmu_remove(struct perf_event_context *ctx,
 			      struct list_head *events)
 {
 	struct perf_event *event, *sibling;
+	struct perf_remove_data prd = { 0 };
 
 	perf_event_groups_for_cpu_pmu(event, groups, cpu, pmu) {
-		perf_remove_from_context(event, 0);
+		perf_remove_from_context(event, &prd);
 		put_pmu_ctx(event->pmu_ctx);
 		list_add(&event->migrate_entry, events);
 
 		for_each_sibling_event(sibling, event) {
-			perf_remove_from_context(sibling, 0);
+			perf_remove_from_context(sibling, &prd);
 			put_pmu_ctx(sibling->pmu_ctx);
 			list_add(&sibling->migrate_entry, events);
 		}
@@ -13921,11 +13926,7 @@ perf_event_exit_event(struct perf_event *event,
 		      struct perf_event_context *ctx, bool revoke)
 {
 	struct perf_event *parent_event = event->parent;
-	unsigned long detach_flags = DETACH_EXIT;
-	bool is_child = !!parent_event;
-
-	if (parent_event == EVENT_TOMBSTONE)
-		parent_event = NULL;
+	struct perf_remove_data prd = {	.detach_flags = DETACH_EXIT };
 
 	if (parent_event) {
 		/*
@@ -13940,29 +13941,36 @@ perf_event_exit_event(struct perf_event *event,
 		 * Do destroy all inherited groups, we don't care about those
 		 * and being thorough is better.
 		 */
-		detach_flags |= DETACH_GROUP | DETACH_CHILD;
+		prd.detach_flags |= DETACH_GROUP | DETACH_CHILD;
 		mutex_lock(&parent_event->child_mutex);
 	}
 
 	if (revoke)
-		detach_flags |= DETACH_GROUP | DETACH_REVOKE;
+		prd.detach_flags |= DETACH_GROUP | DETACH_REVOKE;
 
-	perf_remove_from_context(event, detach_flags);
+	perf_remove_from_context(event, &prd);
 	/*
 	 * Child events can be freed.
 	 */
-	if (is_child) {
-		if (parent_event) {
-			mutex_unlock(&parent_event->child_mutex);
-			/*
-			 * Kick perf_poll() for is_event_hup();
-			 */
-			perf_event_wakeup(parent_event);
+	if (parent_event) {
+		mutex_unlock(&parent_event->child_mutex);
+		/*
+		 * Kick perf_poll() for is_event_hup();
+		 */
+		perf_event_wakeup(parent_event);
+
+		/*
+		 * Match the refcount initialization. Make sure it doesn't happen
+		 * twice if pmu_detach_event() calls it on an already exited task.
+		 */
+		if (prd.old_state & PERF_ATTACH_CHILD) {
 			/*
 			 * pmu_detach_event() will have an extra refcount.
+			 * perf_pending_task() might have one too.
 			 */
 			put_event(event);
 		}
+
 		return;
 	}
 
@@ -14532,13 +14540,14 @@ static void perf_swevent_init_cpu(unsigned int cpu)
 static void __perf_event_exit_context(void *__info)
 {
 	struct perf_cpu_context *cpuctx = this_cpu_ptr(&perf_cpu_context);
+	struct perf_remove_data prd = { .detach_flags = DETACH_GROUP };
 	struct perf_event_context *ctx = __info;
 	struct perf_event *event;
 
 	raw_spin_lock(&ctx->lock);
 	ctx_sched_out(ctx, NULL, EVENT_TIME);
 	list_for_each_entry(event, &ctx->event_list, event_entry)
-		__perf_remove_from_context(event, cpuctx, ctx, (void *)DETACH_GROUP);
+		__perf_remove_from_context(event, cpuctx, ctx, (void *)&prd);
 	raw_spin_unlock(&ctx->lock);
 }
 
