@@ -41,6 +41,9 @@ static inline bool housekeeping_cpu(int cpu, enum hk_type type)
 		return true;
 }
 
+extern void housekeeping_lock(void);
+extern void housekeeping_unlock(void);
+
 extern void __init housekeeping_init(void);
 
 #else
@@ -73,6 +76,8 @@ static inline bool housekeeping_cpu(int cpu, enum hk_type type)
 	return true;
 }
 
+static inline void housekeeping_lock(void) { }
+static inline void housekeeping_unlock(void) { }
 static inline void housekeeping_init(void) { }
 #endif /* CONFIG_CPU_ISOLATION */
 
@@ -83,5 +88,7 @@ static inline bool cpu_is_isolated(int cpu)
 	       !housekeeping_test_cpu(cpu, HK_TYPE_TICK) ||
 	       cpuset_cpu_is_isolated(cpu);
 }
+
+DEFINE_LOCK_GUARD_0(housekeeping, housekeeping_lock(), housekeeping_unlock())
 
 #endif /* _LINUX_SCHED_ISOLATION_H */

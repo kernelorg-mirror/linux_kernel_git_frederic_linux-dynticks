@@ -18,11 +18,23 @@ static cpumask_var_t housekeeping_cpumasks[HK_TYPE_MAX];
 unsigned long housekeeping_flags;
 EXPORT_SYMBOL_GPL(housekeeping_flags);
 
+DEFINE_STATIC_PERCPU_RWSEM(housekeeping_pcpu_lock);
+
 bool housekeeping_enabled(enum hk_type type)
 {
 	return !!(housekeeping_flags & BIT(type));
 }
 EXPORT_SYMBOL_GPL(housekeeping_enabled);
+
+void housekeeping_lock(void)
+{
+	percpu_down_read(&housekeeping_pcpu_lock);
+}
+
+void housekeeping_unlock(void)
+{
+	percpu_up_read(&housekeeping_pcpu_lock);
+}
 
 int housekeeping_any_cpu(enum hk_type type)
 {

@@ -46,6 +46,7 @@
 #include <linux/mm.h>
 #include <linux/module.h>
 #include <linux/mutex_api.h>
+#include <linux/percpu-rwsem.h>
 #include <linux/plist.h>
 #include <linux/poll.h>
 #include <linux/proc_fs.h>
