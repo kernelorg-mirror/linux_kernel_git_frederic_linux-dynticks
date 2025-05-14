@@ -14,19 +14,13 @@ enum hk_flags {
 	HK_FLAG_KERNEL_NOISE	= BIT(HK_TYPE_KERNEL_NOISE),
 };
 
-DEFINE_STATIC_KEY_FALSE(housekeeping_overridden);
-EXPORT_SYMBOL_GPL(housekeeping_overridden);
-
-struct housekeeping {
-	cpumask_var_t cpumasks[HK_TYPE_MAX];
-	unsigned long flags;
-};
-
-static struct housekeeping housekeeping;
+static cpumask_var_t housekeeping_cpumasks[HK_TYPE_MAX];
+unsigned long housekeeping_flags;
+EXPORT_SYMBOL_GPL(housekeeping_flags);
 
 bool housekeeping_enabled(enum hk_type type)
 {
-	return !!(housekeeping.flags & BIT(type));
+	return !!(housekeeping_flags & BIT(type));
 }
 EXPORT_SYMBOL_GPL(housekeeping_enabled);
 
@@ -34,50 +28,46 @@ int housekeeping_any_cpu(enum hk_type type)
 {
 	int cpu;
 
-	if (static_branch_unlikely(&housekeeping_overridden)) {
-		if (housekeeping.flags & BIT(type)) {
-			cpu = sched_numa_find_closest(housekeeping.cpumasks[type], smp_processor_id());
-			if (cpu < nr_cpu_ids)
-				return cpu;
+	if (housekeeping_flags & BIT(type)) {
+		cpu = sched_numa_find_closest(housekeeping_cpumasks[type], smp_processor_id());
+		if (cpu < nr_cpu_ids)
+			return cpu;
 
-			cpu = cpumask_any_and_distribute(housekeeping.cpumasks[type], cpu_online_mask);
-			if (likely(cpu < nr_cpu_ids))
-				return cpu;
-			/*
-			 * Unless we have another problem this can only happen
-			 * at boot time before start_secondary() brings the 1st
-			 * housekeeping CPU up.
-			 */
-			WARN_ON_ONCE(system_state == SYSTEM_RUNNING ||
-				     type != HK_TYPE_TIMER);
-		}
+		cpu = cpumask_any_and_distribute(housekeeping_cpumasks[type], cpu_online_mask);
+		if (likely(cpu < nr_cpu_ids))
+			return cpu;
+		/*
+		 * Unless we have another problem this can only happen
+		 * at boot time before start_secondary() brings the 1st
+		 * housekeeping CPU up.
+		 */
+		WARN_ON_ONCE(system_state == SYSTEM_RUNNING ||
+			     type != HK_TYPE_TIMER);
 	}
+
 	return smp_processor_id();
 }
 EXPORT_SYMBOL_GPL(housekeeping_any_cpu);
 
 const struct cpumask *housekeeping_cpumask(enum hk_type type)
 {
-	if (static_branch_unlikely(&housekeeping_overridden))
-		if (housekeeping.flags & BIT(type))
-			return housekeeping.cpumasks[type];
+	if (housekeeping_flags & BIT(type))
+		return housekeeping_cpumasks[type];
 	return cpu_possible_mask;
 }
 EXPORT_SYMBOL_GPL(housekeeping_cpumask);
 
 void housekeeping_affine(struct task_struct *t, enum hk_type type)
 {
-	if (static_branch_unlikely(&housekeeping_overridden))
-		if (housekeeping.flags & BIT(type))
-			set_cpus_allowed_ptr(t, housekeeping.cpumasks[type]);
+	if (housekeeping_flags & BIT(type))
+		set_cpus_allowed_ptr(t, housekeeping_cpumasks[type]);
 }
 EXPORT_SYMBOL_GPL(housekeeping_affine);
 
 bool housekeeping_test_cpu(int cpu, enum hk_type type)
 {
-	if (static_branch_unlikely(&housekeeping_overridden))
-		if (housekeeping.flags & BIT(type))
-			return cpumask_test_cpu(cpu, housekeeping.cpumasks[type]);
+	if (housekeeping_flags & BIT(type))
+		return cpumask_test_cpu(cpu, housekeeping_cpumasks[type]);
 	return true;
 }
 EXPORT_SYMBOL_GPL(housekeeping_test_cpu);
@@ -86,17 +76,15 @@ void __init housekeeping_init(void)
 {
 	enum hk_type type;
 
-	if (!housekeeping.flags)
+	if (!housekeeping_flags)
 		return;
 
-	static_branch_enable(&housekeeping_overridden);
-
-	if (housekeeping.flags & HK_FLAG_KERNEL_NOISE)
+	if (housekeeping_flags & HK_FLAG_KERNEL_NOISE)
 		sched_tick_offload_init();
 
-	for_each_set_bit(type, &housekeeping.flags, HK_TYPE_MAX) {
+	for_each_set_bit(type, &housekeeping_flags, HK_TYPE_MAX) {
 		/* We need at least one CPU to handle housekeeping work */
-		WARN_ON_ONCE(cpumask_empty(housekeeping.cpumasks[type]));
+		WARN_ON_ONCE(cpumask_empty(housekeeping_cpumasks[type]));
 	}
 }
 
@@ -104,8 +92,8 @@ static void __init housekeeping_setup_type(enum hk_type type,
 					   cpumask_var_t housekeeping_staging)
 {
 
-	alloc_bootmem_cpumask_var(&housekeeping.cpumasks[type]);
-	cpumask_copy(housekeeping.cpumasks[type],
+	alloc_bootmem_cpumask_var(&housekeeping_cpumasks[type]);
+	cpumask_copy(housekeeping_cpumasks[type],
 		     housekeeping_staging);
 }
 
@@ -115,7 +103,7 @@ static int __init housekeeping_setup(char *str, unsigned long flags)
 	unsigned int first_cpu;
 	int err = 0;
 
-	if ((flags & HK_FLAG_KERNEL_NOISE) && !(housekeeping.flags & HK_FLAG_KERNEL_NOISE)) {
+	if ((flags & HK_FLAG_KERNEL_NOISE) && !(housekeeping_flags & HK_FLAG_KERNEL_NOISE)) {
 		if (!IS_ENABLED(CONFIG_NO_HZ_FULL)) {
 			pr_warn("Housekeeping: nohz unsupported."
 				" Build with CONFIG_NO_HZ_FULL\n");
@@ -137,7 +125,7 @@ static int __init housekeeping_setup(char *str, unsigned long flags)
 	if (first_cpu >= nr_cpu_ids || first_cpu >= setup_max_cpus) {
 		__cpumask_set_cpu(smp_processor_id(), housekeeping_staging);
 		__cpumask_clear_cpu(smp_processor_id(), non_housekeeping_mask);
-		if (!housekeeping.flags) {
+		if (!housekeeping_flags) {
 			pr_warn("Housekeeping: must include one present CPU, "
 				"using boot CPU:%d\n", smp_processor_id());
 		}
@@ -146,7 +134,7 @@ static int __init housekeeping_setup(char *str, unsigned long flags)
 	if (cpumask_empty(non_housekeeping_mask))
 		goto free_housekeeping_staging;
 
-	if (!housekeeping.flags) {
+	if (!housekeeping_flags) {
 		/* First setup call ("nohz_full=" or "isolcpus=") */
 		enum hk_type type;
 
@@ -155,26 +143,26 @@ static int __init housekeeping_setup(char *str, unsigned long flags)
 	} else {
 		/* Second setup call ("nohz_full=" after "isolcpus=" or the reverse) */
 		enum hk_type type;
-		unsigned long iter_flags = flags & housekeeping.flags;
+		unsigned long iter_flags = flags & housekeeping_flags;
 
 		for_each_set_bit(type, &iter_flags, HK_TYPE_MAX) {
 			if (!cpumask_equal(housekeeping_staging,
-					   housekeeping.cpumasks[type])) {
+					   housekeeping_cpumasks[type])) {
 				pr_warn("Housekeeping: nohz_full= must match isolcpus=\n");
 				goto free_housekeeping_staging;
 			}
 		}
 
-		iter_flags = flags & ~housekeeping.flags;
+		iter_flags = flags & ~housekeeping_flags;
 
 		for_each_set_bit(type, &iter_flags, HK_TYPE_MAX)
 			housekeeping_setup_type(type, housekeeping_staging);
 	}
 
-	if ((flags & HK_FLAG_KERNEL_NOISE) && !(housekeeping.flags & HK_FLAG_KERNEL_NOISE))
+	if ((flags & HK_FLAG_KERNEL_NOISE) && !(housekeeping_flags & HK_FLAG_KERNEL_NOISE))
 		tick_nohz_full_setup(non_housekeeping_mask);
 
-	housekeeping.flags |= flags;
+	housekeeping_flags |= flags;
 	err = 1;
 
 free_housekeeping_staging:
