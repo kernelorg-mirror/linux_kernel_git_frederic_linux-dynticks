@@ -1398,8 +1398,8 @@ static int cpuhp_down_callbacks(unsigned int cpu, struct cpuhp_cpu_state *st,
 }
 
 /* Requires cpu_add_remove_lock to be held */
-static int __ref _cpu_down(unsigned int cpu, int tasks_frozen,
-			   enum cpuhp_state target)
+static int __ref _cpu_down_locked(unsigned int cpu, int tasks_frozen,
+				  enum cpuhp_state target)
 {
 	struct cpuhp_cpu_state *st = per_cpu_ptr(&cpuhp_state, cpu);
 	int prev_state, ret = 0;
@@ -1409,8 +1409,6 @@ static int __ref _cpu_down(unsigned int cpu, int tasks_frozen,
 
 	if (!cpu_present(cpu))
 		return -EINVAL;
-
-	cpus_write_lock();
 
 	cpuhp_tasks_frozen = tasks_frozen;
 
@@ -1427,14 +1425,14 @@ static int __ref _cpu_down(unsigned int cpu, int tasks_frozen,
 		 * return the error code..
 		 */
 		if (ret)
-			goto out;
+			return ret;
 
 		/*
 		 * We might have stopped still in the range of the AP hotplug
 		 * thread. Nothing to do anymore.
 		 */
 		if (st->state > CPUHP_TEARDOWN_CPU)
-			goto out;
+			return ret;
 
 		st->target = target;
 	}
@@ -1452,9 +1450,6 @@ static int __ref _cpu_down(unsigned int cpu, int tasks_frozen,
 		}
 	}
 
-out:
-	cpus_write_unlock();
-	arch_smt_update();
 	return ret;
 }
 
@@ -1463,16 +1458,17 @@ struct cpu_down_work {
 	enum cpuhp_state	target;
 };
 
-static long __cpu_down_maps_locked(void *arg)
+static long __cpu_down_locked_work(void *arg)
 {
 	struct cpu_down_work *work = arg;
 
-	return _cpu_down(work->cpu, 0, work->target);
+	return _cpu_down_locked(work->cpu, 0, work->target);
 }
 
 static int cpu_down_maps_locked(unsigned int cpu, enum cpuhp_state target)
 {
 	struct cpu_down_work work = { .cpu = cpu, .target = target, };
+	int err;
 
 	/*
 	 * If the platform does not support hotplug, report it explicitly to
@@ -1483,17 +1479,24 @@ static int cpu_down_maps_locked(unsigned int cpu, enum cpuhp_state target)
 	if (cpu_hotplug_disabled)
 		return -EBUSY;
 
+	err = -EBUSY;
+
 	/*
 	 * Ensure that the control task does not run on the to be offlined
 	 * CPU to prevent a deadlock against cfs_b->period_timer.
 	 * Also keep at least one housekeeping cpu onlined to avoid generating
-	 * an empty sched_domain span.
+	 * an empty sched_domain span. Hotplug must be locked already to prevent
+	 * cpusets from concurrently changing the housekeeping mask.
 	 */
+	cpus_write_lock();
 	for_each_cpu_and(cpu, cpu_online_mask, housekeeping_cpumask(HK_TYPE_DOMAIN)) {
 		if (cpu != work.cpu)
-			return work_on_cpu(cpu, __cpu_down_maps_locked, &work);
+			err = work_on_cpu(cpu, __cpu_down_locked_work, &work);
 	}
-	return -EBUSY;
+	cpus_write_unlock();
+	arch_smt_update();
+
+	return err;
 }
 
 static int cpu_down(unsigned int cpu, enum cpuhp_state target)
@@ -1895,6 +1898,19 @@ void __init bringup_nonboot_cpus(unsigned int max_cpus)
 
 #ifdef CONFIG_PM_SLEEP_SMP
 static cpumask_var_t frozen_cpus;
+
+static int __ref _cpu_down(unsigned int cpu, int tasks_frozen,
+			    enum cpuhp_state target)
+{
+	int err;
+
+	cpus_write_lock();
+	err = _cpu_down_locked(cpu, tasks_frozen, target);
+	cpus_write_unlock();
+	arch_smt_update();
+
+	return err;
+}
 
 int freeze_secondary_cpus(int primary)
 {
