@@ -17,7 +17,7 @@ enum hk_flags {
 	HK_FLAG_KERNEL_NOISE	= BIT(HK_TYPE_KERNEL_NOISE),
 };
 
-static cpumask_var_t housekeeping_cpumasks[HK_TYPE_MAX];
+static struct cpumask __rcu *housekeeping_cpumasks[HK_TYPE_MAX];
 unsigned long housekeeping_flags;
 EXPORT_SYMBOL_GPL(housekeeping_flags);
 
@@ -27,16 +27,25 @@ bool housekeeping_enabled(enum hk_type type)
 }
 EXPORT_SYMBOL_GPL(housekeeping_enabled);
 
+const struct cpumask *housekeeping_cpumask(enum hk_type type)
+{
+	if (housekeeping_flags & BIT(type)) {
+		return rcu_dereference_check(housekeeping_cpumasks[type], 1);
+	}
+	return cpu_possible_mask;
+}
+EXPORT_SYMBOL_GPL(housekeeping_cpumask);
+
 int housekeeping_any_cpu(enum hk_type type)
 {
 	int cpu;
 
 	if (housekeeping_flags & BIT(type)) {
-		cpu = sched_numa_find_closest(housekeeping_cpumasks[type], smp_processor_id());
+		cpu = sched_numa_find_closest(housekeeping_cpumask(type), smp_processor_id());
 		if (cpu < nr_cpu_ids)
 			return cpu;
 
-		cpu = cpumask_any_and_distribute(housekeeping_cpumasks[type], cpu_online_mask);
+		cpu = cpumask_any_and_distribute(housekeeping_cpumask(type), cpu_online_mask);
 		if (likely(cpu < nr_cpu_ids))
 			return cpu;
 		/*
@@ -52,25 +61,17 @@ int housekeeping_any_cpu(enum hk_type type)
 }
 EXPORT_SYMBOL_GPL(housekeeping_any_cpu);
 
-const struct cpumask *housekeeping_cpumask(enum hk_type type)
-{
-	if (housekeeping_flags & BIT(type))
-		return housekeeping_cpumasks[type];
-	return cpu_possible_mask;
-}
-EXPORT_SYMBOL_GPL(housekeeping_cpumask);
-
 void housekeeping_affine(struct task_struct *t, enum hk_type type)
 {
 	if (housekeeping_flags & BIT(type))
-		set_cpus_allowed_ptr(t, housekeeping_cpumasks[type]);
+		set_cpus_allowed_ptr(t, housekeeping_cpumask(type));
 }
 EXPORT_SYMBOL_GPL(housekeeping_affine);
 
 bool housekeeping_test_cpu(int cpu, enum hk_type type)
 {
 	if (housekeeping_flags & BIT(type))
-		return cpumask_test_cpu(cpu, housekeeping_cpumasks[type]);
+		return cpumask_test_cpu(cpu, housekeeping_cpumask(type));
 	return true;
 }
 EXPORT_SYMBOL_GPL(housekeeping_test_cpu);
@@ -85,9 +86,23 @@ void __init housekeeping_init(void)
 	if (housekeeping_flags & HK_FLAG_KERNEL_NOISE)
 		sched_tick_offload_init();
 
+	/*
+	 * Realloc with a proper allocator so that any cpumask update
+	 * can indifferently free the old version with kfree().
+	 */
 	for_each_set_bit(type, &housekeeping_flags, HK_TYPE_MAX) {
+		struct cpumask *omask, *nmask = kmalloc(cpumask_size(), GFP_KERNEL);
+
+		if (WARN_ON_ONCE(!nmask))
+			return;
+
+		omask = rcu_dereference(housekeeping_cpumasks[type]);
+
 		/* We need at least one CPU to handle housekeeping work */
-		WARN_ON_ONCE(cpumask_empty(housekeeping_cpumasks[type]));
+		WARN_ON_ONCE(cpumask_empty(omask));
+		cpumask_copy(nmask, omask);
+		RCU_INIT_POINTER(housekeeping_cpumasks[type], nmask);
+		memblock_free(omask, cpumask_size());
 	}
 }
 
@@ -95,9 +110,10 @@ static void __init housekeeping_setup_type(enum hk_type type,
 					   cpumask_var_t housekeeping_staging)
 {
 
-	alloc_bootmem_cpumask_var(&housekeeping_cpumasks[type]);
-	cpumask_copy(housekeeping_cpumasks[type],
-		     housekeeping_staging);
+	struct cpumask *mask = memblock_alloc_or_panic(cpumask_size(), SMP_CACHE_BYTES);
+
+	cpumask_copy(mask, housekeeping_staging);
+	RCU_INIT_POINTER(housekeeping_cpumasks[type], mask);
 }
 
 static int __init housekeeping_setup(char *str, unsigned long flags)
@@ -150,7 +166,7 @@ static int __init housekeeping_setup(char *str, unsigned long flags)
 
 		for_each_set_bit(type, &iter_flags, HK_TYPE_MAX) {
 			if (!cpumask_equal(housekeeping_staging,
-					   housekeeping_cpumasks[type])) {
+					   housekeeping_cpumask(type))) {
 				pr_warn("Housekeeping: nohz_full= must match isolcpus=\n");
 				goto free_housekeeping_staging;
 			}
