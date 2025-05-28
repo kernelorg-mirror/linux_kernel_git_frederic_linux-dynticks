@@ -6948,7 +6948,7 @@ static int workqueue_apply_unbound_cpumask(const cpumask_var_t unbound_cpumask)
  * This function can be called from cpuset code to provide a set of isolated
  * CPUs that should be excluded from wq_unbound_cpumask.
  */
-int workqueue_unbound_exclude_cpumask(cpumask_var_t exclude_cpumask)
+int workqueue_unbound_exclude_cpumask(const struct cpumask *exclude_cpumask)
 {
 	cpumask_var_t cpumask;
 	int ret = 0;
