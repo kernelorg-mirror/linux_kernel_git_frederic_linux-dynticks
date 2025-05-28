@@ -36,7 +36,7 @@ extern bool housekeeping_test_cpu(int cpu, enum hk_type type);
 
 static inline bool housekeeping_cpu(int cpu, enum hk_type type)
 {
-	if (housekeeping_flags & BIT(type))
+	if (READ_ONCE(housekeeping_flags) & BIT(type))
 		return housekeeping_test_cpu(cpu, type);
 	else
 		return true;
@@ -44,6 +44,8 @@ static inline bool housekeeping_cpu(int cpu, enum hk_type type)
 
 extern void housekeeping_lock(void);
 extern void housekeeping_unlock(void);
+
+extern int housekeeping_update(struct cpumask *mask, enum hk_type type);
 
 extern void __init housekeeping_init(void);
 
@@ -79,6 +81,7 @@ static inline bool housekeeping_cpu(int cpu, enum hk_type type)
 
 static inline void housekeeping_lock(void) { }
 static inline void housekeeping_unlock(void) { }
+static inline int housekeeping_update(struct cpumask *mask, enum hk_type type) { return 0; }
 static inline void housekeeping_init(void) { }
 #endif /* CONFIG_CPU_ISOLATION */
 

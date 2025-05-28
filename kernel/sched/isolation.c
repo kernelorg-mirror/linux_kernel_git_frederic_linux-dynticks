@@ -23,7 +23,7 @@ DEFINE_STATIC_PERCPU_RWSEM(housekeeping_pcpu_lock);
 
 bool housekeeping_enabled(enum hk_type type)
 {
-	return !!(housekeeping_flags & BIT(type));
+	return !!(READ_ONCE(housekeeping_flags) & BIT(type));
 }
 EXPORT_SYMBOL_GPL(housekeeping_enabled);
 
@@ -37,12 +37,39 @@ void housekeeping_unlock(void)
 	percpu_up_read(&housekeeping_pcpu_lock);
 }
 
+static bool housekeeping_dereference_check(enum hk_type type)
+{
+	if (type == HK_TYPE_DOMAIN) {
+		if (system_state == SYSTEM_BOOTING)
+			return true;
+		if (IS_ENABLED(CONFIG_HOTPLUG_CPU) && lockdep_is_cpus_write_held())
+			return true;
+		if (percpu_rwsem_is_held(&housekeeping_pcpu_lock))
+			return true;
+		if (IS_ENABLED(CONFIG_CPUSETS) && lockdep_is_cpuset_held())
+			return true;
+
+		return false;
+	}
+
+	return true;
+}
+
+static inline struct cpumask *__housekeeping_cpumask(enum hk_type type)
+{
+	return rcu_dereference_check(housekeeping_cpumasks[type],
+				     housekeeping_dereference_check(type));
+}
+
 const struct cpumask *housekeeping_cpumask(enum hk_type type)
 {
-	if (housekeeping_flags & BIT(type)) {
-		return rcu_dereference_check(housekeeping_cpumasks[type], 1);
-	}
-	return cpu_possible_mask;
+	const struct cpumask *mask = NULL;
+
+	if (READ_ONCE(housekeeping_flags) & BIT(type))
+		mask = __housekeeping_cpumask(type);
+	if (!mask)
+		mask = cpu_possible_mask;
+	return mask;
 }
 EXPORT_SYMBOL_GPL(housekeeping_cpumask);
 
@@ -80,11 +107,43 @@ EXPORT_SYMBOL_GPL(housekeeping_affine);
 
 bool housekeeping_test_cpu(int cpu, enum hk_type type)
 {
-	if (housekeeping_flags & BIT(type))
+	if (READ_ONCE(housekeeping_flags) & BIT(type))
 		return cpumask_test_cpu(cpu, housekeeping_cpumask(type));
 	return true;
 }
 EXPORT_SYMBOL_GPL(housekeeping_test_cpu);
+
+int housekeeping_update(struct cpumask *mask, enum hk_type type)
+{
+	struct cpumask *trial, *old = NULL;
+
+	if (type != HK_TYPE_DOMAIN)
+		return -ENOTSUPP;
+
+	trial = kmalloc(sizeof(*trial), GFP_KERNEL);
+	if (!trial)
+		return -ENOMEM;
+
+	cpumask_andnot(trial, housekeeping_cpumask(HK_TYPE_DOMAIN_BOOT), mask);
+	if (!cpumask_intersects(trial, cpu_online_mask)) {
+		kfree(trial);
+		return -EINVAL;
+	}
+
+	percpu_down_write(&housekeeping_pcpu_lock);
+	if (housekeeping_flags & BIT(type))
+		old = __housekeeping_cpumask(type);
+	else
+		WRITE_ONCE(housekeeping_flags, housekeeping_flags | BIT(type));
+	rcu_assign_pointer(housekeeping_cpumasks[type], trial);
+	percpu_up_write(&housekeeping_pcpu_lock);
+
+	synchronize_rcu();
+
+	kfree(old);
+
+	return 0;
+}
 
 void __init housekeeping_init(void)
 {
