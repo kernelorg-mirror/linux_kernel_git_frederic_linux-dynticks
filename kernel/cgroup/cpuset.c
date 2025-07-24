@@ -1352,33 +1352,47 @@ static bool partition_xcpus_del(int old_prs, struct cpuset *parent,
 	return isolcpus_updated;
 }
 
+bool __weak arch_isolated_cpus_can_update(struct cpumask *new_cpus)
+{
+	return true;
+}
+
 /*
- * isolcpus_nohz_conflict - check for isolated & nohz_full conflicts
+ * isolated_cpus_can_update - check for conflicts against housekeeping and
+ *                            CPUs capabilities.
  * @new_cpus: cpu mask for cpus that are going to be isolated
- * Return: true if there is conflict, false otherwise
+ * Return: true if there no conflict, false otherwise
  *
- * If nohz_full is enabled and we have isolated CPUs, their combination must
- * still leave housekeeping CPUs.
+ * Check for conflicts:
+ * - If nohz_full is enabled and there are isolated CPUs, their combination must
+ *   still leave housekeeping CPUs.
+ * - Architecture has CPU capabilities incompatible with being isolated
  */
-static bool isolcpus_nohz_conflict(struct cpumask *new_cpus)
+static bool isolated_cpus_can_update(struct cpumask *new_cpus)
 {
 	cpumask_var_t full_hk_cpus;
-	int res = false;
+	bool res;
 
-	if (!housekeeping_enabled(HK_TYPE_KERNEL_NOISE))
+	if (!arch_isolated_cpus_can_update(new_cpus))
 		return false;
 
-	if (!alloc_cpumask_var(&full_hk_cpus, GFP_KERNEL))
+	if (!housekeeping_enabled(HK_TYPE_KERNEL_NOISE))
 		return true;
+
+	if (!alloc_cpumask_var(&full_hk_cpus, GFP_KERNEL))
+		return false;
+
+	res = true;
 
 	cpumask_and(full_hk_cpus, housekeeping_cpumask(HK_TYPE_KERNEL_NOISE),
 		    housekeeping_cpumask(HK_TYPE_DOMAIN));
 	cpumask_andnot(full_hk_cpus, full_hk_cpus, isolated_cpus);
 	cpumask_and(full_hk_cpus, full_hk_cpus, cpu_online_mask);
 	if (!cpumask_weight_andnot(full_hk_cpus, new_cpus))
-		res = true;
+		res = false;
 
 	free_cpumask_var(full_hk_cpus);
+
 	return res;
 }
 
@@ -1497,7 +1511,7 @@ static int remote_partition_enable(struct cpuset *cs, int new_prs,
 	    cpumask_subset(top_cpuset.effective_cpus, tmp->new_cpus))
 		return PERR_INVCPUS;
 	if (isolated_cpus_should_update(new_prs, NULL) &&
-	    isolcpus_nohz_conflict(tmp->new_cpus))
+	    !isolated_cpus_can_update(tmp->new_cpus))
 		return PERR_HKEEPING;
 
 	spin_lock_irq(&callback_lock);
@@ -1599,7 +1613,7 @@ static void remote_cpus_update(struct cpuset *cs, struct cpumask *xcpus,
 			 cpumask_subset(top_cpuset.effective_cpus, tmp->addmask))
 			cs->prs_err = PERR_NOCPUS;
 		else if (isolated_cpus_should_update(prs, NULL) &&
-			 isolcpus_nohz_conflict(tmp->addmask))
+			 !isolated_cpus_can_update(tmp->addmask))
 			cs->prs_err = PERR_HKEEPING;
 		if (cs->prs_err)
 			goto invalidate;
@@ -1954,7 +1968,7 @@ write_error:
 	}
 
 	if (deleting && isolated_cpus_should_update(new_prs, parent) &&
-	    isolcpus_nohz_conflict(tmp->delmask)) {
+	    !isolated_cpus_can_update(tmp->delmask)) {
 		cs->prs_err = PERR_HKEEPING;
 		return PERR_HKEEPING;
 	}
@@ -2979,7 +2993,7 @@ static int update_prstate(struct cpuset *cs, int new_prs)
 		 * Need to update isolated_cpus.
 		 */
 		isolcpus_updated = true;
-		if (isolcpus_nohz_conflict(cs->effective_xcpus))
+		if (!isolated_cpus_can_update(cs->effective_xcpus))
 			err = PERR_HKEEPING;
 	} else {
 		/*
