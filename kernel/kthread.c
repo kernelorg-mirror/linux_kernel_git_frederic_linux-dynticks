@@ -322,17 +322,16 @@ EXPORT_SYMBOL_GPL(kthread_parkme);
 void __noreturn kthread_exit(long result)
 {
 	struct kthread *kthread = to_kthread(current);
+	struct cpumask *to_free = NULL;
 	kthread->result = result;
-	if (!list_empty(&kthread->affinity_node)) {
-		mutex_lock(&kthread_affinity_lock);
-		list_del(&kthread->affinity_node);
-		mutex_unlock(&kthread_affinity_lock);
 
-		if (kthread->preferred_affinity) {
-			kfree(kthread->preferred_affinity);
-			kthread->preferred_affinity = NULL;
-		}
+	scoped_guard(mutex, &kthread_affinity_lock) {
+		if (!list_empty(&kthread->affinity_node))
+			list_del_init(&kthread->affinity_node);
+		to_free = kthread->preferred_affinity;
+		kthread->preferred_affinity = NULL;
 	}
+	kfree(to_free);
 	do_exit(0);
 }
 EXPORT_SYMBOL(kthread_exit);
@@ -899,6 +898,46 @@ out:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(kthread_affine_preferred);
+
+/**
+ * kthread_affine_preferred_update - update a kthread's preferred affinity
+ * @p: thread created by kthread_create().
+ * @cpumask: new mask of CPUs (might not be online, must be possible) for @k
+ *           to run on.
+ *
+ * Update the cpumask of the desired kthread's affinity that was passed by
+ * a previous call to kthread_affine_preferred(). This can be called either
+ * before or after the first wakeup of the kthread.
+ *
+ * Returns 0 if the affinity has been applied.
+ */
+int kthread_affine_preferred_update(struct task_struct *p,
+				    const struct cpumask *mask)
+{
+	struct kthread *kthread = to_kthread(p);
+	cpumask_var_t affinity;
+	int ret = 0;
+
+	if (!zalloc_cpumask_var(&affinity, GFP_KERNEL))
+		return -ENOMEM;
+
+	scoped_guard(mutex, &kthread_affinity_lock) {
+		if (WARN_ON_ONCE(!kthread->preferred_affinity ||
+				 list_empty(&kthread->affinity_node))) {
+			ret = -EINVAL;
+			goto out;
+		}
+
+		cpumask_copy(kthread->preferred_affinity, mask);
+		kthread_fetch_affinity(kthread, affinity);
+		set_cpus_allowed_ptr(p, affinity);
+	}
+out:
+	free_cpumask_var(affinity);
+
+	return ret;
+}
+EXPORT_SYMBOL_GPL(kthread_affine_preferred_update);
 
 static int kthreads_update_affinity(bool force)
 {
