@@ -12,6 +12,7 @@ import re, sys
 from ete3 import Tree
 
 class Node:
+	node_list = { }
 	def __init__(self, group):
 		self.group = group
 		self.children = []
@@ -45,29 +46,21 @@ class Node:
 			parent_grp = "-"
 		return "Group: %s mask: %s parent: %s lvl: %d numa: %d num_children: %d" % (self.group, self.groupmask, parent_grp, self.lvl, self.numa, self.num_children)
 
-hierarchies = { }
-
-def get_hierarchy(capacity):
-	if capacity not in hierarchies:
-		hierarchies[capacity] = {}
-	return hierarchies[capacity]
-
-def get_node(capacity, group):
-	hier = get_hierarchy(capacity)
-	if group in hier:
-		return hier[group]
+def get_node(group):
+	if group in Node.node_list:
+		return Node.node_list[group]
 	else:
 		n = Node(group)
-		hier[group] = n
+		Node.node_list[group] = n
 		return n
 
 def tmigr_connect_cpu_parent(ts, line):
-	s = re.search("tmigr_connect_cpu_parent: cpu=([0-9]+) groupmask=([0-9a-zA-Z]+) parent=([0-9a-zA-Z]+) lvl=([0-9]+) numa=([-]?[0-9]+) capacity=([-]?[0-9]+) num_children=([0-9]+)", line)
+	s = re.search("tmigr_connect_cpu_parent: cpu=([0-9]+) groupmask=([0-9a-zA-Z]+) parent=([0-9a-zA-Z]+) lvl=([0-9]+) numa=([-]?[0-9]+) num_children=([0-9]+)", line)
 	if s is None:
 		return False
-	(cpu, groupmask, parent, lvl, numa, capacity, num_children) = (int(s.group(1)), s.group(2), s.group(3), int(s.group(4)), int(s.group(5)), int(s.group(6)), int(s.group(7)))
-	n = get_node(capacity, cpu)
-	p = get_node(capacity, parent)
+	(cpu, groupmask, parent, lvl, numa, num_children) = (int(s.group(1)), s.group(2), s.group(3), int(s.group(4)), int(s.group(5)), int(s.group(6)))
+	n = get_node(cpu)
+	p = get_node(parent)
 	n.set_parent(p)
 	n.set_groupmask(groupmask)
 	n.set_lvl(-1)
@@ -78,12 +71,12 @@ def tmigr_connect_cpu_parent(ts, line):
 	p.add_child(n)
 
 def tmigr_connect_child_parent(ts, line):
-	s = re.search("tmigr_connect_child_parent: group=([0-9a-zA-Z]+) groupmask=([0-9a-zA-Z]+) parent=([0-9a-zA-Z]+) lvl=([0-9]+) numa=([-]?[0-9]+) capacity=([-]?[0-9]+) num_children=([0-9]+)", line)
+	s = re.search("tmigr_connect_child_parent: group=([0-9a-zA-Z]+) groupmask=([0-9a-zA-Z]+) parent=([0-9a-zA-Z]+) lvl=([0-9]+) numa=([-]?[0-9]+) num_children=([0-9]+)", line)
 	if s is None:
 		return False
-	(group, groupmask, parent, lvl, numa, capacity, num_children) = (s.group(1), s.group(2), s.group(3), int(s.group(4)), int(s.group(5)), int(s.group(6)), int(s.group(7)))
-	n = get_node(capacity, group)
-	p = get_node(capacity, parent)
+	(group, groupmask, parent, lvl, numa, num_children) = (s.group(1), s.group(2), s.group(3), int(s.group(4)), int(s.group(5)), int(s.group(6)))
+	n = get_node(group)
+	p = get_node(parent)
 	n.set_parent(p)
 	n.set_groupmask(groupmask)
 	p.set_lvl(lvl)
@@ -109,14 +102,9 @@ if __name__ == "__main__":
 			if tmigr_connect_child_parent(float(s.group(1)), s.group(2)):
 				continue
 
-	for cap in hierarchies:
-		h = hierarchies[cap]
-		print("Tree for capacity %d" % cap)
-		for k in h:
-			n = h[k]
-			while n.parent != None:
-				n = n.parent
-			root = Tree()
-			populate(root, n)
-			print(root.get_ascii(show_internal=True, attributes=["name", "numa", "lvl"]))
-			break
+	group = list(Node.node_list.values())[0]
+	while group.parent != None:
+		group = group.parent
+	root = Tree()
+	populate(root, group)
+	print(root.get_ascii(show_internal=True, attributes=["name", "numa", "lvl"]))
