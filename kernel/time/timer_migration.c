@@ -1631,7 +1631,6 @@ static int __init tmigr_init_isolation(void)
 	/* Protect against RCU torture hotplug testing */
 	return tmigr_isolated_exclude_cpumask(cpumask);
 }
-late_initcall(tmigr_init_isolation);
 
 static void tmigr_init_group(struct tmigr_group *group, unsigned int lvl,
 			     int node)
@@ -1894,8 +1893,14 @@ static int tmigr_setup_groups(unsigned int cpu, unsigned int node,
 		if (state.active) {
 			data.childmask = start->groupmask;
 			__walk_groups_from(tmigr_active_up, &data, start, start->parent);
+		} else if (start) {
+			union tmigr_state state;
+
+			/* No available CPU so the old root should be inactive */
+			state.state = atomic_read(&start->migr_state);
+			WARN_ON_ONCE(state.active);
 		}
-	}
+        }
 
 	/* Root update */
 	if (list_is_singular(&tmigr_level_list[top])) {
@@ -1914,6 +1919,34 @@ out:
 	return err;
 }
 
+static int tmigr_connect_old_root(int cpu, struct tmigr_group *old_root, bool activate)
+{
+	if (activate) {
+		/*
+		 * The target CPU must never do the prepare work, except
+		 * on early boot when the boot CPU is the target. Otherwise
+		 * it may spuriously activate the old top level group inside
+		 * the new one (nevertheless whether old top level group is
+		 * active or not) and/or release an uninitialized childmask.
+		 */
+		WARN_ON_ONCE(cpu == smp_processor_id());
+		/*
+		 * The current CPU is expected to be online in the hierarchy,
+		 * otherwise the old root may not be active as expected.
+		 */
+		WARN_ON_ONCE(!__this_cpu_read(tmigr_cpu.available));
+	}
+
+	return tmigr_setup_groups(-1, old_root->numa_node, old_root, activate);
+}
+
+static long connect_old_root_work(void *arg)
+{
+	struct tmigr_group *old_root = arg;
+
+	return tmigr_connect_old_root(smp_processor_id(), old_root, true);
+}
+
 static int tmigr_add_cpu(unsigned int cpu)
 {
 	struct tmigr_group *old_root = tmigr_root;
@@ -1924,22 +1957,27 @@ static int tmigr_add_cpu(unsigned int cpu)
 
 	ret = tmigr_setup_groups(cpu, node, NULL, false);
 
-	/* Root has changed? Connect the old one to the new */
-	if (ret >= 0 && old_root && old_root != tmigr_root) {
+	if (ret < 0 || !old_root || old_root == tmigr_root)
+		return ret;
+
+	/* Root has changed. Connect the old one to the new */
+	guard(migrate)();
+	if (cpumask_test_cpu(smp_processor_id(), tmigr_available_cpumask)) {
 		/*
-		 * The target CPU must never do the prepare work, except
-		 * on early boot when the boot CPU is the target. Otherwise
-		 * it may spuriously activate the old top level group inside
-		 * the new one (nevertheless whether old top level group is
-		 * active or not) and/or release an uninitialized childmask.
+		 * If the CPU is available in the hierarchy, the old root is expected
+		 * to be active. Link and propagate to the new root.
 		 */
-		WARN_ON_ONCE(cpu == raw_smp_processor_id());
-		/*
-		 * The (likely) current CPU is expected to be online in the hierarchy,
-		 * otherwise the old root may not be active as expected.
-		 */
-		WARN_ON_ONCE(!per_cpu_ptr(&tmigr_cpu, raw_smp_processor_id())->available);
-		ret = tmigr_setup_groups(-1, old_root->numa_node, old_root, true);
+		ret = tmigr_connect_old_root(cpu, old_root, true);
+	} else {
+		int target = cpumask_first(tmigr_available_cpumask);
+
+		if (target < nr_cpu_ids) {
+			/* Defer the connection to an available CPU to propagate activation */
+			ret = work_on_cpu(target, connect_old_root_work, old_root);
+		} else {
+			/* No CPU available yet, connect but don't activate */
+			ret = tmigr_connect_old_root(cpu, old_root, false);
+		}
 	}
 
 	return ret;
@@ -2044,10 +2082,14 @@ static int __init tmigr_init(void)
 	if (ret)
 		goto err;
 
+	ret = tmigr_init_isolation();
+	if (ret)
+		goto err;
+
 	return 0;
 
 err:
 	pr_err("Timer migration setup failed\n");
 	return ret;
 }
-early_initcall(tmigr_init);
+late_initcall(tmigr_init);
