@@ -1746,6 +1746,20 @@ done:
 	__cpumask_set_cpu(cpu, cpu_capacity_span(entry));
 }
 
+static int asym_capacity_nr;
+
+int sched_asym_count(void)
+{
+	return asym_capacity_nr;
+}
+
+static int asym_capacity_max_cpus;
+
+int sched_asym_max_cpus(void)
+{
+	return asym_capacity_max_cpus;
+}
+
 /*
  * Build-up/update list of CPUs grouped by their capacities
  * An update requires explicit request to rebuild sched domains
@@ -1755,6 +1769,9 @@ static void asym_cpu_capacity_scan(void)
 {
 	struct asym_cap_data *entry, *next;
 	int cpu;
+
+	asym_capacity_nr = 0;
+	asym_capacity_max_cpus = 0;
 
 	list_for_each_entry(entry, &asym_cap_list, link)
 		cpumask_clear(cpu_capacity_span(entry));
@@ -1766,6 +1783,13 @@ static void asym_cpu_capacity_scan(void)
 		if (cpumask_empty(cpu_capacity_span(entry))) {
 			list_del_rcu(&entry->link);
 			call_rcu(&entry->rcu, free_asym_cap_entry);
+		} else {
+			int weight;
+
+			asym_capacity_nr++;
+			weight = cpumask_weight(cpu_capacity_span(entry));
+			if (weight > asym_capacity_max_cpus)
+				asym_capacity_max_cpus = weight;
 		}
 	}
 
