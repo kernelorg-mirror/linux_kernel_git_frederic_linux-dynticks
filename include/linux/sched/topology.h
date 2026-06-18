@@ -50,6 +50,8 @@ extern const struct cpumask *tl_mc_mask(struct sched_domain_topology_level *tl, 
 extern const struct cpumask *tl_pkg_mask(struct sched_domain_topology_level *tl, int cpu);
 
 extern int arch_asym_cpu_priority(int cpu);
+extern int sched_asym_count(void);
+extern int sched_asym_max_cpus(void);
 
 struct sched_domain_attr {
 	int relax_domain_level;
