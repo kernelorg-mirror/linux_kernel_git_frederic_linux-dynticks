@@ -21,10 +21,10 @@
 /*
  * The timer migration mechanism is built on a hierarchy of groups. The
  * lowest level group contains CPUs, the next level groups of CPU groups
- * and so forth. The CPU groups are kept per node so for the normal case
- * lock contention won't happen across nodes. Depending on the number of
- * CPUs per node even the next level might be kept as groups of CPU groups
- * per node and only the levels above cross the node topology.
+ * and so forth. The CPU groups are kept per family so for the normal case
+ * lock contention won't happen across nodes/capacity. Depending on the
+ * number of CPUs per family even the next level might be kept as groups of
+ * CPU groups per family and only the levels above cross the family topology.
  *
  * Example topology for a two node system with 24 CPUs each.
  *
@@ -419,7 +419,7 @@ static DEFINE_MUTEX(tmigr_mutex);
 static struct list_head *tmigr_level_list __read_mostly;
 
 static unsigned int tmigr_hierarchy_levels __read_mostly;
-static unsigned int tmigr_crossnode_level __read_mostly;
+static unsigned int tmigr_crossfamily_level __read_mostly;
 
 static struct tmigr_group *tmigr_root;
 
@@ -1633,14 +1633,14 @@ static int __init tmigr_init_isolation(void)
 }
 
 static void tmigr_init_group(struct tmigr_group *group, unsigned int lvl,
-			     int node)
+			     int family)
 {
 	union tmigr_state s;
 
 	raw_spin_lock_init(&group->lock);
 
 	group->level = lvl;
-	group->numa_node = lvl < tmigr_crossnode_level ? node : NUMA_NO_NODE;
+	group->family = lvl < tmigr_crossfamily_level ? family : NUMA_NO_NODE;
 
 	group->num_children = 0;
 
@@ -1656,19 +1656,20 @@ static void tmigr_init_group(struct tmigr_group *group, unsigned int lvl,
 	group->groupevt.ignore = true;
 }
 
-static struct tmigr_group *tmigr_get_group(int node, unsigned int lvl)
+static struct tmigr_group *tmigr_get_group(int family, unsigned int lvl)
 {
 	struct tmigr_group *tmp, *group = NULL;
+	int node;
 
 	lockdep_assert_held(&tmigr_mutex);
 
 	/* Try to attach to an existing group first */
 	list_for_each_entry(tmp, &tmigr_level_list[lvl], list) {
 		/*
-		 * If @lvl is below the cross NUMA node level, check whether
-		 * this group belongs to the same NUMA node.
+		 * If @lvl is below the cross family level, check whether
+		 * this group belongs to the same family.
 		 */
-		if (lvl < tmigr_crossnode_level && tmp->numa_node != node)
+		if (lvl < tmigr_crossfamily_level && tmp->family != family)
 			continue;
 
 		/* Capacity left? */
@@ -1689,12 +1690,17 @@ static struct tmigr_group *tmigr_get_group(int node, unsigned int lvl)
 	if (group)
 		return group;
 
+	if (sched_asym_count() > 1)
+		node = NUMA_NO_NODE;
+	else
+		node = family;
+
 	/* Allocate and	set up a new group */
 	group = kzalloc_node(sizeof(*group), GFP_KERNEL, node);
 	if (!group)
 		return ERR_PTR(-ENOMEM);
 
-	tmigr_init_group(group, lvl, node);
+	tmigr_init_group(group, lvl, family);
 
 	/* Setup successful. Add it to the hierarchy */
 	list_add(&group->list, &tmigr_level_list[lvl]);
@@ -1728,7 +1734,7 @@ static void tmigr_connect_child_parent(struct tmigr_group *child,
 		/*
 		 * The previous top level had prepared its groupmask already,
 		 * simply account it in advance as the first child. If some groups
-		 * have been created between the old and new root due to node
+		 * have been created between the old and new root due to family
 		 * mismatch, the new root's child will be intialized accordingly.
 		 */
 		parent->num_children = 1;
@@ -1737,7 +1743,7 @@ static void tmigr_connect_child_parent(struct tmigr_group *child,
 	/* Connecting old root to new root ? */
 	if (!parent->parent && root_up) {
 		/*
-		 * @child is the old top, or in case of node mismatch, some
+		 * @child is the old top, or in case of family mismatch, some
 		 * intermediate group between the old top and the new one in
 		 * @parent. In this case the @child must be pre-accounted above
 		 * as the first child. Its new inactive sibling corresponding
@@ -1760,7 +1766,7 @@ static void tmigr_connect_child_parent(struct tmigr_group *child,
 	trace_tmigr_connect_child_parent(child);
 }
 
-static int tmigr_setup_groups(unsigned int cpu, unsigned int node,
+static int tmigr_setup_groups(unsigned int cpu, unsigned int family,
 			      struct tmigr_group *start, bool activate)
 {
 	struct tmigr_group *group, *child, **stack;
@@ -1777,10 +1783,10 @@ static int tmigr_setup_groups(unsigned int cpu, unsigned int node,
 	}
 
 	if (tmigr_root)
-		root_mismatch = tmigr_root->numa_node != node;
+		root_mismatch = tmigr_root->family != family;
 
 	for (i = start_lvl; i < tmigr_hierarchy_levels; i++) {
-		group = tmigr_get_group(node, i);
+		group = tmigr_get_group(family, i);
 		if (IS_ERR(group)) {
 			err = PTR_ERR(group);
 			i--;
@@ -1793,15 +1799,15 @@ static int tmigr_setup_groups(unsigned int cpu, unsigned int node,
 		/*
 		 * When booting only less CPUs of a system than CPUs are
 		 * available, not all calculated hierarchy levels are required,
-		 * unless a node mismatch is detected.
+		 * unless a family mismatch is detected.
 		 *
 		 * The loop is aborted as soon as the highest level, which might
 		 * be different from tmigr_hierarchy_levels, contains only a
-		 * single group, unless the nodes mismatch below tmigr_crossnode_level
+		 * single group, unless the family mismatch below tmigr_crossfamily_level
 		 */
 		if (group->parent)
 			break;
-		if ((!root_mismatch || i >= tmigr_crossnode_level) &&
+		if ((!root_mismatch || i >= tmigr_crossfamily_level) &&
 		    list_is_singular(&tmigr_level_list[i]))
 			break;
 	}
@@ -1937,7 +1943,7 @@ static int tmigr_connect_old_root(int cpu, struct tmigr_group *old_root, bool ac
 		WARN_ON_ONCE(!__this_cpu_read(tmigr_cpu.available));
 	}
 
-	return tmigr_setup_groups(-1, old_root->numa_node, old_root, activate);
+	return tmigr_setup_groups(-1, old_root->family, old_root, activate);
 }
 
 static long connect_old_root_work(void *arg)
@@ -1947,15 +1953,23 @@ static long connect_old_root_work(void *arg)
 	return tmigr_connect_old_root(smp_processor_id(), old_root, true);
 }
 
+static int tmigr_get_cpu_family(unsigned int cpu)
+{
+	if (sched_asym_count() > 1)
+		return arch_scale_cpu_capacity(cpu);
+	else
+		return cpu_to_node(cpu);
+}
+
 static int tmigr_add_cpu(unsigned int cpu)
 {
 	struct tmigr_group *old_root = tmigr_root;
-	int node = cpu_to_node(cpu);
+	int family = tmigr_get_cpu_family(cpu);
 	int ret;
 
 	guard(mutex)(&tmigr_mutex);
 
-	ret = tmigr_setup_groups(cpu, node, NULL, false);
+	ret = tmigr_setup_groups(cpu, family, NULL, false);
 
 	if (ret < 0 || !old_root || old_root == tmigr_root)
 		return ret;
@@ -2010,10 +2024,41 @@ static int tmigr_cpu_prepare(unsigned int cpu)
 	return ret;
 }
 
+static int __init tmigr_num_possible_families(void)
+{
+	if (sched_asym_count() > 1)
+		return sched_asym_count();
+	else
+		return num_possible_nodes();
+}
+
+static int __init tmigr_cpus_per_family(int ncpus, int nfamilies)
+{
+	if (sched_asym_count() > 1) {
+		/*
+		 * CPUs may not be equally distributed accross capacities.
+		 * Pick the maximum number of CPUs a capacity can hold.
+		 */
+		return sched_asym_max_cpus();
+	} else {
+		/*
+		 * Calculate the required hierarchy levels. Unfortunately there is no
+		 * reliable information available, unless all possible CPUs have been
+		 * brought up and all NUMA nodes are populated.
+		 *
+		 * Estimate the number of levels with the number of possible nodes and
+		 * the number of possible CPUs. Assume CPUs are spread evenly across
+		 * nodes. We cannot rely on cpumask_of_node() because it only works for
+		 * online CPUs.
+		 */
+		return DIV_ROUND_UP(ncpus, nfamilies);
+	}
+}
+
 static int __init tmigr_init(void)
 {
-	unsigned int cpulvl, nodelvl, cpus_per_node, i;
-	unsigned int nnodes = num_possible_nodes();
+	unsigned int cpulvl, familylvl, cpus_per_family, i;
+	unsigned int nfamilies = tmigr_num_possible_families();
 	unsigned int ncpus = num_possible_cpus();
 	int ret = -ENOMEM;
 
@@ -2028,36 +2073,26 @@ static int __init tmigr_init(void)
 		goto err;
 	}
 
-	/*
-	 * Calculate the required hierarchy levels. Unfortunately there is no
-	 * reliable information available, unless all possible CPUs have been
-	 * brought up and all NUMA nodes are populated.
-	 *
-	 * Estimate the number of levels with the number of possible nodes and
-	 * the number of possible CPUs. Assume CPUs are spread evenly across
-	 * nodes. We cannot rely on cpumask_of_node() because it only works for
-	 * online CPUs.
-	 */
-	cpus_per_node = DIV_ROUND_UP(ncpus, nnodes);
+	cpus_per_family = tmigr_cpus_per_family(ncpus, nfamilies);
 
 	/* Calc the hierarchy levels required to hold the CPUs of a node */
-	cpulvl = DIV_ROUND_UP(order_base_2(cpus_per_node),
+	cpulvl = DIV_ROUND_UP(order_base_2(cpus_per_family),
 			      ilog2(TMIGR_CHILDREN_PER_GROUP));
 
 	/* Calculate the extra levels to connect all nodes */
-	nodelvl = DIV_ROUND_UP(order_base_2(nnodes),
-			       ilog2(TMIGR_CHILDREN_PER_GROUP));
+	familylvl = DIV_ROUND_UP(order_base_2(nfamilies),
+				 ilog2(TMIGR_CHILDREN_PER_GROUP));
 
-	tmigr_hierarchy_levels = cpulvl + nodelvl;
+	tmigr_hierarchy_levels = cpulvl + familylvl;
 
 	/*
-	 * If a NUMA node spawns more than one CPU level group then the next
+	 * If a family spawns more than one CPU level group then the next
 	 * level(s) of the hierarchy contains groups which handle all CPU groups
-	 * of the same NUMA node. The level above goes across NUMA nodes. Store
+	 * of the same family. The level above goes across NUMA nodes. Store
 	 * this information for the setup code to decide in which level node
 	 * matching is no longer required.
 	 */
-	tmigr_crossnode_level = cpulvl;
+	tmigr_crossfamily_level = cpulvl;
 
 	tmigr_level_list = kzalloc_objs(struct list_head,
 					tmigr_hierarchy_levels);
@@ -2068,9 +2103,9 @@ static int __init tmigr_init(void)
 		INIT_LIST_HEAD(&tmigr_level_list[i]);
 
 	pr_info("Timer migration: %d hierarchy levels; %d children per group;"
-		" %d crossnode level\n",
+		" %d crossfamily level\n",
 		tmigr_hierarchy_levels, TMIGR_CHILDREN_PER_GROUP,
-		tmigr_crossnode_level);
+		tmigr_crossfamily_level);
 
 	ret = cpuhp_setup_state(CPUHP_TMIGR_PREPARE, "tmigr:prepare",
 				tmigr_cpu_prepare, NULL);
