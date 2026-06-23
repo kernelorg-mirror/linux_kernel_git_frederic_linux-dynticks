@@ -58,6 +58,7 @@ struct tmigr_event {
  *			tmigr_level_list; is required during setup when a
  *			new group needs to be connected to the existing
  *			hierarchy groups
+ * @want_low_migrator:	Group wants the lowest capacity migrator
  */
 struct tmigr_group {
 	raw_spinlock_t		lock;
@@ -71,6 +72,7 @@ struct tmigr_group {
 	unsigned int		num_children;
 	u8			groupmask;
 	struct list_head	list;
+	bool			want_low_migrator;
 };
 
 /**

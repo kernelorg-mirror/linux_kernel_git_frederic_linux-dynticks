@@ -1760,6 +1760,26 @@ int sched_asym_max_cpus(void)
 	return asym_capacity_max_cpus;
 }
 
+int sched_asym_capacity_rank(unsigned long capacity)
+{
+	struct asym_cap_data *entry;
+	int i = 1;
+
+	/*
+	 * Search if capacity already exits. If not, track which the entry
+	 * where we should insert to keep the list ordered descending.
+	 */
+	list_for_each_entry_reverse(entry, &asym_cap_list, link) {
+		if (capacity == entry->capacity)
+			return i;
+		i++;
+	}
+
+	WARN_ONCE(1, "Capacity %lu not found in capacity list", capacity);
+
+	return 0;
+}
+
 /*
  * Build-up/update list of CPUs grouped by their capacities
  * An update requires explicit request to rebuild sched domains
