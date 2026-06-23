@@ -43,11 +43,12 @@ struct tmigr_event {
  * @events:		Timer queue for child events queued in the group
  * @migr_state:		State of the group (see union tmigr_state)
  * @level:		Hierarchy level of the group; Required during setup
- * @numa_node:		Required for setup only to make sure CPU and low level
- *			group information is NUMA local. It is set to NUMA node
- *			as long as the group level is per NUMA node (level <
- *			tmigr_crossnode_level); otherwise it is set to
- *			NUMA_NO_NODE
+ * @family:		Either NUMA node id or asym CPU capacity. Required for
+ *			setup only to make sure CPU and low level
+ *			group information is NUMA/capacity local. It is set to
+ *			NUMA node as long as the group level is per NUMA node
+ * 			(level < tmigr_family_level); otherwise it is set to
+ * 			the CPUs capacities.
  * @num_children:	Counter of group children to make sure the group is only
  *			filled with TMIGR_CHILDREN_PER_GROUP; Required for setup
  *			only
@@ -66,7 +67,7 @@ struct tmigr_group {
 	struct timerqueue_head	events;
 	atomic_t		migr_state;
 	unsigned int		level;
-	int			numa_node;
+	int			family;
 	unsigned int		num_children;
 	u8			groupmask;
 	struct list_head	list;

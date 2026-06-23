@@ -18,17 +18,17 @@ TRACE_EVENT(tmigr_group_set,
 	TP_STRUCT__entry(
 		__field( void *,	group		)
 		__field( unsigned int,	lvl		)
-		__field( unsigned int,	numa_node	)
+		__field( unsigned int,	family	)
 	),
 
 	TP_fast_assign(
 		__entry->group		= group;
 		__entry->lvl		= group->level;
-		__entry->numa_node	= group->numa_node;
+		__entry->family		= group->family;
 	),
 
-	TP_printk("group=%p lvl=%d numa=%d",
-		  __entry->group, __entry->lvl, __entry->numa_node)
+	TP_printk("group=%p lvl=%d family=%d",
+		  __entry->group, __entry->lvl, __entry->family)
 );
 
 TRACE_EVENT(tmigr_connect_child_parent,
@@ -41,7 +41,7 @@ TRACE_EVENT(tmigr_connect_child_parent,
 		__field( void *,	child		)
 		__field( void *,	parent		)
 		__field( unsigned int,	lvl		)
-		__field( unsigned int,	numa_node	)
+		__field( unsigned int,	family	)
 		__field( unsigned int,	num_children	)
 		__field( u32,		groupmask	)
 	),
@@ -50,14 +50,14 @@ TRACE_EVENT(tmigr_connect_child_parent,
 		__entry->child		= child;
 		__entry->parent		= child->parent;
 		__entry->lvl		= child->parent->level;
-		__entry->numa_node	= child->parent->numa_node;
+		__entry->family		= child->parent->family;
 		__entry->num_children	= child->parent->num_children;
 		__entry->groupmask	= child->groupmask;
 	),
 
-	TP_printk("group=%p groupmask=%0x parent=%p lvl=%d numa=%d num_children=%d",
+	TP_printk("group=%p groupmask=%0x parent=%p lvl=%d family=%d num_children=%d",
 		  __entry->child,  __entry->groupmask, __entry->parent,
-		  __entry->lvl, __entry->numa_node, __entry->num_children)
+		  __entry->lvl, __entry->family, __entry->num_children)
 );
 
 TRACE_EVENT(tmigr_connect_cpu_parent,
@@ -70,7 +70,7 @@ TRACE_EVENT(tmigr_connect_cpu_parent,
 		__field( void *,	parent		)
 		__field( unsigned int,	cpu		)
 		__field( unsigned int,	lvl		)
-		__field( unsigned int,	numa_node	)
+		__field( unsigned int,	family	)
 		__field( unsigned int,	num_children	)
 		__field( u32,		groupmask	)
 	),
@@ -79,14 +79,14 @@ TRACE_EVENT(tmigr_connect_cpu_parent,
 		__entry->parent		= tmc->tmgroup;
 		__entry->cpu		= tmc->cpuevt.cpu;
 		__entry->lvl		= tmc->tmgroup->level;
-		__entry->numa_node	= tmc->tmgroup->numa_node;
+		__entry->family		= tmc->tmgroup->family;
 		__entry->num_children	= tmc->tmgroup->num_children;
 		__entry->groupmask	= tmc->groupmask;
 	),
 
-	TP_printk("cpu=%d groupmask=%0x parent=%p lvl=%d numa=%d num_children=%d",
+	TP_printk("cpu=%d groupmask=%0x parent=%p lvl=%d family=%d num_children=%d",
 		  __entry->cpu,	 __entry->groupmask, __entry->parent,
-		  __entry->lvl, __entry->numa_node, __entry->num_children)
+		  __entry->lvl, __entry->family, __entry->num_children)
 );
 
 DECLARE_EVENT_CLASS(tmigr_group_and_cpu,
@@ -99,7 +99,7 @@ DECLARE_EVENT_CLASS(tmigr_group_and_cpu,
 		__field( void *,	group		)
 		__field( void *,	parent		)
 		__field( unsigned int,	lvl		)
-		__field( unsigned int,	numa_node	)
+		__field( unsigned int,	family	)
 		__field( u32,		childmask	)
 		__field( u8,		active		)
 		__field( u8,		migrator	)
@@ -109,15 +109,15 @@ DECLARE_EVENT_CLASS(tmigr_group_and_cpu,
 		__entry->group		= group;
 		__entry->parent		= group->parent;
 		__entry->lvl		= group->level;
-		__entry->numa_node	= group->numa_node;
+		__entry->family		= group->family;
 		__entry->childmask	= childmask;
 		__entry->active		= state.active;
 		__entry->migrator	= state.migrator;
 	),
 
-	TP_printk("group=%p lvl=%d numa=%d active=%0x migrator=%0x "
+	TP_printk("group=%p lvl=%d family=%d active=%0x migrator=%0x "
 		  "parent=%p childmask=%0x",
-		  __entry->group, __entry->lvl, __entry->numa_node,
+		  __entry->group, __entry->lvl, __entry->family,
 		  __entry->active, __entry->migrator,
 		  __entry->parent, __entry->childmask)
 );
