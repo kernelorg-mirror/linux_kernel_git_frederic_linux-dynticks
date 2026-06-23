@@ -33,8 +33,8 @@ class Node:
 	def set_lvl(self, lvl):
 		self.lvl = lvl
 
-	def set_numa(self, numa):
-		self.numa = numa
+	def set_family(self, family):
+		self.family = family
 
 	def set_num_children(self, num_children):
 		self.num_children = num_children
@@ -44,7 +44,7 @@ class Node:
 			parent_grp = self.parent.group
 		else:
 			parent_grp = "-"
-		return "Group: %s mask: %s parent: %s lvl: %d numa: %d num_children: %d" % (self.group, self.groupmask, parent_grp, self.lvl, self.numa, self.num_children)
+		return "Group: %s mask: %s parent: %s lvl: %d family: %d num_children: %d" % (self.group, self.groupmask, parent_grp, self.lvl, self.family, self.num_children)
 
 def get_node(group):
 	if group in Node.node_list:
@@ -55,32 +55,32 @@ def get_node(group):
 		return n
 
 def tmigr_connect_cpu_parent(ts, line):
-	s = re.search("tmigr_connect_cpu_parent: cpu=([0-9]+) groupmask=([0-9a-zA-Z]+) parent=([0-9a-zA-Z]+) lvl=([0-9]+) numa=([-]?[0-9]+) num_children=([0-9]+)", line)
+	s = re.search("tmigr_connect_cpu_parent: cpu=([0-9]+) groupmask=([0-9a-zA-Z]+) parent=([0-9a-zA-Z]+) lvl=([0-9]+) family=([-]?[0-9]+) num_children=([0-9]+)", line)
 	if s is None:
 		return False
-	(cpu, groupmask, parent, lvl, numa, num_children) = (int(s.group(1)), s.group(2), s.group(3), int(s.group(4)), int(s.group(5)), int(s.group(6)))
+	(cpu, groupmask, parent, lvl, family, num_children) = (int(s.group(1)), s.group(2), s.group(3), int(s.group(4)), int(s.group(5)), int(s.group(6)))
 	n = get_node(cpu)
 	p = get_node(parent)
 	n.set_parent(p)
 	n.set_groupmask(groupmask)
 	n.set_lvl(-1)
 	p.set_lvl(lvl)
-	p.set_numa(numa)
-	n.set_numa(numa)
+	p.set_family(family)
+	n.set_family(family)
 	p.set_num_children(num_children)
 	p.add_child(n)
 
 def tmigr_connect_child_parent(ts, line):
-	s = re.search("tmigr_connect_child_parent: group=([0-9a-zA-Z]+) groupmask=([0-9a-zA-Z]+) parent=([0-9a-zA-Z]+) lvl=([0-9]+) numa=([-]?[0-9]+) num_children=([0-9]+)", line)
+	s = re.search("tmigr_connect_child_parent: group=([0-9a-zA-Z]+) groupmask=([0-9a-zA-Z]+) parent=([0-9a-zA-Z]+) lvl=([0-9]+) family=([-]?[0-9]+) num_children=([0-9]+)", line)
 	if s is None:
 		return False
-	(group, groupmask, parent, lvl, numa, num_children) = (s.group(1), s.group(2), s.group(3), int(s.group(4)), int(s.group(5)), int(s.group(6)))
+	(group, groupmask, parent, lvl, family, num_children) = (s.group(1), s.group(2), s.group(3), int(s.group(4)), int(s.group(5)), int(s.group(6)))
 	n = get_node(group)
 	p = get_node(parent)
 	n.set_parent(p)
 	n.set_groupmask(groupmask)
 	p.set_lvl(lvl)
-	p.set_numa(numa)
+	p.set_family(family)
 	p.set_num_children(num_children)
 	p.add_child(n)
 
@@ -88,7 +88,7 @@ def populate(enode, node):
 	enode = enode.add_child(name = node.group)
 	enode.add_feature("groupmask", "m:%s" % node.groupmask)
 	enode.add_feature("lvl", "lvl:%d" % node.lvl)
-	enode.add_feature("numa", "node %d" % node.numa)
+	enode.add_feature("family", "family %d" % node.family)
 	enode.add_feature("num_children", "c=%d" % node.num_children)
 	for child in node.children:
 		populate(enode, child)
@@ -107,4 +107,4 @@ if __name__ == "__main__":
 		group = group.parent
 	root = Tree()
 	populate(root, group)
-	print(root.get_ascii(show_internal=True, attributes=["name", "numa", "lvl"]))
+	print(root.get_ascii(show_internal=True, attributes=["name", "family", "lvl"]))

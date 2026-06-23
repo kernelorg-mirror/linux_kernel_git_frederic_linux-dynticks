@@ -677,11 +677,14 @@ static bool tmigr_active_up(struct tmigr_group *group,
 		newstate = curstate;
 		walk_done = true;
 
-		if (newstate.migrator == TMIGR_NONE) {
+		if (curstate.migrator == TMIGR_NONE ||
+		    (group->want_low_migrator && childmask < curstate.migrator)) {
 			newstate.migrator = childmask;
 
-			/* Changes need to be propagated */
-			walk_done = false;
+			if (curstate.migrator == TMIGR_NONE) {
+				/* Changes need to be propagated */
+				walk_done = false;
+			}
 		}
 
 		newstate.active |= childmask;
@@ -1644,6 +1647,12 @@ static void tmigr_init_group(struct tmigr_group *group, unsigned int lvl,
 
 	group->num_children = 0;
 
+	/* Always prefer a migrator with lower capacity */
+	if (sched_asym_count() > 1 && lvl == tmigr_crossfamily_level)
+		group->want_low_migrator = true;
+	else
+		group->want_low_migrator = false;
+
 	s.migrator = TMIGR_NONE;
 	s.active = 0;
 	s.seq = 0;
@@ -1708,6 +1717,18 @@ static struct tmigr_group *tmigr_get_group(int family, unsigned int lvl)
 	return group;
 }
 
+static void tmigr_init_groupmask(struct tmigr_group *group, u8 groupmask)
+{
+	/*
+	 * Overwrite the groupmask if this is a whole capacity group so that
+	 * candidate migrators are sorted by capacity.
+	 */
+	if (sched_asym_count() > 1 && group->level == tmigr_crossfamily_level - 1)
+		groupmask = BIT(sched_asym_capacity_rank(group->family));
+
+	group->groupmask = groupmask;
+}
+
 static bool tmigr_init_root(struct tmigr_group *group, bool root_up)
 {
 	if (!group->parent && group != tmigr_root) {
@@ -1716,7 +1737,7 @@ static bool tmigr_init_root(struct tmigr_group *group, bool root_up)
 		 * to avoid accidents where yet another new top-level is
 		 * created in the future and made visible before this groupmask.
 		 */
-		group->groupmask = BIT(0);
+		tmigr_init_groupmask(group, BIT(0));
 		WARN_ON_ONCE(root_up);
 
 		return true;
@@ -1750,10 +1771,10 @@ static void tmigr_connect_child_parent(struct tmigr_group *child,
 		 * to the CPU going up has been accounted as the second child.
 		 */
 		WARN_ON_ONCE(parent->num_children != 2);
-		child->groupmask = BIT(0);
+		tmigr_init_groupmask(child, BIT(0));
 	} else {
 		/* Common case adding @child for the CPU going up to @parent. */
-		child->groupmask = BIT(parent->num_children++);
+		tmigr_init_groupmask(child, BIT(parent->num_children++));
 	}
 
 	/*
