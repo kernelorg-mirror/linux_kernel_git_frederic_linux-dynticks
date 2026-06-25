@@ -90,6 +90,7 @@ def populate(enode, node):
 	enode.add_feature("lvl", "lvl:%d" % node.lvl)
 	enode.add_feature("family", "family %d" % node.family)
 	enode.add_feature("num_children", "c=%d" % node.num_children)
+	enode.add_feature("groupmask", "mask=%s" % node.groupmask)
 	for child in node.children:
 		populate(enode, child)
 
@@ -107,4 +108,4 @@ if __name__ == "__main__":
 		group = group.parent
 	root = Tree()
 	populate(root, group)
-	print(root.get_ascii(show_internal=True, attributes=["name", "family", "lvl"]))
+	print(root.get_ascii(show_internal=True, attributes=["name", "family", "lvl", "groupmask"]))
