@@ -1275,7 +1275,7 @@ void clear_tasks_mm_cpumask(int cpu)
 static int take_cpu_down(void *_param)
 {
 	struct cpuhp_cpu_state *st = this_cpu_ptr(&cpuhp_state);
-	enum cpuhp_state target = max((int)st->target, CPUHP_AP_OFFLINE);
+	enum cpuhp_state target = max((int)st->target, CPUHP_AP_CACHECTRL_STARTING);
 	int err, cpu = smp_processor_id();
 
 	/* Ensure this CPU doesn't handle any more interrupts. */
@@ -1294,9 +1294,26 @@ static int take_cpu_down(void *_param)
 	 */
 	cpuhp_invoke_callback_range_nofail(false, cpu, st, target);
 
+	return 0;
+}
+
+static int take_cpu_down_post(void *_param)
+{
+	struct cpuhp_cpu_state *st = this_cpu_ptr(&cpuhp_state);
+	enum cpuhp_state target = max((int)st->target, CPUHP_AP_OFFLINE);
+	int cpu = smp_processor_id();
+
+	WARN_ON(st->state != CPUHP_AP_CACHECTRL_STARTING);
+
+	/*
+	 * Invoke the former CPU_DYING callbacks. DYING must not fail!
+	 */
+	cpuhp_invoke_callback_range_nofail(false, cpu, st, target);
+
 	/* Park the stopper thread */
 	stop_machine_park(cpu);
 	return 0;
+
 }
 
 static int takedown_cpu(unsigned int cpu)
@@ -1313,7 +1330,7 @@ static int takedown_cpu(unsigned int cpu)
 	 */
 	irq_lock_sparse();
 
-	err = stop_machine_cpuslocked(take_cpu_down, NULL, NULL,
+	err = stop_machine_cpuslocked(take_cpu_down, take_cpu_down_post, NULL,
 				      cpumask_of(cpu));
 	if (err) {
 		/* CPU refused to die */
