@@ -620,7 +620,8 @@ static int load_late_stop_cpus(bool is_safe)
 	if (microcode_ops->use_nmi)
 		static_branch_enable_cpuslocked(&microcode_nmi_handler_enable);
 
-	stop_machine_cpuslocked(load_cpus_stopped, NULL, cpu_online_mask);
+	stop_machine_cpuslocked(load_cpus_stopped, NULL, NULL,
+				cpu_online_mask);
 
 	if (microcode_ops->use_nmi)
 		static_branch_disable_cpuslocked(&microcode_nmi_handler_enable);

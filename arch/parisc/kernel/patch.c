@@ -114,7 +114,7 @@ void __kprobes patch_text(void *addr, unsigned int insn)
 		.len = sizeof(insn),
 	};
 
-	stop_machine_cpuslocked(patch_text_stop_machine, &patch, NULL);
+	stop_machine_cpuslocked(patch_text_stop_machine, NULL, &patch, NULL);
 }
 
 void __kprobes patch_text_multiple(void *addr, u32 *insn, unsigned int len)
@@ -126,5 +126,5 @@ void __kprobes patch_text_multiple(void *addr, u32 *insn, unsigned int len)
 		.len = len
 	};
 
-	stop_machine_cpuslocked(patch_text_stop_machine, &patch, NULL);
+	stop_machine_cpuslocked(patch_text_stop_machine, NULL, &patch, NULL);
 }

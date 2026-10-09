@@ -284,7 +284,8 @@ int larch_insn_text_copy(void *dst, void *src, size_t len)
 		return err;
 	}
 
-	ret = stop_machine_cpuslocked(text_copy_cb, &copy, cpu_online_mask);
+	ret = stop_machine_cpuslocked(text_copy_cb, NULL, &copy,
+				      cpu_online_mask);
 
 	err = set_memory_rox(start, (end - start) / PAGE_SIZE);
 	if (err) {
