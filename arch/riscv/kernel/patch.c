@@ -297,7 +297,8 @@ int patch_text(void *addr, u32 *insns, size_t len)
 	 */
 	lockdep_assert_held(&text_mutex);
 	riscv_patch_in_stop_machine = true;
-	ret = stop_machine_cpuslocked(patch_text_cb, &patch, cpu_online_mask);
+	ret = stop_machine_cpuslocked(patch_text_cb, NULL, &patch,
+				      cpu_online_mask);
 	riscv_patch_in_stop_machine = false;
 	return ret;
 }

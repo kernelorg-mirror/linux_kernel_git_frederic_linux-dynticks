@@ -168,6 +168,7 @@ enum multi_stop_state {
 
 struct multi_stop_data {
 	cpu_stop_fn_t		fn;
+	cpu_stop_fn_t		postfn;
 	void			*data;
 	/* Like num_online_cpus(), but hotplug cpu uses us, so we need this. */
 	unsigned int		num_threads;
@@ -237,6 +238,10 @@ static int multi_cpu_stop(void *data)
 			case MULTI_STOP_RUN:
 				if (is_active)
 					err = msdata->fn(msdata->data);
+				break;
+			case MULTI_STOP_EXIT:
+				if (!err && is_active && msdata->postfn)
+					err = msdata->postfn(msdata->data);
 				break;
 			default:
 				break;
@@ -582,11 +587,12 @@ static int __init cpu_stop_init(void)
 }
 early_initcall(cpu_stop_init);
 
-int stop_machine_cpuslocked(cpu_stop_fn_t fn, void *data,
-			    const struct cpumask *cpus)
+int stop_machine_cpuslocked(cpu_stop_fn_t fn, cpu_stop_fn_t postfn,
+			    void *data, const struct cpumask *cpus)
 {
 	struct multi_stop_data msdata = {
 		.fn = fn,
+		.postfn = postfn,
 		.data = data,
 		.num_threads = num_online_cpus(),
 		.active_cpus = cpus,
@@ -608,6 +614,8 @@ int stop_machine_cpuslocked(cpu_stop_fn_t fn, void *data,
 		local_irq_save(flags);
 		hard_irq_disable();
 		ret = (*fn)(data);
+		if (postfn)
+			(*postfn)(data);
 		local_irq_restore(flags);
 
 		return ret;
@@ -624,7 +632,7 @@ int stop_machine(cpu_stop_fn_t fn, void *data, const struct cpumask *cpus)
 
 	/* No CPUs can come up or down during this. */
 	cpus_read_lock();
-	ret = stop_machine_cpuslocked(fn, data, cpus);
+	ret = stop_machine_cpuslocked(fn, NULL, data, cpus);
 	cpus_read_unlock();
 	return ret;
 }

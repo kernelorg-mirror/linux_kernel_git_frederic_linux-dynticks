@@ -1678,7 +1678,7 @@ static int pseries_lpar_resize_hpt(unsigned long shift)
 
 	t1 = ktime_get();
 
-	rc = stop_machine_cpuslocked(pseries_lpar_resize_hpt_commit,
+	rc = stop_machine_cpuslocked(pseries_lpar_resize_hpt_commit, NULL,
 				     &state, NULL);
 
 	t2 = ktime_get();

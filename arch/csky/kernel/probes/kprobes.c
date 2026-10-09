@@ -48,7 +48,8 @@ static int __kprobes patch_text(kprobe_opcode_t *addr, u32 opcode)
 {
 	struct csky_insn_patch param = { addr, opcode, ATOMIC_INIT(0) };
 
-	return stop_machine_cpuslocked(patch_text_cb, &param, cpu_online_mask);
+	return stop_machine_cpuslocked(patch_text_cb, NULL, &param,
+				       cpu_online_mask);
 }
 
 static void __kprobes arch_prepare_ss_slot(struct kprobe *p)

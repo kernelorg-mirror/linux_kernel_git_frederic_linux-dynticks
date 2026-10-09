@@ -233,6 +233,6 @@ int __kprobes aarch64_insn_patch_text(void *addrs[], u32 insns[], int cnt)
 	if (cnt <= 0)
 		return -EINVAL;
 
-	return stop_machine_cpuslocked(aarch64_insn_patch_text_cb, &patch,
-				       cpu_online_mask);
+	return stop_machine_cpuslocked(aarch64_insn_patch_text_cb, NULL,
+				       &patch, cpu_online_mask);
 }
