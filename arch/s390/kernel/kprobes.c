@@ -161,7 +161,7 @@ void arch_arm_kprobe(struct kprobe *p)
 		swap_instruction(&args);
 		text_poke_sync();
 	} else {
-		stop_machine_cpuslocked(swap_instruction, &args, NULL);
+		stop_machine_cpuslocked(swap_instruction, NULL, &args, NULL);
 	}
 }
 NOKPROBE_SYMBOL(arch_arm_kprobe);
@@ -174,7 +174,7 @@ void arch_disarm_kprobe(struct kprobe *p)
 		swap_instruction(&args);
 		text_poke_sync();
 	} else {
-		stop_machine_cpuslocked(swap_instruction, &args, NULL);
+		stop_machine_cpuslocked(swap_instruction, NULL, &args, NULL);
 	}
 }
 NOKPROBE_SYMBOL(arch_disarm_kprobe);

@@ -366,7 +366,7 @@ static int set_subcores_per_core(int new_mode)
 	/* Ensure state is consistent before we call the other cpus */
 	mb();
 
-	stop_machine_cpuslocked(cpu_update_split_mode, &new_mode,
+	stop_machine_cpuslocked(cpu_update_split_mode, NULL, &new_mode,
 				cpu_online_mask);
 
 	cpus_read_unlock();

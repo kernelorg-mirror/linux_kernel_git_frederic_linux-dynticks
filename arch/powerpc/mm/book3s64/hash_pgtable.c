@@ -551,8 +551,8 @@ static bool hash__change_memory_range(unsigned long start, unsigned long end,
 		// Ensure state is consistent before we call the other CPUs
 		mb();
 
-		stop_machine_cpuslocked(change_memory_range_fn, &chmem_parms,
-					cpu_online_mask);
+		stop_machine_cpuslocked(change_memory_range_fn, NULL,
+					&chmem_parms, cpu_online_mask);
 
 		cpus_read_unlock();
 		mutex_unlock(&chmem_lock);

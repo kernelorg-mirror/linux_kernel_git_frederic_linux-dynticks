@@ -588,7 +588,8 @@ static void stp_work_fn(struct work_struct *work)
 		memset(&stp_sync, 0, sizeof(stp_sync));
 		cpus_read_lock();
 		atomic_set(&stp_sync.cpus, num_online_cpus() - 1);
-		stop_machine_cpuslocked(stp_sync_clock, &stp_sync, cpu_online_mask);
+		stop_machine_cpuslocked(stp_sync_clock, NULL, &stp_sync,
+					cpu_online_mask);
 		cpus_read_unlock();
 	}
 
