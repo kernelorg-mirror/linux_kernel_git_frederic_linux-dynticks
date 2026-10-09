@@ -131,6 +131,7 @@ int stop_machine(cpu_stop_fn_t fn, void *data, const struct cpumask *cpus);
 /**
  * stop_machine_cpuslocked: freeze the machine on all CPUs and run this function
  * @fn: the function to run
+ * @postfn: the function to run after @fn while other CPUs can exit
  * @data: the data ptr to pass to @fn()
  * @cpus: the cpus to run @fn() on (NULL = one unspecified online CPU)
  *
@@ -138,7 +139,8 @@ int stop_machine(cpu_stop_fn_t fn, void *data, const struct cpumask *cpus);
  *
  * Context: Must be called from within a cpus_read_lock() protected region.
  */
-int stop_machine_cpuslocked(cpu_stop_fn_t fn, void *data, const struct cpumask *cpus);
+int stop_machine_cpuslocked(cpu_stop_fn_t fn, cpu_stop_fn_t postfn,
+			    void *data, const struct cpumask *cpus);
 
 /**
  * stop_core_cpuslocked: - stop all threads on just one core
