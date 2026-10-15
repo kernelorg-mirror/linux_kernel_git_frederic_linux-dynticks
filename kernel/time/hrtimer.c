@@ -2632,7 +2632,7 @@ int hrtimers_cpu_dying(unsigned int dying_cpu)
 		migrate_hrtimer_list(&old_base->clock_base[i], &new_base->clock_base[i]);
 
 	/* Tell the other CPU to retrigger the next event */
-	smp_call_function_single(ncpu, retrigger_next_event, NULL, 0);
+	smp_call_function_single_async(ncpu, &new_base->csd);
 
 	raw_spin_unlock(&new_base->lock);
 	old_base->online = false;
