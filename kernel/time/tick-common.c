@@ -16,6 +16,7 @@
 #include <linux/percpu.h>
 #include <linux/profile.h>
 #include <linux/sched.h>
+#include <linux/sched/isolation.h>
 #include <linux/module.h>
 #include <trace/events/power.h>
 
@@ -394,13 +395,14 @@ void tick_assert_timekeeping_handover(void)
 int tick_cpu_dying(unsigned int dying_cpu)
 {
 	/*
-	 * If the current CPU is the timekeeper, it's the only one that can
-	 * safely hand over its duty. Also all online CPUs are in stop
-	 * machine, guaranteed not to be idle, therefore there is no
-	 * concurrency and it's safe to pick any online successor.
+	 * If the current CPU is the timekeeper, hand over to any online
+	 * CPU and kick it out of nohz if needed
 	 */
-	if (tick_do_timer_cpu == dying_cpu)
-		tick_do_timer_cpu = cpumask_first(cpu_online_mask);
+	if (tick_do_timer_cpu == dying_cpu) {
+		int timekeeper = cpumask_any_and(housekeeping_cpumask(HK_TYPE_KERNEL_NOISE), cpu_online_mask);
+		WRITE_ONCE(tick_do_timer_cpu, timekeeper);
+		irq_work_kick_cpu(timekeeper);
+	}
 
 	/* Make sure the CPU won't try to retake the timekeeping duty */
 	tick_sched_timer_dying(dying_cpu);
