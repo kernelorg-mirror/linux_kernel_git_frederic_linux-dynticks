@@ -400,14 +400,6 @@ static bool can_stop_full_tick(int cpu, struct tick_sched *ts)
 	return true;
 }
 
-static void nohz_full_kick_func(struct irq_work *work)
-{
-	/* Empty, the tick restart happens on tick_nohz_irq_exit() */
-}
-
-static DEFINE_PER_CPU(struct irq_work, nohz_full_kick_work) =
-	IRQ_WORK_INIT_HARD(nohz_full_kick_func);
-
 /*
  * Kick this CPU if it's full dynticks in order to force it to
  * re-evaluate its dependency on the tick and restart it if necessary.
@@ -419,7 +411,7 @@ static void tick_nohz_full_kick(void)
 	if (!tick_nohz_full_cpu(smp_processor_id()))
 		return;
 
-	irq_work_queue(this_cpu_ptr(&nohz_full_kick_work));
+	irq_work_kick_cpu(smp_processor_id());
 }
 
 /*
@@ -431,7 +423,7 @@ void tick_nohz_full_kick_cpu(int cpu)
 	if (!tick_nohz_full_cpu(cpu))
 		return;
 
-	irq_work_queue_on(&per_cpu(nohz_full_kick_work, cpu), cpu);
+	irq_work_kick_cpu(cpu);
 }
 
 static void tick_nohz_kick_task(struct task_struct *tsk)
