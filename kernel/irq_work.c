@@ -181,6 +181,22 @@ out:
 #endif /* CONFIG_SMP */
 }
 
+static void irq_work_kick(struct irq_work *)
+{
+	/*
+	 * Kick the CPU, typically so that it takes action:
+	 * * On IRQ exit (nohz_full dependency changed and tick must be restarted)
+	 * * On the idle path so that the next tick is re-evaluated.
+	 */
+}
+
+static DEFINE_PER_CPU(struct irq_work, irq_work_kick_work) = IRQ_WORK_INIT_HARD(irq_work_kick);
+
+bool irq_work_kick_cpu(int cpu)
+{
+	return irq_work_queue_on(&per_cpu(irq_work_kick_work, cpu), cpu);
+}
+
 bool irq_work_needs_cpu(void)
 {
 	struct llist_head *raised, *lazy;

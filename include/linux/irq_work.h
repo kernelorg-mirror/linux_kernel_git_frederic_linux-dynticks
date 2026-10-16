@@ -51,6 +51,7 @@ static inline bool irq_work_is_hard(struct irq_work *work)
 
 bool irq_work_queue(struct irq_work *work);
 bool irq_work_queue_on(struct irq_work *work, int cpu);
+bool irq_work_kick_cpu(int cpu);
 
 void irq_work_tick(void);
 void irq_work_sync(struct irq_work *work);
